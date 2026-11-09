@@ -96,7 +96,7 @@ See [Sessions and Context](sessions.md) for resuming, forking, naming, and stori
 - `--fork <path|id>`<br>
   Forks a session, chosen by file path or full/partial ID, into a new session in the current directory.
 - `--session-dir <dir>`<br>
-  Overrides storage and lookup. It takes precedence over `PI_CODING_AGENT_SESSION_DIR` and the `sessionDir` setting.
+  Overrides storage and lookup. It takes precedence over `XPI_CODING_AGENT_SESSION_DIR` and the `sessionDir` setting.
 - `--no-session`<br>
   Uses an in-memory session that is not persisted.
 - `-n`, `--name <name>`<br>

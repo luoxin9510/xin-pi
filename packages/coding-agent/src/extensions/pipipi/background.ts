@@ -2,7 +2,8 @@
 // `codemode` tool that wraps pi's own; the wrapper returns to main as soon as the script starts an `Agent`, lets the
 // script run on, and hands main the script's return value as a message when it ends.
 
-import { createCodemodeExtension, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "../../core/extensions/types.ts";
+import { createCodemodeExtension } from "../codemode/index.ts";
 import { registry } from "./registry.ts";
 import { capText } from "./sessions.ts";
 

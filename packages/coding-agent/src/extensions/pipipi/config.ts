@@ -5,7 +5,7 @@ export interface Config {
 	defaultModel: string;
 	toolMap: Record<string, string>;
 	maxConcurrent: number;
-	piCommand: string;
+	piCommand?: string; // unset: children run the build of this process (invocation.ts)
 	childCodemode: "only" | "inherit";
 	backgroundScripts: boolean; // a script that starts an Agent moves to the background
 	panelLingerMs: number; // how long a finished subagent stays in the panel
@@ -67,7 +67,7 @@ export function readConfig(raw: unknown): Config {
 		defaultModel: optionalString(r.defaultModel, "defaultModel") ?? "haiku",
 		toolMap: stringMap(r.toolMap, "toolMap"),
 		maxConcurrent: maxConcurrent as number,
-		piCommand: optionalString(r.piCommand, "piCommand") ?? "pi",
+		piCommand: optionalString(r.piCommand, "piCommand"),
 		childCodemode,
 	};
 }

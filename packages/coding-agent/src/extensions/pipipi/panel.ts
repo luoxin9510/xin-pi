@@ -2,8 +2,9 @@
 // the registry and redrawn on its changes. ↓ on an empty editor moves focus into it; while it has focus it consumes
 // the keys it uses (↑ ↓ enter x X esc) and lets every other key through to pi.
 
-import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { isKeyRelease, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
+import type { ExtensionContext } from "../../core/extensions/types.ts";
+import type { Theme } from "../../modes/interactive/theme/theme.ts";
 import { type ScriptRecord, scripts } from "./background.ts";
 import { tint } from "./color.ts";
 import type { Config } from "./config.ts";

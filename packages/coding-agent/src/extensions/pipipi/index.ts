@@ -1,6 +1,7 @@
 // pi-pipipi extension entry: register the `Agent` tool for codemode scripts.
 
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "../../core/extensions/types.ts";
+import { createCodemodeExtension } from "../codemode/index.ts";
 import { agentTool, describeAgents, parentContext } from "./agent-tool.ts";
 import { installBackground, scripts } from "./background.ts";
 import { type Config, readConfig } from "./config.ts";
@@ -11,8 +12,12 @@ import { registry } from "./registry.ts";
 import { subagentsCommand } from "./subagents-command.ts";
 
 export default function pipipi(pi: ExtensionAPI) {
-	// Children run with PIPIPI_DEPTH=1. Nesting is fixed at one level, so they get no Agent tool.
-	if (process.env.PIPIPI_DEPTH) return;
+	// Children run with PIPIPI_DEPTH=1. Nesting is fixed at one level, so they get no Agent tool. A codemode-only child
+	// gets `codemode` in mode "only" here, which replaces pi's built-in codemode extension.
+	if (process.env.PIPIPI_DEPTH) {
+		if (process.env.PIPIPI_CHILD_CODEMODE === "only") createCodemodeExtension({ mode: "only" })(pi);
+		return;
+	}
 
 	let config: Config | undefined;
 	// The context of the latest event: a session start (also after /new or a resume) or an agent run. Note delivery and

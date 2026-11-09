@@ -1,8 +1,8 @@
 // The `Agent` tool (spec 7): discovery -> resolve -> concurrency slot -> run.
 
 import { type JsonValue, StringEnum } from "@earendil-works/pi-ai";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { type Static, Type } from "typebox";
+import type { ExtensionContext } from "../../core/extensions/types.ts";
 import { scripts } from "./background.ts";
 import type { Config } from "./config.ts";
 import { EFFORTS, inertNotice } from "./definition.ts";

@@ -1,7 +1,7 @@
 // `/subagents`: pick one of the session's subagents, newest first. Opening one shows the subagent screen.
 // `/subagents worktrees`: the kept `pipipi/*` worktrees of the current checkout, and removal of the ones the user picks.
 
-import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext } from "../../core/extensions/types.ts";
 import { label, modelInfo, registry, type SubagentRecord } from "./registry.ts";
 import { stopEverything } from "./stop-all.ts";
 import { openSubagentScreen } from "./subagent-screen.ts";

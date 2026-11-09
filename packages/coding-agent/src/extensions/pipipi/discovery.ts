@@ -3,10 +3,18 @@
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { getPackageDir } from "../../config.ts";
 import { type AgentDefinition, inertNotice, parseDefinition } from "./definition.ts";
 
-export const BUILTIN_DIR = fileURLToPath(new URL("./builtin/", import.meta.url));
+// The built-in agent definitions ship as assets next to the extension's source (or its build output).
+const packageDir = getPackageDir();
+export const BUILTIN_DIR = join(
+	packageDir,
+	existsSync(join(packageDir, "src")) ? "src" : "dist",
+	"extensions",
+	"pipipi",
+	"builtin",
+);
 
 export interface Discovery {
 	agents: Map<string, AgentDefinition>;

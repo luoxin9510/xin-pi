@@ -9,18 +9,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import {
-	AssistantMessageComponent,
-	buildSessionContext,
-	type ExtensionContext,
-	getMarkdownTheme,
-	parseSessionEntries,
-	type SessionEntry,
-	type Theme,
-	ToolExecutionComponent,
-	type ToolRenderers,
-	UserMessageComponent,
-} from "@earendil-works/pi-coding-agent";
-import {
 	type Component,
 	type Focusable,
 	Input,
@@ -29,6 +17,14 @@ import {
 	type TUI,
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
+import type { ExtensionContext, ToolRenderers } from "../../core/extensions/types.ts";
+import { buildSessionContext, parseSessionEntries, type SessionEntry } from "../../core/session-manager.ts";
+import {
+	AssistantMessageComponent,
+	ToolExecutionComponent,
+	UserMessageComponent,
+} from "../../modes/interactive/components/index.ts";
+import { getMarkdownTheme, type Theme } from "../../modes/interactive/theme/theme.ts";
 import { parentContext } from "./agent-tool.ts";
 import { tint } from "./color.ts";
 import { COLORS, ICONS, label, modelInfo, registry, type SubagentRecord } from "./registry.ts";

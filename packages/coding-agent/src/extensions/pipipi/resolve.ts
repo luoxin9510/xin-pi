@@ -3,9 +3,9 @@
 import { mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import type { Config } from "./config.ts";
 import type { AgentDefinition } from "./definition.ts";
+import { childInvocation } from "./invocation.ts";
 import { newAgentId, subagentSessionDir } from "./sessions.ts";
 import { findSkill } from "./skills.ts";
 import type { WorktreeRef } from "./worktree.ts";
@@ -51,8 +51,6 @@ export interface ResolveOptions {
 	claudeDir?: string; // user memory base, default ~/.claude (tests pass a temp dir)
 }
 
-// Registers `codemode` in mode "only"; pi swaps its built-in codemode extension for it.
-const CODEMODE_EXTENSION = fileURLToPath(new URL("./child-codemode.ts", import.meta.url));
 const CODEMODE_PROMPT = "Use the `codemode` tool for all tool calls, and put independent calls in one script.";
 
 const BUILTIN_TOOL_MAP: Record<string, string> = {
@@ -250,14 +248,15 @@ export function resolveChild(
 		? ["--session-dir", subagentSessionDir(parent), "--session-id", agentId]
 		: ["--no-session"];
 
+	const invocation = childInvocation(config.piCommand);
 	const args = [
+		...invocation.args,
 		"--mode",
 		"rpc",
 		"--model",
 		model,
 		"--thinking",
 		thinking,
-		...(codemode ? ["-e", CODEMODE_EXTENSION] : []),
 		...tools.args,
 		...(def.omitClaudeMd ? ["--no-context-files"] : []),
 		parent.trusted ? "--approve" : "--no-approve",
@@ -265,9 +264,14 @@ export function resolveChild(
 	];
 
 	return {
-		command: config.piCommand,
+		command: invocation.command,
 		args,
-		env: { ...(process.env as Record<string, string>), PIPIPI_DEPTH: "1" },
+		// A codemode-only child gets `codemode` in mode "only" from the pipipi extension itself (index.ts).
+		env: {
+			...(process.env as Record<string, string>),
+			PIPIPI_DEPTH: "1",
+			...(codemode ? { PIPIPI_CHILD_CODEMODE: "only" } : {}),
+		},
 		cwd,
 		systemPrompt: system.text,
 		prompt: input.prompt,
