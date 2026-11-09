@@ -33,3 +33,10 @@
 19. Ticket 04, after porting (03); docs, freeze and the owner's look move to 05-07.
 
 20. Renamed by the owner (2026-11-09): the command is `/upstream` (was `/sushi`); reports under `~/.pi/agent/upstream/`.
+
+## Owner direction (2026-11-09): xpi replaces the global pi
+
+21. When xin-pi is done and the owner's look passes, the owner switches for good: install `xpi` globally, drop the old
+    pi-pipipi entry from `~/.pi/agent/settings.json`, uninstall the global `@earendil-works/pi-coding-agent`, and develop
+    only xpi from then on. Checked: pi-roost and pi-mobile do not spawn the `pi` binary; the `com.nuckcole.pi-update`
+    launchd job only runs `git pull` in ~/Developer/nukcole-pi. The uninstall is confirmed with the owner when it happens.

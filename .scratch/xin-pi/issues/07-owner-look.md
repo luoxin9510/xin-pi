@@ -10,4 +10,6 @@
 - [ ] Check that `xpi` and `pi` coexist: same `~/.pi/agent` sessions and auth, no clash from the old pi-pipipi package listed in `settings.json` (remove that entry when switching; see spec open question 3)
 - [ ] Decision recorded in Comments: switch daily use to `xpi` (and remove the old package entry), or list what is missing
 
+- [ ] Switch (decision 21, after the owner's yes): `xpi` installed globally; old pi-pipipi removed from `~/.pi/agent/settings.json`; `npm uninstall -g @earendil-works/pi-coding-agent` (confirm with the owner first); `xpi` starts with sessions, auth and other packages intact
+
 ## Comments
