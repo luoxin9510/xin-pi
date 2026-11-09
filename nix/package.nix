@@ -16,11 +16,11 @@
 
 let
   nodejs = nodejs_22;
-  packageJson = lib.importJSON (source + "/packages/coding-agent/package.json");
+  packageJson = lib.importJSON (source + "/packages/xpi-coding-agent/package.json");
   # Lockfile root used by the pi.dev installer. It pins the coding agent's
   # runtime dependency tree and is kept in sync with package-lock.json by
   # `npm run check`.
-  installLock = source + "/packages/coding-agent/install-lock";
+  installLock = source + "/packages/xpi-coding-agent/install-lock";
   modelCatalogPin = lib.importJSON ./model-catalog.json;
   modelCatalog = fetchurl {
     name = "pi-model-catalog.json";
@@ -44,7 +44,7 @@ let
 
     buildPhase = ''
       runHook preBuild
-      node packages/ai/scripts/hydrate-model-catalog.ts ${modelCatalog}
+      node packages/xpi-ai/scripts/hydrate-model-catalog.ts ${modelCatalog}
       npm run build:offline
       runHook postBuild
     '';
@@ -62,14 +62,14 @@ let
       }
 
       mkdir -p "$out"
-      pack_package packages/telemetry telemetry
-      pack_package packages/schema schema
-      pack_package packages/ai ai
-      pack_package packages/tui tui
-      pack_package packages/agent agent
-      pack_package packages/codemode codemode
-      pack_package packages/mcp mcp
-      pack_package packages/coding-agent coding-agent
+      pack_package packages/xpi-telemetry telemetry
+      pack_package packages/xpi-schema schema
+      pack_package packages/xpi-ai ai
+      pack_package packages/xpi-tui tui
+      pack_package packages/xpi-agent-core agent
+      pack_package packages/xpi-codemode codemode
+      pack_package packages/xpi-mcp mcp
+      pack_package packages/xpi-coding-agent coding-agent
 
       runHook postInstall
     '';
@@ -80,14 +80,14 @@ let
     # The install lock points internal packages at registry releases. Replace
     # them with the packages built from this checkout.
     packageSourceOverrides = {
-      "node_modules/@earendil-works/pi-agent-core" = workspacePackages + "/agent.tgz";
-      "node_modules/@earendil-works/pi-ai" = workspacePackages + "/ai.tgz";
-      "node_modules/@earendil-works/pi-codemode" = workspacePackages + "/codemode.tgz";
-      "node_modules/@earendil-works/pi-coding-agent" = workspacePackages + "/coding-agent.tgz";
-      "node_modules/@earendil-works/pi-mcp" = workspacePackages + "/mcp.tgz";
-      "node_modules/@earendil-works/pi-schema" = workspacePackages + "/schema.tgz";
-      "node_modules/@earendil-works/pi-telemetry" = workspacePackages + "/telemetry.tgz";
-      "node_modules/@earendil-works/pi-tui" = workspacePackages + "/tui.tgz";
+      "node_modules/xpi-agent-core" = workspacePackages + "/agent.tgz";
+      "node_modules/xpi-ai" = workspacePackages + "/ai.tgz";
+      "node_modules/xpi-codemode" = workspacePackages + "/codemode.tgz";
+      "node_modules/xpi-coding-agent" = workspacePackages + "/coding-agent.tgz";
+      "node_modules/xpi-mcp" = workspacePackages + "/mcp.tgz";
+      "node_modules/xpi-schema" = workspacePackages + "/schema.tgz";
+      "node_modules/xpi-telemetry" = workspacePackages + "/telemetry.tgz";
+      "node_modules/xpi-tui" = workspacePackages + "/tui.tgz";
     };
   };
 in
@@ -125,7 +125,7 @@ stdenv.mkDerivation {
     # bash tool keep the user's node/npm (e.g. from mise or nvm). fd, ripgrep,
     # and the clipboard tools are Pi's own dependencies and take precedence.
     makeWrapper ${nodejs}/bin/node "$out/bin/pi" \
-      --add-flags "$out/lib/pi/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js" \
+      --add-flags "$out/lib/pi/node_modules/xpi-coding-agent/dist/bundle/cli.js" \
       --suffix PATH : ${lib.makeBinPath [ nodejs ]} \
       --prefix PATH : ${
         lib.makeBinPath (
@@ -152,7 +152,7 @@ stdenv.mkDerivation {
     ${nodejs}/bin/node -e \
       "const fs = require('node:fs');
        const path = require('node:path');
-       const dir = '$out/lib/pi/node_modules/@earendil-works/pi-tui/native/' + process.platform + '/prebuilds/' + process.platform + '-' + process.arch;
+       const dir = '$out/lib/pi/node_modules/xpi-tui/native/' + process.platform + '/prebuilds/' + process.platform + '-' + process.arch;
        if (fs.existsSync(dir)) {
          for (const file of fs.readdirSync(dir)) {
            if (file.endsWith('.node')) require(path.join(dir, file));

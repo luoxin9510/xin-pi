@@ -11,10 +11,10 @@
 #   --skip-build         Skip the package build
 #   --offline-model-data Build with bundled model data instead of refreshing it
 #   --platform <name>    Build only for specified platform (darwin-arm64, darwin-x64, linux-x64, linux-arm64, windows-x64, windows-arm64)
-#   --out <dir>          Output directory (default: packages/coding-agent/binaries)
+#   --out <dir>          Output directory (default: packages/xpi-coding-agent/binaries)
 #
 # Output:
-#   packages/coding-agent/binaries/
+#   packages/xpi-coding-agent/binaries/
 #     pi-darwin-arm64.tar.gz
 #     pi-darwin-x64.tar.gz
 #     pi-linux-x64.tar.gz
@@ -75,7 +75,7 @@ if [[ -n "$PLATFORM" ]]; then
 fi
 
 if [[ -z "$OUTPUT_DIR" ]]; then
-    OUTPUT_DIR="packages/coding-agent/binaries"
+    OUTPUT_DIR="packages/xpi-coding-agent/binaries"
 fi
 if [[ "$OUTPUT_DIR" != /* ]]; then
     OUTPUT_DIR="$(pwd)/$OUTPUT_DIR"
@@ -101,7 +101,7 @@ else
 fi
 
 echo "==> Building binaries..."
-cd packages/coding-agent
+cd packages/xpi-coding-agent
 
 # Clean previous builds
 rm -rf "$OUTPUT_DIR"

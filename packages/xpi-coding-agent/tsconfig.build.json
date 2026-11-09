@@ -1,0 +1,17 @@
+{
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"outDir": "./dist",
+		"paths": {
+			"xpi-agent-core": ["../xpi-agent-core/dist/index.d.ts"],
+			"xpi-agent-core/*": ["../xpi-agent-core/dist/*.d.ts"],
+			"xpi-ai": ["../xpi-ai/dist/index.d.ts"],
+			"xpi-ai/*": ["../xpi-ai/dist/*.d.ts", "../xpi-ai/dist/providers/*.d.ts"],
+			"xpi-tui": ["../xpi-tui/dist/index.d.ts"],
+			"xpi-tui/*": ["../xpi-tui/dist/*.d.ts", "../xpi-tui/dist/components/*.d.ts"]
+		},
+		"rootDir": "./src"
+	},
+	"include": ["src/**/*.ts", "src/**/*.d.ts"],
+	"exclude": ["node_modules", "dist", "src/experimental"]
+}

@@ -50,7 +50,7 @@ function run(cmd, options = {}) {
 }
 
 function getVersion() {
-	const pkg = JSON.parse(readFileSync("packages/ai/package.json", "utf-8"));
+	const pkg = JSON.parse(readFileSync("packages/xpi-ai/package.json", "utf-8"));
 	return pkg.version;
 }
 

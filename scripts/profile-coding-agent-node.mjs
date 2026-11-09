@@ -7,22 +7,22 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
-const packageDir = join(repoRoot, "packages", "coding-agent");
+const packageDir = join(repoRoot, "packages", "xpi-coding-agent");
 const distCliPath = join(packageDir, "dist", "cli.js");
 const bundledDistCliPath = join(packageDir, "dist", "bundle", "cli.js");
 const srcCliPath = join(packageDir, "src", "cli.ts");
 const defaultNodeProfileDir = join(repoRoot, "profiles-node");
 const defaultBunProfileDir = join(repoRoot, "profiles-bun");
 const agentDirEnvName = "XPI_CODING_AGENT_DIR";
-const startupBenchmarkEnvName = "PI_STARTUP_BENCHMARK";
+const startupBenchmarkEnvName = "XPI_STARTUP_BENCHMARK";
 
 function printHelp() {
 	console.log(`Usage:
   node scripts/profile-coding-agent-node.mjs [options]
 
 Profiles coding-agent startup with the runtime selected below:
-- npm run profile:tui     -> builds packages/coding-agent and profiles TUI startup with Node
-- npm run profile:rpc     -> builds packages/coding-agent and profiles RPC startup with Node
+- npm run profile:tui     -> builds packages/xpi-coding-agent and profiles TUI startup with Node
+- npm run profile:rpc     -> builds packages/xpi-coding-agent and profiles RPC startup with Node
 - bun run profile:tui     -> profiles TUI startup from src/cli.ts directly with Bun
 - bun run profile:rpc     -> profiles RPC startup from src/cli.ts directly with Bun
 
@@ -37,7 +37,7 @@ Options:
   --agent-dir <dir>      Use a specific XPI_CODING_AGENT_DIR for the benchmark run
   --isolated-agent-dir   Use a fresh temporary agent dir instead of the normal one
   --bundle               Build and profile the bundled Node entrypoint instead of dist/cli.js
-  --no-offline           Do not force PI_OFFLINE=1 / PI_SKIP_VERSION_CHECK=1
+  --no-offline           Do not force XPI_OFFLINE=1 / XPI_SKIP_VERSION_CHECK=1
   --skip-build           Reuse the selected build output without rebuilding first (Node only)
   --cpu-profile          Write CPU profiles for benchmark runs
   --help                 Show this help
@@ -298,18 +298,18 @@ async function runBuild(bundle) {
 				"run",
 				"build",
 				"--workspace",
-				"packages/tui",
+				"packages/xpi-tui",
 				"--workspace",
-				"packages/telemetry",
+				"packages/xpi-telemetry",
 				"--workspace",
-				"packages/ai",
+				"packages/xpi-ai",
 				"--workspace",
-				"packages/agent",
+				"packages/xpi-agent-core",
 			],
 		},
 		{
 			label: "Coding-agent build",
-			args: ["run", bundle ? "build" : "build:unbundled", "--workspace", "packages/coding-agent"],
+			args: ["run", bundle ? "build" : "build:unbundled", "--workspace", "packages/xpi-coding-agent"],
 		},
 	];
 
@@ -377,7 +377,7 @@ function getRuntimeCommand(runtime, mode, profileDir, profileName, cpuProfile, n
 }
 
 function createBenchmarkEnv(options, isolatedAgentDir) {
-	const env = { ...process.env, PI_TIMING: "1" };
+	const env = { ...process.env, XPI_TIMING: "1" };
 	if (options.agentDir) {
 		env[agentDirEnvName] = options.agentDir;
 	} else if (isolatedAgentDir) {
@@ -387,8 +387,8 @@ function createBenchmarkEnv(options, isolatedAgentDir) {
 		env[startupBenchmarkEnvName] = "1";
 	}
 	if (options.offline) {
-		env.PI_OFFLINE = "1";
-		env.PI_SKIP_VERSION_CHECK = "1";
+		env.XPI_OFFLINE = "1";
+		env.XPI_SKIP_VERSION_CHECK = "1";
 	}
 	return env;
 }
@@ -577,7 +577,7 @@ async function main() {
 	}
 	if (runtime === "bun") {
 		process.stdout.write(
-			`Using Bun runtime with ${options.mode === "rpc" ? "packages/coding-agent/src/cli.ts --mode rpc" : "packages/coding-agent/src/cli.ts"}\n`,
+			`Using Bun runtime with ${options.mode === "rpc" ? "packages/xpi-coding-agent/src/cli.ts --mode rpc" : "packages/xpi-coding-agent/src/cli.ts"}\n`,
 		);
 	}
 

@@ -29,30 +29,30 @@ function runSyncVersions(root) {
 test("pins published and private dependencies without touching registry aliases, generated manifests, or published lockstep", async () => {
 	const root = await mkdtemp(join(tmpdir(), "pi-sync-versions-"));
 	try {
-		await writeManifest(root, "packages/ai", {
-			name: "@earendil-works/pi-ai",
+		await writeManifest(root, "packages/xpi-ai", {
+			name: "xpi-ai",
 			version: "2.0.0",
 		});
-		await writeManifest(root, "packages/coding-agent", {
-			name: "@earendil-works/pi-coding-agent",
+		await writeManifest(root, "packages/xpi-coding-agent", {
+			name: "xpi-coding-agent",
 			version: "2.0.0",
 			dependencies: {
-				"@earendil-works/pi-ai": "^2.0.0",
+				"xpi-ai": "^2.0.0",
 			},
 			devDependencies: {
-				"@earendil-works/pi-ai": "~1.0.0",
+				"xpi-ai": "~1.0.0",
 			},
 			optionalDependencies: {
-				"@earendil-works/pi-ai": "1.0.0",
+				"xpi-ai": "1.0.0",
 			},
 		});
-		await writeManifest(root, "packages/evals", {
-			name: "@earendil-works/pi-evals",
+		await writeManifest(root, "packages/xpi-evals", {
+			name: "xpi-evals",
 			version: "9.9.9",
 			private: true,
 			dependencies: {
-				"@earendil-works/pi-coding-agent": "^1.0.0",
-				"@mariozechner/pi-ai": "npm:@earendil-works/pi-ai@1.0.0",
+				"xpi-coding-agent": "^1.0.0",
+				"@mariozechner/pi-ai": "npm:xpi-ai@1.0.0",
 			},
 		});
 		await writeManifest(root, "apps/p2", {
@@ -60,40 +60,40 @@ test("pins published and private dependencies without touching registry aliases,
 			version: "0.0.1",
 			private: true,
 			dependencies: {
-				"@earendil-works/pi-ai": "1.0.0",
+				"xpi-ai": "1.0.0",
 			},
 		});
-		await writeManifest(root, "packages/coding-agent/install-lock", {
+		await writeManifest(root, "packages/xpi-coding-agent/install-lock", {
 			name: "generated-install-lock",
 			version: "0.0.0",
 			private: true,
 			dependencies: {
-				"@earendil-works/pi-coding-agent": "^1.0.0",
+				"xpi-coding-agent": "^1.0.0",
 			},
 		});
 
 		const result = runSyncVersions(root);
 		assert.equal(result.status, 0, result.stderr);
 
-		const agentManifest = await readManifest(root, "packages/coding-agent");
+		const agentManifest = await readManifest(root, "packages/xpi-coding-agent");
 		for (const section of ["dependencies", "devDependencies", "optionalDependencies"]) {
-			assert.equal(agentManifest[section]["@earendil-works/pi-ai"], "2.0.0");
+			assert.equal(agentManifest[section]["xpi-ai"], "2.0.0");
 		}
-		const evalsManifest = await readManifest(root, "packages/evals");
-		assert.equal(evalsManifest.dependencies["@earendil-works/pi-coding-agent"], "2.0.0");
-		assert.equal(evalsManifest.dependencies["@mariozechner/pi-ai"], "npm:@earendil-works/pi-ai@1.0.0");
+		const evalsManifest = await readManifest(root, "packages/xpi-evals");
+		assert.equal(evalsManifest.dependencies["xpi-coding-agent"], "2.0.0");
+		assert.equal(evalsManifest.dependencies["@mariozechner/pi-ai"], "npm:xpi-ai@1.0.0");
 		const appManifest = await readManifest(root, "apps/p2");
-		assert.equal(appManifest.dependencies["@earendil-works/pi-ai"], "2.0.0");
+		assert.equal(appManifest.dependencies["xpi-ai"], "2.0.0");
 		assert.equal(appManifest.version, "0.0.1");
-		const generatedManifest = await readManifest(root, "packages/coding-agent/install-lock");
-		assert.equal(generatedManifest.dependencies["@earendil-works/pi-coding-agent"], "^1.0.0");
+		const generatedManifest = await readManifest(root, "packages/xpi-coding-agent/install-lock");
+		assert.equal(generatedManifest.dependencies["xpi-coding-agent"], "^1.0.0");
 
 		const alreadySynced = runSyncVersions(root);
 		assert.equal(alreadySynced.status, 0, alreadySynced.stderr);
 		assert.match(alreadySynced.stdout, /All inter-package dependencies are already in sync/);
 
-		await writeManifest(root, "packages/ai", {
-			name: "@earendil-works/pi-ai",
+		await writeManifest(root, "packages/xpi-ai", {
+			name: "xpi-ai",
 			version: "3.0.0",
 		});
 		const lockstepFailure = runSyncVersions(root);
@@ -106,12 +106,12 @@ test("pins published and private dependencies without touching registry aliases,
 test("writes the pi-ai version constant", async () => {
 	const root = await mkdtemp(join(tmpdir(), "pi-sync-versions-"));
 	try {
-		await writeManifest(root, "packages/ai", {
-			name: "@earendil-works/pi-ai",
+		await writeManifest(root, "packages/xpi-ai", {
+			name: "xpi-ai",
 			version: "2.0.0",
 		});
-		const versionPath = join(root, "packages/ai/src/utils/version.ts");
-		await mkdir(join(root, "packages/ai/src/utils"), { recursive: true });
+		const versionPath = join(root, "packages/xpi-ai/src/utils/version.ts");
+		await mkdir(join(root, "packages/xpi-ai/src/utils"), { recursive: true });
 		await writeFile(versionPath, 'export const PI_AI_VERSION = "1.0.0";\n');
 
 		const result = runSyncVersions(root);

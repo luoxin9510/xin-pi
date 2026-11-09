@@ -19,13 +19,13 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 /** Workspace package name -> its source root, so cross-package imports are followed. */
 const WORKSPACE = {
-	"@earendil-works/pi-ai": "packages/ai/src",
-	"@earendil-works/pi-agent-core": "packages/agent/src",
-	"@earendil-works/pi-codemode": "packages/codemode/src",
-	"@earendil-works/pi-telemetry": "packages/telemetry/src",
-	"@earendil-works/pi-mcp": "packages/mcp/src",
-	"@earendil-works/pi-schema": "packages/schema/src",
-	"@earendil-works/pi-tui": "packages/tui/src",
+	"xpi-ai": "packages/xpi-ai/src",
+	"xpi-agent-core": "packages/xpi-agent-core/src",
+	"xpi-codemode": "packages/xpi-codemode/src",
+	"xpi-telemetry": "packages/xpi-telemetry/src",
+	"xpi-mcp": "packages/xpi-mcp/src",
+	"xpi-schema": "packages/xpi-schema/src",
+	"xpi-tui": "packages/xpi-tui/src",
 };
 
 /**
@@ -33,17 +33,17 @@ const WORKSPACE = {
  * graph it is allowed to reach.
  */
 const BUDGETS = {
-	"packages/schema": {
+	"packages/xpi-schema": {
 		// The format checks (vendored from TypeBox, about 40 KB) load only through ./formats.
 		".": { maxFiles: 10, forbid: ["schema/src/formats/"] },
 	},
-	"packages/ai": {
+	"packages/xpi-ai": {
 		"./models": {
 			// Request telemetry reaches pi-ai's telemetry.ts and pi-telemetry's root (index, noop, metrics, memory).
 			// Request identity reaches utils/identity.ts and its version constant.
 			maxFiles: 20,
 			forbid: ["providers/", "models.generated.ts", "index.ts", "utils/validation.ts", "utils/string-enum.ts"],
-			allow: ["packages/telemetry/src/index.ts"],
+			allow: ["packages/xpi-telemetry/src/index.ts"],
 		},
 		"./utils/*": {
 			maxFiles: 3,
@@ -51,11 +51,11 @@ const BUDGETS = {
 			overrides: {
 				// Tool argument validation runs on pi-schema: its validator, coercion and format checks (the checks TypeBox's
 				// validator ran by default). TypeBox, an external package, was not counted before.
-				"./utils/validation": { maxFiles: 42, forbid: ["providers/", "api/", "packages/ai/src/index.ts"] },
+				"./utils/validation": { maxFiles: 42, forbid: ["providers/", "api/", "packages/xpi-ai/src/index.ts"] },
 			},
 		},
 	},
-	"packages/codemode": {
+	"packages/xpi-codemode": {
 		// Node and Bun users never load the Cloudflare entry, which imports the `cloudflare:workers` built-in.
 		".": { maxFiles: 12, forbid: ["codemode/src/cloudflare.ts"] },
 		// Runtimes without Node built-ins (Workers, browsers) import these; neither may reach the worker-thread host

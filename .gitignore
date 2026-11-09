@@ -8,8 +8,8 @@ dist/
 packages/*/dist/
 packages/*/dist-chrome/
 packages/*/dist-firefox/
-packages/ai/src/providers/data/
-packages/ai/src/providers/.model-generation-*/
+packages/xpi-ai/src/providers/data/
+packages/xpi-ai/src/providers/.model-generation-*/
 *.cpuprofile
 
 # Environment
@@ -36,11 +36,11 @@ syntax.jsonl
 out.jsonl
 pi-*.html
 out.html
-packages/coding-agent/binaries/
+packages/xpi-coding-agent/binaries/
 todo.md
 plans/
 .pi/hf-sessions/
 .pi/hf-sessions-backup/
 .pi/settings.json
 collect.sh
-packages/agent/docs/extensions/pi-server-artifact/index.md
+packages/xpi-agent-core/docs/extensions/pi-server-artifact/index.md

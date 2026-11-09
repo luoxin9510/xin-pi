@@ -8,8 +8,8 @@ import { build } from "esbuild";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, "..");
-const codingAgentDir = join(repoRoot, "packages", "coding-agent");
-const aiDistDir = join(repoRoot, "packages", "ai", "dist");
+const codingAgentDir = join(repoRoot, "packages", "xpi-coding-agent");
+const aiDistDir = join(repoRoot, "packages", "xpi-ai", "dist");
 const codingAgentDistDir = join(codingAgentDir, "dist");
 const bundleDir = join(codingAgentDistDir, "bundle");
 const banner = {
@@ -167,10 +167,10 @@ const mainResult = await build({
 	splitting: true,
 });
 
-const bedrockLoaderOutput = findContainingOutput(mainResult.metafile, "packages/ai/dist/api/bedrock-converse-stream.lazy.js");
-const oauthLoaderOutput = findContainingOutput(mainResult.metafile, "packages/ai/dist/auth/oauth/load.js");
-const imageResizeOutput = findContainingOutput(mainResult.metafile, "packages/coding-agent/dist/utils/image-resize.js");
-const configOutput = findContainingOutput(mainResult.metafile, "packages/coding-agent/dist/config.js");
+const bedrockLoaderOutput = findContainingOutput(mainResult.metafile, "packages/xpi-ai/dist/api/bedrock-converse-stream.lazy.js");
+const oauthLoaderOutput = findContainingOutput(mainResult.metafile, "packages/xpi-ai/dist/auth/oauth/load.js");
+const imageResizeOutput = findContainingOutput(mainResult.metafile, "packages/xpi-coding-agent/dist/utils/image-resize.js");
+const configOutput = findContainingOutput(mainResult.metafile, "packages/xpi-coding-agent/dist/config.js");
 if (dirname(bedrockLoaderOutput) !== dirname(oauthLoaderOutput)) {
 	throw new Error("Bedrock and OAuth lazy loaders were emitted into different directories");
 }
@@ -194,7 +194,7 @@ const lazyEntryPoints = {
 
 // Every OAuth flow loaded through importOAuthModule() must have a lazy entry,
 // otherwise the flow fails at runtime with a missing module error.
-const oauthLoadSource = readFileSync(join(repoRoot, "packages", "ai", "src", "auth", "oauth", "load.ts"), "utf8");
+const oauthLoadSource = readFileSync(join(repoRoot, "packages", "xpi-ai", "src", "auth", "oauth", "load.ts"), "utf8");
 for (const match of oauthLoadSource.matchAll(/importOAuthModule\("\.\/([^"]+)\.ts"\)/g)) {
 	if (!(match[1] in lazyEntryPoints)) {
 		throw new Error(`OAuth flow "${match[1]}" is lazily imported but has no lazy bundle entry`);

@@ -134,7 +134,7 @@ async function main() {
 			env: {
 				...process.env,
 				XPI_CODING_AGENT_DIR: tempDir,
-				PI_OFFLINE: "1",
+				XPI_OFFLINE: "1",
 			},
 			stdio: ["ignore", "pipe", "pipe"],
 		});

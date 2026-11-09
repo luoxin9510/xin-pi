@@ -64,9 +64,9 @@ let worktreeAdded = false;
 
 function generateCatalog(cwd, outputDir, pretty = false) {
 	// Baselines from before the catalog moved still have the old generator.
-	const generator = existsSync(join(cwd, "packages/ai/catalog/generate.ts"))
-		? "packages/ai/catalog/generate.ts"
-		: "packages/ai/scripts/generate-models.ts";
+	const generator = existsSync(join(cwd, "packages/xpi-ai/catalog/generate.ts"))
+		? "packages/xpi-ai/catalog/generate.ts"
+		: "packages/xpi-ai/scripts/generate-models.ts";
 	const args = [generator, "--strict", "--json-only", "--json-output", outputDir];
 	if (pretty) args.push("--pretty");
 	run(process.execPath, args, { cwd, capture: true });

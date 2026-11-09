@@ -6,7 +6,7 @@ import { build } from "esbuild";
 const outputPath = join(tmpdir(), "pi-browser-smoke.js");
 const agentTreeshakeOutputPath = join(tmpdir(), "pi-agent-treeshake-smoke.js");
 const errorLogPath = join(tmpdir(), "pi-browser-smoke-errors.log");
-const generatedCatalogDataDir = join(process.cwd(), "packages/ai/src/providers/data");
+const generatedCatalogDataDir = join(process.cwd(), "packages/xpi-ai/src/providers/data");
 
 // Fresh checkouts do not materialize provider JSON until model data is hydrated.
 const generatedCatalogDataPlugin = {
@@ -64,9 +64,9 @@ try {
 	});
 	const inputs = agentTreeshakeBuild.metafile.inputs;
 	for (const forbiddenInput of [
-		"packages/ai/src/compat.ts",
-		"packages/ai/src/models.generated.ts",
-		"packages/ai/src/providers/all.ts",
+		"packages/xpi-ai/src/compat.ts",
+		"packages/xpi-ai/src/models.generated.ts",
+		"packages/xpi-ai/src/providers/all.ts",
 	]) {
 		const includedInput = findInput(inputs, forbiddenInput);
 		if (includedInput) {
@@ -82,7 +82,7 @@ try {
 		),
 	);
 	const catalogInputs = Array.from(contributingInputs).filter((input) =>
-		normalizePath(input).includes("packages/ai/src/providers/data/"),
+		normalizePath(input).includes("packages/xpi-ai/src/providers/data/"),
 	);
 	if (catalogInputs.length !== 1 || !normalizePath(catalogInputs[0]).endsWith("/anthropic.json")) {
 		throw new Error(
