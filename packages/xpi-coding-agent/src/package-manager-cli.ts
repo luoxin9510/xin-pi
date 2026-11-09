@@ -1,35 +1,11 @@
-import {
-	existsSync,
-	mkdirSync,
-	mkdtempSync,
-	readdirSync,
-	readFileSync,
-	renameSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
+import { readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import chalk from "chalk";
 import lockfile from "proper-lockfile";
 import { Markdown, type MarkdownTheme } from "xpi-tui";
 import { selectConfig } from "./cli/config-selector.ts";
 import { createProjectTrustContext } from "./cli/project-trust.ts";
-import {
-	APP_NAME,
-	CONFIG_DIR_NAME,
-	detectInstallChange,
-	detectInstallMethod,
-	getAgentDir,
-	getConfiguredSelfUpdateArgv,
-	getPackageDir,
-	getSelfUpdateCommand,
-	getSelfUpdateUnavailableInstruction,
-	makeConfiguredSelfUpdateCommand,
-	PACKAGE_NAME,
-	type SelfUpdateCommand,
-	type SelfUpdatePackageTarget,
-	VERSION,
-} from "./config.ts";
+import { APP_NAME, CONFIG_DIR_NAME, getAgentDir, getPackageDir, type SelfUpdateCommand, VERSION } from "./config.ts";
 import type { InlineExtension } from "./core/extensions/types.ts";
 import { ModelRuntime } from "./core/model-runtime.ts";
 import { DefaultPackageManager, isOfflineModeEnabled } from "./core/package-manager.ts";
@@ -41,17 +17,15 @@ import { spawnProcess, spawnProcessSync, waitForChildProcess } from "./utils/chi
 import { canonicalizePath, getCwdRelativePath } from "./utils/paths.ts";
 import { getPiUserAgent } from "./utils/pi-user-agent.ts";
 import { stripBom } from "./utils/text.ts";
-import { formatVersionCheckError, getLatestPiRelease, isNewerPackageVersion } from "./utils/version-check.ts";
-import {
-	cleanupWindowsSelfUpdateQuarantine,
-	quarantineWindowsNativeDependencies,
-} from "./utils/windows-self-update.ts";
 
 export type PackageCommand = "install" | "remove" | "update" | "list";
 
 type UpdateTarget = { type: "all" } | { type: "self" } | { type: "extensions"; source?: string } | { type: "models" };
 
-const DEFAULT_INSTALLER_API_BASE = "https://pi.dev/api/installer/releases";
+/** What `xpi update` says about updating xpi itself. */
+export const SELF_UPDATE_DISABLED = `${APP_NAME} is installed from source; rebuild and reinstall — see docs/xin-pi.md`;
+
+const _DEFAULT_INSTALLER_API_BASE = "https://pi.dev/api/installer/releases";
 const MANAGED_INSTALL_MARKER = "managed-install.json";
 const MANAGED_RELEASE_VERSION_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 
@@ -82,7 +56,7 @@ function getActiveManagedInstallRoot(): string | undefined {
 	return managedRoot;
 }
 
-async function fetchInstallerArtifact(url: string, label: string): Promise<string> {
+async function _fetchInstallerArtifact(url: string, label: string): Promise<string> {
 	const response = await fetch(url, { headers: { "User-Agent": getPiUserAgent(VERSION) } });
 	if (!response.ok) {
 		throw new Error(`Could not download managed installer ${label} from ${url}: HTTP ${response.status}`);
@@ -90,7 +64,7 @@ async function fetchInstallerArtifact(url: string, label: string): Promise<strin
 	return await response.text();
 }
 
-async function runManagedNpmCi(stageDir: string): Promise<void> {
+async function _runManagedNpmCi(stageDir: string): Promise<void> {
 	// No age-gate override: the release lockfile pins every package, so npm never
 	// resolves versions and a configured min-release-age does not apply.
 	const args = [
@@ -107,7 +81,7 @@ async function runManagedNpmCi(stageDir: string): Promise<void> {
 	if (code !== 0) throw new Error(`npm ${args.join(" ")} exited with code ${code ?? "unknown"}`);
 }
 
-function verifyManagedRelease(releaseDir: string, expectedVersion: string): void {
+function _verifyManagedRelease(releaseDir: string, expectedVersion: string): void {
 	const binPath = join(
 		releaseDir,
 		"node_modules",
@@ -128,7 +102,7 @@ function verifyManagedRelease(releaseDir: string, expectedVersion: string): void
 	}
 }
 
-function activateManagedRelease(managedRoot: string, version: string): void {
+function _activateManagedRelease(managedRoot: string, version: string): void {
 	const currentPath = join(managedRoot, "current-version");
 	const temporaryPath = join(managedRoot, `current-version.tmp.${process.pid}-${Date.now()}`);
 	try {
@@ -141,7 +115,7 @@ function activateManagedRelease(managedRoot: string, version: string): void {
 
 // Keep the active release and the one running this update, which other open
 // sessions likely still use and which allows rolling back by editing current-version.
-function pruneManagedReleases(managedRoot: string, activeVersion: string): void {
+function _pruneManagedReleases(managedRoot: string, activeVersion: string): void {
 	const releasesRoot = join(managedRoot, "releases");
 	let entries: string[];
 	try {
@@ -190,60 +164,6 @@ export function cleanupManagedInstall(): void {
 		}
 	} catch {
 		// A live update owns the staging directory, or cleanup is unavailable.
-	}
-}
-
-async function runManagedSelfUpdate(managedRoot: string, version: string): Promise<void> {
-	if (!MANAGED_RELEASE_VERSION_RE.test(version)) {
-		throw new Error(`Invalid managed release version: ${version}`);
-	}
-
-	let releaseLock: () => Promise<void>;
-	try {
-		releaseLock = await lockfile.lock(join(managedRoot, "update"), { realpath: false });
-	} catch (error: unknown) {
-		if (error instanceof Error && "code" in error && error.code === "ELOCKED") {
-			throw new Error("Another managed Pi update is already running.");
-		}
-		throw error;
-	}
-
-	let stageDir: string | undefined;
-	try {
-		cleanupManagedStaging(managedRoot);
-		const installerApiBase = (process.env.XPI_INSTALLER_API_BASE?.trim() || DEFAULT_INSTALLER_API_BASE).replace(
-			/\/+$/,
-			"",
-		);
-		const releaseUrl = `${installerApiBase}/${encodeURIComponent(version)}`;
-		const stagingRoot = join(managedRoot, "staging");
-		const releasesRoot = join(managedRoot, "releases");
-		mkdirSync(releasesRoot, { recursive: true });
-		const releaseDir = join(releasesRoot, version);
-		if (existsSync(releaseDir)) {
-			verifyManagedRelease(releaseDir, version);
-			activateManagedRelease(managedRoot, version);
-			pruneManagedReleases(managedRoot, version);
-			return;
-		}
-
-		mkdirSync(stagingRoot, { recursive: true });
-		stageDir = mkdtempSync(join(stagingRoot, "update-"));
-		const [packageJsonContent, packageLockContent] = await Promise.all([
-			fetchInstallerArtifact(`${releaseUrl}/package.json`, "package.json"),
-			fetchInstallerArtifact(`${releaseUrl}/package-lock.json`, "package-lock.json"),
-		]);
-		writeFileSync(join(stageDir, "package.json"), packageJsonContent);
-		writeFileSync(join(stageDir, "package-lock.json"), packageLockContent);
-
-		await runManagedNpmCi(stageDir);
-		verifyManagedRelease(stageDir, version);
-		renameSync(stageDir, releaseDir);
-		activateManagedRelease(managedRoot, version);
-		pruneManagedReleases(managedRoot, version);
-	} finally {
-		if (stageDir) rmSync(stageDir, { force: true, recursive: true });
-		await releaseLock();
 	}
 }
 
@@ -364,24 +284,23 @@ Examples:
 			console.log(`${chalk.bold("Usage:")}
   ${getPackageCommandUsage("update")}
 
-Update pi, installed packages, or model catalogs.
+Update installed packages or model catalogs. (xpi itself is installed from source: rebuild and reinstall, see docs/xin-pi.md.)
 
 Options:
-  --self                  Update pi only (default when no target is given)
+  --self                  Explain how to update xpi itself (default when no target is given)
   --extensions            Update installed packages only
   --models                Refresh model catalogs only
-  --all                   Update pi and installed packages
+  --all                   Update installed packages
   --extension <source>    Update one package only
   -a, --approve           Trust project-local files for this command
   -na, --no-approve       Ignore project-local files for this command
-  --force                 Reinstall pi even if the current version is latest
 
 Short forms:
-  ${APP_NAME} update                Update pi only
-  ${APP_NAME} update --all          Update pi and all extensions
+  ${APP_NAME} update                Explain how to update xpi (from source)
+  ${APP_NAME} update --all          Update all extensions
   ${APP_NAME} update --models       Refresh model catalogs only
   ${APP_NAME} update <source>       Update one package
-  ${APP_NAME} update pi             Update pi only (self works as alias to pi)
+  ${APP_NAME} update pi             Same as --self (self works as alias to pi)
 `);
 			return;
 
@@ -635,33 +554,7 @@ async function refreshModelCatalogs(agentDir: string): Promise<void> {
 	console.log(chalk.green("Model catalogs refreshed"));
 }
 
-function printSelfUpdateUnavailable(
-	npmCommand?: string[],
-	updatePackageTarget: SelfUpdatePackageTarget = PACKAGE_NAME,
-): void {
-	console.error(`error: ${APP_NAME} cannot self-update this installation.`);
-	console.error(getSelfUpdateUnavailableInstruction(PACKAGE_NAME, npmCommand, updatePackageTarget));
-	console.error(
-		`To make \`${APP_NAME} update\` run your own update command, set XPI_SELF_UPDATE_COMMAND or the selfUpdateCommand setting.`,
-	);
-
-	const entrypoint = process.argv[1];
-	if (entrypoint) {
-		console.error("");
-		console.error(`Location of ${APP_NAME} executable: ${entrypoint}`);
-	}
-}
-
-function printSelfUpdateFallback(command: SelfUpdateCommand): void {
-	console.error(chalk.dim(`If this keeps failing, run this command yourself: ${command.display}`));
-}
-
-function printPnpmSelfUpdateMetadataHint(): void {
-	console.error(chalk.yellow("If pnpm reports missing package versions, its cached registry metadata may be stale."));
-	console.error(chalk.yellow(`Run \`pnpm store prune\` and retry \`${APP_NAME} update --self\`.`));
-}
-
-function printSelfUpdateNote(note: string): void {
+function _printSelfUpdateNote(note: string): void {
 	const trimmedNote = note.trim();
 	if (!trimmedNote) {
 		return;
@@ -681,44 +574,7 @@ function printSelfUpdateNote(note: string): void {
 	console.log();
 }
 
-interface SelfUpdatePlan {
-	packageName: string;
-	installSpec: string;
-	version: string;
-	shouldRun: boolean;
-	note?: string;
-}
-
-async function getSelfUpdatePlan(force: boolean): Promise<SelfUpdatePlan> {
-	let latestRelease: Awaited<ReturnType<typeof getLatestPiRelease>>;
-	try {
-		latestRelease = await getLatestPiRelease(VERSION, { retry: true });
-	} catch (error: unknown) {
-		throw new Error(`Could not determine latest ${APP_NAME} version: ${formatVersionCheckError(error)}`, {
-			cause: error,
-		});
-	}
-	if (!latestRelease) {
-		throw new Error(`Could not determine latest ${APP_NAME} version.`);
-	}
-
-	const packageName = latestRelease.packageName ?? PACKAGE_NAME;
-	const installSpec = `${packageName}@${latestRelease.version}`;
-	if (force || packageName !== PACKAGE_NAME || isNewerPackageVersion(latestRelease.version, VERSION)) {
-		return {
-			packageName,
-			installSpec,
-			version: latestRelease.version,
-			...(latestRelease.note ? { note: latestRelease.note } : {}),
-			shouldRun: true,
-		};
-	}
-
-	console.log(chalk.green(`${APP_NAME} is already up to date (v${VERSION})`));
-	return { packageName, installSpec, version: latestRelease.version, shouldRun: false };
-}
-
-async function runSelfUpdate(command: SelfUpdateCommand): Promise<void> {
+async function _runSelfUpdate(command: SelfUpdateCommand): Promise<void> {
 	console.log(chalk.dim(`Updating ${APP_NAME} with ${command.display}...`));
 	for (const step of command.steps ?? [command]) {
 		await new Promise<void>((resolve, reject) => {
@@ -741,38 +597,8 @@ async function runSelfUpdate(command: SelfUpdateCommand): Promise<void> {
 	}
 }
 
-/** Run the user-configured self-update command, then report the version installed on disk. */
-async function runConfiguredSelfUpdate(argv: string[], plan: SelfUpdatePlan): Promise<void> {
-	const command = makeConfiguredSelfUpdateCommand(argv, plan);
-	if (plan.note) {
-		printSelfUpdateNote(plan.note);
-	}
-	try {
-		await runSelfUpdate(command);
-	} catch (error: unknown) {
-		const message = error instanceof Error ? error.message : "Unknown self-update command error";
-		console.error(chalk.red(`Error: ${message}`));
-		process.exitCode = 1;
-		return;
-	}
-	// Exit code 0 does not prove an update. Wrappers such as mise or Nix install each version into a
-	// new directory and leave this installation untouched, so fall back to the pi on PATH.
-	const change = detectInstallChange();
-	const installedVersion =
-		change?.kind === "updated" && change.version === plan.version ? change.version : readVersionOnPath();
-	if (installedVersion === plan.version) {
-		console.log(chalk.green(`Updated ${APP_NAME} from ${VERSION} to ${plan.version}`));
-		return;
-	}
-	console.log(
-		chalk.yellow(
-			`Ran ${command.display}, but \`${APP_NAME} --version\` reports ${installedVersion ?? "no version"}, not ${plan.version}.`,
-		),
-	);
-}
-
 /** Version printed by `pi --version` as resolved from PATH, the pi the user runs next. */
-function readVersionOnPath(): string | undefined {
+function _readVersionOnPath(): string | undefined {
 	// XPI_PACKAGE_DIR points at this installation and would make the new pi report the old version.
 	const { XPI_PACKAGE_DIR: _, ...env } = process.env;
 	const result = spawnProcessSync(APP_NAME, ["--version"], {
@@ -781,16 +607,6 @@ function readVersionOnPath(): string | undefined {
 		env,
 	});
 	return result.status === 0 ? result.stdout.trim() || undefined : undefined;
-}
-
-function prepareWindowsNpmSelfUpdate(): void {
-	if (process.platform !== "win32") {
-		return;
-	}
-
-	const packageDir = getPackageDir();
-	cleanupWindowsSelfUpdateQuarantine(packageDir);
-	quarantineWindowsNativeDependencies(packageDir);
 }
 
 export interface PackageCommandRuntimeOptions {
@@ -1023,7 +839,6 @@ export async function handlePackageCommand(
 		return true;
 	}
 	reportSettingsErrors(settingsManager, "package command");
-	const selfUpdateNpmCommand = settingsManager.getGlobalSettings().npmCommand;
 
 	const packageManager = new DefaultPackageManager({ cwd, agentDir, settingsManager });
 
@@ -1132,96 +947,9 @@ export async function handlePackageCommand(
 					}
 				}
 				if (updateTargetIncludesSelf(target)) {
-					const configuredSelfUpdateArgv = getConfiguredSelfUpdateArgv(
-						settingsManager.getGlobalSettings().selfUpdateCommand,
-					);
-					// A configured command is explicit user intent, so it replaces the managed install path too.
-					const managedInstallRoot = configuredSelfUpdateArgv ? undefined : getActiveManagedInstallRoot();
-					if (managedInstallRoot && options.force) {
-						console.error(
-							chalk.red(
-								`Managed ${APP_NAME} installations do not support --force; rerun the installer to repair this installation.`,
-							),
-						);
-						process.exitCode = 1;
-						return true;
-					}
-					const selfUpdatePlan = await getSelfUpdatePlan(options.force);
-					if (!selfUpdatePlan.shouldRun) {
-						return true;
-					}
-					if (configuredSelfUpdateArgv) {
-						await runConfiguredSelfUpdate(configuredSelfUpdateArgv, selfUpdatePlan);
-						return true;
-					}
-					if (managedInstallRoot) {
-						if (selfUpdatePlan.note) {
-							printSelfUpdateNote(selfUpdatePlan.note);
-						}
-						try {
-							console.log(chalk.dim(`Updating managed ${APP_NAME} installation...`));
-							await runManagedSelfUpdate(managedInstallRoot, selfUpdatePlan.version);
-						} catch (error: unknown) {
-							const message = error instanceof Error ? error.message : "Unknown managed update error";
-							console.error(chalk.red(`Error: ${message}`));
-							process.exitCode = 1;
-							return true;
-						}
-						console.log(chalk.green(`Updated ${APP_NAME} from ${VERSION} to ${selfUpdatePlan.version}`));
-						return true;
-					}
-
-					const installMethod = detectInstallMethod();
-					if (process.platform === "win32" && installMethod !== "npm" && installMethod !== "pnpm") {
-						console.error(
-							chalk.red(`${APP_NAME} self-update on Windows is only supported for npm and pnpm installs.`),
-						);
-						console.error(chalk.dim(`Detected install method: ${installMethod}. Update ${APP_NAME} manually.`));
-						process.exitCode = 1;
-						return true;
-					}
-					const selfUpdateTarget = {
-						packageName: selfUpdatePlan.packageName,
-						installSpec: selfUpdatePlan.installSpec,
-					};
-					const selfUpdateCommand = getSelfUpdateCommand(PACKAGE_NAME, selfUpdateNpmCommand, selfUpdateTarget);
-					if (!selfUpdateCommand) {
-						printSelfUpdateUnavailable(selfUpdateNpmCommand, selfUpdateTarget);
-						process.exitCode = 1;
-						return true;
-					}
-					if (selfUpdatePlan.note) {
-						printSelfUpdateNote(selfUpdatePlan.note);
-					}
-					try {
-						if (installMethod === "npm") {
-							prepareWindowsNpmSelfUpdate();
-						}
-						await runSelfUpdate(selfUpdateCommand);
-					} catch (error: unknown) {
-						const message = error instanceof Error ? error.message : "Unknown package command error";
-						console.error(chalk.red(`Error: ${message}`));
-						if (installMethod === "pnpm") {
-							printPnpmSelfUpdateMetadataHint();
-						}
-						printSelfUpdateFallback(selfUpdateCommand);
-						process.exitCode = 1;
-						return true;
-					}
-					console.log(chalk.green(`Updated ${APP_NAME} from ${VERSION} to ${selfUpdatePlan.version}`));
-					// The pi.dev installer migrates global npm installs to a managed install
-					// that pins all dependencies. It does not migrate pnpm, yarn, or bun installs.
-					if (installMethod === "npm") {
-						const installerCommand =
-							process.platform === "win32"
-								? 'powershell -c "irm https://pi.dev/install.ps1 | iex"'
-								: "curl -fsSL https://pi.dev/install.sh | sh";
-						console.log();
-						console.log(chalk.yellow(`This npm installation of ${APP_NAME} does not pin its dependencies.`));
-						console.log(chalk.yellow("Run the installer to migrate to a managed installation that does:"));
-						console.log();
-						console.log(`  ${chalk.bold(installerCommand)}`);
-					}
+					// xpi is built from source and has no release channel: pi.dev and the upstream packages are not its updates.
+					console.error(chalk.yellow(SELF_UPDATE_DISABLED));
+					if (target.type === "self") process.exitCode = 1;
 				}
 				return true;
 			}

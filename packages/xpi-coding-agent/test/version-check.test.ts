@@ -34,12 +34,12 @@ describe("version checks", () => {
 		expect(isNewerPackageVersion("0.70.6", "0.70.5")).toBe(true);
 	});
 
-	it("returns only newer versions", async () => {
-		const fetchMock = vi.fn(async () => Response.json({ version: "1.2.3" }));
+	it("never asks pi.dev for a newer xpi: the automatic check is off", async () => {
+		const fetchMock = vi.fn(async () => Response.json({ version: "9.9.9" }));
 		vi.stubGlobal("fetch", fetchMock);
 
-		await expect(checkForNewPiVersion("1.2.3")).resolves.toBeUndefined();
-		await expect(checkForNewPiVersion("1.2.2")).resolves.toEqual({ version: "1.2.3" });
+		await expect(checkForNewPiVersion("1.2.2")).resolves.toBeUndefined();
+		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
 	it("uses the pi.dev version check api with a pi user agent", async () => {
@@ -68,14 +68,6 @@ describe("version checks", () => {
 
 		await expect(getLatestPiRelease("1.2.3", { retry: true })).resolves.toEqual({ version: "1.2.4" });
 		expect(fetchMock).toHaveBeenCalledTimes(3);
-	});
-
-	it("keeps automatic version checks to one request", async () => {
-		const fetchMock = vi.fn().mockRejectedValue(new Error("fetch failed"));
-		vi.stubGlobal("fetch", fetchMock);
-
-		await expect(checkForNewPiVersion("1.2.3")).resolves.toBeUndefined();
-		expect(fetchMock).toHaveBeenCalledOnce();
 	});
 
 	it("formats nested network error details", () => {
