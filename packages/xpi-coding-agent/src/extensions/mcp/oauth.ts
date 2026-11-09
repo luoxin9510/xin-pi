@@ -13,6 +13,7 @@
 import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import lockfile from "proper-lockfile";
 import { oauthErrorHtml, oauthSuccessHtml } from "xpi-ai/utils/oauth-page";
 import { mcpNamespace } from "xpi-mcp";
 import {
@@ -30,7 +31,6 @@ import {
 	startMcpSignIn,
 	waitForLoopbackSignIn,
 } from "xpi-mcp/oauth";
-import lockfile from "proper-lockfile";
 import { APP_NAME, getAgentDir } from "../../config.ts";
 import { type AuthStorageBackend, FileAuthStorageBackend } from "../../core/auth-storage.ts";
 import { isClientMetadataDocumentCallback } from "../../core/mcp-servers.ts";

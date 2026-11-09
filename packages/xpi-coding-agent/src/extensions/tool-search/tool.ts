@@ -8,8 +8,8 @@
  * like any other tool change and survives `/tree`, resume, and fork on that branch.
  */
 
-import { resolveSchemaRef } from "xpi-codemode/declarations";
 import { type Static, Type } from "typebox";
+import { resolveSchemaRef } from "xpi-codemode/declarations";
 import type {
 	ExtensionAPI,
 	ToolDefinition,

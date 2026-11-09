@@ -1,3 +1,4 @@
+import { describe, expect, it } from "vitest";
 import type { StreamFn } from "xpi-agent-core";
 import {
 	type AssistantMessage,
@@ -6,7 +7,6 @@ import {
 	type Model,
 	type SimpleStreamOptions,
 } from "xpi-ai";
-import { describe, expect, it } from "vitest";
 import { generateBranchSummary, prepareBranchEntries } from "../src/core/compaction/index.ts";
 import type { SessionEntry } from "../src/core/session-manager.ts";
 

@@ -1,5 +1,7 @@
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { Type } from "typebox";
+import { afterEach, describe, expect, it } from "vitest";
 import type { AgentTool } from "xpi-agent-core";
 import {
 	type AssistantImages,
@@ -14,8 +16,6 @@ import {
 	type TranscriptContext,
 } from "xpi-ai";
 import type { ToolResultMessage, Usage } from "xpi-ai/compat";
-import { Type } from "typebox";
-import { afterEach, describe, expect, it } from "vitest";
 import type { ExtensionAPI } from "../../src/core/extensions/types.ts";
 import type { CustomEntry } from "../../src/core/session-manager.ts";
 import {

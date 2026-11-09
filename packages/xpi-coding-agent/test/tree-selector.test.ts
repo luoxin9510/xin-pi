@@ -1,6 +1,6 @@
 import { stripVTControlCharacters } from "node:util";
-import { CURSOR_MARKER, setKeybindings, visibleWidth } from "xpi-tui";
 import { beforeAll, beforeEach, describe, expect, test } from "vitest";
+import { CURSOR_MARKER, setKeybindings, visibleWidth } from "xpi-tui";
 import { KeybindingsManager } from "../src/core/keybindings.ts";
 import type {
 	ModelChangeEntry,

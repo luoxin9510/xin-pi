@@ -1,6 +1,6 @@
+import { describe, expect, it, vi } from "vitest";
 import type { AgentMessage } from "xpi-agent-core";
 import type { AssistantMessage } from "xpi-ai";
-import { describe, expect, it, vi } from "vitest";
 import planModeExtension from "../examples/extensions/plan-mode/index.ts";
 import type { ExtensionAPI, ExtensionContext } from "../src/core/extensions/index.ts";
 

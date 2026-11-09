@@ -1,6 +1,6 @@
+import { afterEach, describe, expect, it } from "vitest";
 import type { StreamFn } from "xpi-agent-core";
 import { type AssistantMessage, createAssistantMessageEventStream, fauxAssistantMessage } from "xpi-ai";
-import { afterEach, describe, expect, it } from "vitest";
 import { createHarness, type Harness } from "../harness.ts";
 
 /**

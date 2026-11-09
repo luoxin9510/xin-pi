@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { InMemoryModelsStore } from "xpi-ai";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { InMemoryModelsStore } from "xpi-ai";
 import { parseArgs } from "../src/cli/args.ts";
 import { checkProviderAuth, createAuthCheckModelRuntime, getProviderCredential } from "../src/cli/auth-check.ts";
 import { parseAuthCommand } from "../src/cli/auth-command.ts";

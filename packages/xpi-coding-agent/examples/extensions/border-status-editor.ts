@@ -1,9 +1,4 @@
-import {
-	CustomEditor,
-	type ExtensionAPI,
-	type ExtensionContext,
-	type KeybindingsManager,
-} from "xpi-coding-agent";
+import { CustomEditor, type ExtensionAPI, type ExtensionContext, type KeybindingsManager } from "xpi-coding-agent";
 import type { Component, EditorTheme, TUI } from "xpi-tui";
 import { truncateToWidth, visibleWidth } from "xpi-tui";
 

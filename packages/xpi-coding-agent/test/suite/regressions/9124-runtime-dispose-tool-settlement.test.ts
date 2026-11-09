@@ -1,7 +1,7 @@
-import type { AgentTool, AgentToolResult } from "xpi-agent-core";
-import { fauxAssistantMessage, fauxToolCall } from "xpi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
+import type { AgentTool, AgentToolResult } from "xpi-agent-core";
+import { fauxAssistantMessage, fauxToolCall } from "xpi-ai";
 import {
 	AgentSessionRuntime,
 	type AgentSessionServices,

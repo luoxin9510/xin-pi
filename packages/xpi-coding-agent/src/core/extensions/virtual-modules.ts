@@ -1,11 +1,11 @@
+import * as bundledTypebox from "typebox";
+import * as bundledTypeboxCompile from "typebox/compile";
+import * as bundledTypeboxValue from "typebox/value";
 import * as bundledPiAgentCore from "xpi-agent-core";
 import * as bundledPiAiModels from "xpi-ai/models";
 import * as bundledPiAiOauth from "xpi-ai/oauth";
 import * as bundledPiAiProviders from "xpi-ai/providers/all";
 import * as bundledPiTui from "xpi-tui";
-import * as bundledTypebox from "typebox";
-import * as bundledTypeboxCompile from "typebox/compile";
-import * as bundledTypeboxValue from "typebox/value";
 // This import is safe because loader.ts exports are not re-exported from index.ts.
 // Extensions can therefore import from xpi-coding-agent.
 import * as bundledPiCodingAgent from "../../index.ts";

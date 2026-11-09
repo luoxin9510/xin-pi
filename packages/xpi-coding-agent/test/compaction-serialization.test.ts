@@ -1,5 +1,5 @@
-import type { Message } from "xpi-ai";
 import { describe, expect, it } from "vitest";
+import type { Message } from "xpi-ai";
 import { serializeConversation } from "../src/core/compaction/utils.ts";
 
 describe("serializeConversation", () => {

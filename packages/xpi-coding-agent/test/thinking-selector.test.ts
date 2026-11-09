@@ -1,5 +1,5 @@
-import { setKeybindings } from "xpi-tui";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { setKeybindings } from "xpi-tui";
 import { KeybindingsManager } from "../src/core/keybindings.ts";
 import { ThinkingSelectorComponent } from "../src/modes/interactive/components/thinking-selector.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";

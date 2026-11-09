@@ -7,6 +7,8 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import chalk from "chalk";
+import { spawn } from "child_process";
 import type { AgentMessage, ThinkingLevel } from "xpi-agent-core";
 import type { AuthEvent, AuthPrompt } from "xpi-ai";
 import {
@@ -53,8 +55,6 @@ import {
 	type TuiMouseEventResult,
 	visibleWidth,
 } from "xpi-tui";
-import chalk from "chalk";
-import { spawn } from "child_process";
 import {
 	APP_NAME,
 	APP_TITLE,

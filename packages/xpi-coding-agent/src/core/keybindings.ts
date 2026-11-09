@@ -1,3 +1,6 @@
+import { existsSync, readFileSync } from "fs";
+import { join } from "path";
+import { Compile } from "typebox/compile";
 import {
 	type Keybinding,
 	type KeybindingDefinitions,
@@ -6,9 +9,6 @@ import {
 	TUI_KEYBINDINGS,
 	KeybindingsManager as TuiKeybindingsManager,
 } from "xpi-tui";
-import { existsSync, readFileSync } from "fs";
-import { join } from "path";
-import { Compile } from "typebox/compile";
 import { getAgentDir } from "../config.ts";
 import { stripBom } from "../utils/text.ts";
 import { KeybindingValueSchema } from "./key-id-schema.ts";

@@ -1,5 +1,5 @@
-import { fauxAssistantMessage } from "xpi-ai";
 import { afterEach, describe, expect, it } from "vitest";
+import { fauxAssistantMessage } from "xpi-ai";
 import { createHarness, type Harness } from "../harness.ts";
 
 // Regression for #11451: tree navigation can leave the latest thinking_level_change on another branch.

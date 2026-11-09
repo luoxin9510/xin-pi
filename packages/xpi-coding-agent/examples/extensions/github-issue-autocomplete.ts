@@ -2,12 +2,7 @@
 // Preloads the latest open issues once per session, then filters them locally for fast `#...` completion.
 
 import type { ExtensionAPI } from "xpi-coding-agent";
-import {
-	type AutocompleteItem,
-	type AutocompleteProvider,
-	type AutocompleteSuggestions,
-	fuzzyFilter,
-} from "xpi-tui";
+import { type AutocompleteItem, type AutocompleteProvider, type AutocompleteSuggestions, fuzzyFilter } from "xpi-tui";
 
 type GitHubIssue = {
 	number: number;

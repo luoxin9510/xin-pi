@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished } from "vitest";
 import {
 	type AssistantMessage,
 	fauxAssistantMessage,
@@ -9,7 +10,6 @@ import {
 	InMemoryModelsStore,
 	type Model,
 } from "xpi-ai";
-import { afterEach, beforeEach, describe, expect, it, onTestFinished } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { ModelRuntime } from "../src/core/model-runtime.ts";
 import { createAgentSession } from "../src/core/sdk.ts";

@@ -1,5 +1,5 @@
-import type { AssistantMessage, ToolResultMessage } from "xpi-ai";
 import { describe, expect, it } from "vitest";
+import type { AssistantMessage, ToolResultMessage } from "xpi-ai";
 import {
 	DEFAULT_COMPACTION_SETTINGS,
 	estimateProjectedContextTokens,

@@ -1,8 +1,8 @@
+import { Type } from "typebox";
+import { afterEach, describe, expect, it } from "vitest";
 import type { AgentTool } from "xpi-agent-core";
 import { fauxAssistantMessage, fauxToolCall } from "xpi-ai";
 import type { ExtensionAPI, InputEvent } from "xpi-coding-agent";
-import { Type } from "typebox";
-import { afterEach, describe, expect, it } from "vitest";
 import { createHarness, getAssistantTexts, getMessageText, getUserTexts, type Harness } from "./harness.ts";
 
 // Image processing omits images it cannot decode, so the fixture must be a real PNG.

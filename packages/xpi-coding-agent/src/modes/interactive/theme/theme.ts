@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import chalk from "chalk";
 import type { ThinkingLevel } from "xpi-agent-core";
 import {
 	backgroundAnsi,
@@ -22,7 +23,6 @@ import {
 	type TerminalColors,
 	type TextAttributes,
 } from "xpi-tui";
-import chalk from "chalk";
 import { getCustomThemesDir, getThemesDir } from "../../../config.ts";
 import type { SourceInfo } from "../../../core/source-info.ts";
 import { closeWatcher, watchWithErrorHandler } from "../../../utils/fs-watch.ts";

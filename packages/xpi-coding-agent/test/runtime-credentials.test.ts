@@ -1,5 +1,5 @@
-import type { CredentialStore } from "xpi-ai";
 import { describe, expect, test, vi } from "vitest";
+import type { CredentialStore } from "xpi-ai";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { RuntimeCredentials } from "../src/core/runtime-credentials.ts";
 

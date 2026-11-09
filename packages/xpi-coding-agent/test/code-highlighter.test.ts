@@ -1,5 +1,5 @@
-import type { TUI } from "xpi-tui";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { TUI } from "xpi-tui";
 import { writeRenderers } from "../src/core/tools/renderers/write.ts";
 import { codemodeRenderers } from "../src/extensions/codemode/renderer.ts";
 import { ToolExecutionComponent } from "../src/modes/interactive/components/tool-execution.ts";

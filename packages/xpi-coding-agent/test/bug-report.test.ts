@@ -1,12 +1,5 @@
-import {
-	Container,
-	Editor,
-	getKeybindings,
-	setKeybindings,
-	stripTerminalSequences,
-	TuiMainScreen,
-} from "xpi-tui";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import { Container, Editor, getKeybindings, setKeybindings, stripTerminalSequences, TuiMainScreen } from "xpi-tui";
 import { VirtualTerminal } from "../../xpi-tui/test/virtual-terminal.ts";
 import type { AgentSession } from "../src/core/agent-session.ts";
 import { redactJsonValue, redactUrl } from "../src/core/bug-report.ts";

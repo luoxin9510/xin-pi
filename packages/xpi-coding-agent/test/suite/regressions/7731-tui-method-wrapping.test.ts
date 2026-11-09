@@ -1,5 +1,5 @@
-import type { TUI } from "xpi-tui";
 import { describe, expect, it, vi } from "vitest";
+import type { TUI } from "xpi-tui";
 import { createInteractiveTuiReference } from "../../../src/modes/interactive/interactive-mode.ts";
 
 describe("TUI method wrapping", () => {

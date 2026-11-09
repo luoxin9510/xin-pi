@@ -1,8 +1,8 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Api, Model } from "xpi-ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Api, Model } from "xpi-ai";
 
 vi.mock("../src/utils/image-resize.js", () => ({
 	resizeImage: vi.fn(),

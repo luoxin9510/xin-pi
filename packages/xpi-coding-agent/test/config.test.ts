@@ -219,15 +219,7 @@ describe("detectInstallMethod", () => {
 		expect(detectInstallMethod()).toBe("npm");
 		expect(command).toEqual({
 			command: "npm",
-			args: [
-				"--prefix",
-				prefix,
-				"install",
-				"-g",
-				"--ignore-scripts",
-				"--min-release-age=0",
-				"xpi-coding-agent",
-			],
+			args: ["--prefix", prefix, "install", "-g", "--ignore-scripts", "--min-release-age=0", "xpi-coding-agent"],
 			display: `npm --prefix ${prefix} install -g --ignore-scripts --min-release-age=0 xpi-coding-agent`,
 		});
 	});
@@ -286,15 +278,7 @@ describe("detectInstallMethod", () => {
 
 		expect(command).toEqual({
 			command: "npm",
-			args: [
-				"--prefix",
-				prefix,
-				"install",
-				"-g",
-				"--ignore-scripts",
-				"--min-release-age=0",
-				"xpi-coding-agent",
-			],
+			args: ["--prefix", prefix, "install", "-g", "--ignore-scripts", "--min-release-age=0", "xpi-coding-agent"],
 			display: `npm --prefix ${prefix} install -g --ignore-scripts --min-release-age=0 xpi-coding-agent`,
 		});
 	});
@@ -474,9 +458,7 @@ describe("detectInstallMethod", () => {
 		chmodSync(packageDir, 0o500);
 
 		expect(getSelfUpdateCommand("xpi-coding-agent")).toBeUndefined();
-		expect(getSelfUpdateUnavailableInstruction("xpi-coding-agent")).toContain(
-			"the install path is not writable",
-		);
+		expect(getSelfUpdateUnavailableInstruction("xpi-coding-agent")).toContain("the install path is not writable");
 	});
 });
 
@@ -529,16 +511,8 @@ describe("configured self-update command", () => {
 
 		expect(command).toEqual({
 			command: "wrapper",
-			args: [
-				"install",
-				"xpi-coding-agent@1.2.3",
-				"--name=xpi-coding-agent",
-				"--version",
-				"1.2.3",
-				"{unknown}",
-			],
-			display:
-				"wrapper install xpi-coding-agent@1.2.3 --name=xpi-coding-agent --version 1.2.3 {unknown}",
+			args: ["install", "xpi-coding-agent@1.2.3", "--name=xpi-coding-agent", "--version", "1.2.3", "{unknown}"],
+			display: "wrapper install xpi-coding-agent@1.2.3 --name=xpi-coding-agent --version 1.2.3 {unknown}",
 		});
 	});
 });

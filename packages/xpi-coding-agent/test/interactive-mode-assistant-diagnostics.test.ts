@@ -1,6 +1,6 @@
+import { describe, expect, test } from "vitest";
 import type { AssistantMessage } from "xpi-ai";
 import { Container } from "xpi-tui";
-import { describe, expect, test } from "vitest";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";

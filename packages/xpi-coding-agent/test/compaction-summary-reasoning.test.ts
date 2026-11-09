@@ -1,6 +1,6 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentMessage } from "xpi-agent-core";
 import { type AssistantMessage, type Model, normalizeContext, type TranscriptContext } from "xpi-ai";
-import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	type CompactionPreparation,
 	compact,

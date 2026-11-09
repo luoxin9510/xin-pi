@@ -1,8 +1,8 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resetCapabilitiesCache, setCapabilityOverrides } from "xpi-tui";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resetCapabilitiesCache, setCapabilityOverrides } from "xpi-tui";
 import { DefaultResourceLoader } from "../src/core/resource-loader.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
 import { setThemeJsonValidator } from "../src/modes/interactive/theme/theme.ts";

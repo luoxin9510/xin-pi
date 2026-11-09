@@ -1,5 +1,5 @@
-import type { TerminalColors, TUI } from "xpi-tui";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { TerminalColors, TUI } from "xpi-tui";
 import { SettingsManager } from "../src/core/settings-manager.ts";
 import {
 	initTheme,

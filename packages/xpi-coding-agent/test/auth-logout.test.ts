@@ -1,5 +1,5 @@
-import { type Credential, InMemoryModelsStore } from "xpi-ai";
 import { describe, expect, test, vi } from "vitest";
+import { type Credential, InMemoryModelsStore } from "xpi-ai";
 import { runAuthLogout } from "../src/cli/auth-logout.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { CredentialSynchronizationError, ModelRuntime } from "../src/core/model-runtime.ts";

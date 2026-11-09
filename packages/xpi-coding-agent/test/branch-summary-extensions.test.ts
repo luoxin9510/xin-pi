@@ -1,5 +1,5 @@
-import type { Usage } from "xpi-ai/compat";
 import { afterEach, describe, expect, it } from "vitest";
+import type { Usage } from "xpi-ai/compat";
 import { createHarness, type Harness } from "./suite/harness.ts";
 import { assistantMsg, userMsg } from "./utilities.ts";
 

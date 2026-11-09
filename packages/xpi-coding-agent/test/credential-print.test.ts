@@ -1,5 +1,5 @@
-import { InMemoryModelsStore } from "xpi-ai";
 import { describe, expect, test, vi } from "vitest";
+import { InMemoryModelsStore } from "xpi-ai";
 import { parseArgs } from "../src/cli/args.ts";
 import { AuthCommandError, isAuthCommandHelp, parseAuthCommand } from "../src/cli/auth-command.ts";
 import { resolveCredentialForPrint } from "../src/cli/credential-print.ts";

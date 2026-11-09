@@ -27,9 +27,9 @@
  */
 
 import { join, resolve } from "node:path";
+import type { TSchema } from "typebox";
 import { createMcpToolName, mcpNamespace } from "xpi-mcp";
 import type { SelectItem } from "xpi-tui";
-import type { TSchema } from "typebox";
 import { getAgentDir } from "../../config.ts";
 import type {
 	ExtensionAPI,

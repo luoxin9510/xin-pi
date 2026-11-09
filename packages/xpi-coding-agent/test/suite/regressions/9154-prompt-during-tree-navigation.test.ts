@@ -1,5 +1,5 @@
-import { fauxAssistantMessage } from "xpi-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { fauxAssistantMessage } from "xpi-ai";
 import { assistantMsg, userMsg } from "../../utilities.ts";
 import { createHarness, getMessageText, getUserTexts, type Harness } from "../harness.ts";
 

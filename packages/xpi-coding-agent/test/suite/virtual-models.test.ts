@@ -1,7 +1,7 @@
-import type { AgentTool } from "xpi-agent-core";
-import { type FauxResponseStep, fauxAssistantMessage, fauxToolCall } from "xpi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { AgentTool } from "xpi-agent-core";
+import { type FauxResponseStep, fauxAssistantMessage, fauxToolCall } from "xpi-ai";
 import type { ExtensionContext } from "../../src/core/extensions/index.ts";
 import { type ModelRoute, type ModelRouteRequest, VIRTUAL_MODEL_STATE_ENTRY } from "../../src/core/virtual-models.ts";
 import { createHarness, type Harness, type HarnessOptions } from "./harness.ts";

@@ -43,10 +43,7 @@ describe("DefaultResourceLoader", () => {
 		it("should not treat a project manifest as the owner of a project extension", async () => {
 			const extensionsDir = join(cwd, ".pi", "extensions");
 			mkdirSync(extensionsDir, { recursive: true });
-			writeFileSync(
-				join(cwd, "package.json"),
-				JSON.stringify({ dependencies: { "xpi-coding-agent": "1.0.0" } }),
-			);
+			writeFileSync(join(cwd, "package.json"), JSON.stringify({ dependencies: { "xpi-coding-agent": "1.0.0" } }));
 			writeFileSync(join(extensionsDir, "project-extension.ts"), "export default function() {}");
 
 			const loader = new DefaultResourceLoader({ cwd, agentDir });

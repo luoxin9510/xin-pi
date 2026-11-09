@@ -1,5 +1,5 @@
-import { visibleWidth } from "xpi-tui";
 import { beforeAll, describe, expect, it } from "vitest";
+import { visibleWidth } from "xpi-tui";
 import type { AgentSession } from "../src/core/agent-session.ts";
 import type { ReadonlyFooterDataProvider } from "../src/core/footer-data-provider.ts";
 import { FooterComponent, formatCwdForFooter } from "../src/modes/interactive/components/footer.ts";

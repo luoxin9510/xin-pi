@@ -1,9 +1,9 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type CredentialStore, createModels, type Provider } from "xpi-ai";
 import lockfile from "proper-lockfile";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { type CredentialStore, createModels, type Provider } from "xpi-ai";
 import { AuthStorage, FileAuthStorageBackend } from "../src/core/auth-storage.ts";
 
 describe("AuthStorage", () => {

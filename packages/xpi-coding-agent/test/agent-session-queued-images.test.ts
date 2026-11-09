@@ -1,6 +1,6 @@
 import { deflateSync } from "node:zlib";
-import type { ImageContent, TextContent } from "xpi-ai";
 import { afterEach, describe, expect, it } from "vitest";
+import type { ImageContent, TextContent } from "xpi-ai";
 import { createHarness, type Harness } from "./test-harness.ts";
 
 function crc32(data: Buffer): number {

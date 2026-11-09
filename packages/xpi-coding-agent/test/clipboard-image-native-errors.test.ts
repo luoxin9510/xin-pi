@@ -1,5 +1,5 @@
-import type * as Tui from "xpi-tui";
 import { afterEach, expect, test, vi } from "vitest";
+import type * as Tui from "xpi-tui";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 
 const readClipboardText = vi.hoisted(() => vi.fn<() => Promise<string | null>>());

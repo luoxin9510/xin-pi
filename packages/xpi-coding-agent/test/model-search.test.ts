@@ -1,5 +1,5 @@
-import { fuzzyFilter } from "xpi-tui";
 import { describe, expect, it } from "vitest";
+import { fuzzyFilter } from "xpi-tui";
 import { getDistinctModelName, getModelSelectorSearchText } from "../src/modes/interactive/model-search.ts";
 
 // #5916

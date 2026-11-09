@@ -15,6 +15,10 @@
  */
 
 import { mkdtemp, writeFile } from "node:fs/promises";
+import { execSync } from "child_process";
+import { tmpdir } from "os";
+import { join } from "path";
+import { Type } from "typebox";
 import type { ExtensionAPI } from "xpi-coding-agent";
 import {
 	DEFAULT_MAX_BYTES,
@@ -25,10 +29,6 @@ import {
 	withFileMutationQueue,
 } from "xpi-coding-agent";
 import { Text } from "xpi-tui";
-import { execSync } from "child_process";
-import { tmpdir } from "os";
-import { join } from "path";
-import { Type } from "typebox";
 
 const RgParams = Type.Object({
 	pattern: Type.String({ description: "Search pattern (regex)" }),

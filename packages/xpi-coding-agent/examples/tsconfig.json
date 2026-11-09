@@ -83,12 +83,6 @@
 			"xpi-tui/*": [
 				"../../../packages/xpi-tui/src/*"
 			],
-			"@earendil-works/pi-agent-old": [
-				"../../../packages/agent-old/src/index.ts"
-			],
-			"@earendil-works/pi-agent-old/*": [
-				"../../../packages/agent-old/src/*"
-			],
 			"@mariozechner/pi-ai": [
 				"../../../packages/xpi-coding-agent/src/core/extensions/pi-ai-extension-view.ts"
 			]

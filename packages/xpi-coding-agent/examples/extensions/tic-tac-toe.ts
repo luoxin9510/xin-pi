@@ -17,10 +17,10 @@
  * separate variables. Only the agent cursor is ever exposed to the agent.
  */
 
+import { Type } from "typebox";
 import { StringEnum } from "xpi-ai";
 import type { ExtensionAPI, ExtensionContext, Theme, ToolExecutionMode } from "xpi-coding-agent";
 import { type Component, matchesKey, Text, truncateToWidth, visibleWidth } from "xpi-tui";
-import { Type } from "typebox";
 
 // Thrown from the tool on illegal actions. The agent runtime surfaces thrown
 // errors as tool errors (isError=true) without resetting any of our state.

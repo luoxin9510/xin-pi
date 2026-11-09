@@ -1,5 +1,5 @@
-import { type Component, setKeybindings, type TUI } from "xpi-tui";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { type Component, setKeybindings, type TUI } from "xpi-tui";
 import type { ExtensionCommandContext } from "../src/core/extensions/types.ts";
 import { KeybindingsManager } from "../src/core/keybindings.ts";
 import type { HuggingFaceModel } from "../src/extensions/llama/huggingface.ts";

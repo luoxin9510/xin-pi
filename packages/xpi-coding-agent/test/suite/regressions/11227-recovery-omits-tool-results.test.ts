@@ -1,5 +1,5 @@
-import { type AssistantMessage, fauxAssistantMessage, fauxToolCall, type Message } from "xpi-ai";
 import { afterEach, describe, expect, it } from "vitest";
+import { type AssistantMessage, fauxAssistantMessage, fauxToolCall, type Message } from "xpi-ai";
 import { createHarness, type Harness } from "../harness.ts";
 
 // https://github.com/earendil-works/pi/issues/11227

@@ -1,6 +1,6 @@
+import { expect, it } from "vitest";
 import { type AssistantMessage, fauxAssistantMessage, fauxProvider } from "xpi-ai";
 import { getApiProvider } from "xpi-ai/compat";
-import { expect, it } from "vitest";
 import { createHarness } from "../harness.ts";
 
 // Regression for #8964: extensions can stream responses from providers registered with pi.registerProvider().

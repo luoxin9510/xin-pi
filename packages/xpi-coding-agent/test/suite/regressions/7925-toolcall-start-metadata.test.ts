@@ -1,5 +1,5 @@
-import { fauxAssistantMessage, fauxToolCall } from "xpi-ai";
 import { afterEach, describe, expect, it } from "vitest";
+import { fauxAssistantMessage, fauxToolCall } from "xpi-ai";
 import { toJsonEvent } from "../../../src/modes/json-event.ts";
 import { createHarness, type Harness } from "../harness.ts";
 

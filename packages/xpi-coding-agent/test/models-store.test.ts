@@ -1,9 +1,9 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Model } from "xpi-ai";
 import lockfile from "proper-lockfile";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import type { Model } from "xpi-ai";
 import { FileModelsStore } from "../src/core/models-store.ts";
 
 const sharedTempDir = join(tmpdir(), `pi-models-store-shared-${Date.now()}-${Math.random().toString(36).slice(2)}`);

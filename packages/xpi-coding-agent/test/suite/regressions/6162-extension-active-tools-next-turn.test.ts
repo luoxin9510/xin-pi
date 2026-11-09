@@ -1,3 +1,5 @@
+import { Type } from "typebox";
+import { describe, expect, it } from "vitest";
 import {
 	fauxAssistantMessage,
 	fauxToolCall,
@@ -5,8 +7,6 @@ import {
 	getCurrentTools,
 	type TranscriptContext,
 } from "xpi-ai";
-import { Type } from "typebox";
-import { describe, expect, it } from "vitest";
 import type { ExtensionAPI, ExtensionFactory } from "../../../src/index.ts";
 import { createHarness } from "../harness.ts";
 

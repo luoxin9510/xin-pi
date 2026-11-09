@@ -1,5 +1,5 @@
-import { type AuthType, type CredentialStore, InMemoryCredentialStore } from "xpi-ai";
 import { describe, expect, it } from "vitest";
+import { type AuthType, type CredentialStore, InMemoryCredentialStore } from "xpi-ai";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { ModelRuntime } from "../src/core/model-runtime.ts";
 

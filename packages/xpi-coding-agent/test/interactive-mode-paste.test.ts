@@ -1,3 +1,4 @@
+import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import {
 	type Component,
 	Container,
@@ -8,7 +9,6 @@ import {
 	type TUI,
 	TuiMainScreen,
 } from "xpi-tui";
-import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { VirtualTerminal } from "../../xpi-tui/test/virtual-terminal.ts";
 import type { EditorFactory } from "../src/core/extensions/types.ts";
 import { KeybindingsManager } from "../src/core/keybindings.ts";

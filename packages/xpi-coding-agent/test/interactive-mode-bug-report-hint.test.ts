@@ -1,5 +1,5 @@
-import { type AssistantMessage, fauxAssistantMessage } from "xpi-ai";
 import { describe, expect, test, vi } from "vitest";
+import { type AssistantMessage, fauxAssistantMessage } from "xpi-ai";
 import { formatCrashExtensionHint, InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 
 type BugReportHintContext = {

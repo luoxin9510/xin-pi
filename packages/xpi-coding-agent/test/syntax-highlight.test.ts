@@ -1,5 +1,5 @@
-import { resetCapabilitiesCache, setCapabilities } from "xpi-tui";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { resetCapabilitiesCache, setCapabilities } from "xpi-tui";
 import {
 	getLanguageFromPath,
 	getMarkdownTheme,

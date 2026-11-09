@@ -1,8 +1,9 @@
 // Issue #4748: extensions that import keyText/keyHint can resolve their own package copy, which does not see the
 // host's keybindings. The host passes its own keyText/keyHint to renderers instead.
-import { setKeybindings, Text, type TUI } from "xpi-tui";
+
 import { Type } from "typebox";
 import { beforeAll, describe, expect, test } from "vitest";
+import { setKeybindings, Text, type TUI } from "xpi-tui";
 import type { KeybindingHints, ToolDefinition } from "../src/core/extensions/types.ts";
 import { KeybindingsManager } from "../src/core/keybindings.ts";
 import type { CustomMessage } from "../src/core/messages.ts";

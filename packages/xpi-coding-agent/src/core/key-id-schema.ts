@@ -1,5 +1,5 @@
-import { Key, type KeyId } from "xpi-tui";
 import { type TSchemaOptions, Type } from "typebox";
+import { Key, type KeyId } from "xpi-tui";
 
 const modifiers = ["ctrl", "shift", "alt", "super"] as const;
 const baseKeyPattern = `(?:[a-z0-9]|${Object.values(Key)

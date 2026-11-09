@@ -3,10 +3,10 @@
  * Validates that the faux provider and session factory work correctly.
  */
 
-import type { AgentTool } from "xpi-agent-core";
-import type { AssistantMessage } from "xpi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
+import type { AgentTool } from "xpi-agent-core";
+import type { AssistantMessage } from "xpi-ai";
 import { createHarness, createHarnessWithExtensions, type Harness } from "./test-harness.ts";
 
 describe("test harness", () => {

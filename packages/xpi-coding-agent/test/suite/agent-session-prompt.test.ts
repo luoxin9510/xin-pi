@@ -1,16 +1,10 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentTool } from "xpi-agent-core";
-import {
-	fauxAssistantMessage,
-	fauxToolCall,
-	getCurrentSystemPrompt,
-	type Model,
-	type TranscriptContext,
-} from "xpi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { AgentTool } from "xpi-agent-core";
+import { fauxAssistantMessage, fauxToolCall, getCurrentSystemPrompt, type Model, type TranscriptContext } from "xpi-ai";
 import type { BeforeAgentStartEvent, ExtensionAPI, InputEvent } from "../../src/core/extensions/index.ts";
 import type { PromptTemplate } from "../../src/core/prompt-templates.ts";
 import { createSyntheticSourceInfo } from "../../src/core/source-info.ts";

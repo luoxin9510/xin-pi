@@ -1,6 +1,6 @@
-import { type Component, TuiMainScreen } from "xpi-tui";
 import { Type } from "typebox";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { type Component, TuiMainScreen } from "xpi-tui";
 import { VirtualTerminal } from "../../xpi-tui/test/virtual-terminal.ts";
 import type { ToolDefinition } from "../src/core/extensions/types.ts";
 import { createEditToolDefinition } from "../src/core/tools/edit.ts";

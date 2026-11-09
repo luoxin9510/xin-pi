@@ -11,8 +11,8 @@
 	],
 	"scripts": {
 		"clean": "npm run clean --workspaces --if-present",
-		"build": "cd packages/xpi-telemetry && npm run build && cd ../schema && npm run build && cd ../tui && npm run build && cd ../codemode && npm run build && cd ../mcp && npm run build && cd ../ai && npm run build && cd ../agent && npm run build && cd ../coding-agent && npm run build",
-		"build:offline": "cd packages/xpi-telemetry && npm run build && cd ../schema && npm run build && cd ../tui && npm run build && cd ../codemode && npm run build && cd ../mcp && npm run build && cd ../ai && npm run build:offline && cd ../agent && npm run build && cd ../coding-agent && npm run build",
+		"build": "cd packages/xpi-telemetry && npm run build && cd ../xpi-schema && npm run build && cd ../xpi-tui && npm run build && cd ../xpi-codemode && npm run build && cd ../xpi-mcp && npm run build && cd ../xpi-ai && npm run build && cd ../xpi-agent-core && npm run build && cd ../xpi-coding-agent && npm run build",
+		"build:offline": "cd packages/xpi-telemetry && npm run build && cd ../xpi-schema && npm run build && cd ../xpi-tui && npm run build && cd ../xpi-codemode && npm run build && cd ../xpi-mcp && npm run build && cd ../xpi-ai && npm run build:offline && cd ../xpi-agent-core && npm run build && cd ../xpi-coding-agent && npm run build",
 		"build:native:darwin": "npm --prefix packages/xpi-tui run build:native:darwin",
 		"build:native:linux": "npm --prefix packages/xpi-tui run build:native:linux",
 		"build:native:win32": "npm --prefix packages/xpi-tui run build:native:win32",

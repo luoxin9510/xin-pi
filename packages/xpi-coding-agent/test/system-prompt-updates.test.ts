@@ -1,6 +1,8 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Type } from "typebox";
+import { describe, expect, test } from "vitest";
 import type { AgentTool } from "xpi-agent-core";
 import {
 	fauxAssistantMessage,
@@ -11,8 +13,6 @@ import {
 	type TranscriptContext,
 } from "xpi-ai";
 import { getModel } from "xpi-ai/compat";
-import { Type } from "typebox";
-import { describe, expect, test } from "vitest";
 import { createAgentSession } from "../src/core/sdk.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";

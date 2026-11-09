@@ -1,5 +1,5 @@
-import { Container } from "xpi-tui";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import { Container } from "xpi-tui";
 import type { AgentSessionRuntimeDiagnostic } from "../../../src/core/agent-session-services.ts";
 import { InteractiveMode } from "../../../src/modes/interactive/interactive-mode.ts";
 import { initTheme } from "../../../src/modes/interactive/theme/theme.ts";

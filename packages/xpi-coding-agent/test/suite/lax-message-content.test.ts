@@ -7,10 +7,10 @@
  * (issues #6259, #6276).
  */
 
-import type { AgentMessage, AgentToolResult } from "xpi-agent-core";
-import { fauxAssistantMessage, fauxToolCall } from "xpi-ai";
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
+import type { AgentMessage, AgentToolResult } from "xpi-agent-core";
+import { fauxAssistantMessage, fauxToolCall } from "xpi-ai";
 import { type SessionEntry, sessionEntryToContextMessages } from "../../src/core/session-manager.ts";
 import type { ExtensionFactory } from "../../src/index.ts";
 import { createHarness } from "./harness.ts";

@@ -1,8 +1,8 @@
+import { Type } from "typebox";
+import { afterEach, describe, expect, it } from "vitest";
 import type { AgentTool } from "xpi-agent-core";
 import { fauxAssistantMessage, fauxToolCall } from "xpi-ai";
 import type { ExtensionAPI } from "xpi-coding-agent";
-import { Type } from "typebox";
-import { afterEach, describe, expect, it } from "vitest";
 import { createHarness, getAssistantTexts, getUserTexts, type Harness } from "../harness.ts";
 
 describe("issue #2023 queued slash-command follow-up", () => {

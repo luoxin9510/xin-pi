@@ -1,6 +1,6 @@
-import type { AgentState } from "xpi-agent-core";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { basename, join } from "path";
+import type { AgentState } from "xpi-agent-core";
 import { APP_NAME, getExportTemplateDir } from "../../config.ts";
 import { getResolvedThemeColors, getThemeExportColors } from "../../modes/interactive/theme/theme.ts";
 import { normalizePath, resolvePath } from "../../utils/paths.ts";

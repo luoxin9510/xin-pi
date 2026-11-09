@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import { renderToolOutputType } from "xpi-codemode/declarations";
 import {
 	createMcpToolName,
@@ -13,7 +14,6 @@ import {
 	McpSessionExpiredError,
 } from "xpi-mcp";
 import { createInMemoryTransportPair, type InMemoryTransport } from "xpi-mcp/testing";
-import { afterEach, describe, expect, it } from "vitest";
 import { InMemoryAuthStorageBackend } from "../src/core/auth-storage.ts";
 import {
 	addMcpServerConfig,

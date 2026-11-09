@@ -20,7 +20,7 @@ test("rejects internal and external registry dependency ranges in every direct d
 	const result = await check(t, {
 		dependencies: {
 			"xpi-codemode": "^1.2.0",
-			"@earendil-works/chord": "~1.2.0",
+			"@example/chord": "~1.2.0",
 			external: "^1.0.0",
 		},
 		devDependencies: { "xpi-ai": "1.x" },
@@ -29,7 +29,7 @@ test("rejects internal and external registry dependency ranges in every direct d
 	assert.equal(result.status, 1);
 	for (const dependency of [
 		"dependencies.xpi-codemode",
-		"dependencies.@earendil-works/chord",
+		"dependencies.@example/chord",
 		"dependencies.external",
 		"devDependencies.xpi-ai",
 		"optionalDependencies.xpi-tui",
@@ -42,7 +42,7 @@ test("accepts exact internal and external versions, exact registry aliases, and 
 	const result = await check(t, {
 		dependencies: {
 			"xpi-codemode": "1.2.0",
-			"@earendil-works/chord": "1.2.0",
+			"@example/chord": "1.2.0",
 			external: "1.0.0",
 			alias: "npm:xpi-ai@1.1.0",
 			local: "file:../local",

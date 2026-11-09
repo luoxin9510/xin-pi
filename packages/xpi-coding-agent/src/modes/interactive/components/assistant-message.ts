@@ -1,13 +1,5 @@
 import type { AssistantMessage } from "xpi-ai";
-import {
-	type Component,
-	Container,
-	Markdown,
-	type MarkdownTheme,
-	MouseRegion,
-	Spacer,
-	Text,
-} from "xpi-tui";
+import { type Component, Container, Markdown, type MarkdownTheme, MouseRegion, Spacer, Text } from "xpi-tui";
 import type { MarkdownTransformer } from "../../../core/extensions/types.ts";
 import { getMarkdownTheme, theme } from "../theme/theme.ts";
 import { createMarkdownTransform } from "./markdown-transform.ts";

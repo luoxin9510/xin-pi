@@ -4,12 +4,7 @@
  * Shows how to replace or modify the default system prompt.
  */
 
-import {
-	createAgentSession,
-	DefaultResourceLoader,
-	getAgentDir,
-	SessionManager,
-} from "xpi-coding-agent";
+import { createAgentSession, DefaultResourceLoader, getAgentDir, SessionManager } from "xpi-coding-agent";
 
 const cwd = process.cwd();
 const agentDir = getAgentDir();

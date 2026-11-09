@@ -1,9 +1,9 @@
-import type { AgentMessage } from "xpi-agent-core";
-import type { AssistantMessage, Usage } from "xpi-ai/compat";
-import { getModel } from "xpi-ai/compat";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { beforeEach, describe, expect, it } from "vitest";
+import type { AgentMessage } from "xpi-agent-core";
+import type { AssistantMessage, Usage } from "xpi-ai/compat";
+import { getModel } from "xpi-ai/compat";
 import {
 	type CompactionSettings,
 	calculateContextTokens,

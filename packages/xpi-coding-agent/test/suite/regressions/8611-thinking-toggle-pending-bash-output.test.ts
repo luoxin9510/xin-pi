@@ -1,5 +1,5 @@
-import { Container, type TUI } from "xpi-tui";
 import { beforeAll, describe, expect, test, vi } from "vitest";
+import { Container, type TUI } from "xpi-tui";
 import { ToolExecutionComponent } from "../../../src/modes/interactive/components/tool-execution.ts";
 import { InteractiveMode } from "../../../src/modes/interactive/interactive-mode.ts";
 import { initTheme } from "../../../src/modes/interactive/theme/theme.ts";

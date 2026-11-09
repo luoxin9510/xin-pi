@@ -1,6 +1,6 @@
 import { getHeapStatistics } from "node:v8";
-import { InMemoryTelemetryContext, type TelemetrySpan } from "xpi-telemetry";
 import { describe, expect, it, vi } from "vitest";
+import { InMemoryTelemetryContext, type TelemetrySpan } from "xpi-telemetry";
 import { lazyStream } from "../src/api/lazy.ts";
 import { AI_TELEMETRY_SCHEMA, createModels, createProvider } from "../src/models.ts";
 import { observeModelRequest } from "../src/telemetry.ts";

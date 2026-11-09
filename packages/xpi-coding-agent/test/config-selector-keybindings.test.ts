@@ -1,8 +1,8 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getKeybindings, setKeybindings } from "xpi-tui";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { getKeybindings, setKeybindings } from "xpi-tui";
 
 vi.mock("xpi-tui", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("xpi-tui")>();

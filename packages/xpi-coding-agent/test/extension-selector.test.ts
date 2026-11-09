@@ -1,5 +1,5 @@
-import { setKeybindings } from "xpi-tui";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { setKeybindings } from "xpi-tui";
 import { KeybindingsManager } from "../src/core/keybindings.ts";
 import { ExtensionSelectorComponent } from "../src/modes/interactive/components/extension-selector.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";

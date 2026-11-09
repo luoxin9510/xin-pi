@@ -1,7 +1,7 @@
 import { join, resolve } from "node:path";
-import { resetCapabilitiesCache, setCapabilities, Text, type TUI, type TuiMouseEvent } from "xpi-tui";
 import { Type } from "typebox";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
+import { resetCapabilitiesCache, setCapabilities, Text, type TUI, type TuiMouseEvent } from "xpi-tui";
 
 import { getReadmePath } from "../src/config.ts";
 import type { ToolDefinition } from "../src/core/extensions/types.ts";

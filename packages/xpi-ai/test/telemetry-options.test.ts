@@ -1,5 +1,5 @@
-import { NOOP_TELEMETRY_CONTEXT, type TelemetrySpan } from "xpi-telemetry";
 import { describe, expect, it } from "vitest";
+import { NOOP_TELEMETRY_CONTEXT, type TelemetrySpan } from "xpi-telemetry";
 import { buildBaseOptions } from "../src/api/simple-options.ts";
 import { generateImages } from "../src/images.ts";
 import { registerImagesApiProvider } from "../src/images-api-registry.ts";

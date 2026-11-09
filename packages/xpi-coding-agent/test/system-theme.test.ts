@@ -1,5 +1,5 @@
-import { colorToOklch, colorToRgb, parseColor, type RgbColor, rgbColor } from "xpi-tui";
 import { afterEach, describe, expect, it } from "vitest";
+import { colorToOklch, colorToRgb, parseColor, type RgbColor, rgbColor } from "xpi-tui";
 import {
 	generateSystemThemeColors,
 	type SystemThemeInput,

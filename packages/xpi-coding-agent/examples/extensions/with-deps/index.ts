@@ -5,9 +5,9 @@
  * Requires: npm install in this directory
  */
 
-import type { ExtensionAPI } from "xpi-coding-agent";
 import ms from "ms";
 import { Type } from "typebox";
+import type { ExtensionAPI } from "xpi-coding-agent";
 
 export default function (pi: ExtensionAPI) {
 	// Register a tool that uses ms

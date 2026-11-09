@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
-import { getSystemMessageText, renderSystemMessageUpdate, type SystemMessage } from "xpi-ai";
 import { describe, expect, it } from "vitest";
+import { getSystemMessageText, renderSystemMessageUpdate, type SystemMessage } from "xpi-ai";
 
 interface SystemHelpers {
 	getSystemMessageText(message: SystemMessage): string;

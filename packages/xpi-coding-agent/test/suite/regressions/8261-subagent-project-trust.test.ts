@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { fauxAssistantMessage, fauxToolCall } from "xpi-ai";
 import { describe, expect, it, vi } from "vitest";
+import { fauxAssistantMessage, fauxToolCall } from "xpi-ai";
 import subagentExtension from "../../../examples/extensions/subagent/index.ts";
 import type { ExtensionUIContext } from "../../../src/core/extensions/index.ts";
 import { createHarness, getMessageText } from "../harness.ts";

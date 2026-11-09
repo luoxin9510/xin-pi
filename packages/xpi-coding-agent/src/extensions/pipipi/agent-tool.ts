@@ -1,7 +1,7 @@
 // The `Agent` tool (spec 7): discovery -> resolve -> concurrency slot -> run.
 
-import { type JsonValue, StringEnum } from "xpi-ai";
 import { type Static, Type } from "typebox";
+import { type JsonValue, StringEnum } from "xpi-ai";
 import type { ExtensionContext } from "../../core/extensions/types.ts";
 import { scripts } from "./background.ts";
 import type { Config } from "./config.ts";

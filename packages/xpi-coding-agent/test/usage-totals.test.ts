@@ -1,5 +1,5 @@
-import type { Usage } from "xpi-ai/compat";
 import { describe, expect, it } from "vitest";
+import type { Usage } from "xpi-ai/compat";
 import { combineUsage } from "../src/core/usage-totals.ts";
 
 function usage(total: number, totalFromProvider?: boolean): Usage {

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import type * as OsModule from "node:os";
-import type { NativeClipboard } from "xpi-tui";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import type { NativeClipboard } from "xpi-tui";
 import { copyToClipboard, readClipboardText } from "../src/utils/clipboard.ts";
 
 const mocks = vi.hoisted(() => ({

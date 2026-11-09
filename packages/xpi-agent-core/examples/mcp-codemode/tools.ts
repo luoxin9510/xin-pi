@@ -11,12 +11,7 @@ import {
 	runToolCall,
 } from "xpi-agent-core";
 import type { ImageContent, JsonObject, JsonValue, TextContent } from "xpi-ai";
-import {
-	type CodemodeJsonSchema,
-	CodemodeSandbox,
-	type CodemodeTool,
-	renderDeclarations,
-} from "xpi-codemode";
+import { type CodemodeJsonSchema, CodemodeSandbox, type CodemodeTool, renderDeclarations } from "xpi-codemode";
 import { type McpClient, toLlmContent } from "xpi-mcp";
 import { obj, str } from "xpi-schema";
 

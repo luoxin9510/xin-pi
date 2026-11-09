@@ -6,9 +6,9 @@
  */
 
 import { createInterface } from "node:readline";
+import chalk from "chalk";
 import { type ImageContent, modelsAreEqual } from "xpi-ai";
 import { setCapabilityOverrides } from "xpi-tui";
-import chalk from "chalk";
 import { type Args, type Mode, normalizeSessionName, parseArgs, printHelp } from "./cli/args.ts";
 import {
 	type AuthCheckResult,

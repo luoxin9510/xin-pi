@@ -1,5 +1,5 @@
-import type { ApiKeyCredential, Credential, CredentialStore, Model, Provider } from "xpi-ai";
 import { describe, expect, it, vi } from "vitest";
+import type { ApiKeyCredential, Credential, CredentialStore, Model, Provider } from "xpi-ai";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { CredentialSynchronizationError, ModelRuntime } from "../src/core/model-runtime.ts";
 

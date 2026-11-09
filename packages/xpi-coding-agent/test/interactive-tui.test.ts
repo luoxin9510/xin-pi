@@ -1,6 +1,6 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Component, Terminal, TUI, WheelScrollLines } from "xpi-tui";
 import { Container, getKeybindings, isViewportTUI, ScrollView, setKeybindings, Text } from "xpi-tui";
-import { beforeEach, describe, expect, it, vi } from "vitest";
 import { VirtualTerminal } from "../../xpi-tui/test/virtual-terminal.ts";
 import { KeybindingsManager } from "../src/core/keybindings.ts";
 import type { FullscreenExitOutput, TuiMode } from "../src/core/settings-manager.ts";

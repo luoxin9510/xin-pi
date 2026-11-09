@@ -1,6 +1,6 @@
-import type { NativeClipboard } from "xpi-tui";
 import { writeFileSync } from "fs";
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import type { NativeClipboard } from "xpi-tui";
 import { readClipboardImage } from "../src/utils/clipboard-image.ts";
 
 const mocks = vi.hoisted(() => ({

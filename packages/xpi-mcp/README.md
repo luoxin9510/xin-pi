@@ -31,10 +31,10 @@ An MCP transport owns framing and I/O. It delivers individual JSON-RPC messages 
 
 ### Stdio servers started elsewhere
 
-`PipeTransport` speaks MCP's stdio framing over a program that something else starts, for example on another machine. `open` starts the program, connects its stdout and stderr to the given handlers, and returns an `McpPipe` (`write`, `closeStdin`, `close` to kill, and an `exited` promise). `@earendil-works/pi-env`'s `openProcess()` returns one, without an adapter:
+`PipeTransport` speaks MCP's stdio framing over a program that something else starts, for example on another machine. `open` starts the program, connects its stdout and stderr to the given handlers, and returns an `McpPipe` (`write`, `closeStdin`, `close` to kill, and an `exited` promise). A remote-process API that returns an `McpPipe` plugs in without an adapter:
 
 ```typescript
-import { openProcess } from "@earendil-works/pi-env";
+import { openProcess } from "./my-remote-process.ts";
 import { PipeTransport } from "xpi-mcp";
 
 const transport = new PipeTransport({

@@ -3,13 +3,7 @@
  */
 
 import type { AgentMessage, AgentTool } from "xpi-agent-core";
-import {
-	getCurrentSystemMessage,
-	type ImageContent,
-	type Model,
-	type Provider,
-	type ProviderHeaders,
-} from "xpi-ai";
+import { getCurrentSystemMessage, type ImageContent, type Model, type Provider, type ProviderHeaders } from "xpi-ai";
 import type { KeyId } from "xpi-tui";
 import { type Theme, theme } from "../../modes/interactive/theme/theme.ts";
 import type { CacheWarmingAction } from "../cache-warmer.ts";

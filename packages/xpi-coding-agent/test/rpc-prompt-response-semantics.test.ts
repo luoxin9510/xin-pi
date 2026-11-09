@@ -1,14 +1,9 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Agent } from "xpi-agent-core";
-import {
-	type AssistantMessage,
-	createAssistantMessageEventStream,
-	getModel,
-	type Model,
-} from "xpi-ai/compat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Agent } from "xpi-agent-core";
+import { type AssistantMessage, createAssistantMessageEventStream, getModel, type Model } from "xpi-ai/compat";
 import { AgentSession } from "../src/core/agent-session.ts";
 import type { AgentSessionRuntime } from "../src/core/agent-session-runtime.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";

@@ -10,8 +10,8 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getModel } from "xpi-ai/compat";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { getModel } from "xpi-ai/compat";
 import type { AgentSession } from "../src/core/agent-session.ts";
 import {
 	type AgentSessionRuntime,

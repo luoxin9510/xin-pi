@@ -1,7 +1,7 @@
-import { fauxAssistantMessage, fauxToolCall, getCurrentTools, type TranscriptContext } from "xpi-ai";
-import type { ToolResultMessage } from "xpi-ai/compat";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
+import { fauxAssistantMessage, fauxToolCall, getCurrentTools, type TranscriptContext } from "xpi-ai";
+import type { ToolResultMessage } from "xpi-ai/compat";
 import type { ExtensionAPI } from "../../src/core/extensions/types.ts";
 import { createCodemodeExtension } from "../../src/extensions/codemode/index.ts";
 import { createToolSearchExtension } from "../../src/extensions/tool-search/index.ts";

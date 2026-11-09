@@ -1,5 +1,5 @@
-import { fauxAssistantMessage } from "xpi-ai";
 import { describe, expect, it } from "vitest";
+import { fauxAssistantMessage } from "xpi-ai";
 import { createHarness } from "../harness.ts";
 
 const openAIExplicitRetryMessage =

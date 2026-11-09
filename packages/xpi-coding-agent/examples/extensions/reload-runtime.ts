@@ -5,8 +5,8 @@
  * tool that requests a reload once the agent has settled.
  */
 
-import type { ExtensionAPI } from "xpi-coding-agent";
 import { Type } from "typebox";
+import type { ExtensionAPI } from "xpi-coding-agent";
 
 export default function (pi: ExtensionAPI) {
 	// Command entrypoint for reload.

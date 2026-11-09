@@ -1,11 +1,11 @@
 import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { Agent } from "xpi-agent-core";
 import type { Api, Model } from "xpi-ai";
 import { getModel, streamSimple } from "xpi-ai/compat";
 import { getBuiltinModels, getBuiltinProviders } from "xpi-ai/providers/all";
-import { afterEach, describe, expect, test, vi } from "vitest";
 import { AgentSession } from "../src/core/agent-session.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import {

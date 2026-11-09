@@ -1,8 +1,8 @@
-import type { Api, ImageContent, Model, ModelImageResizeOptions, TextContent } from "xpi-ai";
 import { constants } from "fs";
 import { access as fsAccess, open as fsOpen, readFile as fsReadFile } from "fs/promises";
 import { type Static, Type } from "typebox";
 import { TextDecoder } from "util";
+import type { Api, ImageContent, Model, ModelImageResizeOptions, TextContent } from "xpi-ai";
 import { processImage } from "../../utils/image-process.ts";
 import { detectSupportedImageMimeTypeFromFile } from "../../utils/mime.ts";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";

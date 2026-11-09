@@ -1,11 +1,6 @@
-import type { AgentMessage } from "xpi-agent-core";
-import {
-	fauxAssistantMessage,
-	getCurrentSystemPrompt,
-	getCurrentTools,
-	type TranscriptContext,
-} from "xpi-ai";
 import { afterEach, describe, expect, it } from "vitest";
+import type { AgentMessage } from "xpi-agent-core";
+import { fauxAssistantMessage, getCurrentSystemPrompt, getCurrentTools, type TranscriptContext } from "xpi-ai";
 import type { ExtensionFactory } from "../../../src/index.ts";
 import { createHarness, type Harness } from "../harness.ts";
 

@@ -1,5 +1,5 @@
-import { complete, resetApiProviders } from "xpi-ai/compat";
 import { describe, expect, it } from "vitest";
+import { complete, resetApiProviders } from "xpi-ai/compat";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { ModelRegistry } from "../src/core/model-registry.ts";
 import { ModelRuntime } from "../src/core/model-runtime.ts";

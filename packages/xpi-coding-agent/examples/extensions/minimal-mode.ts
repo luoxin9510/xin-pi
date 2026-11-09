@@ -16,6 +16,7 @@
  * Then use ctrl+o to toggle between minimal (collapsed) and full (expanded) views.
  */
 
+import { homedir } from "os";
 import type { ExtensionAPI } from "xpi-coding-agent";
 import {
 	createBashToolDefinition,
@@ -28,7 +29,6 @@ import {
 	formatReadLineRange,
 } from "xpi-coding-agent";
 import { Text } from "xpi-tui";
-import { homedir } from "os";
 
 /**
  * Shorten a path by replacing home directory with ~

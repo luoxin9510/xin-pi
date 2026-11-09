@@ -1,10 +1,10 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AssistantMessage, ToolResultMessage } from "xpi-ai/compat";
-import { getModel } from "xpi-ai/compat";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
+import type { AssistantMessage, ToolResultMessage } from "xpi-ai/compat";
+import { getModel } from "xpi-ai/compat";
 import { defineTool } from "../src/core/extensions/types.ts";
 import { createAgentSession } from "../src/core/sdk.ts";
 import { SessionManager } from "../src/core/session-manager.ts";

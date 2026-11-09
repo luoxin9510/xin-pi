@@ -1,5 +1,5 @@
-import type { Model, OAuthCredential, Provider } from "xpi-ai";
 import { afterEach, describe, expect, it } from "vitest";
+import type { Model, OAuthCredential, Provider } from "xpi-ai";
 import {
 	AgentSessionRuntime,
 	type AgentSessionServices,

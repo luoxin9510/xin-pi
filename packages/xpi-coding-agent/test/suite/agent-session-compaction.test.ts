@@ -1,3 +1,5 @@
+import { Type } from "typebox";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentMessage, AgentTool } from "xpi-agent-core";
 import {
 	type AssistantMessage,
@@ -10,8 +12,6 @@ import {
 	type SimpleStreamOptions,
 	type TranscriptContext,
 } from "xpi-ai";
-import { Type } from "typebox";
-import { afterEach, describe, expect, it, vi } from "vitest";
 import { estimateTokens } from "../../src/core/compaction/index.ts";
 import { createHarness, getUserTexts, type Harness } from "./harness.ts";
 

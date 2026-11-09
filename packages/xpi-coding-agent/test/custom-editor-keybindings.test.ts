@@ -1,5 +1,5 @@
-import { setKeybindings, TuiMainScreen } from "xpi-tui";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { setKeybindings, TuiMainScreen } from "xpi-tui";
 import { defaultEditorTheme } from "../../xpi-tui/test/test-themes.ts";
 import { VirtualTerminal } from "../../xpi-tui/test/virtual-terminal.ts";
 import { KeybindingsManager } from "../src/core/keybindings.ts";

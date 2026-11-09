@@ -1,5 +1,5 @@
-import type { Static } from "xpi-schema";
 import { describe, expect, expectTypeOf, it } from "vitest";
+import type { Static } from "xpi-schema";
 import {
 	AnthropicMessagesCompatSchema,
 	BedrockCompatSchema,

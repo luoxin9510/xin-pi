@@ -1,3 +1,4 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	type Api,
 	type AssistantMessage,
@@ -11,7 +12,6 @@ import {
 	type Usage,
 } from "xpi-ai";
 import { getBuiltinModel } from "xpi-ai/providers/all";
-import { afterEach, describe, expect, it, vi } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import {
 	CacheWarmer,

@@ -1,6 +1,6 @@
+import { describe, expect, it, vi } from "vitest";
 import { fauxAssistantMessage } from "xpi-ai";
 import { Container, Text } from "xpi-tui";
-import { describe, expect, it, vi } from "vitest";
 import type { AgentSessionEvent } from "../../../src/core/agent-session.ts";
 import { InteractiveMode } from "../../../src/modes/interactive/interactive-mode.ts";
 import { initTheme } from "../../../src/modes/interactive/theme/theme.ts";

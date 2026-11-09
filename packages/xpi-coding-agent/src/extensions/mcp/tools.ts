@@ -10,6 +10,7 @@
  * errors (`isError`) are error results for the model, but scripts still resolve to the result.
  */
 
+import type { TSchema } from "typebox";
 import type { AgentToolResult } from "xpi-agent-core";
 import type { ImageContent, JsonValue, TextContent } from "xpi-ai";
 import {
@@ -23,7 +24,6 @@ import {
 	toLlmContent,
 } from "xpi-mcp";
 import { Container, Spacer, Text } from "xpi-tui";
-import type { TSchema } from "typebox";
 import type {
 	ToolAnnotations,
 	ToolDefinition,

@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fauxAssistantMessage, registerFauxProvider } from "xpi-ai/compat";
 import { afterEach, describe, expect, it } from "vitest";
+import { fauxAssistantMessage, registerFauxProvider } from "xpi-ai/compat";
 import type { AgentSession } from "../../../src/core/agent-session.ts";
 import {
 	type CreateAgentSessionRuntimeFactory,

@@ -1,5 +1,5 @@
-import { createAssistantMessageEventStream } from "xpi-ai";
 import { afterEach, describe, expect, it } from "vitest";
+import { createAssistantMessageEventStream } from "xpi-ai";
 import { assistantMsg, userMsg } from "../../utilities.ts";
 import { createHarness, type Harness } from "../harness.ts";
 

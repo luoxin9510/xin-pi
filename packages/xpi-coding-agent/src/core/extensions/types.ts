@@ -8,6 +8,7 @@
  * - Interact with the user via UI primitives
  */
 
+import type { Static, TSchema } from "typebox";
 import type {
 	AgentMessage,
 	AgentTool,
@@ -56,7 +57,6 @@ import type {
 	ProgramStatus,
 	TUI,
 } from "xpi-tui";
-import type { Static, TSchema } from "typebox";
 import type { Theme } from "../../modes/interactive/theme/theme.ts";
 import type { BashResult } from "../bash-executor.ts";
 import type { CacheWarmingDecisionEvent, CacheWarmingDecisionEventResult } from "../cache-warmer.ts";

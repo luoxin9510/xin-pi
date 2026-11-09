@@ -1,3 +1,4 @@
+import { afterEach, describe, expect, it } from "vitest";
 import {
 	type AssistantMessage,
 	type FauxProviderRegistration,
@@ -11,7 +12,6 @@ import {
 	type ToolResultMessage,
 	type UserMessage,
 } from "xpi-ai/compat";
-import { afterEach, describe, expect, it } from "vitest";
 import { Agent, type AgentEvent } from "../src/index.ts";
 import { calculateTool } from "./utils/calculate.ts";
 

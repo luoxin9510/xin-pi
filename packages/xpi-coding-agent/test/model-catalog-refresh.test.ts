@@ -1,5 +1,5 @@
-import type { ModelsRefreshOptions, ModelsRefreshResult } from "xpi-ai";
 import { describe, expect, it, vi } from "vitest";
+import type { ModelsRefreshOptions, ModelsRefreshResult } from "xpi-ai";
 import { refreshModelCatalogs } from "../src/modes/interactive/model-catalog-refresh.ts";
 
 interface Deferred<T> {

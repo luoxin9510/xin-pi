@@ -11,7 +11,7 @@ const outputDir = join(codingAgentDir, "install-lock");
 const rootLockfilePath = join(repoRoot, "package-lock.json");
 const outputPackageJsonPath = join(outputDir, "package.json");
 const outputLockfilePath = join(outputDir, "package-lock.json");
-const internalPackagePrefix = "@earendil-works/pi-";
+const internalPackagePrefix = "xpi-";
 const internalPackageNames = new Set();
 const installPackageName = "xpi-coding-agent-install";
 const allowedInstallScriptPackages = new Map([
@@ -141,14 +141,16 @@ function getInternalWorkspaces(lockPackages) {
 	const workspaces = new Map();
 
 	for (const [lockPath, entry] of Object.entries(lockPackages)) {
-		if (!lockPath.startsWith("packages/") || lockPath.includes("/node_modules/") || !entry.name || !entry.version) {
+		if (!lockPath.startsWith("packages/") || lockPath.includes("/node_modules/") || !entry.version) {
 			continue;
 		}
-		if (!entry.name.startsWith(internalPackagePrefix) && !internalPackageNames.has(entry.name)) {
+		// npm omits `name` when it equals the directory name, as it does for every xpi-* workspace.
+		const name = entry.name ?? posix.basename(lockPath);
+		if (!name.startsWith(internalPackagePrefix) && !internalPackageNames.has(name)) {
 			continue;
 		}
 
-		workspaces.set(entry.name, {
+		workspaces.set(name, {
 			lockPath,
 			packageJson: readJson(join(repoRoot, lockPath, "package.json")),
 		});

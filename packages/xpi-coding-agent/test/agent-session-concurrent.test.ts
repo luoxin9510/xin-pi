@@ -6,6 +6,8 @@ import { createModelRegistry, getModelRuntime } from "./model-runtime-test-utils
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Type } from "typebox";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Agent } from "xpi-agent-core";
 import {
 	type AssistantMessage,
@@ -14,8 +16,6 @@ import {
 	type ImageContent,
 	type TextContent,
 } from "xpi-ai/compat";
-import { Type } from "typebox";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentSession } from "../src/core/agent-session.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { SessionManager } from "../src/core/session-manager.ts";

@@ -1,7 +1,7 @@
-import type { AgentTool, AgentToolCall } from "xpi-agent-core";
-import type { Usage } from "xpi-ai";
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
+import type { AgentTool, AgentToolCall } from "xpi-agent-core";
+import type { Usage } from "xpi-ai";
 import {
 	NESTED_CALL_LIMITS,
 	NestedCallRecorder,

@@ -1,5 +1,5 @@
-import { setKeybindings } from "xpi-tui";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { setKeybindings } from "xpi-tui";
 import { KeybindingsManager } from "../src/core/keybindings.ts";
 import { ScopedModelsSelectorComponent } from "../src/modes/interactive/components/scoped-models-selector.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";

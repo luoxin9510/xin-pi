@@ -1,8 +1,8 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ModelRuntime } from "xpi-coding-agent";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { ModelRuntime } from "xpi-coding-agent";
 import {
 	createAcmeServer,
 	OPENAI_MODEL_ID,

@@ -2,16 +2,10 @@
  * Model resolution, scoping, and initial selection
  */
 
-import type { ThinkingLevel } from "xpi-agent-core";
-import {
-	type Api,
-	type AuthOperationOptions,
-	type KnownProvider,
-	type Model,
-	modelsAreEqual,
-} from "xpi-ai";
 import chalk from "chalk";
 import { minimatch } from "minimatch";
+import type { ThinkingLevel } from "xpi-agent-core";
+import { type Api, type AuthOperationOptions, type KnownProvider, type Model, modelsAreEqual } from "xpi-ai";
 import { isValidThinkingLevel } from "../cli/args.ts";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
 import type { ModelRuntime } from "./model-runtime.ts";

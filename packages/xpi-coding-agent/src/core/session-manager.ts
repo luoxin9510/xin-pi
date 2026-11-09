@@ -1,16 +1,3 @@
-import type { AgentMessage } from "xpi-agent-core";
-import {
-	type AssistantMessage,
-	getCurrentSystemMessage,
-	type ImageContent,
-	type Message,
-	type SystemMessage,
-	type TextContent,
-	type ToolResultMessage,
-	type Usage,
-	type UserMessage,
-	uuidv7,
-} from "xpi-ai";
 import { randomUUID } from "crypto";
 import {
 	appendFileSync,
@@ -29,6 +16,19 @@ import { readdir, stat } from "fs/promises";
 import { basename, join, resolve } from "path";
 import { createInterface } from "readline";
 import { StringDecoder } from "string_decoder";
+import type { AgentMessage } from "xpi-agent-core";
+import {
+	type AssistantMessage,
+	getCurrentSystemMessage,
+	type ImageContent,
+	type Message,
+	type SystemMessage,
+	type TextContent,
+	type ToolResultMessage,
+	type Usage,
+	type UserMessage,
+	uuidv7,
+} from "xpi-ai";
 import { APP_NAME, getAgentDir as getDefaultAgentDir, getSessionsDir } from "../config.ts";
 import { normalizePath, pathsEqual, resolvePath } from "../utils/paths.ts";
 import {

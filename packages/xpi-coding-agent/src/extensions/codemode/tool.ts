@@ -22,6 +22,7 @@
  */
 
 import { join } from "node:path";
+import { type Static, Type } from "typebox";
 import type { AgentTool } from "xpi-agent-core";
 import type { CodemodeJsonSchema, CodemodeTool } from "xpi-codemode";
 import {
@@ -31,7 +32,6 @@ import {
 	toCodemodeIdentifier,
 } from "xpi-codemode/declarations";
 import { CODEMODE_SOURCE_GRAMMAR } from "xpi-codemode/source";
-import { type Static, Type } from "typebox";
 import { getDocsPath } from "../../config.ts";
 import type { ToolDefinition, ToolLoadout, ToolLoadoutChanges, ToolNamespace } from "../../core/extensions/types.ts";
 import type { ModelRegistry } from "../../core/model-registry.ts";

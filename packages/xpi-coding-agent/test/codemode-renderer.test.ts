@@ -1,7 +1,7 @@
 import { stripVTControlCharacters } from "node:util";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AgentToolResult } from "xpi-agent-core";
 import type { Component, TUI } from "xpi-tui";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { ToolRenderContext } from "../src/core/extensions/types.ts";
 import { codemodeRenderers } from "../src/extensions/codemode/renderer.ts";
 import type { CodemodeToolDetails } from "../src/extensions/codemode/tool.ts";

@@ -1,5 +1,5 @@
-import type { AgentTool, AgentToolResult, AgentToolUpdateCallback } from "xpi-agent-core";
 import type { Static, TSchema } from "typebox";
+import type { AgentTool, AgentToolResult, AgentToolUpdateCallback } from "xpi-agent-core";
 import type { ExtensionToolContext, ToolDefinition } from "../extensions/types.ts";
 
 /**

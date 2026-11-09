@@ -1,5 +1,5 @@
-import { fauxAssistantMessage, fauxToolCall, type ImageContent } from "xpi-ai";
 import { afterEach, describe, expect, it } from "vitest";
+import { fauxAssistantMessage, fauxToolCall, type ImageContent } from "xpi-ai";
 import { createHarness, type Harness } from "../harness.ts";
 
 const COPILOT_413 = 'github-copilot API error (413): {"message":"failed to parse request","code":""}';

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import {
 	type McpOAuthServerStore,
 	type McpOAuthSettings,
@@ -9,7 +10,6 @@ import {
 	type OAuthChallenge,
 	OAuthIssuerMismatchError,
 } from "xpi-mcp/oauth";
-import { afterEach, describe, expect, it } from "vitest";
 import { InMemoryAuthStorageBackend } from "../src/core/auth-storage.ts";
 import {
 	createMcpAuthProvider,

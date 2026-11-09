@@ -4,7 +4,7 @@ import { type McpTransport, TransportEvents } from "./transport.ts";
 
 const DEFAULT_CLOSE_TIMEOUT_MS = 2_000;
 
-/** A running program's stdio, as `@earendil-works/pi-env`'s `RemoteProcess` provides it. */
+/** A running program's stdio, as a remote-process API provides it. */
 export interface McpPipe {
 	write(data: Uint8Array | string): void;
 	closeStdin(): void;

@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	type Api,
 	type AssistantMessage,
@@ -11,7 +12,6 @@ import {
 	PI_ATTRIBUTION,
 	type SimpleStreamOptions,
 } from "xpi-ai";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { VERSION } from "../src/config.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { createAgentSession } from "../src/core/sdk.ts";

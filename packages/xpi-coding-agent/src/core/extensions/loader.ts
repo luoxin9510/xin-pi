@@ -7,10 +7,10 @@ import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import type { createJiti } from "jiti";
 import type { Provider } from "xpi-ai";
 import { mcpNamespace } from "xpi-mcp";
 import type { KeyId } from "xpi-tui";
-import type { createJiti } from "jiti";
 import { CONFIG_DIR_NAME, getAgentDir, isBunBinary, isBundledNode } from "../../config.ts";
 import { canonicalizePath, pathsEqual, resolvePath } from "../../utils/paths.ts";
 import { createEventBus, type EventBus } from "../event-bus.ts";
@@ -89,19 +89,16 @@ function getAliases(): Record<string, string> {
 	};
 
 	const piCodingAgentEntry = packageIndex;
-	const piAgentCoreEntry = resolveWorkspaceOrImport("agent/dist/index.js", "xpi-agent-core");
-	const piTuiEntry = resolveWorkspaceOrImport("tui/dist/index.js", "xpi-tui");
+	const piAgentCoreEntry = resolveWorkspaceOrImport("xpi-agent-core/dist/index.js", "xpi-agent-core");
+	const piTuiEntry = resolveWorkspaceOrImport("xpi-tui/dist/index.js", "xpi-tui");
 	// Extensions resolve the pi-ai root to the extension view: the compat
 	// entrypoint (a strict superset of the core entrypoint) plus TypeBox's Type,
 	// Static and TSchema, so extensions using the old global API and pi-ai's
 	// former TypeBox re-exports keep working.
 	const piAiCompatEntry = path.resolve(__dirname, "pi-ai-extension-view.js");
-	const piAiModelsEntry = resolveWorkspaceOrImport("ai/dist/models.js", "xpi-ai/models");
-	const piAiOauthEntry = resolveWorkspaceOrImport("ai/dist/oauth.js", "xpi-ai/oauth");
-	const piAiProvidersEntry = resolveWorkspaceOrImport(
-		"ai/dist/providers/all.js",
-		"xpi-ai/providers/all",
-	);
+	const piAiModelsEntry = resolveWorkspaceOrImport("xpi-ai/dist/models.js", "xpi-ai/models");
+	const piAiOauthEntry = resolveWorkspaceOrImport("xpi-ai/dist/oauth.js", "xpi-ai/oauth");
+	const piAiProvidersEntry = resolveWorkspaceOrImport("xpi-ai/dist/providers/all.js", "xpi-ai/providers/all");
 
 	_aliases = {
 		"xpi-coding-agent": piCodingAgentEntry,

@@ -1,10 +1,10 @@
-import type { ThinkingLevel } from "xpi-agent-core";
-import type { Model } from "xpi-ai";
-import type { ScrollViewScrollbar, TerminalCapabilities, WheelScrollLines } from "xpi-tui";
 import { randomUUID } from "crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import lockfile from "proper-lockfile";
+import type { ThinkingLevel } from "xpi-agent-core";
+import type { Model } from "xpi-ai";
+import type { ScrollViewScrollbar, TerminalCapabilities, WheelScrollLines } from "xpi-tui";
 import { CONFIG_DIR_NAME, getAgentDir } from "../config.ts";
 import { normalizePath, resolvePath } from "../utils/paths.ts";
 import { stripBom } from "../utils/text.ts";

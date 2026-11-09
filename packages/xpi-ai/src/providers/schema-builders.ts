@@ -1,14 +1,7 @@
 // Builders for pi-ai's own configuration schemas (model metadata, compat settings): pi-schema's builders, shaped like the
 // TypeBox schemas they replace, so models.json and the catalog validate exactly as before.
 
-import {
-	type Annotations,
-	obj,
-	type Properties,
-	type Schema,
-	type Static,
-	type StaticObject,
-} from "xpi-schema";
+import { type Annotations, obj, type Properties, type Schema, type Static, type StaticObject } from "xpi-schema";
 
 /** An object that allows other properties; `additionalProperties: true` says so explicitly. */
 export function openObject<const P extends Properties>(

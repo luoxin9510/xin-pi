@@ -1,8 +1,8 @@
 import { Buffer } from "node:buffer";
-import type { AgentTool } from "xpi-agent-core";
-import { fauxAssistantMessage, fauxToolCall } from "xpi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
+import type { AgentTool } from "xpi-agent-core";
+import { fauxAssistantMessage, fauxToolCall } from "xpi-ai";
 import type { BashOperations } from "../../src/core/tools/bash.ts";
 import { createHarness, type Harness } from "./harness.ts";
 

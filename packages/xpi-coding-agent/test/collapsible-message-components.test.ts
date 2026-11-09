@@ -1,5 +1,5 @@
-import type { Box, TuiMouseEvent } from "xpi-tui";
 import { beforeAll, describe, expect, test } from "vitest";
+import type { Box, TuiMouseEvent } from "xpi-tui";
 import type { MarkdownTransformContext, MarkdownTransformer } from "../src/core/extensions/types.ts";
 import { BranchSummaryMessageComponent } from "../src/modes/interactive/components/branch-summary-message.ts";
 import { CompactionSummaryMessageComponent } from "../src/modes/interactive/components/compaction-summary-message.ts";

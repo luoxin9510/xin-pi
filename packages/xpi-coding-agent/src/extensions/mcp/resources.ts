@@ -10,6 +10,7 @@
  * the model; binary resources are saved to temp files. Scripts get the JSON payloads.
  */
 
+import type { TSchema } from "typebox";
 import type { ImageContent, JsonValue, TextContent } from "xpi-ai";
 import {
 	type ContentBlock,
@@ -21,7 +22,6 @@ import {
 	type Resource,
 	type ResourceTemplate,
 } from "xpi-mcp";
-import type { TSchema } from "typebox";
 import type { ToolAnnotations, ToolDefinition } from "../../core/extensions/types.ts";
 import {
 	LIST_MCP_RESOURCE_TEMPLATES_TOOL,

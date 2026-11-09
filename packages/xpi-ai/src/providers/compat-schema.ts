@@ -1,15 +1,4 @@
-import {
-	type Annotations,
-	arr,
-	bool,
-	nul,
-	num,
-	opt,
-	type Properties,
-	type Static,
-	str,
-	union,
-} from "xpi-schema";
+import { type Annotations, arr, bool, nul, num, opt, type Properties, type Static, str, union } from "xpi-schema";
 import { ModelCostSchema } from "./model-schema.ts";
 import { openObject, stringLiteral, stringRecord } from "./schema-builders.ts";
 

@@ -1,5 +1,5 @@
-import type { AssistantMessage } from "xpi-ai";
 import { describe, expect, it } from "vitest";
+import type { AssistantMessage } from "xpi-ai";
 import {
 	collectCacheMisses,
 	computeCacheWaste,

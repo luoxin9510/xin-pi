@@ -1,6 +1,6 @@
-import type { AgentTool } from "xpi-agent-core";
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
+import type { AgentTool } from "xpi-agent-core";
 import type { ToolNamespace } from "../src/core/extensions/types.ts";
 import { createCodemodeDescription } from "../src/extensions/codemode/tool.ts";
 import { Bm25Ranker, createToolSearchDocument, tokenize } from "../src/extensions/tool-search/tool.ts";

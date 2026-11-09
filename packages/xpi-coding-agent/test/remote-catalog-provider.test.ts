@@ -1,3 +1,4 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	createModels,
 	createProvider,
@@ -8,7 +9,6 @@ import {
 	type Provider,
 	type RefreshModelsContext,
 } from "xpi-ai";
-import { afterEach, describe, expect, it, vi } from "vitest";
 import { VERSION } from "../src/config.ts";
 import {
 	type PersonalizeCatalog,

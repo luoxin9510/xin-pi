@@ -156,7 +156,7 @@ for platform in "${PLATFORMS[@]}"; do
     native_platform="${platform/windows-/win32-}"
     native_path="native/${native_platform%-*}/prebuilds"
     mkdir -p "$OUTPUT_DIR/$platform/$native_path"
-    cp -R "../tui/$native_path/$native_platform" "$OUTPUT_DIR/$platform/$native_path/"
+    cp -R "../xpi-tui/$native_path/$native_platform" "$OUTPUT_DIR/$platform/$native_path/"
 done
 
 # Create archives

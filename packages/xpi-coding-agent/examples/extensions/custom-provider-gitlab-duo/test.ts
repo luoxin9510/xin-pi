@@ -8,10 +8,10 @@
  *   node test.ts claude-sonnet-4-5-20250929 --thinking
  */
 
-import { type Api, type Context, type Model, registerApiProvider, streamSimple } from "xpi-ai/compat";
-import { getAgentDir } from "xpi-coding-agent";
 import { readFileSync } from "fs";
 import { join } from "path";
+import { type Api, type Context, type Model, registerApiProvider, streamSimple } from "xpi-ai/compat";
+import { getAgentDir } from "xpi-coding-agent";
 import { MODELS, streamGitLabDuo } from "./index.ts";
 
 const MODEL_MAP = new Map(MODELS.map((m) => [m.id, m]));

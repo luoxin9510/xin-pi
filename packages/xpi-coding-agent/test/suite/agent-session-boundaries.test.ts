@@ -1,7 +1,7 @@
-import type { AgentTool } from "xpi-agent-core";
-import { fauxAssistantMessage, fauxToolCall } from "xpi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { AgentTool } from "xpi-agent-core";
+import { fauxAssistantMessage, fauxToolCall } from "xpi-ai";
 import { createHarness, getMessageText, type Harness } from "./harness.ts";
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {

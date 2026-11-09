@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import * as path from "node:path";
-import { type AutocompleteProvider, CombinedAutocompleteProvider } from "xpi-tui";
 import { beforeAll, describe, expect, test, vi } from "vitest";
+import { type AutocompleteProvider, CombinedAutocompleteProvider } from "xpi-tui";
 import { type Component, Container, type Focusable, type OverlayHandle, type TUI } from "../../xpi-tui/src/tui.ts";
 import { TuiMainScreen } from "../../xpi-tui/src/tui-main-screen.ts";
 import { VirtualTerminal } from "../../xpi-tui/test/virtual-terminal.ts";

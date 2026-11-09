@@ -1,5 +1,5 @@
-import { fauxAssistantMessage } from "xpi-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { fauxAssistantMessage } from "xpi-ai";
 import type { SessionBeforeCompactEvent } from "../../src/core/extensions/index.ts";
 import { createHarness, type Harness } from "./harness.ts";
 

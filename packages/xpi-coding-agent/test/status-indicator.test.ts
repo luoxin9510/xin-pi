@@ -1,5 +1,5 @@
-import { type TUI, visibleWidth } from "xpi-tui";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { type TUI, visibleWidth } from "xpi-tui";
 import { KeybindingsManager } from "../src/core/keybindings.ts";
 import { CustomEditor } from "../src/modes/interactive/components/custom-editor.ts";
 import {

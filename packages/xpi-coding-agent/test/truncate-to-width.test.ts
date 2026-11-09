@@ -1,5 +1,5 @@
-import { truncateToWidth, visibleWidth } from "xpi-tui";
 import { describe, expect, it } from "vitest";
+import { truncateToWidth, visibleWidth } from "xpi-tui";
 
 /**
  * Tests for truncateToWidth behavior with Unicode characters.

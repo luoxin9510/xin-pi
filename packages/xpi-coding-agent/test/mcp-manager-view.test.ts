@@ -1,5 +1,5 @@
-import { setKeybindings, type TUI } from "xpi-tui";
 import { beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
+import { setKeybindings, type TUI } from "xpi-tui";
 import { KeybindingsManager } from "../src/core/keybindings.ts";
 import { McpManagerView } from "../src/extensions/mcp/ui.ts";
 import { initTheme, theme } from "../src/modes/interactive/theme/theme.ts";

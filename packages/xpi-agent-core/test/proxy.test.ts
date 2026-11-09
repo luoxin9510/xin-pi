@@ -1,6 +1,6 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AssistantMessage, AssistantMessageEvent, Model } from "xpi-ai";
 import { normalizeContext } from "xpi-ai";
-import { afterEach, describe, expect, it, vi } from "vitest";
 import { type ProxyAssistantMessageEvent, streamProxy } from "../src/proxy.ts";
 
 const model: Model<"openai-responses"> = {

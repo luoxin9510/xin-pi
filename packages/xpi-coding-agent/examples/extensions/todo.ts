@@ -10,10 +10,10 @@
  * correct for that point in history.
  */
 
+import { Type } from "typebox";
 import { StringEnum } from "xpi-ai";
 import type { ExtensionAPI, ExtensionContext, Theme } from "xpi-coding-agent";
 import { matchesKey, Text, truncateToWidth } from "xpi-tui";
-import { Type } from "typebox";
 
 interface Todo {
 	id: number;

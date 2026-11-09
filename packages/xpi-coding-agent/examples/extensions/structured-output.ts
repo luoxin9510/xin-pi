@@ -5,9 +5,9 @@
  * without paying for an extra follow-up LLM turn.
  */
 
+import { Type } from "typebox";
 import { defineTool, type ExtensionAPI } from "xpi-coding-agent";
 import { Text } from "xpi-tui";
-import { Type } from "typebox";
 
 interface StructuredOutputDetails {
 	headline: string;

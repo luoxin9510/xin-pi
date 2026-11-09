@@ -20,12 +20,12 @@
  *   pi -e ./tool-override.ts
  */
 
-import type { TextContent } from "xpi-ai";
-import { type ExtensionAPI, getAgentDir, withFileMutationQueue } from "xpi-coding-agent";
 import { constants, readFileSync } from "fs";
 import { access, appendFile, readFile } from "fs/promises";
 import { join, resolve } from "path";
 import { Type } from "typebox";
+import type { TextContent } from "xpi-ai";
+import { type ExtensionAPI, getAgentDir, withFileMutationQueue } from "xpi-coding-agent";
 
 const LOG_FILE = join(getAgentDir(), "read-access.log");
 

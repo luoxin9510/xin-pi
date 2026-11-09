@@ -1,11 +1,5 @@
-import {
-	ProcessTerminal,
-	setCapabilityOverrides,
-	setKeybindings,
-	type TUI,
-	TuiMainScreen,
-} from "xpi-tui";
 import { existsSync } from "fs";
+import { ProcessTerminal, setCapabilityOverrides, setKeybindings, type TUI, TuiMainScreen } from "xpi-tui";
 import { APP_NAME, CONFIG_DIR_NAME, ENV_AGENT_DIR, getAgentDir, getSettingsPath, PACKAGE_NAME } from "../config.ts";
 import { areExperimentalFeaturesEnabled } from "../core/experimental.ts";
 import { KeybindingsManager } from "../core/keybindings.ts";

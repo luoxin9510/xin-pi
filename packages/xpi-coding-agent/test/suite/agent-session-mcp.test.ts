@@ -1,10 +1,10 @@
 import { readFileSync, rmSync } from "node:fs";
+import { Type } from "typebox";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { fauxAssistantMessage, fauxToolCall } from "xpi-ai";
 import type { SystemMessage, ToolResultMessage } from "xpi-ai/compat";
 import { createMcpToolName, type JsonRpcRequest, LATEST_PROTOCOL_VERSION } from "xpi-mcp";
 import { createInMemoryTransportPair } from "xpi-mcp/testing";
-import { Type } from "typebox";
-import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionAPI, ExtensionFactory } from "../../src/core/extensions/types.ts";
 import type { SessionManager } from "../../src/core/session-manager.ts";
 import { createCodemodeExtension } from "../../src/extensions/codemode/index.ts";

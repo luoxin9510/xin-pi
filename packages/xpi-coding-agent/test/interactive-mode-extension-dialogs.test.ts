@@ -1,5 +1,5 @@
-import { type Component, Container, Text } from "xpi-tui";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import { type Component, Container, Text } from "xpi-tui";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 

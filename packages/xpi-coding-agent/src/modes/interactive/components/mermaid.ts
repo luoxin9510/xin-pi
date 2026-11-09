@@ -1,5 +1,5 @@
-import { getCapabilities, Marked, type Token } from "xpi-tui";
 import { type AnsiTheme, type MermaidArt, render, toAnsi } from "lovely-mermaid";
+import { getCapabilities, Marked, type Token } from "xpi-tui";
 import type { MarkdownTransformer } from "../../../core/extensions/types.ts";
 import type { MermaidRenderingMode } from "../../../core/settings-manager.ts";
 import type { Theme, ThemeColor } from "../theme/theme.ts";

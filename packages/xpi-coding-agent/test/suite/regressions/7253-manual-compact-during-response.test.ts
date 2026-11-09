@@ -1,7 +1,7 @@
-import type { AgentTool } from "xpi-agent-core";
-import { fauxAssistantMessage, fauxToolCall } from "xpi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
+import type { AgentTool } from "xpi-agent-core";
+import { fauxAssistantMessage, fauxToolCall } from "xpi-ai";
 import { createHarness, type Harness } from "../harness.ts";
 
 function createNoopTool(): AgentTool {

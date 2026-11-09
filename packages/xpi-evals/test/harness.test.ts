@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
-import { getDocsPath, getExamplesPath, getReadmePath } from "xpi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
+import { getDocsPath, getExamplesPath, getReadmePath } from "xpi-coding-agent";
 import { buildSystemPrompt } from "../../xpi-coding-agent/src/core/system-prompt.ts";
 import {
 	applyIsolatedEnvironment,

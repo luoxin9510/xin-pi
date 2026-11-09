@@ -1,9 +1,9 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import { Agent } from "xpi-agent-core";
 import { fauxAssistantMessage, registerFauxProvider, streamSimple } from "xpi-ai/compat";
-import { afterEach, describe, expect, it } from "vitest";
 import { AgentSession } from "../../../src/core/agent-session.ts";
 import { AuthStorage } from "../../../src/core/auth-storage.ts";
 import { convertToLlm } from "../../../src/core/messages.ts";

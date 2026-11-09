@@ -1,5 +1,5 @@
-import { Container } from "xpi-tui";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Container } from "xpi-tui";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
 import type { StatusIndicator } from "../src/modes/interactive/components/status-indicator.ts";

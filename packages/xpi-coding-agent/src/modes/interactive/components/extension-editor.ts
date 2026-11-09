@@ -3,16 +3,7 @@
  * Supports Ctrl+G for external editor.
  */
 
-import {
-	Container,
-	Editor,
-	type EditorOptions,
-	type Focusable,
-	getKeybindings,
-	Spacer,
-	Text,
-	type TUI,
-} from "xpi-tui";
+import { Container, Editor, type EditorOptions, type Focusable, getKeybindings, Spacer, Text, type TUI } from "xpi-tui";
 import type { KeybindingsManager } from "../../../core/keybindings.ts";
 import { editInExternalEditor } from "../external-editor.ts";
 import { getEditorTheme, theme } from "../theme/theme.ts";

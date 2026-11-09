@@ -1,3 +1,4 @@
+import { afterEach, describe, expect, it } from "vitest";
 import {
 	type AssistantMessage,
 	createAssistantMessageEventStream,
@@ -5,7 +6,6 @@ import {
 	type Model,
 	type Provider,
 } from "xpi-ai";
-import { afterEach, describe, expect, it } from "vitest";
 import { createHarness, type Harness } from "../harness.ts";
 
 const INDIVIDUAL_BASE_URL = "https://api.individual.githubcopilot.com";

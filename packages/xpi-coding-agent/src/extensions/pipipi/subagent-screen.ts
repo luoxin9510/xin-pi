@@ -8,15 +8,7 @@
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import {
-	type Component,
-	type Focusable,
-	Input,
-	matchesKey,
-	Text,
-	type TUI,
-	truncateToWidth,
-} from "xpi-tui";
+import { type Component, type Focusable, Input, matchesKey, Text, type TUI, truncateToWidth } from "xpi-tui";
 import type { ExtensionContext, ToolRenderers } from "../../core/extensions/types.ts";
 import { buildSessionContext, parseSessionEntries, type SessionEntry } from "../../core/session-manager.ts";
 import {

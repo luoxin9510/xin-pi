@@ -1,5 +1,5 @@
-import { Container } from "xpi-tui";
 import { describe, expect, test } from "vitest";
+import { Container } from "xpi-tui";
 import { createChatViewport } from "../src/modes/interactive/chat-viewport.ts";
 
 describe("chat viewport", () => {

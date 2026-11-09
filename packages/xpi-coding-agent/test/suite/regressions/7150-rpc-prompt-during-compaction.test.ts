@@ -1,5 +1,5 @@
-import { fauxAssistantMessage } from "xpi-ai";
 import { afterEach, describe, expect, it } from "vitest";
+import { fauxAssistantMessage } from "xpi-ai";
 import type { PromptDisposition } from "../../../src/core/agent-session.ts";
 import { createHarness, getMessageText, getUserTexts, type Harness } from "../harness.ts";
 

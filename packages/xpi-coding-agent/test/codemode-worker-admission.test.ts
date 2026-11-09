@@ -1,6 +1,6 @@
 import { Worker } from "node:worker_threads";
-import * as codemode from "xpi-codemode";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as codemode from "xpi-codemode";
 import { executeCodemode } from "../src/extensions/codemode/execute.ts";
 
 const terminate = Worker.prototype.terminate;

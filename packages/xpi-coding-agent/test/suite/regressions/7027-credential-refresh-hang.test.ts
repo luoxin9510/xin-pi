@@ -1,5 +1,5 @@
-import type { Api, Model, Provider } from "xpi-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { Api, Model, Provider } from "xpi-ai";
 import { AuthStorage } from "../../../src/core/auth-storage.ts";
 import { defaultModelPerProvider } from "../../../src/core/model-resolver.ts";
 import { ModelRuntime } from "../../../src/core/model-runtime.ts";

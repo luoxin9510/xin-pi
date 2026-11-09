@@ -1,12 +1,4 @@
-import {
-	type Component,
-	Container,
-	getKeybindings,
-	getSelectPageIndex,
-	Spacer,
-	Text,
-	truncateToWidth,
-} from "xpi-tui";
+import { type Component, Container, getKeybindings, getSelectPageIndex, Spacer, Text, truncateToWidth } from "xpi-tui";
 import { theme } from "../theme/theme.ts";
 import { DynamicBorder } from "./dynamic-border.ts";
 

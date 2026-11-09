@@ -2,9 +2,9 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentToolResult } from "xpi-agent-core";
 import { fauxAssistantMessage, fauxToolCall, type Message } from "xpi-ai";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import subagentExtension from "../examples/extensions/subagent/index.ts";
 import { CONFIG_DIR_NAME } from "../src/config.ts";
 import type { ExtensionAPI, ExtensionToolContext, ToolDefinition } from "../src/core/extensions/index.ts";

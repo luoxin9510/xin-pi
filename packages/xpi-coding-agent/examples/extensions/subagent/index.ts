@@ -16,6 +16,7 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { Type } from "typebox";
 import type { AgentToolResult, ThinkingLevel } from "xpi-agent-core";
 import type { Message } from "xpi-ai";
 import { StringEnum } from "xpi-ai";
@@ -32,7 +33,6 @@ import {
 	withFileMutationQueue,
 } from "xpi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "xpi-tui";
-import { Type } from "typebox";
 import { type AgentConfig, type AgentScope, discoverAgents } from "./agents.ts";
 
 const MAX_PARALLEL_TASKS = 8;

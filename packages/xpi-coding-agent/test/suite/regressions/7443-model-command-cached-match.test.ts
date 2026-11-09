@@ -1,5 +1,5 @@
-import type { Api, Model } from "xpi-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { Api, Model } from "xpi-ai";
 import { InteractiveMode } from "../../../src/modes/interactive/interactive-mode.ts";
 import { createHarness, type Harness } from "../harness.ts";
 

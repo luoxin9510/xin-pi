@@ -1,7 +1,7 @@
-import { fauxAssistantMessage, fauxToolCall } from "xpi-ai";
-import type { ToolResultMessage } from "xpi-ai/compat";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { fauxAssistantMessage, fauxToolCall } from "xpi-ai";
+import type { ToolResultMessage } from "xpi-ai/compat";
 import { assistantMsg, userMsg } from "../../utilities.ts";
 import { createHarness, getMessageText, type Harness } from "../harness.ts";
 

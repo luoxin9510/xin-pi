@@ -1,5 +1,5 @@
-import { fauxAssistantMessage } from "xpi-ai";
 import { afterEach, describe, expect, it } from "vitest";
+import { fauxAssistantMessage } from "xpi-ai";
 import { createHarness, type Harness } from "../harness.ts";
 
 describe("regression #3982: message_end cost override", () => {

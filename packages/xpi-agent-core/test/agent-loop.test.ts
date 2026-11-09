@@ -1,3 +1,4 @@
+import { describe, expect, it } from "vitest";
 import {
 	type AssistantMessage,
 	createAssistantMessageEventStream,
@@ -7,7 +8,6 @@ import {
 	type UserMessage,
 } from "xpi-ai";
 import { arr, obj, str } from "xpi-schema";
-import { describe, expect, it } from "vitest";
 import { agentLoop, agentLoopContinue, runAgentLoop, runToolCall } from "../src/agent-loop.ts";
 import { setDefaultStreamFn } from "../src/index.ts";
 import type {

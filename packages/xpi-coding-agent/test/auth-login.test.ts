@@ -1,8 +1,8 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { InMemoryModelsStore, type Model, type Provider } from "xpi-ai";
 import { describe, expect, test, vi } from "vitest";
+import { InMemoryModelsStore, type Model, type Provider } from "xpi-ai";
 import { runAuthLogin } from "../src/cli/auth-login.ts";
 import type { LoginTerminal } from "../src/cli/auth-terminal.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";

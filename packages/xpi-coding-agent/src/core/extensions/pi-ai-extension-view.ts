@@ -7,8 +7,8 @@
 
 import { type TUnsafe, Type } from "typebox";
 
-export * from "xpi-ai/compat";
 export type { Static, TSchema } from "typebox";
+export * from "xpi-ai/compat";
 export { Type };
 
 /**

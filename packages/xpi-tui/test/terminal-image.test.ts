@@ -233,8 +233,9 @@ describe("detectCapabilities", () => {
 			{ images: "kitty", trueColor: true, hyperlinks: true },
 		);
 		assert.deepStrictEqual(
-			withEnv({ TERM_PROGRAM: "iterm.app", XPI_HYPERLINKS: "0", XPI_IMAGE_PROTOCOL: "none", XPI_TRUE_COLOR: "0" }, () =>
-				detectCapabilities(),
+			withEnv(
+				{ TERM_PROGRAM: "iterm.app", XPI_HYPERLINKS: "0", XPI_IMAGE_PROTOCOL: "none", XPI_TRUE_COLOR: "0" },
+				() => detectCapabilities(),
 			),
 			{ images: null, trueColor: false, hyperlinks: false },
 		);

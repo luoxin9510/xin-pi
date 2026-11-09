@@ -1,8 +1,8 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { colorToHex, okhslColor, styleText } from "xpi-tui";
 import { afterEach, describe, expect, it } from "vitest";
+import { colorToHex, okhslColor, styleText } from "xpi-tui";
 import { loadThemeFromPath, setTerminalColors } from "../src/modes/interactive/theme/theme.ts";
 
 const tempDirs: string[] = [];

@@ -12,6 +12,7 @@ import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import process from "node:process";
+import { Type } from "typebox";
 import { normalizeContext } from "xpi-ai";
 import {
 	type Api,
@@ -22,7 +23,6 @@ import {
 	type Model,
 	type SimpleStreamOptions,
 } from "xpi-ai/compat";
-import { Type } from "typebox";
 import {
 	getOpenAICodexWebSocketDebugStats,
 	streamSimple as streamSimpleOpenAICodexResponses,

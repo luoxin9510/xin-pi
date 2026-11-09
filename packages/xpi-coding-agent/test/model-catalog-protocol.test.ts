@@ -1,7 +1,7 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { InMemoryCredentialStore } from "xpi-ai";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { InMemoryCredentialStore } from "xpi-ai";
 import {
 	getModelCatalogProviderKey,
 	MODEL_CATALOG_INDEX_KEY,

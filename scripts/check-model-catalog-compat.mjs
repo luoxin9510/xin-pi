@@ -107,7 +107,7 @@ function main() {
 		run("npm", ["ci", "--ignore-scripts", "--no-audit", "--no-fund"], releaseDir);
 		// pi-ai's types depend on the declarations of its workspace dependencies.
 		const { dependencies } = JSON.parse(readFileSync(join(releaseDir, "packages/xpi-ai/package.json"), "utf8"));
-		for (const name of Object.keys(dependencies).filter((name) => name.startsWith("@earendil-works/"))) {
+		for (const name of Object.keys(dependencies).filter((name) => name.startsWith("xpi-"))) {
 			run("npm", ["run", "build", "--workspace", name], releaseDir);
 		}
 

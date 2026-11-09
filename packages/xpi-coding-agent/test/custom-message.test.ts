@@ -1,5 +1,5 @@
-import { Text } from "xpi-tui";
 import { describe, expect, test } from "vitest";
+import { Text } from "xpi-tui";
 import type { MarkdownTransformContext, MessageRenderer, MessageRenderOptions } from "../src/core/extensions/types.ts";
 import type { CustomMessage } from "../src/core/messages.ts";
 import { CustomMessageComponent } from "../src/modes/interactive/components/custom-message.ts";

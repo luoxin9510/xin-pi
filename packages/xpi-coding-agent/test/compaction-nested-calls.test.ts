@@ -1,5 +1,5 @@
-import type { ToolResultMessage } from "xpi-ai/compat";
 import { describe, expect, it } from "vitest";
+import type { ToolResultMessage } from "xpi-ai/compat";
 import { computeFileLists, createFileOps, extractFileOpsFromMessage } from "../src/core/compaction/utils.ts";
 
 describe("compaction file operations", () => {

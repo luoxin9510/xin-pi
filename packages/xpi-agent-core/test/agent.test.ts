@@ -1,3 +1,4 @@
+import { describe, expect, it } from "vitest";
 import { type ClientIdentity, PI_ATTRIBUTION } from "xpi-ai";
 import {
 	type AssistantMessage,
@@ -8,7 +9,6 @@ import {
 	type UserMessage,
 } from "xpi-ai/compat";
 import { obj } from "xpi-schema";
-import { describe, expect, it } from "vitest";
 import {
 	Agent,
 	type AgentEvent,

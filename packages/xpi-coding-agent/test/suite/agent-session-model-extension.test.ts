@@ -1,3 +1,5 @@
+import { Type } from "typebox";
+import { afterEach, describe, expect, it } from "vitest";
 import type { AgentTool, ThinkingLevel } from "xpi-agent-core";
 import {
 	fauxAssistantMessage,
@@ -7,8 +9,6 @@ import {
 	type Model,
 	type Usage,
 } from "xpi-ai";
-import { Type } from "typebox";
-import { afterEach, describe, expect, it } from "vitest";
 import type { BuildSystemPromptOptions, ExtensionAPI } from "../../src/index.ts";
 import { createHarness, getAssistantTexts, type Harness } from "./harness.ts";
 

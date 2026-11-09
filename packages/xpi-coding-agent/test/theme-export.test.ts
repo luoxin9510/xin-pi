@@ -1,8 +1,8 @@
-import { colorToHex, okhslColor } from "xpi-tui";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { colorToHex, okhslColor } from "xpi-tui";
 import { getThemeExportColors } from "../src/modes/interactive/theme/theme.ts";
 
 type ThemeFile = {

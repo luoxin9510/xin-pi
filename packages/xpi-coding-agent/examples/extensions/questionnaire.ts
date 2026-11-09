@@ -5,17 +5,9 @@
  * Multiple questions: tab bar navigation between questions
  */
 
-import type { ExtensionAPI } from "xpi-coding-agent";
-import {
-	Editor,
-	type EditorTheme,
-	Key,
-	matchesKey,
-	Text,
-	visibleWidth,
-	wrapTextWithAnsi,
-} from "xpi-tui";
 import { Type } from "typebox";
+import type { ExtensionAPI } from "xpi-coding-agent";
+import { Editor, type EditorTheme, Key, matchesKey, Text, visibleWidth, wrapTextWithAnsi } from "xpi-tui";
 
 // Types
 interface QuestionOption {

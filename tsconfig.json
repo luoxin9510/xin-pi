@@ -29,9 +29,7 @@
 			"xpi-coding-agent/*": ["./packages/xpi-coding-agent/src/*"],
 			"typebox": ["./node_modules/typebox"],
 			"xpi-tui": ["./packages/xpi-tui/src/index.ts"],
-			"xpi-tui/*": ["./packages/xpi-tui/src/*"],
-			"@earendil-works/pi-agent-old": ["./packages/agent-old/src/index.ts"],
-			"@earendil-works/pi-agent-old/*": ["./packages/agent-old/src/*"]
+			"xpi-tui/*": ["./packages/xpi-tui/src/*"]
 		}
 	},
 	"include": ["scripts/model-catalog-protocol.ts", "scripts/model-catalog-protocol.test.ts", "packages/*/src/**/*", "packages/*/test/**/*", "packages/xpi-ai/catalog/**/*", "packages/xpi-coding-agent/examples/**/*", "packages/xpi-agent-core/examples/**/*"],

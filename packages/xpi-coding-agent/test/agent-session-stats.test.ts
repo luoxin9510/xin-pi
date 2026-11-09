@@ -1,12 +1,6 @@
-import { Agent } from "xpi-agent-core";
-import {
-	type AssistantMessage,
-	getModel,
-	streamSimple,
-	type ToolResultMessage,
-	type Usage,
-} from "xpi-ai/compat";
 import { describe, expect, it } from "vitest";
+import { Agent } from "xpi-agent-core";
+import { type AssistantMessage, getModel, streamSimple, type ToolResultMessage, type Usage } from "xpi-ai/compat";
 import { AgentSession } from "../src/core/agent-session.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { SessionManager } from "../src/core/session-manager.ts";

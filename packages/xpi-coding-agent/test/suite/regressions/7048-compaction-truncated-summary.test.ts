@@ -1,5 +1,5 @@
-import { type AssistantMessage, fauxAssistantMessage } from "xpi-ai";
 import { afterEach, describe, expect, it } from "vitest";
+import { type AssistantMessage, fauxAssistantMessage } from "xpi-ai";
 import { createHarness, type Harness } from "../harness.ts";
 
 function seedCompactableSession(harness: Harness): void {

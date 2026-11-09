@@ -1,5 +1,5 @@
-import { setKeybindings } from "xpi-tui";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { setKeybindings } from "xpi-tui";
 import { KeybindingsManager } from "../src/core/keybindings.ts";
 import {
 	type SettingsCallbacks,

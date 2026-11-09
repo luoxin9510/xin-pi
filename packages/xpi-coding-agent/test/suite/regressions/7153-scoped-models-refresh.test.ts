@@ -1,6 +1,6 @@
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Api, Model, ModelsRefreshResult } from "xpi-ai";
 import { setKeybindings, type TUI } from "xpi-tui";
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { KeybindingsManager } from "../../../src/core/keybindings.ts";
 import type { ScopedModelsSelectorComponent } from "../../../src/modes/interactive/components/scoped-models-selector.ts";
 import { InteractiveMode } from "../../../src/modes/interactive/interactive-mode.ts";

@@ -3,10 +3,8 @@
  * configuration schemas (models.json, settings.json): the same JSON, typed for TypeBox's `Static`.
  */
 
-import {
-	type ProviderCompat,
-	ProviderCompatSchema as ProviderCompatJsonSchema,
-} from "xpi-ai/providers/compat-schema";
+import { Type } from "typebox";
+import { type ProviderCompat, ProviderCompatSchema as ProviderCompatJsonSchema } from "xpi-ai/providers/compat-schema";
 import {
 	type ModelCost,
 	ModelCostSchema as ModelCostJsonSchema,
@@ -21,7 +19,6 @@ import {
 	type ThinkingLevelMap,
 	ThinkingLevelMapSchema as ThinkingLevelMapJsonSchema,
 } from "xpi-ai/providers/model-schema";
-import { Type } from "typebox";
 
 export const ProviderCompatSchema = Type.Unsafe<ProviderCompat>(ProviderCompatJsonSchema);
 export const ModelCostSchema = Type.Unsafe<ModelCost>(ModelCostJsonSchema);

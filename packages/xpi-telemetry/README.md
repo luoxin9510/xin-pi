@@ -286,7 +286,7 @@ The adapter is safe to use as an ordinary `TelemetryContext`, but storage is unb
 
 ## Stored Telemetry
 
-`TelemetryStore` separates querying from recording. Both `InMemoryTelemetryContext` and `@earendil-works/chord/telemetry-sqlite` implement it:
+`TelemetryStore` separates querying from recording. `InMemoryTelemetryContext` implements it, and so can a persistent adapter:
 
 - `findTraces(query?)` returns complete locally stored traces, newest trace start first. Filters include the earliest stored span's `name`, inclusive `startMin`/`startMax`, `errors: true`, and scalar `attributes`. All requested attributes must match one span, anywhere in the trace. Pages default to 20 traces; pass the returned opaque `cursor` with the same filters to continue. Equal start times are ordered by trace ID.
 - `getTrace(traceId)` returns a trace or `undefined`.
@@ -500,15 +500,13 @@ Package ownership is intentionally split:
 
 - `xpi-telemetry` owns the vendor-neutral contract, no-op and in-memory reference contexts, schema utilities, and adapter conformance suite;
 - `xpi-ai` accepts a parent `TelemetrySpan` through `telemetry` in provider request options and exports `AI_TELEMETRY_SCHEMA` from its root and `./models` entry points;
-- `@earendil-works/pi-durable` exports `DURABLE_TELEMETRY_SCHEMA` for short task-handler and submission spans, events, and metrics;
 - `xpi-agent-core` retains its existing agent-loop and session instrumentation and schemas.
 
 ```typescript
 import { AI_TELEMETRY_SCHEMA } from 'xpi-ai/models';
-import { DURABLE_TELEMETRY_SCHEMA } from '@earendil-works/pi-durable';
 ```
 
-The AI and Durable schemas use pi-owned `pi.ai.*` and `pi.durable.*` names. Adapters may translate them to backend conventions without changing the emitted pi vocabulary.
+The AI schema uses pi-owned `pi.ai.*` names. Adapters may translate them to backend conventions without changing the emitted pi vocabulary.
 
 ## Security and Portability
 

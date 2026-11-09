@@ -1,5 +1,5 @@
-import type { AssistantMessage } from "xpi-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { AssistantMessage } from "xpi-ai";
 import { createHarness, type Harness } from "../harness.ts";
 
 type SessionWithCompactionInternals = {
