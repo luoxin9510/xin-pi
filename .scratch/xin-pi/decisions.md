@@ -19,15 +19,17 @@
 11. Development tests use a temp `XPI_CODING_AGENT_DIR`; the old pi-pipipi entry leaves settings.json on switch day.
 12. `xpi` skips the upstream version check by default.
 
-## Grill 1 addendum 2 (2026-11-09): /sushi, all as recommended (owner's change on S5)
+## Grill 1 addendum 2 (2026-11-09): /upstream, all as recommended (owner's change on S5)
 
-13. `/sushi` command (no key binding) in xpi.
+13. `/upstream` command (no key binding) in xpi.
 14. Source: local git in `xinpi.sourceDir` (default `~/Developer/xin-pi`), `git fetch upstream`; fallback to upstream
     `CHANGELOG.md` when there is no checkout.
 15. Report: upstream changes (features / fixes / breaking), conflicts with our changes, overlap with our built-ins
     (adopt upstream's or keep ours), recommendation list (merge as-is / port or adapt / skip, reason, risk).
 16. Read-only first version: report and a suggested next step; merging is a separate request through branch + PR.
-17. Owner's change: no dedicated read-only subagent. `/sushi` gathers the data itself and injects a prompt into the
+17. Owner's change: no dedicated read-only subagent. `/upstream` gathers the data itself and injects a prompt into the
     normal main agent, which may delegate on its own.
-18. Summary to main, full report at `~/.pi/agent/sushi/<stamp>.md`.
+18. Summary to main, full report at `~/.pi/agent/upstream/<stamp>.md`.
 19. Ticket 04, after porting (03); docs, freeze and the owner's look move to 05-07.
+
+20. Renamed by the owner (2026-11-09): the command is `/upstream` (was `/sushi`); reports under `~/.pi/agent/upstream/`.

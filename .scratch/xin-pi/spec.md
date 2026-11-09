@@ -52,8 +52,8 @@ pi-pipipi until xpi is good enough to replace it.
 24. As the owner, I want a clear list of what changed in upstream pi's core for xin-pi (`docs/xin-pi.md`), so that I can review and re-apply it after merges.
 25. As the owner, I want the layout to take pi-roost next (`packages/roost`, same way), so that this first move is the template.
 
-26. As the owner, I want `/sushi` in xpi to look at upstream pi and have the model compare it with xin-pi (new upstream features, fixes and breaking changes; conflicts with our changes; overlap with our built-ins) and recommend what to merge, port or skip, so that keeping up with upstream is a decision, not a chore.
-27. As the owner, I want `/sushi` to be read-only (report only, no edits, no merge) and to save the report under `~/.pi/agent/sushi/`, so that I decide when to sync.
+26. As the owner, I want `/upstream` in xpi to look at upstream pi and have the model compare it with xin-pi (new upstream features, fixes and breaking changes; conflicts with our changes; overlap with our built-ins) and recommend what to merge, port or skip, so that keeping up with upstream is a decision, not a chore.
+27. As the owner, I want `/upstream` to be read-only (report only, no edits, no merge) and to save the report under `~/.pi/agent/upstream/`, so that I decide when to sync.
 
 ## Implementation Decisions
 
@@ -96,14 +96,14 @@ Process
 
 - Branch per ticket from `main`, PR on `luoxin9510/xin-pi`, independent review, merge; upstream merged into `main` by merge commit. Commit trailer per this session's attribution rules. No company information in repo, commits or PRs.
 
-/sushi
+/upstream
 
 - A command registered by `packages/xpi` (injected like pipipi). It gathers facts with git in `xinpi.sourceDir`
   (default `~/Developer/xin-pi`): `git fetch upstream`, upstream commits not in `main`, diffstat, the upstream-owned
   files xin-pi changed, new `CHANGELOG.md` entries; without a checkout it falls back to upstream's `CHANGELOG.md`.
-  Facts go to a data file `~/.pi/agent/sushi/<stamp>-data.md`.
+  Facts go to a data file `~/.pi/agent/upstream/<stamp>-data.md`.
 - No dedicated subagent: it injects a prompt into the current main agent (new turn when idle, steer when busy) with
-  the data file path, the four report sections, the read-only rule and the report path `~/.pi/agent/sushi/<stamp>.md`.
+  the data file path, the four report sections, the read-only rule and the report path `~/.pi/agent/upstream/<stamp>.md`.
   Main may delegate with the Agent tool itself. Read-only is an instruction, not enforced.
 
 ## Testing Decisions
