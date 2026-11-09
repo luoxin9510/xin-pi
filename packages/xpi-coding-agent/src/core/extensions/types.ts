@@ -2284,11 +2284,12 @@ export interface ExtensionContextActions {
 		name: string,
 		args: unknown,
 		options: ExecuteToolOptions,
+		scopeToken?: object,
 	) => Promise<AgentToolCallOutcome>;
-	/** Backs `ExtensionToolContext.detachNestedCalls()`. */
-	detachNestedCalls?: (callerId: string) => void;
+	/** Backs `ExtensionToolContext.detachNestedCalls()`. `scopeToken` tells this tool call from a later one that reuses the id. */
+	detachNestedCalls?: (callerId: string, scopeToken?: object) => void;
 	/** Backs `ExtensionToolContext.releaseNestedCalls()`. */
-	releaseNestedCalls?: (callerId: string) => void;
+	releaseNestedCalls?: (callerId: string, scopeToken?: object) => void;
 	/** Backs `ExtensionToolContext.tools`. */
 	getCallableTools?: () => readonly AgentTool[];
 }

@@ -680,9 +680,16 @@ export async function executeCodemode(
 		ctx,
 		options,
 	);
+	// Once the script's code is over it can no longer be moved: its result goes to this call, with no end message.
 	const finished = run.then(
-		() => "done" as const,
-		() => "done" as const,
+		() => {
+			script.settle();
+			return "done" as const;
+		},
+		() => {
+			script.settle();
+			return "done" as const;
+		},
 	);
 	const first = await Promise.race([finished, script.moved]);
 	if (first === "done") {

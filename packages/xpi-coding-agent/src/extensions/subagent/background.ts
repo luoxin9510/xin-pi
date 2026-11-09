@@ -64,9 +64,14 @@ class ScriptRegistry {
 	// through `link.deliver`. With `enabled()` false (subagent.backgroundScripts: false, or no UI: print mode exits at the
 	// turn's end, so a background result would be lost) scripts are neither tracked nor moved. Returns the disposer.
 	connect(link: ScriptLink): () => void {
-		return codemodeScripts.subscribe({
+		// The controller is process-wide: only the scripts this instance saw start (in its own session) are its own. Events of
+		// anything else (another session in the process, an older session) are ignored, never delivered here.
+		const own = new Set<string>();
+		let live = true;
+		const off = codemodeScripts.subscribe({
 			onStart: (info) => {
-				if (info.sessionId !== link.sessionId() || !link.enabled()) return;
+				if (!live || info.sessionId !== link.sessionId() || !link.enabled()) return;
+				own.add(info.id);
 				this.scripts.set(info.id, {
 					id: info.id,
 					callId: info.toolCallId,
@@ -80,14 +85,27 @@ class ScriptRegistry {
 				this.changed();
 			},
 			onBackground: (info) => {
-				const script = this.scripts.get(info.id);
+				const script = live && own.has(info.id) ? this.scripts.get(info.id) : undefined;
 				if (script) this.setState(script, "background");
 			},
 			onEnd: (info, outcome) => {
+				if (!live || !own.delete(info.id)) return;
 				const script = this.scripts.get(info.id);
 				if (script) this.ended(script, outcome, link);
 			},
 		});
+		return () => {
+			// Disconnected (session shutdown or a new connect): scripts still running here end unseen, so their rows are
+			// closed now and nothing of them is delivered later.
+			live = false;
+			off();
+			for (const id of own) {
+				const script = this.scripts.get(id);
+				if (script && (script.state === "foreground" || script.state === "background"))
+					this.setState(script, "stopped");
+			}
+			own.clear();
+		};
 	}
 
 	// How the script ended: stopped; failed (an error result, a throw, or every agent it ran failed or was stopped);

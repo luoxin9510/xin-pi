@@ -71,6 +71,8 @@ export interface CodemodeScriptRun {
 	moved: Promise<string>;
 	/** True when the script is in the foreground. */
 	isForeground(): boolean;
+	/** The script's own code has finished (its result is about to be returned or reported): `background()` is refused from now on. */
+	settle(): void;
 	/** The script is over; notifies listeners. */
 	end(outcome: { result?: AgentToolResult<unknown>; error?: Error }): void;
 }
@@ -78,7 +80,7 @@ export interface CodemodeScriptRun {
 class CodemodeScriptRegistry implements CodemodeScripts {
 	private readonly runs = new Map<
 		string,
-		{ info: CodemodeScriptInfo; move: (text?: string) => void; abort: () => void }
+		{ info: CodemodeScriptInfo; move: (text?: string) => void; abort: () => void; settled: boolean }
 	>();
 	private readonly listeners = new Set<CodemodeScriptListener>();
 	private counter = 0;
@@ -94,7 +96,7 @@ class CodemodeScriptRegistry implements CodemodeScripts {
 
 	background(scriptId: string, result?: string): boolean {
 		const run = this.runs.get(scriptId);
-		if (!run || run.info.state !== "foreground") return false;
+		if (!run || run.info.state !== "foreground" || run.settled) return false; // already over: its result goes to the tool call
 		run.move(result);
 		return true;
 	}
@@ -142,7 +144,8 @@ class CodemodeScriptRegistry implements CodemodeScripts {
 			this.emit("onBackground", info);
 			resolveMoved(text ?? DEFAULT_BACKGROUND_TEXT(info.id));
 		};
-		this.runs.set(info.id, { info, move, abort: () => own.abort(new Error("Script stopped")) });
+		const entry = { info, move, abort: () => own.abort(new Error("Script stopped")), settled: false };
+		this.runs.set(info.id, entry);
 		if (mainSignal?.aborted) abortOwn();
 		else mainSignal?.addEventListener("abort", abortOwn, { once: true });
 		this.emit("onStart", info);
@@ -151,6 +154,9 @@ class CodemodeScriptRegistry implements CodemodeScripts {
 			signal: own.signal,
 			moved,
 			isForeground: () => info.state === "foreground",
+			settle: () => {
+				entry.settled = true;
+			},
 			end: ({ result, error }) => {
 				mainSignal?.removeEventListener("abort", abortOwn);
 				const background = info.state === "background";

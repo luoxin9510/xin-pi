@@ -270,17 +270,67 @@ describe("NestedToolCallRunner after an early return (detached scripts)", () => 
 		expect((await runner.execute("call", "quick", {})).toolCall.id).toBe("call/3");
 	});
 
-	it("detach keeps recording usage and calls; release returns the full record and frees the scope", async () => {
+	it("detach keeps recording calls; release returns them all and the usage no result message counted", async () => {
 		const { runner } = createRunner([quick]);
 		await runner.execute("call", "quick", {});
 		runner.detach("call");
-		runner.takeRecord("call");
+		expect(runner.takeRecord("call")?.usage?.cost.total).toBeCloseTo(0.005);
+		await runner.execute("call", "quick", {});
 		await runner.execute("call", "quick", {});
 		const released = runner.release("call");
-		expect(released?.calls?.calls.map((call) => call.id)).toEqual(["call/1", "call/2"]);
-		expect(released?.usage?.cost.total).toBeCloseTo(0.01);
+		expect(released?.calls?.calls.map((call) => call.id)).toEqual(["call/1", "call/2", "call/3"]);
+		expect(released?.usage?.cost.total).toBeCloseTo(0.01); // only the two calls after the take
 		expect(runner.release("call")).toBeUndefined();
-		expect((await runner.execute("call", "quick", {})).toolCall.id).toBe("call/1"); // a fresh scope
+		// a fresh scope, but ids already handed out are never repeated
+		expect((await runner.execute("call", "quick", {})).toolCall.id).toBe("call/4");
+	});
+
+	it("C2: a release before the result message took the record leaves everything to that take", async () => {
+		const { runner } = createRunner([quick]);
+		await runner.execute("call", "quick", {});
+		runner.detach("call");
+		expect(runner.release("call")).toBeUndefined();
+		expect(runner.takeRecord("call")?.usage?.cost.total).toBeCloseTo(0.005);
+	});
+
+	it("C5: a reused tool call id gets a fresh scope; the old script keeps its own and never repeats ids", async () => {
+		const { runner } = createRunner([quick]);
+		const oldToken = {};
+		const newToken = {};
+		await runner.execute("call", "quick", {}, {}, oldToken);
+		runner.detach("call", oldToken);
+		runner.takeRecord("call");
+		// a new model call reuses the id: it has no nested call yet, so the old record must not be taken for it
+		expect(runner.takeRecord("call")).toBeUndefined();
+		const fresh = await runner.execute("call", "quick", {}, {}, newToken);
+		expect(fresh.toolCall.id).toBe("call/2"); // never "call/1" again
+		expect((await runner.execute("call", "quick", {}, {}, oldToken)).toolCall.id).toBe("call/3");
+		// the old release must not delete the new call's scope
+		runner.release("call", oldToken);
+		const newRecord = runner.takeRecord("call");
+		expect(newRecord?.calls?.calls.map((call) => call.id)).toEqual(["call/2"]);
+		expect(newRecord?.usage?.cost.total).toBeCloseTo(0.005);
+	});
+
+	it("C4: calls of a detached scope run against the context captured at detach", async () => {
+		const seen: unknown[] = [];
+		let current = "turn-1";
+		const events: NestedToolExecutionEvent[] = [];
+		const runner = new NestedToolCallRunner({
+			getTools: () => [quick],
+			isSequential: () => false,
+			captureOrigin: () => current,
+			runToolCall: async (toolCall, _parent, _signal, _onUpdate, origin) => {
+				seen.push(origin);
+				return { toolCall, result: { content: [], details: {} }, isError: false };
+			},
+			emit: async (event) => void events.push(event),
+		});
+		await runner.execute("a", "quick", {}); // never detached: no origin
+		runner.detach("a");
+		current = "turn-2"; // the session moved on
+		await runner.execute("a", "quick", {});
+		expect(seen).toEqual([undefined, "turn-1"]);
 	});
 
 	it("clear() keeps the scopes of nested calls that run below a detached script", async () => {
@@ -310,6 +360,7 @@ describe("NestedToolCallRunner after an early return (detached scripts)", () => 
 		proceed();
 		await running;
 		expect(inner).toEqual(["call/1/1", "call/1/2"]);
+		runner.takeRecord("call"); // the result message of the early return
 		expect(runner.release("call")?.calls?.calls.map((call) => call.id)).toEqual(["call/1", "call/1/1", "call/1/2"]);
 	});
 
@@ -320,5 +371,72 @@ describe("NestedToolCallRunner after an early return (detached scripts)", () => 
 		expect([a.toolCall.id, b.toolCall.id]).toEqual(["call/1", "call/2"]);
 		// ... and another caller's call still runs after them.
 		expect((await runner.execute("other", "quick", {})).toolCall.id).toBe("other/1");
+	});
+});
+
+describe("NestedToolCallRunner exclusive queue (sequential agents)", () => {
+	const gates: Array<() => void> = [];
+	const slow: AgentTool = {
+		name: "slow",
+		label: "Slow",
+		description: "Waits for the test",
+		parameters: Type.Object({}),
+		async execute() {
+			await new Promise<void>((resolve) => gates.push(resolve));
+			return { content: [], details: {} };
+		},
+	};
+	const quick: AgentTool = {
+		name: "quick",
+		label: "Quick",
+		description: "Quick",
+		parameters: Type.Object({}),
+		async execute() {
+			return { content: [], details: {} };
+		},
+	};
+	const tick = () => new Promise((r) => setTimeout(r, 10));
+
+	it("C3: a detached script holding the queue does not block a foreground call, nor the other way round", async () => {
+		const { runner } = createRunner([slow, quick], { sequential: true });
+		const detachedToken = {};
+		runner.detach("bg", detachedToken);
+		const background = runner.execute("bg", "slow", {}, {}, detachedToken); // holds its (own) queue
+		await tick();
+		const done = await Promise.race([
+			runner.execute("fg", "quick", {}, {}, {}).then(() => "ran"),
+			tick().then(() => "blocked"),
+		]);
+		expect(done).toBe("ran");
+		gates.shift()?.();
+		await background;
+		// a foreground slow call does not hold up the detached script either
+		const fgSlow = runner.execute("fg2", "slow", {}, {}, {});
+		await tick();
+		const bgQuick = await Promise.race([
+			runner.execute("bg", "quick", {}, {}, detachedToken).then(() => "ran"),
+			tick().then(() => "blocked"),
+		]);
+		expect(bgQuick).toBe("ran");
+		gates.shift()?.();
+		await fgSlow;
+	});
+
+	it("C3: a call waiting on the queue gives up when its signal aborts, and the queue keeps its order", async () => {
+		const { runner } = createRunner([slow, quick], { sequential: true });
+		const holder = runner.execute("a", "slow", {});
+		await tick();
+		const controller = new AbortController();
+		const waiting = runner.execute("a", "quick", {}, { signal: controller.signal });
+		await tick();
+		controller.abort();
+		const outcome = await waiting;
+		expect(outcome.isError).toBe(true);
+		const next = runner.execute("a", "quick", {});
+		const early = await Promise.race([next.then(() => "ran"), tick().then(() => "waiting")]);
+		expect(early).toBe("waiting"); // still behind the holder
+		gates.shift()?.();
+		await holder;
+		expect((await next).isError).toBe(false);
 	});
 });

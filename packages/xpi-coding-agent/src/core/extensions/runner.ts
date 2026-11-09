@@ -972,6 +972,8 @@ export class ExtensionRunner {
 	 */
 	createToolContext(toolCallId: string, signal: AbortSignal | undefined): ExtensionToolContext {
 		const runner = this;
+		// Names this tool call for the nested-call scopes: a later call may reuse `toolCallId`.
+		const scopeToken = {};
 		// createContext() returns a fresh object, so adding properties does not affect other contexts.
 		return Object.defineProperties(this.createContext() as ExtensionToolContext, {
 			tools: {
@@ -993,12 +995,18 @@ export class ExtensionRunner {
 							isError: true,
 						};
 					}
-					return runner.executeToolFn(toolCallId, name, args, { ...options, signal: options.signal ?? signal });
+					return runner.executeToolFn(
+						toolCallId,
+						name,
+						args,
+						{ ...options, signal: options.signal ?? signal },
+						scopeToken,
+					);
 				},
 			},
-			detachNestedCalls: { value: () => runner.detachNestedCallsFn?.(toolCallId) },
+			detachNestedCalls: { value: () => runner.detachNestedCallsFn?.(toolCallId, scopeToken) },
 			// Not guarded by assertActive(): a script that ends after a reload must still release its scope.
-			releaseNestedCalls: { value: () => runner.releaseNestedCallsFn?.(toolCallId) },
+			releaseNestedCalls: { value: () => runner.releaseNestedCallsFn?.(toolCallId, scopeToken) },
 		});
 	}
 

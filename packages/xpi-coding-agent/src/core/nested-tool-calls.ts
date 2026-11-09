@@ -51,6 +51,8 @@ export class NestedCallRecorder {
 	private argumentBytes = 0;
 	/** Summed usage of every nested result, including calls dropped from the record. */
 	private usage: Usage | undefined;
+	/** The part of `usage` that no `takeUnreportedUsage()` has handed out yet. */
+	private unreported: Usage | undefined;
 
 	/** Record a call as it starts. Returns undefined when the call is dropped. */
 	start(toolCall: AgentToolCall): NestedToolCallRecord | undefined {
@@ -86,6 +88,14 @@ export class NestedCallRecorder {
 
 	addUsage(usage: Usage): void {
 		this.usage = this.usage ? combineUsage(this.usage, usage) : usage;
+		this.unreported = this.unreported ? combineUsage(this.unreported, usage) : usage;
+	}
+
+	/** Usage added since the last call of this method (or since the start): what no result message has counted yet. */
+	takeUnreportedUsage(): Usage | undefined {
+		const usage = this.unreported;
+		this.unreported = undefined;
+		return usage;
 	}
 
 	get totalUsage(): Usage | undefined {
@@ -133,13 +143,22 @@ export interface NestedToolCallHost {
 	getTools(): readonly AgentTool[];
 	/** Whether every nested call runs exclusively, as when the agent executes tool calls sequentially. */
 	isSequential(): boolean;
-	/** Run the call through the tool pipeline, with hooks that report `parentToolCallId`. */
+	/**
+	 * Run the call through the tool pipeline, with hooks that report `parentToolCallId`. `origin` is what `captureOrigin()`
+	 * returned when the scope was detached (undefined for calls of a scope that never was).
+	 */
 	runToolCall(
 		toolCall: AgentToolCall,
 		parentToolCallId: string,
 		signal: AbortSignal | undefined,
 		onUpdate: (partialResult: AgentToolResult<unknown>) => Promise<void>,
+		origin?: unknown,
 	): Promise<AgentToolCallOutcome>;
+	/**
+	 * The context the originating model turn gave its tool call (its assistant message and messages). Called when a scope is
+	 * detached, so that calls made after the turn moved on still run against the turn they belong to.
+	 */
+	captureOrigin?(): unknown;
 	emit(event: NestedToolExecutionEvent): Promise<void>;
 }
 
@@ -155,7 +174,35 @@ interface CallScope {
 	 * later calls and their usage keep going into the same recorder.
 	 */
 	detached?: boolean;
+	/** Identifies the tool call (its generation) that owns a detached scope: a reused tool call id is another one. */
+	token?: string | object;
+	/** The result message took the record: a released scope is then dropped for good. */
+	taken?: boolean;
+	/** The exclusive queue the scope's calls wait on: the runner's, or the scope's own once detached. */
+	queue: ExclusiveQueue;
+	/** `captureOrigin()` at detach. */
+	origin?: unknown;
 }
+
+interface ExclusiveQueue {
+	tail: Promise<void>;
+}
+
+/** Resolves true when `previous` is over, false when `signal` aborts first. */
+function waitFor(previous: Promise<void>, signal: AbortSignal | undefined): Promise<boolean> {
+	if (!signal) return previous.then(() => true);
+	if (signal.aborted) return Promise.resolve(false);
+	return new Promise((resolve) => {
+		const onAbort = () => resolve(false);
+		signal.addEventListener("abort", onAbort, { once: true });
+		void previous.then(() => {
+			signal.removeEventListener("abort", onAbort);
+			resolve(true);
+		});
+	});
+}
+
+const MAX_STICKY_IDS = 1000;
 
 function textOf(result: AgentToolResult<unknown>): string {
 	return (result.content ?? [])
@@ -168,8 +215,12 @@ export class NestedToolCallRunner {
 	private readonly host: NestedToolCallHost;
 	/** Scopes by the id of the calling tool call. */
 	private readonly scopes = new Map<string, CallScope>();
-	/** Serializes nested calls that must not run concurrently. */
-	private queueTail: Promise<void> = Promise.resolve();
+	/** Detached scopes by the token of the tool call that owns them (the id alone can be reused by a later call). */
+	private readonly detachedScopes = new Map<string | object, CallScope>();
+	/** Serializes nested calls that must not run concurrently. Detached scopes use their own queue. */
+	private readonly queue: ExclusiveQueue = { tail: Promise.resolve() };
+	/** Last nested id number handed out below caller ids that were ever detached: later calls with that id never repeat one. */
+	private readonly sticky = new Map<string, number>();
 
 	constructor(host: NestedToolCallHost) {
 		this.host = host;
@@ -184,15 +235,12 @@ export class NestedToolCallRunner {
 		name: string,
 		args: unknown,
 		options: NestedToolCallOptions = {},
+		token?: string | object,
 	): Promise<AgentToolCallOutcome> {
-		let scope = this.scopes.get(callerId);
-		if (!scope) {
-			scope = { recorder: new NestedCallRecorder(), nextId: 1, holdsQueue: false };
-			this.scopes.set(callerId, scope);
-		}
+		const scope = this.scopeFor(callerId, token ?? callerId);
 		const toolCall: AgentToolCall = {
 			type: "toolCall",
-			id: `${callerId}/${scope.nextId++}`,
+			id: `${callerId}/${this.nextNumber(callerId, scope)}`,
 			name,
 			arguments: (args ?? {}) as AgentToolCall["arguments"],
 		};
@@ -210,31 +258,55 @@ export class NestedToolCallRunner {
 			(this.host.isSequential() ||
 				this.host.getTools().find((tool) => tool.name === name)?.executionMode === "sequential");
 		let release: (() => void) | undefined;
+		let acquired = true;
 		if (exclusive) {
-			const previous = this.queueTail;
-			this.queueTail = new Promise((resolve) => {
+			const previous = scope.queue.tail;
+			scope.queue.tail = new Promise((resolve) => {
 				release = resolve;
 			});
-			await previous;
+			acquired = await waitFor(previous, options.signal);
+			// Aborted while waiting: leave the queue in order, without running.
+			if (!acquired) {
+				const free = release;
+				release = undefined;
+				void previous.then(() => free?.());
+			}
 		}
 		this.scopes.set(toolCall.id, {
 			recorder: scope.recorder,
 			nextId: 1,
 			holdsQueue: scope.holdsQueue || exclusive,
+			queue: scope.queue,
+			...(scope.origin === undefined ? {} : { origin: scope.origin }),
 		});
 		let outcome: AgentToolCallOutcome;
 		try {
-			outcome = await this.host.runToolCall(toolCall, callerId, options.signal, async (partialResult) => {
-				options.onUpdate?.(partialResult);
-				await this.host.emit({
-					type: "tool_execution_update",
-					toolCallId: toolCall.id,
-					toolName: name,
-					args: toolCall.arguments,
-					partialResult,
-					parentToolCallId: callerId,
-				});
-			});
+			outcome = acquired
+				? await this.host.runToolCall(
+						toolCall,
+						callerId,
+						options.signal,
+						async (partialResult) => {
+							options.onUpdate?.(partialResult);
+							await this.host.emit({
+								type: "tool_execution_update",
+								toolCallId: toolCall.id,
+								toolName: name,
+								args: toolCall.arguments,
+								partialResult,
+								parentToolCallId: callerId,
+							});
+						},
+						scope.origin,
+					)
+				: {
+						toolCall,
+						result: {
+							content: [{ type: "text", text: "Aborted while waiting for other tool calls" }],
+							details: {},
+						},
+						isError: true,
+					};
 		} finally {
 			this.scopes.delete(toolCall.id);
 			release?.();
@@ -259,37 +331,83 @@ export class NestedToolCallRunner {
 	takeRecord(toolCallId: string): NestedCallSummary | undefined {
 		const scope = this.scopes.get(toolCallId);
 		if (!scope) return undefined;
-		// A detached scope stays: the calling tool is still running and makes more calls.
-		if (!scope.detached) this.scopes.delete(toolCallId);
-		return { calls: scope.recorder.snapshot(), usage: scope.recorder.totalUsage };
+		// A detached scope stays reachable through its token: the calling tool is still running and makes more calls. It leaves
+		// the id map, so a later call that reuses the id starts a scope of its own.
+		this.scopes.delete(toolCallId);
+		if (scope.detached) scope.taken = true;
+		return {
+			calls: scope.recorder.snapshot(),
+			usage: scope.detached ? scope.recorder.takeUnreportedUsage() : scope.recorder.totalUsage,
+		};
 	}
 
 	/**
-	 * Keep the scope of `callerId` alive after its tool call returned early. Call it before the
-	 * tool result is emitted; `release()` ends it when the tool really finishes.
+	 * Keep the scope of `callerId` alive after its tool call returned early. Call it before the tool result is emitted;
+	 * `release()` ends it when the tool really finishes. `token` names this tool call (default: the id): a later call that
+	 * reuses the id gets a scope of its own, and the ids already handed out are never repeated.
 	 */
-	detach(callerId: string): void {
+	detach(callerId: string, token: string | object = callerId): void {
 		let scope = this.scopes.get(callerId);
-		if (!scope) {
-			scope = { recorder: new NestedCallRecorder(), nextId: 1, holdsQueue: false };
+		if (!scope || (scope.token !== undefined && scope.token !== token)) {
+			scope = this.newScope(callerId);
 			this.scopes.set(callerId, scope);
 		}
 		scope.detached = true;
+		scope.token = token;
+		scope.queue = { tail: Promise.resolve() }; // its calls never wait behind (or hold up) foreground calls
+		scope.origin = this.host.captureOrigin?.();
+		this.detachedScopes.set(token, scope);
+		this.sticky.set(callerId, Math.max(this.sticky.get(callerId) ?? 0, scope.nextId - 1));
+		if (this.sticky.size > MAX_STICKY_IDS) this.sticky.delete(this.sticky.keys().next().value as string);
 	}
 
-	/** End a detached scope; returns everything it recorded (the calls and usage over its whole life). */
-	release(callerId: string): NestedCallSummary | undefined {
-		const scope = this.scopes.get(callerId);
-		if (!scope?.detached) return undefined;
-		this.scopes.delete(callerId);
-		return { calls: scope.recorder.snapshot(), usage: scope.recorder.totalUsage };
+	/**
+	 * End a detached scope. Returns the calls it recorded over its whole life and the usage no result message has counted
+	 * yet. Undefined when nothing is detached under `token`, or when the result message has not taken the record yet (it
+	 * will then take everything).
+	 */
+	release(callerId: string, token: string | object = callerId): NestedCallSummary | undefined {
+		const scope = this.detachedScopes.get(token);
+		if (!scope) return undefined;
+		this.detachedScopes.delete(token);
+		scope.detached = false;
+		if (!scope.taken) return undefined;
+		return { calls: scope.recorder.snapshot(), usage: scope.recorder.takeUnreportedUsage() };
 	}
 
-	/** Drop every scope except detached ones and the scopes of calls running below them. */
+	/** Drop every scope except those of calls running below a detached one (detached scopes are kept apart). */
 	clear(): void {
-		const detached = [...this.scopes].filter(([, scope]) => scope.detached).map(([id]) => id);
-		for (const id of [...this.scopes.keys()]) {
-			if (!detached.some((root) => id === root || id.startsWith(`${root}/`))) this.scopes.delete(id);
+		const kept = [...this.detachedScopes.values()].map((scope) => scope.recorder);
+		for (const [id, scope] of [...this.scopes]) {
+			if (!scope.detached && !kept.includes(scope.recorder)) this.scopes.delete(id);
 		}
+	}
+
+	private newScope(callerId: string): CallScope {
+		return {
+			recorder: new NestedCallRecorder(),
+			nextId: (this.sticky.get(callerId) ?? 0) + 1,
+			holdsQueue: false,
+			queue: this.queue,
+		};
+	}
+
+	/** The scope for a call of `callerId` made by the tool call `token`. */
+	private scopeFor(callerId: string, token: string | object): CallScope {
+		const detached = this.detachedScopes.get(token);
+		if (detached) return detached;
+		const existing = this.scopes.get(callerId);
+		if (existing && (existing.token === undefined || existing.token === token)) return existing;
+		const scope = this.newScope(callerId);
+		this.scopes.set(callerId, scope);
+		return scope;
+	}
+
+	private nextNumber(callerId: string, scope: CallScope): number {
+		if (!this.sticky.has(callerId)) return scope.nextId++;
+		const next = (this.sticky.get(callerId) ?? 0) + 1;
+		this.sticky.set(callerId, next);
+		scope.nextId = next + 1;
+		return next;
 	}
 }

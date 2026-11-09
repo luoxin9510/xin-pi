@@ -51,6 +51,8 @@ export default function subagent(pi: ExtensionAPI) {
 		closing = true;
 		const sessionId = ctx.sessionManager.getSessionId();
 		await scripts.stopAll(sessionId);
+		disconnect?.(); // an old session's script end must never reach a later session
+		disconnect = undefined;
 		registry.abortQueuedOf(sessionId);
 		await registry.stopAll(
 			registry

@@ -793,16 +793,43 @@ export class AgentSession {
 		name: string,
 		args: unknown,
 		options: ExecuteToolOptions,
+		scopeToken?: object,
 	): Promise<AgentToolCallOutcome> {
-		return this._getNestedToolCalls().execute(parentToolCallId, name, args, options);
+		return this._getNestedToolCalls().execute(parentToolCallId, name, args, options, scopeToken);
+	}
+
+	/**
+	 * A nested-call scope ended after its result message was recorded (a background codemode script): the usage of the
+	 * calls it made since then is added to the session as a usage entry, so session totals include it.
+	 */
+	private _releaseNestedCalls(callerId: string, scopeToken: object | undefined): void {
+		const summary = this._nestedToolCalls?.release(callerId, scopeToken);
+		if (!summary?.usage) return;
+		try {
+			this.sessionManager.appendUsage(
+				"nested_tool_calls",
+				this.model?.provider ?? "unknown",
+				this.model?.id ?? "unknown",
+				summary.usage,
+				`tool calls of ${callerId} after it returned`,
+			);
+		} catch (error) {
+			console.error(`Could not record the usage of ${callerId}: ${error instanceof Error ? error.message : error}`);
+		}
 	}
 
 	private _getNestedToolCalls(): NestedToolCallRunner {
 		this._nestedToolCalls ??= new NestedToolCallRunner({
 			getTools: () => this._getCallableTools(),
 			isSequential: () => this.agent.toolExecution === "sequential",
-			runToolCall: (toolCall, parentId, signal, onUpdate) => {
+			// A background script's later calls run against the turn that started it, not the latest one.
+			captureOrigin: () => {
 				const assistantMessage = this._findLastAssistantMessage();
+				return assistantMessage ? { assistantMessage, messages: [...this.agent.state.messages] } : undefined;
+			},
+			runToolCall: (toolCall, parentId, signal, onUpdate, origin) => {
+				const captured = origin as { assistantMessage: AssistantMessage; messages: AgentMessage[] } | undefined;
+				const assistantMessage = captured?.assistantMessage ?? this._findLastAssistantMessage();
 				if (!assistantMessage) {
 					return Promise.resolve({
 						toolCall,
@@ -813,7 +840,7 @@ export class AgentSession {
 				return runToolCall(toolCall, {
 					tools: this._getCallableTools(),
 					assistantMessage,
-					context: { messages: this.agent.state.messages, tools: this.agent.state.tools },
+					context: { messages: captured?.messages ?? this.agent.state.messages, tools: this.agent.state.tools },
 					beforeToolCall: (context) => this._beforeToolCall(context, parentId),
 					afterToolCall: (context) => this._afterToolCall(context, parentId),
 					signal,
@@ -3623,9 +3650,10 @@ export class AgentSession {
 				},
 				getSystemPrompt: () => this.systemPrompt,
 				getSystemPromptOptions: () => this._baseSystemPromptOptions,
-				executeTool: (callerId, name, args, options) => this._executeNestedToolCall(callerId, name, args, options),
-				detachNestedCalls: (callerId) => this._getNestedToolCalls().detach(callerId),
-				releaseNestedCalls: (callerId) => void this._nestedToolCalls?.release(callerId),
+				executeTool: (callerId, name, args, options, scopeToken) =>
+					this._executeNestedToolCall(callerId, name, args, options, scopeToken),
+				detachNestedCalls: (callerId, scopeToken) => this._getNestedToolCalls().detach(callerId, scopeToken),
+				releaseNestedCalls: (callerId, scopeToken) => this._releaseNestedCalls(callerId, scopeToken),
 				getCallableTools: () => this._getCallableTools(),
 			},
 			{
