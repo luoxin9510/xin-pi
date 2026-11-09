@@ -320,6 +320,14 @@ still ignored (a warning).
   registry is rebuilt from the meta files; a meta file left in `running` (pi died) shows as `stopped`. A meta file that cannot be read is skipped with a
   warning at session start.
 - `maxConcurrent` (default 20) caps running children per pi process; extra calls and extra exchanges queue.
+- Stopping a child: an rpc abort, then (after 2 s) SIGTERM, then SIGKILL after `shutdownGraceMs` (default 10 s; the child
+  can use that time to close its MCP servers). Each child runs in its own process group (POSIX), and every signal goes to
+  the whole group, so its MCP servers, bash tools and other descendants are stopped with it, and whatever is left of the
+  tree when the child exits is cleaned up too. When pi itself exits (`process.exit`, SIGINT, SIGTERM, SIGHUP) every live
+  group gets SIGTERM and, after the grace, SIGKILL from a small detached watchdog. A pi that is SIGKILLed or crashes
+  cannot clean up: its children see their rpc stdin close and exit by themselves, but a descendant that ignores that can
+  be left behind. Because children are in their own groups they no longer receive the terminal's ctrl+c directly; the TUI
+  reads ctrl+c as a key and stops subagents as before. On Windows children keep the plain `child.kill` behaviour.
 - Each child is a full `pi`, about 220 MB (see [Stress test](#stress-test)).
 - An in-memory parent session keeps nothing on disk: no meta files, no viewing, no resume.
 
@@ -335,6 +343,7 @@ Optional, in `.pi/settings.json` or `~/.pi/agent/settings.json`:
   "maxConcurrent": 20,                             // running children per pi process; extra calls queue. The first session's value wins for the process
   "childCodemode": "only",                         // "only" (default): children see only `codemode`; "inherit": v1 behaviour, direct tools
   "backgroundScripts": true,                       // false: a script that starts an Agent waits for it, as in v2 (pi's own codemode)
+  "shutdownGraceMs": 10000,                        // how long a stopped child may take to shut down (SIGTERM) before SIGKILL; raise it for slow MCP servers
   "panelLingerMs": 30000,                          // how long a finished subagent stays in the panel (the pty tests shorten it)
   "piCommand": "xpi"                               // unset: children run the same build as this process; XPI_SUBAGENT_TEST_PI also overrides
 }
