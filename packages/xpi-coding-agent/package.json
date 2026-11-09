@@ -1,7 +1,7 @@
 {
 	"name": "xpi-coding-agent",
 	"version": "1.5.0",
-	"description": "Coding agent CLI with read, bash, edit, write tools and session management",
+	"description": "xpi: a coding agent CLI from xin-pi, a fork of pi with built-in subagents",
 	"type": "module",
 	"piConfig": {
 		"name": "xpi",
@@ -27,7 +27,8 @@
 		"examples",
 		"schemas",
 		"containerization.md",
-		"CHANGELOG.md"
+		"CHANGELOG.md",
+		"README.upstream.md"
 	],
 	"scripts": {
 		"clean": "node ../../scripts/package-files.mjs clean dist",
@@ -93,16 +94,26 @@
 		"llm",
 		"cli",
 		"tui",
-		"agent"
+		"agent",
+		"xpi",
+		"xin-pi",
+		"subagents"
 	],
-	"author": "Mario Zechner",
+	"author": "luoxin9510",
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/earendil-works/pi.git",
+		"url": "git+https://github.com/luoxin9510/xin-pi.git",
 		"directory": "packages/xpi-coding-agent"
 	},
 	"engines": {
 		"node": ">=22.19.0"
+	},
+	"contributors": [
+		"Mario Zechner (original pi author)"
+	],
+	"homepage": "https://github.com/luoxin9510/xin-pi#readme",
+	"bugs": {
+		"url": "https://github.com/luoxin9510/xin-pi/issues"
 	}
 }
