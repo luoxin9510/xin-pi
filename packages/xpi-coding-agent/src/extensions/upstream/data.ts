@@ -133,8 +133,10 @@ async function gitMode(o: GatherOptions, stamp: string): Promise<Body> {
 	const notes: string[] = [];
 	const ours = o.ourBranch ?? "main";
 	const up = o.upstreamBranch ?? (await defaultUpstreamBranch(o.sourceDir));
+	let fetched = "";
 	try {
 		await git(o.sourceDir, ["fetch", "upstream"], 120_000);
+		fetched = `fetched just now (${new Date().toISOString()})`;
 	} catch (err) {
 		notes.push(`git fetch upstream failed (${firstLine(err)}); using the last fetched upstream/${up}`);
 	}
@@ -144,6 +146,15 @@ async function gitMode(o: GatherOptions, stamp: string): Promise<Body> {
 	}
 	const ourRef = (await gitOk(o.sourceDir, ["rev-parse", "--verify", `${ours}^{commit}`])) ? ours : "HEAD";
 	if (ourRef !== ours) notes.push(`branch ${ours} not found; compared with HEAD`);
+	const head = await gitOk(o.sourceDir, ["rev-parse", "--abbrev-ref", "HEAD"]);
+	if (ourRef === ours && head && head !== "HEAD" && head !== ours) {
+		const ahead = await gitOk(o.sourceDir, ["rev-list", "--count", `${ours}..HEAD`]);
+		if (ahead && ahead !== "0") {
+			notes.push(
+				`the checkout is on branch ${head}, ${ahead} commits ahead of ${ours}; those are not in "our changes"`,
+			);
+		}
+	}
 	const base = await gitOk(o.sourceDir, ["merge-base", ourRef, upRef]);
 	if (!base) throw new Error(`no common history between ${ourRef} and ${upRef}`);
 
@@ -204,7 +215,9 @@ async function gitMode(o: GatherOptions, stamp: string): Promise<Body> {
 	const L: string[] = [];
 	L.push(`# Upstream data (git mode, ${stamp})`, "");
 	L.push(`- source: ${o.sourceDir}`);
-	L.push(`- upstream ref: ${upRef} (${await gitOk(o.sourceDir, ["rev-parse", "--short", upRef])})`);
+	L.push(
+		`- upstream ref: ${upRef} (${await gitOk(o.sourceDir, ["rev-parse", "--short", upRef])})${fetched ? `, ${fetched}` : ""}`,
+	);
 	L.push(`- our ref: ${ourRef} (${await gitOk(o.sourceDir, ["rev-parse", "--short", ourRef])})`);
 	L.push(`- fork point (merge-base): ${base.slice(0, 9)}`);
 	L.push(

@@ -339,3 +339,15 @@ test("command: subagent children do not get it", () => {
 		delete process.env.XPI_SUBAGENT_DEPTH;
 	}
 });
+
+test("git mode: the header says the fetch ran, and a checkout on a branch ahead of main gets a note", async () => {
+	const f = fixture();
+	git(f.ours, "switch", "-qc", "work");
+	put(f.ours, "packages/xpi-coding-agent/src/work.ts", "w\n");
+	git(f.ours, "add", "-A");
+	git(f.ours, "commit", "-qm", "work in progress");
+	const r = await gather({ sourceDir: f.ours, agentDir: f.agentDir, version: "1.0.0" });
+	const d = readFileSync(r.dataPath, "utf8");
+	assert.match(d, /upstream ref: upstream\/main \([0-9a-f]+\), fetched just now/);
+	assert.match(d, /note: the checkout is on branch work, 1 commits ahead of main/);
+});

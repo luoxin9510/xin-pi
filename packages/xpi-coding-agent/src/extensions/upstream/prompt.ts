@@ -22,5 +22,5 @@ Write the report to ${r.reportPath} with exactly these four sections as "## " he
 4. ## ${REPORT_SECTIONS[3]}: one line per item: PORT (cherry-pick, then \`node scripts/xpi-rename.mjs <paths>\`, or rewrite), ADAPT, or SKIP, with a reason and a risk. Upstream paths \`packages/<x>\` are \`packages/xpi-<x>\` here; chord, durable, env and apps are removed.
 End the report with a suggested next step, for example "port commits X and Y on a branch".
 
-Read-only: do not edit any file except that report, do not merge, cherry-pick, fetch, or run git commands that change the checkout. When done, reply with a short summary and the report path.`;
+The data was gathered right before this message, after /upstream itself ran "git fetch upstream" (the data header says whether that fetch succeeded); do not ask the user to fetch again unless it failed. Read-only: do not edit any file except that report, do not merge, cherry-pick, fetch, or run git commands that change the checkout. When done, reply with a short summary and the report path.`;
 }
