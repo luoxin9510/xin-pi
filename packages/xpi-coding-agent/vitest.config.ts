@@ -1,10 +1,12 @@
-import { defineConfig, mergeConfig } from "vitest/config";
+import { configDefaults, defineConfig, mergeConfig } from "vitest/config";
 import baseConfig, { workspaceSourcePaths } from "../../vitest.base.ts";
 
 export default mergeConfig(
 	baseConfig,
 	defineConfig({
 		test: {
+			// test/subagent/** are node:test suites (`npm run test:subagent`), not vitest.
+			exclude: [...configDefaults.exclude, "test/subagent/**"],
 			globals: true,
 			environment: "node",
 			testTimeout: 30000,

@@ -37,6 +37,12 @@
 		"copy-assets": "node ../../scripts/package-files.mjs copy \"src/modes/interactive/theme/*.json\" dist/modes/interactive/theme && node ../../scripts/package-files.mjs copy \"src/modes/interactive/assets/*.png\" dist/modes/interactive/assets && node ../../scripts/package-files.mjs copy src/core/export-html/template.html src/core/export-html/template.css src/core/export-html/template.js dist/core/export-html && node ../../scripts/package-files.mjs copy \"src/core/export-html/vendor/*.js\" dist/core/export-html/vendor && node ../../scripts/package-files.mjs copy \"src/extensions/subagent/builtin/*.md\" dist/extensions/subagent/builtin",
 		"copy-binary-assets": "node ../../scripts/package-files.mjs copy package.json README.md CHANGELOG.md docs examples ../../node_modules/@silvia-odwyer/photon-node/photon_rs_bg.wasm dist && node ../../scripts/package-files.mjs copy \"src/modes/interactive/theme/*.json\" dist/theme && node ../../scripts/package-files.mjs copy \"src/modes/interactive/assets/*.png\" dist/assets && node ../../scripts/package-files.mjs copy src/core/export-html/template.html dist/export-html && node ../../scripts/package-files.mjs copy \"src/core/export-html/vendor/*.js\" dist/export-html/vendor",
 		"test": "vitest --run",
+		"test:subagent": "node --test --experimental-strip-types 'test/subagent/faults/*.test.ts' 'test/subagent/panel/*.test.ts' 'test/subagent/worktree/*.test.ts' 'test/subagent/memory/*.test.ts'",
+		"test:subagent:real": "node --test --experimental-strip-types 'test/subagent/real/*.test.ts'",
+		"test:subagent:parent": "node --test --experimental-strip-types 'test/subagent/parent/*.test.ts'",
+		"test:subagent:tui": "node --test --experimental-strip-types 'test/subagent/tui/*.test.ts'",
+		"test:subagent:evals": "node --experimental-strip-types test/subagent/evals/run.ts",
+		"test:subagent:stress": "node --experimental-strip-types test/subagent/stress/stress.ts",
 		"generate:schemas": "node --import ./src/experimental/source-resolver.ts scripts/generate-schemas.ts",
 		"generate:references": "node --import ./src/experimental/source-resolver.ts scripts/generate-references.ts",
 		"prepublishOnly": "npm run clean && npm run build"
@@ -74,7 +80,9 @@
 		"@types/node": "22.19.19",
 		"@types/proper-lockfile": "4.1.4",
 		"@types/semver": "7.7.1",
+		"@xterm/headless": "5.5.0",
 		"marked": "18.0.11",
+		"node-pty": "1.1.0",
 		"vitest": "4.1.12"
 	},
 	"keywords": [

@@ -41,5 +41,17 @@
 			"!!apps"
 		]
 	},
+	"overrides": [
+		{
+			"includes": ["packages/xpi-coding-agent/test/subagent/**"],
+			"linter": {
+				"rules": {
+					"style": { "useTemplate": "off" },
+					"complexity": { "noCommaOperator": "off", "noBannedTypes": "off", "useOptionalChain": "off" },
+					"suspicious": { "noAssignInExpressions": "off", "useIterableCallbackReturn": "off" }
+				}
+			}
+		}
+	],
 	"plugins": ["./scripts/biome/model-type-comparison.grit"]
 }
