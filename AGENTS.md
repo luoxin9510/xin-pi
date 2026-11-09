@@ -37,7 +37,7 @@
   - Vitest: `node "$(git rev-parse --show-toplevel)/node_modules/vitest/dist/cli.js" --run test/specific.test.ts`
   - `packages/xpi-tui` (`node:test`): `node --test test/specific.test.ts`
 - If you create or modify a test file, run it and iterate on test or implementation until it passes.
-- `packages/xpi-coding-agent/test/subagent/` holds the subagent extension's `node:test` suites; see "Testing the subagent extension" in `docs/xin-pi.md`. `npm run test:subagent` is offline. The `test:subagent:real|parent|tui|evals|stress` scripts use real Haiku 5.5 and run by hand. Never start a test runner from inside a test (a past fork bomb).
+- `packages/xpi-coding-agent/test/subagent/` holds the subagent extension's `node:test` suites; see "Testing the subagent extension" in `docs/xin-pi.md`. `npm run test:subagent` is offline. The `test:subagent:real|parent|tui|evals|stress|cache` scripts use real Haiku 5.5 and run by hand. Never start a test runner from inside a test (a past fork bomb).
 - For `packages/xpi-coding-agent/test/suite/`, use `test/suite/harness.ts` + the faux provider. No real provider APIs, keys, or paid tokens.
 - When regressions tests for fixing a github issue, add a comment with the github issue number next to the test.
 - For ad-hoc scripts, `write` them to a temp file (e.g. `/tmp`), run, edit if needed, remove when done. Don't embed multi-line scripts in `bash` commands.
@@ -48,7 +48,7 @@
 Built-in extensions under `packages/xpi-coding-agent/src/extensions/`: `subagent/` (the `Agent` tool, panel, `/subagents`; user docs `packages/xpi-coding-agent/docs/subagent.md`) and `upstream/` (`/upstream`). Details and the core files they touch: `docs/xin-pi.md`.
 
 - Run from `packages/xpi-coding-agent/`. Offline and free (part of `npm test`): `npm run test:subagent`, `npm run test:upstream`. Both need no auth, no network.
-- Real-model suites run by hand, never in CI or `./test.sh`, and only on Claude Haiku 5.5: `test:subagent:real`, `:parent`, `:tui`, `:evals`, `:stress`, `test:upstream:real`. They need `npm run build` and credentials.
+- Real-model suites run by hand, never in CI or `./test.sh`, and only on Claude Haiku 5.5: `test:subagent:real`, `:parent`, `:tui`, `:evals`, `:stress`, `:cache`, `test:upstream:real`. They need `npm run build` and credentials.
 - Tests never touch the real `~/.pi/agent`: every sandbox sets `XPI_CODING_AGENT_DIR` to a temp dir (auth copied in) and a temp HOME. Keep it that way for new tests.
 - Never start a test runner (`npm test`, `vitest`, `node --test`) from inside a test or a script a test runs; a past test did and forked until the machine stalled.
 - Tests assert on structure and side effects, not model wording. Lint and indent follow `npm run check`.

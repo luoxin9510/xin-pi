@@ -131,9 +131,14 @@ preloaded skills, memory, working directory, date). The main agent's prompt has 
   patch.
 - `src/extensions/subagent/resolve.ts`, `runner.ts`: `ChildSpec.systemPrompt` is `{ head, tail }`; the runner passes
   the head as `--system-prompt` and the tail as `--system-prompt-tail`.
+- `src/extensions/subagent/stagger.ts`, `exchange.ts`, `config.ts`: `subagent.staggerStart` (default false). After
+  the concurrency slot, the first child with a `ChildSpec.prefixKey` (model, tool args, head preamble, git root of the
+  parent's cwd) leads; later ones wait until a child with that key sees `message_start` of an assistant message (the
+  provider has begun to answer, so the prefix is cached), at most 5 s. For 4 minutes after such a response nobody
+  waits. No core file is touched for this.
 - Tests: `test/system-prompt.test.ts`, `test/system-prompt-updates.test.ts`, `test/resource-loader.test.ts`,
-  `test/args.test.ts`, `test/subagent/worktree/cache-layout.test.ts`; by hand on a real model:
-  `npm run test:subagent:cache`.
+  `test/args.test.ts`, `test/subagent/worktree/cache-layout.test.ts`, `test/subagent/faults/stagger.test.ts`; by hand
+  on a real model: `npm run test:subagent:cache`.
 
 ## Testing
 
@@ -150,7 +155,7 @@ files, the child's session file), never on model wording, and never start a test
 | `npm run test:subagent:tui` | `tui/*`: interactive xpi in a pty (node-pty + headless xterm): panel, screen, keys | `npm run build`, auth |
 | `npm run test:subagent:evals -- --runs 3` | `evals/`: 17 cases on haiku, graded on structure | `npm run build`, auth |
 | `npm run test:subagent:stress -- --calls 20 --limit 20` | `stress/`: 20 concurrent children | `npm run build`, auth, about 4 GB of memory |
-| `npm run test:subagent:cache` | `cache/`: what the provider's prompt cache reuses between agent types, a worktree child and a memory edit, plus a payload dump | `npm run build`, auth |
+| `npm run test:subagent:cache` | `cache/`: what the provider's prompt cache reuses between agent types, a worktree child and a memory edit, siblings at once with `staggerStart` off and on, plus a payload dump | `npm run build`, auth |
 | `npm run test:upstream:real` | `/upstream` on the built xpi in rpc mode, Claude Haiku 5.5 | `npm run build`, auth |
 
 The real-model scripts are run by hand, never in CI. They use the built bundle (`dist/bundle/cli.js`);

@@ -4,11 +4,25 @@
 
 **Blocked by:** 01, 02, 03
 
-**Status:** needs-owner-approval (spec `../spec.md`)
+**Status:** docs done (2026-11-10); the owner look is open
 
-- [ ] Docs written; numbers in the section cite the measured runs from tickets 02 and 03, not the first experiment
-- [ ] `test:subagent:cache` script exists and is documented as by-hand, Haiku 5.5 only, never in CI
-- [ ] `npm run check` green (docs formatting)
+- [x] Docs written; numbers in the section cite the measured runs from tickets 02 and 03, not the first experiment
+- [x] `test:subagent:cache` script exists and is documented as by-hand, Haiku 5.5 only, never in CI
+- [x] `npm run check` green (docs formatting)
 - [ ] Owner looks: runs a fan-out of two agent types and a worktree child in a real repo and compares `cacheRead` in the session files; decides whether to turn `staggerStart` on; owner merges
 
 ## Comments
+
+2026-11-10: docs written.
+
+- `packages/xpi-coding-agent/docs/subagent.md`: new section "Prompt caching" (head and tail, what sharing depends on,
+  the four breakpoints, "Siblings started at the same moment" with the table from ticket 03), `staggerStart` in the
+  Config block, `test:subagent:cache` in the Development list.
+- `docs/xin-pi.md`: the stagger files and test in "Core changes: prompt cache layout", the script row in Testing.
+- Root `AGENTS.md`: `cache` added to both lists of by-hand real-model scripts.
+- Numbers come from the runs recorded in tickets 02 and 03. The whole script was run once more at the end
+  (types 96%, worktree 96%, memory 89%, stagger -50% / -58%; all checks passed, $0.0096).
+- No changelog entry: this fork has not recorded its own features in `CHANGELOG.md` so far.
+- The rule of thumb says "about 2 s per cold batch", as measured (the ticket text said +2-3 s).
+
+Open: the owner look (last checkbox) and the merge.
