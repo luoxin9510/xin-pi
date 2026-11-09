@@ -1,8 +1,8 @@
-# 07: A look at xpi
+# 09: A look at xpi
 
 **What to build:** the owner uses `xpi` in a real session and decides whether it can replace `pi` for pipipi work.
 
-**Blocked by:** 01-06
+**Blocked by:** 01-08
 
 **Status:** ready-for-human
 

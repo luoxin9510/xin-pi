@@ -5,6 +5,11 @@ Status: ready-for-agent (owner approved 2026-11-09)
 Decisions behind this spec: `decisions.md`, "Grill 1" (2026-11-09), items 1-8. Facts with file paths: `facts.md`.
 pi-pipipi design history: `~/Developer/pi-pipipi/.scratch/` (v1, v2, v3a) and `~/Developer/pi-pipipi/docs/porting.md`.
 
+> **Superseded in part by decisions Grill 2 (22-28, 2026-11-09):** xin-pi becomes fully independent (no upstream
+> merges), pipipi lives inside coding-agent as `src/extensions/pipipi` (no `packages/pipipi`, no `packages/xpi`),
+> chord/durable/env/apps are removed, every package is renamed `xpi-*` by a committed script, env vars are `XPI_*`.
+> Where this spec says otherwise, the decisions win. Tickets 01-09 follow the decisions.
+
 ## Problem Statement
 
 My subagent work (pi-pipipi) lives in a separate repo as a pi extension. It has to wrap pi's `codemode` tool to get

@@ -40,3 +40,23 @@
     pi-pipipi entry from `~/.pi/agent/settings.json`, uninstall the global `@earendil-works/pi-coding-agent`, and develop
     only xpi from then on. Checked: pi-roost and pi-mobile do not spawn the `pi` binary; the `com.nuckcole.pi-update`
     launchd job only runs `git pull` in ~/Developer/nukcole-pi. The uninstall is confirmed with the owner when it happens.
+
+## Grill 2 (2026-11-09): independence, slimming, rename (all as recommended)
+
+The owner wants xin-pi to become his own agent for good. This supersedes earlier items where they conflict
+(1, 2, 3's "smallest core change", 5's periodic merges, 9, 19's merge budget).
+
+22. No more merging upstream. `upstream` stays as a remote for reading; `/upstream` recommends features to port
+    (cherry-pick or rewrite), not merges. Core code may be changed freely.
+23. Remove `packages/chord`, `packages/durable`, `packages/env`, `apps/p2`, `apps/p3` (coding-agent, ai, agent and tui do
+    not depend on them), with the root build, workspaces, tsconfig paths and examples config cleaned.
+24. Rename every package to an unscoped `xpi-` name with the directory renamed to match: xpi-ai, xpi-agent-core,
+    xpi-tui, xpi-coding-agent, xpi-codemode, xpi-mcp, xpi-schema, xpi-telemetry, xpi-evals. Not published to npm now.
+    The rename is done by a committed script, reusable to translate code ported from upstream.
+25. pipipi lives inside coding-agent as a built-in extension (`src/extensions/pipipi/`, registered in
+    `extensions/index.ts`), like codemode and mcp. No separate pipipi package, no `packages/xpi` launcher; the `xpi` bin
+    and `piConfig.name: "xpi"` are on coding-agent.
+26. App name and command `xpi`; env vars `XPI_*`; config dir stays the shared `~/.pi/agent` for now.
+27. MIT: keep the original copyright notice, add the owner's line; README says it is based on pi by earendil-works.
+28. Order: 01 (in progress, adapted to 25) → slim (23) → rename (24) → native codemode background → port the rest
+    → /upstream → docs → freeze pi-pipipi → owner's look and switch.

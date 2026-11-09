@@ -1,10 +1,12 @@
-# 02: Native background scripts in the codemode built-in
+# 04: Native background scripts in the codemode built-in
 
 **What to build:** the codemode extension gets the first-class "move this running script to the background" capability (spec shape A: `codemodeScripts` with `owner`, `background`, `backgroundAll`, `stop`, `subscribe`), including nested-call bookkeeping that survives the early return. pipipi's `src/background.ts` is reduced to policy and calls it. The `codemode` tool is no longer wrapped or replaced: no proxy `registerTool`, no "was not loaded" warning. v3a behaviour (results, messages, `run_in_background`, 8 KB cap) is unchanged.
 
-**Blocked by:** 01
+**Blocked by:** 03
 
 **Status:** ready-for-agent
+
+Decisions Grill 2 (22-28) override anything below that assumes merging upstream, `packages/pipipi`, `packages/xpi` or `@earendil-works/*` names: pipipi lives in `xpi-coding-agent/src/extensions/pipipi`, packages are named `xpi-*`.
 
 - [ ] Failing coding-agent tests first (vitest, faux provider, `test/suite/harness.ts`) that prove or refute the inference in facts.md section 3: after an early return a later nested call reuses `<id>/1`, its usage is never recorded, `agent_end` clears the scope
 - [ ] `NestedToolCallRunner` keeps a detached scope (ids continue, records and usage kept, released when the script ends); `agent_end` does not drop it; also test the `executionMode: "sequential"` queue with a detached script
