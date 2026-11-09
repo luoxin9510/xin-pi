@@ -21,6 +21,34 @@ export function getSystemMessageText(message: SystemMessage): string {
 }
 
 /**
+ * Split a system message's rendered text into regions that end at the parts named in
+ * `cacheBreakpoints` (`"content"` or a section name). Joining the `text` of all regions gives
+ * exactly `getSystemMessageText(message)`: the separator between parts opens the next region.
+ * The last region is unmarked unless a hint names the final part. Unknown names are ignored.
+ */
+export function getSystemMessageRegions(message: SystemMessage): Array<{ text: string; breakpoint: boolean }> {
+	const hinted = new Set(message.cacheBreakpoints ?? []);
+	const parts: Array<{ name: string; text: string }> = [{ name: "content", text: contentText(message.content) }];
+	for (const [name, text] of Object.entries(message.sections ?? {})) {
+		if (text !== null) parts.push({ name, text });
+	}
+	const regions: Array<{ text: string; breakpoint: boolean }> = [];
+	let current = "";
+	let first = true;
+	for (const part of parts) {
+		if (part.text.length === 0) continue;
+		current += (first ? "" : "\n\n") + part.text;
+		first = false;
+		if (hinted.has(part.name)) {
+			regions.push({ text: current, breakpoint: true });
+			current = "";
+		}
+	}
+	if (current.length > 0 || regions.length === 0) regions.push({ text: current, breakpoint: false });
+	return regions;
+}
+
+/**
  * Render a later system message for APIs that accept system messages mid-conversation.
  * Section changes are framed by name so the model can relate them to the leading prompt.
  * This framing is request-time only and may change between versions.

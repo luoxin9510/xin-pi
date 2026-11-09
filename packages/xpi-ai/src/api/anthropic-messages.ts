@@ -52,7 +52,7 @@ import { getProviderEnvValue } from "../utils/provider-env.ts";
 import { retryProviderRequest } from "../utils/provider-retry.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 import { ToolCallArgumentsStream } from "../utils/streaming-json.ts";
-import { getSystemMessageText, renderSystemMessageUpdate } from "../utils/text.ts";
+import { getSystemMessageRegions, getSystemMessageText, renderSystemMessageUpdate } from "../utils/text.ts";
 import {
 	getCurrentTools,
 	getInitialSystemMessage,
@@ -1412,6 +1412,22 @@ interface BuildParamsFlags {
 	messageThreads: boolean;
 }
 
+/** Anthropic rejects requests with more than this many `cache_control` breakpoints. */
+const MAX_CACHE_BREAKPOINTS = 4;
+
+/** Count `cache_control` markers across system, tools and message content. */
+function countCacheBreakpoints(params: MessageCreateParamsStreaming): number {
+	let count = 0;
+	const visit = (blocks: unknown) => {
+		if (!Array.isArray(blocks)) return;
+		for (const block of blocks) if (block && typeof block === "object" && "cache_control" in block) count++;
+	};
+	visit(params.system);
+	visit(params.tools);
+	for (const message of params.messages) visit(message.content);
+	return count;
+}
+
 function buildParams(
 	model: Model<"anthropic-messages">,
 	context: TranscriptContext,
@@ -1482,32 +1498,22 @@ function buildParams(
 		...(betaFeatures.length > 0 ? { betas: betaFeatures } : {}),
 	};
 
-	// For OAuth tokens, we MUST include Claude Code identity
+	// System blocks: for OAuth tokens the Claude Code identity block (required), then one block
+	// per region of the leading system message. Regions end at the sections named in
+	// `cacheBreakpoints`; with no hints there is one region, the unsplit prompt. Breakpoints on
+	// them are placed below, once the tools and messages have theirs.
+	const systemBlocks: Array<{ type: "text"; text: string; cache_control?: CacheControlEphemeral }> = [];
+	const regionBreakpoints: boolean[] = [];
 	if (isOAuthToken) {
-		params.system = [
-			{
-				type: "text",
-				text: "You are Claude Code, Anthropic's official CLI for Claude.",
-				...(cacheControl ? { cache_control: cacheControl } : {}),
-			},
-		];
-		if (initialSystemText) {
-			params.system.push({
-				type: "text",
-				text: sanitizeSurrogates(initialSystemText),
-				...(cacheControl ? { cache_control: cacheControl } : {}),
-			});
-		}
-	} else if (initialSystemText) {
-		// Add cache control to system prompt for non-OAuth tokens
-		params.system = [
-			{
-				type: "text",
-				text: sanitizeSurrogates(initialSystemText),
-				...(cacheControl ? { cache_control: cacheControl } : {}),
-			},
-		];
+		systemBlocks.push({ type: "text", text: "You are Claude Code, Anthropic's official CLI for Claude." });
 	}
+	if (initialSystemMessage && initialSystemText) {
+		for (const region of getSystemMessageRegions(initialSystemMessage)) {
+			systemBlocks.push({ type: "text", text: sanitizeSurrogates(region.text) });
+			regionBreakpoints.push(region.breakpoint);
+		}
+	}
+	if (systemBlocks.length > 0) params.system = systemBlocks;
 
 	// Temperature is incompatible with extended thinking and unsupported on Claude Opus 4.7+.
 	if (
@@ -1530,6 +1536,24 @@ function buildParams(
 		const tools = getCurrentTools(context.messages);
 		if (tools.length > 0) {
 			params.tools = convertToolDefinitions(tools, toolCacheControl);
+		}
+	}
+
+	// Breakpoint budget: Anthropic allows MAX_CACHE_BREAKPOINTS per request. The last message and
+	// the last tool were marked above. System candidates fill what is left, in priority order:
+	// the last hinted region (the whole prompt when there are no hints), earlier hinted regions,
+	// then the OAuth identity block. The identity block is first in the prefix, so a later
+	// breakpoint still caches it.
+	if (cacheControl) {
+		const offset = isOAuthToken ? 1 : 0;
+		const candidates: number[] = [];
+		for (let i = regionBreakpoints.length - 1; i >= 0; i--) if (regionBreakpoints[i]) candidates.push(offset + i);
+		if (candidates.length === 0 && regionBreakpoints.length > 0) candidates.push(systemBlocks.length - 1);
+		if (isOAuthToken) candidates.push(0);
+		let free = MAX_CACHE_BREAKPOINTS - countCacheBreakpoints(params);
+		for (const index of candidates) {
+			if (free-- <= 0) break;
+			systemBlocks[index].cache_control = cacheControl;
 		}
 	}
 
