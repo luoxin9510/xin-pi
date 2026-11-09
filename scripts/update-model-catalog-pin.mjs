@@ -5,8 +5,8 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { hydrateModelCatalog } from "../packages/ai/scripts/hydrate-model-catalog.ts";
-import { readModelDataProviderIds } from "../packages/ai/scripts/model-data.ts";
+import { hydrateModelCatalog } from "../packages/xpi-ai/scripts/hydrate-model-catalog.ts";
+import { readModelDataProviderIds } from "../packages/xpi-ai/scripts/model-data.ts";
 
 // Request the typed catalog; its bytes are what a revision hashes.
 const MODEL_TYPES = "types=chat,image,classifier";
@@ -54,7 +54,7 @@ async function fetchLiveCatalog() {
 function modelApiGroups(root, bytes) {
 	const catalog = JSON.parse(bytes.toString("utf8"));
 	const groups = new Set();
-	for (const provider of readModelDataProviderIds(join(root, "packages/ai"))) {
+	for (const provider of readModelDataProviderIds(join(root, "packages/xpi-ai"))) {
 		for (const model of catalog[provider] ?? []) groups.add(`${provider}/${model.type}/${model.api}`);
 	}
 	return groups;
@@ -66,7 +66,7 @@ export function hydrateModelCatalogBytes(root, bytes, options = {}) {
 	try {
 		const catalogPath = join(directory, "models.all.json");
 		writeFileSync(catalogPath, bytes);
-		hydrateModelCatalog(join(root, "packages/ai"), catalogPath, options);
+		hydrateModelCatalog(join(root, "packages/xpi-ai"), catalogPath, options);
 	} finally {
 		rmSync(directory, { recursive: true, force: true });
 	}

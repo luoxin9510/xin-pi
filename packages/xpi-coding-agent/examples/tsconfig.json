@@ -1,0 +1,101 @@
+// Type-checks the example extensions against the modules extensions see at run time (core/extensions/virtual-modules.ts):
+// "xpi-ai" is the extension view, which adds TypeBox's Type, Static and TSchema to the compat entry (the
+// view imports "xpi-ai/compat", so that path stays the package's own).
+// The other paths repeat the root tsconfig.json; keep them in sync.
+// Also the test that imports the subagent example: it type-checks only against the extension view.
+{
+	"extends": "../../../tsconfig.json",
+	"compilerOptions": {
+		"paths": {
+			"xpi-telemetry": [
+				"../../../packages/xpi-telemetry/src/index.ts"
+			],
+			"xpi-telemetry/testing": [
+				"../../../packages/xpi-telemetry/src/testing/index.ts"
+			],
+			"xpi-telemetry/render": [
+				"../../../packages/xpi-telemetry/src/render.ts"
+			],
+			"xpi-codemode": [
+				"../../../packages/xpi-codemode/src/index.ts"
+			],
+			"xpi-codemode/cloudflare": [
+				"../../../packages/xpi-codemode/src/cloudflare.ts"
+			],
+			"xpi-codemode/declarations": [
+				"../../../packages/xpi-codemode/src/declarations.ts"
+			],
+			"xpi-codemode/portable": [
+				"../../../packages/xpi-codemode/src/portable.ts"
+			],
+			"xpi-codemode/source": [
+				"../../../packages/xpi-codemode/src/source.ts"
+			],
+			"xpi-codemode/worker": [
+				"../../../packages/xpi-codemode/src/runtime/worker.ts"
+			],
+			"xpi-schema": [
+				"../../../packages/xpi-schema/src/index.ts"
+			],
+			"xpi-schema/formats": [
+				"../../../packages/xpi-schema/src/formats/index.ts"
+			],
+			"xpi-mcp": [
+				"../../../packages/xpi-mcp/src/index.ts"
+			],
+			"xpi-mcp/oauth": [
+				"../../../packages/xpi-mcp/src/oauth/index.ts"
+			],
+			"xpi-mcp/testing": [
+				"../../../packages/xpi-mcp/src/testing/index.ts"
+			],
+			"xpi-ai": [
+				"../../../packages/xpi-coding-agent/src/core/extensions/pi-ai-extension-view.ts"
+			],
+			"xpi-ai/oauth": [
+				"../../../packages/xpi-ai/src/oauth.ts"
+			],
+			"xpi-ai/*": [
+				"../../../packages/xpi-ai/src/*.ts",
+				"../../../packages/xpi-ai/src/providers/*.ts"
+			],
+			"xpi-ai/dist/*": [
+				"../../../packages/xpi-ai/src/*"
+			],
+			"xpi-agent-core": [
+				"../../../packages/xpi-agent-core/src/index.ts"
+			],
+			"xpi-coding-agent": [
+				"../../../packages/xpi-coding-agent/src/index.ts"
+			],
+			"xpi-coding-agent/hooks": [
+				"../../../packages/xpi-coding-agent/src/core/hooks/index.ts"
+			],
+			"xpi-coding-agent/*": [
+				"../../../packages/xpi-coding-agent/src/*"
+			],
+			"typebox": [
+				"../../../node_modules/typebox"
+			],
+			"xpi-tui": [
+				"../../../packages/xpi-tui/src/index.ts"
+			],
+			"xpi-tui/*": [
+				"../../../packages/xpi-tui/src/*"
+			],
+			"@mariozechner/pi-ai": [
+				"../../../packages/xpi-coding-agent/src/core/extensions/pi-ai-extension-view.ts"
+			]
+		}
+	},
+	"include": [
+		"./extensions/**/*",
+		"../../*/src/**/*.d.ts",
+		"../test/suite/regressions/8261-subagent-project-trust.test.ts",
+		"../test/subagent-extension.test.ts"
+	],
+	"exclude": [
+		"**/node_modules/**",
+		"./extensions/gondolin/**"
+	]
+}

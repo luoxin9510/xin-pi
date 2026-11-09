@@ -5,20 +5,21 @@
 </p>
 <p align="center">
   <a href="https://discord.com/invite/3cU7Bz4UPx"><img alt="Discord" src="https://img.shields.io/badge/discord-community-5865F2?style=flat-square&logo=discord&logoColor=white" /></a>
-  <a href="https://www.npmjs.com/package/@earendil-works/pi-coding-agent"><img alt="npm" src="https://img.shields.io/npm/v/@earendil-works/pi-coding-agent?style=flat-square" /></a>
 </p>
 
 > New issues and PRs from new contributors are auto-closed by default. Maintainers review auto-closed issues daily. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 # Pi
 
+xin-pi is based on [pi](https://github.com/earendil-works/pi) by earendil-works, kept as an independent fork (`xpi` command, `xpi-*` packages). The text below is still upstream's and is being rewritten.
+
 Pi is a minimal, extensible agent harness that you can make your own.
 
-Adapt Pi to your workflows, not the other way around. Customize Pi with [extensions](packages/coding-agent/docs/extensions.md), [skills](packages/coding-agent/docs/skills.md), [prompt templates](packages/coding-agent/docs/prompt-templates.md), and [themes](packages/coding-agent/docs/themes.md). Bundle them as [Pi packages](packages/coding-agent/docs/packages.md) and share via npm or git.
+Adapt Pi to your workflows, not the other way around. Customize Pi with [extensions](packages/xpi-coding-agent/docs/extensions.md), [skills](packages/xpi-coding-agent/docs/skills.md), [prompt templates](packages/xpi-coding-agent/docs/prompt-templates.md), and [themes](packages/xpi-coding-agent/docs/themes.md). Bundle them as [Pi packages](packages/xpi-coding-agent/docs/packages.md) and share via npm or git.
 
 Pi ships with powerful defaults but skips features like sub-agents and plan mode. Ask Pi to build what you want, or install a package that does it your way.
 
-Use Pi [interactively](packages/coding-agent/docs/usage.md), automate it in [print or JSON mode](packages/coding-agent/docs/cli.md), control it over [RPC](packages/coding-agent/docs/rpc.md), or build apps with the [Pi TypeScript SDK](packages/coding-agent/docs/sdk.md). See [OpenClaw](https://github.com/OpenClaw/OpenClaw) for a real-world integration.
+Use Pi [interactively](packages/xpi-coding-agent/docs/usage.md), automate it in [print or JSON mode](packages/xpi-coding-agent/docs/cli.md), control it over [RPC](packages/xpi-coding-agent/docs/rpc.md), or build apps with the [Pi TypeScript SDK](packages/xpi-coding-agent/docs/sdk.md). See [OpenClaw](https://github.com/OpenClaw/OpenClaw) for a real-world integration.
 
 ## Getting started
 
@@ -37,7 +38,7 @@ powershell -c "irm https://pi.dev/install.ps1 | iex"
 The installer pins all dependencies and updates Pi with `pi update`. Alternatively, install directly with npm, which does not pin transitive dependencies:
 
 ```bash
-npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+npm install -g --ignore-scripts xpi-coding-agent
 ```
 
 Pi requires Node.js 22.19 or newer. The macOS, Linux, and Windows installers can install it if needed. Pi does not require dependency lifecycle scripts for a normal npm installation.
@@ -75,11 +76,11 @@ This monorepo contains the Pi CLI and its supporting libraries.
 
 | Package | Description |
 |---------|-------------|
-| **[@earendil-works/pi-telemetry](packages/telemetry)** | Vendor-neutral telemetry contracts, reference adapter, conformance tests, and typed schemas |
-| **[@earendil-works/pi-ai](packages/ai)** | Unified multi-provider LLM API (OpenAI, Anthropic, Google, etc.) |
-| **[@earendil-works/pi-agent-core](packages/agent)** | Agent runtime with tool calling and state management |
-| **[@earendil-works/pi-coding-agent](packages/coding-agent)** | Interactive coding agent CLI |
-| **[@earendil-works/pi-tui](packages/tui)** | Terminal UI library with differential rendering |
+| **[xpi-telemetry](packages/xpi-telemetry)** | Vendor-neutral telemetry contracts, reference adapter, conformance tests, and typed schemas |
+| **[xpi-ai](packages/xpi-ai)** | Unified multi-provider LLM API (OpenAI, Anthropic, Google, etc.) |
+| **[xpi-agent-core](packages/xpi-agent-core)** | Agent runtime with tool calling and state management |
+| **[xpi-coding-agent](packages/xpi-coding-agent)** | Interactive coding agent CLI |
+| **[xpi-tui](packages/xpi-tui)** | Terminal UI library with differential rendering |
 
 For Slack/chat automation and workflows see [earendil-works/pi-chat](https://github.com/earendil-works/pi-chat).
 
@@ -87,7 +88,7 @@ For Slack/chat automation and workflows see [earendil-works/pi-chat](https://git
 
 Pi does not include a built-in permission system for restricting filesystem, process, network, or credential access. By default, it runs with the permissions of the user and process that launched it.
 
-If you need stronger boundaries, containerize or sandbox Pi. See [packages/coding-agent/docs/containerization.md](packages/coding-agent/docs/containerization.md) for three patterns:
+If you need stronger boundaries, containerize or sandbox Pi. See [packages/xpi-coding-agent/docs/containerization.md](packages/xpi-coding-agent/docs/containerization.md) for three patterns:
 
 - **Gondolin extension**: keep `pi` and provider auth on the host while routing built-in tools and `!` commands into a local Linux micro-VM.
 - **Plain Docker**: run the whole `pi` process in a local container for simple isolation.
@@ -126,8 +127,8 @@ its Pi dependencies from the same artifact set. npm is the default:
 node scripts/use-local-packages.mjs \
   --manifest .artifacts/pi-packages/manifest.json \
   --consumer ../my-project \
-  --package @earendil-works/pi-ai \
-  --package @earendil-works/pi-agent-core
+  --package xpi-ai \
+  --package xpi-agent-core
 cd ../my-project
 npm install --ignore-scripts
 ```
@@ -138,7 +139,7 @@ For a pnpm project, point `--consumer` at the workspace root:
 node scripts/use-local-packages.mjs \
   --manifest .artifacts/pi-packages/manifest.json \
   --consumer ../my-project \
-  --package @earendil-works/pi-agent-core \
+  --package xpi-agent-core \
   --package-manager pnpm
 cd ../my-project
 pnpm install --ignore-scripts
@@ -171,7 +172,7 @@ We treat npm dependency changes as reviewed code changes.
 - `.npmrc` sets `save-exact=true` and `min-release-age=2` to avoid same-day dependency releases during npm resolution.
 - `package-lock.json` is the dependency ground truth. Pre-commit blocks accidental lockfile commits unless `PI_ALLOW_LOCKFILE_CHANGE=1` is set.
 - `npm run check` verifies pinned direct deps, native TypeScript import compatibility, and the generated coding-agent install lock.
-- The pi.dev installer installs from `packages/coding-agent/install-lock/`, generated from the root lockfile, to pin transitive deps. The npm package does not pin transitive deps.
+- The pi.dev installer installs from `packages/xpi-coding-agent/install-lock/`, generated from the root lockfile, to pin transitive deps. The npm package does not pin transitive deps.
 - Local release smoke tests and npm publication use the same tarball packer; npm publishes the validated tarballs rather than repacking workspace directories.
 - Local release installs, documented npm installs, and `pi update --self` use `--ignore-scripts` where supported.
 - CI installs with `npm ci --ignore-scripts`, and a scheduled GitHub workflow runs `npm audit --omit=dev` plus `npm audit signatures --omit=dev`.
@@ -200,5 +201,5 @@ MIT
 <p align="center">
   <a href="https://pi.dev">pi.dev</a> domain graciously donated by
   <br /><br />
-  <a href="https://exe.dev"><img src="packages/coding-agent/docs/images/exy.png" alt="Exy mascot" width="48" /><br />exe.dev</a>
+  <a href="https://exe.dev"><img src="packages/xpi-coding-agent/docs/images/exy.png" alt="Exy mascot" width="48" /><br />exe.dev</a>
 </p>

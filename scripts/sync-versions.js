@@ -58,7 +58,7 @@ for (const pkg of [...workspacePackages, ...appPackages]) {
 		}
 
 		for (const [dependencyName, currentSpecifier] of Object.entries(dependencies)) {
-			// Registry aliases such as `npm:@earendil-works/pi-ai@0.1.2` are never workspace-linked,
+			// Registry aliases such as `npm:xpi-ai@0.1.2` are never workspace-linked,
 			// so lockstep bumping them would point at a version that is not published yet.
 			const newSpecifier = versionMap.get(dependencyName);
 			if (!newSpecifier || currentSpecifier === newSpecifier) {
@@ -87,10 +87,10 @@ if (totalUpdates === 0) {
 }
 
 // pi-ai reports its version in the User-Agent without reading package.json, which browsers cannot do.
-const aiPackage = workspacePackages.find((pkg) => pkg.data.name === "@earendil-works/pi-ai");
+const aiPackage = workspacePackages.find((pkg) => pkg.data.name === "xpi-ai");
 const aiVersionPath = aiPackage && join(dirname(aiPackage.path), "src", "utils", "version.ts");
 if (aiVersionPath && existsSync(aiVersionPath)) {
-	const content = `// The @earendil-works/pi-ai package version. scripts/sync-versions.js keeps it in sync with package.json.\nexport const PI_AI_VERSION = ${JSON.stringify(aiPackage.data.version)};\n`;
+	const content = `// The xpi-ai package version. scripts/sync-versions.js keeps it in sync with package.json.\nexport const PI_AI_VERSION = ${JSON.stringify(aiPackage.data.version)};\n`;
 	if (readFileSync(aiVersionPath, "utf8") !== content) {
 		writeFileSync(aiVersionPath, content);
 		console.log(`\nUpdated ${aiVersionPath} to ${aiPackage.data.version}.`);

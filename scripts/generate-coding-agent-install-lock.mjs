@@ -6,14 +6,14 @@ import { fileURLToPath } from "node:url";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, "..");
-const codingAgentDir = join(repoRoot, "packages/coding-agent");
+const codingAgentDir = join(repoRoot, "packages/xpi-coding-agent");
 const outputDir = join(codingAgentDir, "install-lock");
 const rootLockfilePath = join(repoRoot, "package-lock.json");
 const outputPackageJsonPath = join(outputDir, "package.json");
 const outputLockfilePath = join(outputDir, "package-lock.json");
-const internalPackagePrefix = "@earendil-works/pi-";
+const internalPackagePrefix = "xpi-";
 const internalPackageNames = new Set();
-const installPackageName = "@earendil-works/pi-coding-agent-install";
+const installPackageName = "xpi-coding-agent-install";
 const allowedInstallScriptPackages = new Map([
 	["@google/genai@2.21.0", "preinstall is a no-op in the published package"],
 	["protobufjs@7.6.6", "postinstall only warns about protobufjs version scheme mismatches"],
@@ -141,14 +141,16 @@ function getInternalWorkspaces(lockPackages) {
 	const workspaces = new Map();
 
 	for (const [lockPath, entry] of Object.entries(lockPackages)) {
-		if (!lockPath.startsWith("packages/") || lockPath.includes("/node_modules/") || !entry.name || !entry.version) {
+		if (!lockPath.startsWith("packages/") || lockPath.includes("/node_modules/") || !entry.version) {
 			continue;
 		}
-		if (!entry.name.startsWith(internalPackagePrefix) && !internalPackageNames.has(entry.name)) {
+		// npm omits `name` when it equals the directory name, as it does for every xpi-* workspace.
+		const name = entry.name ?? posix.basename(lockPath);
+		if (!name.startsWith(internalPackagePrefix) && !internalPackageNames.has(name)) {
 			continue;
 		}
 
-		workspaces.set(entry.name, {
+		workspaces.set(name, {
 			lockPath,
 			packageJson: readJson(join(repoRoot, lockPath, "package.json")),
 		});
@@ -426,18 +428,18 @@ try {
 
 	if (checkOnly) {
 		if (!existsSync(outputPackageJsonPath) || !existsSync(outputLockfilePath)) {
-			console.error("packages/coding-agent/install-lock is missing generated files.");
+			console.error("packages/xpi-coding-agent/install-lock is missing generated files.");
 			console.error("Run: npm run install-lock:coding-agent");
 			process.exit(1);
 		}
 		const currentPackageJson = readFileSync(outputPackageJsonPath, "utf8");
 		const currentLockfile = readFileSync(outputLockfilePath, "utf8");
 		if (currentPackageJson !== packageJsonContent || currentLockfile !== lockfileContent) {
-			console.error("packages/coding-agent/install-lock is out of date.");
+			console.error("packages/xpi-coding-agent/install-lock is out of date.");
 			console.error("Run: npm run install-lock:coding-agent");
 			process.exit(1);
 		}
-		console.log("packages/coding-agent/install-lock is up to date.");
+		console.log("packages/xpi-coding-agent/install-lock is up to date.");
 	} else {
 		mkdirSync(outputDir, { recursive: true });
 		writeFileSync(outputPackageJsonPath, packageJsonContent);
@@ -446,7 +448,7 @@ try {
 		const platformPackageCount = Object.values(installLock.packages).filter((entry) => entry.os || entry.cpu || entry.libc)
 			.length;
 		console.log(
-			`Wrote packages/coding-agent/install-lock/package.json and package-lock.json (${packageCount} packages, ${platformPackageCount} platform-specific).`,
+			`Wrote packages/xpi-coding-agent/install-lock/package.json and package-lock.json (${packageCount} packages, ${platformPackageCount} platform-specific).`,
 		);
 	}
 } catch (error) {

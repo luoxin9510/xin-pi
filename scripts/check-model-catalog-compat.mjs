@@ -31,7 +31,7 @@ import { parseArgs } from "node:util";
 import { MINIMUM_PI_VERSION } from "./model-catalog-minimum-version.mjs";
 import { compareModelCatalogPiVersions } from "./model-catalog-protocol.ts";
 
-const PI_AI_PACKAGE = "@earendil-works/pi-ai";
+const PI_AI_PACKAGE = "xpi-ai";
 
 /** Read a release's built-in model data (`dist/providers/data`) as model lists by provider. */
 function readBuiltinModels(dataDir) {
@@ -106,15 +106,15 @@ function main() {
 		console.log("Installing the release's dependencies...");
 		run("npm", ["ci", "--ignore-scripts", "--no-audit", "--no-fund"], releaseDir);
 		// pi-ai's types depend on the declarations of its workspace dependencies.
-		const { dependencies } = JSON.parse(readFileSync(join(releaseDir, "packages/ai/package.json"), "utf8"));
-		for (const name of Object.keys(dependencies).filter((name) => name.startsWith("@earendil-works/"))) {
+		const { dependencies } = JSON.parse(readFileSync(join(releaseDir, "packages/xpi-ai/package.json"), "utf8"));
+		for (const name of Object.keys(dependencies).filter((name) => name.startsWith("xpi-"))) {
 			run("npm", ["run", "build", "--workspace", name], releaseDir);
 		}
 
 		console.log("Type-checking the release's pi-ai with the merged models...");
-		run(process.execPath, ["packages/ai/scripts/hydrate-model-catalog.ts", mergedPath], releaseDir);
+		run(process.execPath, ["packages/xpi-ai/scripts/hydrate-model-catalog.ts", mergedPath], releaseDir);
 		try {
-			run(process.execPath, ["node_modules/typescript/bin/tsc", "-p", "packages/ai/tsconfig.build.json", "--noEmit"], releaseDir);
+			run(process.execPath, ["node_modules/typescript/bin/tsc", "-p", "packages/xpi-ai/tsconfig.build.json", "--noEmit"], releaseDir);
 		} catch (error) {
 			throw new Error(
 				[

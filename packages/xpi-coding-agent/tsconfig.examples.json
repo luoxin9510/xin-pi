@@ -1,0 +1,16 @@
+{
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"noEmit": true,
+		"paths": {
+			"xpi-coding-agent": ["./src/index.ts"],
+			"xpi-coding-agent/hooks": ["./src/core/hooks/index.ts"],
+			"xpi-tui": ["../xpi-tui/src/index.ts"],
+			"xpi-ai": ["../xpi-ai/src/index.ts"],
+			"typebox": ["../../node_modules/typebox"]
+		},
+		"skipLibCheck": true
+	},
+	"include": ["examples/**/*.ts"],
+	"exclude": ["node_modules", "dist"]
+}

@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-export const codingAgentName = "@earendil-works/pi-coding-agent";
+export const codingAgentName = "xpi-coding-agent";
 
 export function smokeTestCodingAgent(directory, runtime = process.execPath) {
 	const packageDir = join(directory, "node_modules", codingAgentName);
@@ -19,8 +19,8 @@ export function smokeTestCodingAgent(directory, runtime = process.execPath) {
 		XDG_CONFIG_HOME: home,
 		XDG_CACHE_HOME: home,
 		XPI_CODING_AGENT_DIR: join(home, ".pi", "agent"),
-		PI_OFFLINE: "1",
-		PI_TELEMETRY: "0",
+		XPI_OFFLINE: "1",
+		XPI_TELEMETRY: "0",
 	};
 	for (const name of ["SystemRoot", "SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT"]) {
 		if (process.env[name]) env[name] = process.env[name];

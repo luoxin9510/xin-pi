@@ -96,7 +96,7 @@ jobs:
           # Every other workspace, so new packages are tested without editing this workflow.
           args=()
           for dir in packages/*/; do
-            case "$dir" in packages/coding-agent/) continue ;; esac
+            case "$dir" in packages/xpi-coding-agent/) continue ;; esac
             args+=(--workspace "${dir%/}")
           done
           npm run test:scripts
@@ -118,6 +118,6 @@ jobs:
         run: npm ci --ignore-scripts
 
       # Runs pi's MCP client from source against the pinned official conformance suite and fails on
-      # regressions against packages/coding-agent/test/mcp-conformance/baseline.json.
+      # regressions against packages/xpi-coding-agent/test/mcp-conformance/baseline.json.
       - name: MCP client conformance
         run: npm run test:mcp-conformance

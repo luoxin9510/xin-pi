@@ -1,7 +1,7 @@
-import { createAssistantMessageEventStream, validateToolArguments } from "@earendil-works/pi-ai";
-import { complete, getModel, getProviders, streamSimple } from "@earendil-works/pi-ai/compat";
-import { Agent, streamProxy } from "@earendil-works/pi-agent-core";
-import { obj, str } from "@earendil-works/pi-schema";
+import { createAssistantMessageEventStream, validateToolArguments } from "xpi-ai";
+import { complete, getModel, getProviders, streamSimple } from "xpi-ai/compat";
+import { Agent, streamProxy } from "xpi-agent-core";
+import { obj, str } from "xpi-schema";
 
 // Keep this entry browser-safe. It is bundled by scripts/check-browser-smoke.mjs
 // to catch accidental Node-only runtime imports in browser-facing package exports.

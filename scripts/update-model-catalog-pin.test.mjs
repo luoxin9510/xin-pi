@@ -56,13 +56,13 @@ const typed = "types=chat,image,classifier";
 let root;
 beforeEach(() => {
 	root = mkdtempSync(join(tmpdir(), "pi-catalog-pin-"));
-	mkdirSync(join(root, "packages/ai/src/providers"), { recursive: true });
+	mkdirSync(join(root, "packages/xpi-ai/src/providers"), { recursive: true });
 	mkdirSync(join(root, "nix"));
 	writeFileSync(
-		join(root, "packages/ai/src/models.generated.ts"),
+		join(root, "packages/xpi-ai/src/models.generated.ts"),
 		'import { TEST_PROVIDER_CLASSIFIER_MODELS, TEST_PROVIDER_IMAGE_MODELS, TEST_PROVIDER_MODELS } from "./providers/test-provider.models.ts";\n',
 	);
-	writeFileSync(join(root, "packages/ai/src/providers/test-provider.models.ts"), "");
+	writeFileSync(join(root, "packages/xpi-ai/src/providers/test-provider.models.ts"), "");
 	writeFileSync(join(root, "nix/model-catalog.json"), pinFile(currentRevision));
 });
 afterEach(() => {
