@@ -1,13 +1,14 @@
 // Seam 2 harness: real interactive pinned pi in a pseudo-terminal, read through a headless xterm.
 // Each session has its own temp repo, HOME, pi agent dir (auth linked from the user's) and session dir, so the user's
 // setup never leaks in. Always `await using`-style: call kill() in a finally (or use `withPi`), the pi process must die.
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import xterm from "@xterm/headless";
 import * as pty from "node-pty";
+import { copyUserAuth } from "../user-auth.ts";
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", ".."); // the xpi-coding-agent package
 // XPI_SUBAGENT_TEST_PI: run the suite against another build of xpi. The default is the built bundle (npm run build).
@@ -54,7 +55,6 @@ export class PiTerminal {
 	private exited = false;
 
 	constructor(o: PiOptions = {}) {
-		if (!existsSync(USER_AUTH)) throw new Error(`tui tests need pi credentials at ${USER_AUTH}`);
 		const cols = o.cols ?? 120;
 		const rows = o.rows ?? 40;
 		this.root = mkdtempSync(join(tmpdir(), "subagent-tui-"));
@@ -63,7 +63,7 @@ export class PiTerminal {
 		const agentDir = join(this.root, "pi-agent");
 		this.sessionDir = join(this.root, "sessions");
 		for (const d of [join(this.repo, ".git"), home, agentDir, this.sessionDir]) mkdirSync(d, { recursive: true });
-		copyFileSync(USER_AUTH, join(agentDir, "auth.json")); // a copy: nothing in the user agent dir is touched
+		copyUserAuth(USER_AUTH, join(agentDir, "auth.json")); // a copy: nothing in the user agent dir is touched
 		writeFileSync(
 			join(agentDir, "settings.json"),
 			JSON.stringify({

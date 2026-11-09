@@ -366,7 +366,8 @@ npm run test:subagent:stress -- --calls 20 --limit 20
 The first line is part of the package `test` script (root `npm test`); the others are run by hand and need
 `npm run build` plus Anthropic credentials. Each sandbox sets `XPI_CODING_AGENT_DIR` to a temp dir that holds a copy of
 `~/.pi/agent/auth.json` and nothing else, and a temp HOME, so your own setup never leaks in and the real agent dir is
-never written. `XPI_SUBAGENT_TEST_PI` points the real suites at another build; `XPI_SUBAGENT_COST_LOG=<file>` makes each
+never written. A sandbox refuses to start when the OAuth token in that file expires within 30 minutes: a copy that
+refreshed it would log your own file out. Send one message in xpi and run again. `XPI_SUBAGENT_TEST_PI` points the real suites at another build; `XPI_SUBAGENT_COST_LOG=<file>` makes each
 real test file append its sum of `usage.cost.total`. The tui tests are slow (about 25 to 30 s each) and cost roughly a cent
 each; the whole real set costs a few cents. The fault suite covers what real xpi will not do on demand: malformed JSON
 line, missing session header, crash with stderr, provider-error retries, a child that never settles or never exits, exact

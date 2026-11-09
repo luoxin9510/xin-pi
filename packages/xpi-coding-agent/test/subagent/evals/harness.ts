@@ -5,21 +5,13 @@
 // (direct) or of every assistant message in every session file (parent).
 
 import { spawn } from "node:child_process";
-import {
-	copyFileSync,
-	existsSync,
-	mkdirSync,
-	mkdtempSync,
-	readdirSync,
-	readFileSync,
-	statSync,
-	writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AgentResult } from "../../../src/extensions/subagent/agent-tool.ts";
 import subagent from "../../../src/extensions/subagent/index.ts";
+import { copyUserAuth } from "../user-auth.ts";
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", ".."); // the xpi-coding-agent package
 export const PI = process.env.XPI_SUBAGENT_TEST_PI ?? join(ROOT, "dist", "bundle", "cli.js");
@@ -30,11 +22,10 @@ const PINNED = { subagent: { defaultModel: "haiku" } };
 // copy of the user's auth.json only, and a git identity. Nothing in ~/.pi/agent is read except that one file, or written.
 {
 	const userAuth = join(process.env.HOME ?? "", ".pi", "agent", "auth.json");
-	if (!existsSync(userAuth)) throw new Error(`evals need credentials at ${userAuth}`);
 	const root = mkdtempSync(join(tmpdir(), "subagent-eval-env-"));
 	mkdirSync(join(root, "home"), { recursive: true });
 	mkdirSync(join(root, "agent"), { recursive: true });
-	copyFileSync(userAuth, join(root, "agent", "auth.json"));
+	copyUserAuth(userAuth, join(root, "agent", "auth.json"));
 	writeFileSync(
 		join(root, "agent", "settings.json"),
 		JSON.stringify({

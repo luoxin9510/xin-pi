@@ -155,7 +155,9 @@ files, the child's session file), never on model wording, and never start a test
 
 The real-model scripts are run by hand, never in CI. They use the built bundle (`dist/bundle/cli.js`);
 `XPI_SUBAGENT_TEST_PI` points them at another build. Every sandbox sets `XPI_CODING_AGENT_DIR` to a temp dir holding a copy
-of `~/.pi/agent/auth.json` and nothing else, so the user's agent dir is never written, and a temp `HOME`. Only Claude Haiku
+of `~/.pi/agent/auth.json` and nothing else, so the user's agent dir is never written, and a temp `HOME`. The copy is
+refused when its Anthropic OAuth token expires within 30 minutes (`test/subagent/user-auth.ts`): a copy that refreshes the
+token would leave the user's file with a dead refresh token. Send one message in xpi, then run again. Only Claude Haiku
 5.5 is used. `XPI_SUBAGENT_COST_LOG=<file>` makes each file append its cost on exit.
 
 The codemode controller is exercised through `codemodeStandIn` in `test/subagent/helpers.ts` (a stand-in `codemode` tool
