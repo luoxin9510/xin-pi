@@ -18,3 +18,12 @@ Decisions Grill 2 (22-28) override anything below that assumes merging upstream,
 - [ ] `npm run check` green; the codemode changes listed in `docs/xin-pi.md` (file by file)
 
 ## Comments
+
+- 2026-11-09: done, except the pty check (deferred to ticket 05, with the node:test suites: `test/parent` 01-04 and `test/tui/10-script-panel` ctrl+b / `x` / `S1..` rows were not run here).
+- Controller `codemodeScripts` in `src/extensions/codemode/scripts.ts` (spec shape A plus `list`, `stopAll`, `onBackground`; `onEnd(info, {result?, error?, stopped, background})`). Executor: `executeCodemode` wraps the unchanged `runCodemode`. Core: `NestedToolCallRunner.detach/release`, `ctx.detachNestedCalls/releaseNestedCalls`.
+- facts.md section 3 inference confirmed by tests (red first): after `takeRecord` a later nested call reuses `<id>/1`, its usage lands in a fresh recorder nobody takes, `clear()` (agent_end) resets ids. `detach` fixes all three; `clear()` also keeps scopes of calls running below a detached id. A detached script under `toolExecution: sequential` queues its exclusive calls on the shared queue but does not deadlock (tested).
+- Real checks, built xpi rpc, haiku 5.5, temp `XPI_CODING_AGENT_DIR` with only auth.json:
+  - startup: stderr empty, zero events, no replacement warning.
+  - background: `tool_execution_end codemode` at 4031 ms "Script moved to the background (id S1) ...", `details.background=true, scriptId=S1`; `agent_settled` 4589 ms; nested `Agent` id `<codemode id>/1` (parent = codemode id) ended 11193 ms; custom message 11197 ms "Background script S1 completed. Return value: ... TOK-42 completed / Agents: - mgmxn4ywzxch general-purpose completed $0.0004"; `agent_start` 11197 ms (new turn); main reply "TOK-42 completed".
+  - `run_in_background:false`: codemode end 10724 ms "Script completed ... TOK-42 completed", `details.background` undefined, 0 custom messages.
+- Not done here: pty ctrl+b / `x` / panel rows; the extension's own node:test suites (ticket 05). `npm run check` and `npm run build` green.
