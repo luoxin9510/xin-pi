@@ -1,6 +1,6 @@
 # Subagent prompt-cache layout: shared head, per-agent tail
 
-Status: needs-owner-approval
+Status: ready-for-agent (owner approved 2026-11-09)
 
 Decisions behind this spec: `decisions.md`, "Grill 1" (2026-11-09), items 1-4. Measurements: branch `exp-cache`,
 `.scratch/xin-pi/cache-experiments.md` (experiments E0-E4, Claude Haiku 5.5, about $0.05 total). Prototype diff:
