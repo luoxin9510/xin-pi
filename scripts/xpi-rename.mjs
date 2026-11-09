@@ -171,7 +171,19 @@ export function findLeftovers(text) {
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SKIP_DIRS = new Set(["node_modules", ".git", "dist", ".scratch", "native"]);
 const SKIP_FILES = /(^|\/)(CHANGELOG[^/]*|LICENSE|package-lock\.json|xpi-rename\.mjs)$|\.(jsonl|png|jpe?g|gif|webp|ico|node|tgz|wasm|ttf|woff2?)$/;
-const SKIP_PREFIXES = ["packages/coding-agent/test/fixtures/", "packages/xpi-coding-agent/test/fixtures/"];
+// Files (or directories, by prefix) whose old names are intentional: they say what upstream calls things, or they model
+// upstream's tree. Rewriting them would break them, so neither the rewrite nor --check touches them.
+const SKIP_PREFIXES = [
+	"packages/coding-agent/test/fixtures/",
+	"packages/xpi-coding-agent/test/fixtures/",
+	// The documents that explain the rename itself, and the upstream porting contracts.
+	"README.md",
+	"docs/xin-pi.md",
+	"packages/xpi-coding-agent/docs/subagent-porting.md",
+	// /upstream reads upstream's tree (`packages/coding-agent/CHANGELOG.md`, `packages/ai`, ...) and its tests build a fake one.
+	"packages/xpi-coding-agent/src/extensions/upstream/data.ts",
+	"packages/xpi-coding-agent/test/upstream/",
+];
 
 function listFiles(target, out) {
 	const stats = statSync(target);

@@ -65,7 +65,8 @@ xin-pi does not merge upstream. The `upstream` remote stays for reading. The for
 rewrites the whole repo, `<path>...` only the given files or directories, `--check` reports leftovers (exit 1),
 `--dry-run` lists what would change. It is idempotent, and a line containing `xpi-rename-keep` is never touched. A new
 upstream package or environment variable means a new table entry. Names under `@earendil-works/` that are not ours
-(`gondolin`) stay.
+(`gondolin`) stay. Files that are about upstream's own names (this document, the root README, `subagent-porting.md`, `/upstream`'s
+`data.ts` and its tests) are listed in `SKIP_PREFIXES` and are neither rewritten nor checked.
 
 Translating a third-party extension that targets upstream pi (pi-roost, critic-guy, pi-mobile, ...): copy it, run
 `node scripts/xpi-rename.mjs <its directory>` (imports of `@earendil-works/pi-coding-agent`, `pi-ai`, `pi-tui` and
