@@ -19,8 +19,7 @@ const BASE_URL = "https://pkg.earendil.com";
 const FULL_SHA = /^[0-9a-f]{40}$/;
 // Release tags as CI builds them (v*.*.*); a suffix marks a pre-release (v1.2.3-rc.1).
 const RELEASE_TAG = /^v\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/;
-// Its daemon binaries are cross-compiled only by the release workflow; previews would ship without them.
-const EXCLUDED = new Set(["@earendil-works/pi-env"]);
+const EXCLUDED = new Set();
 
 class UsageError extends Error {}
 

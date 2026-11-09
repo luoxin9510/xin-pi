@@ -11,7 +11,7 @@ on:
       - '.github/workflows/publish-model-catalog.yml'
       - '.gitignore'
       - 'package.json'
-      - 'packages/ai/**'
+      - 'packages/xpi-ai/**'
       - 'scripts/check-model-catalog-compat.mjs'
       - 'scripts/model-catalog-minimum-version.mjs'
       - 'scripts/model-catalog-protocol.ts'

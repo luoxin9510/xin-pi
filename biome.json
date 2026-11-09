@@ -29,9 +29,9 @@
 			"scripts/model-catalog-protocol.test.ts",
 			"packages/*/src/**/*.ts",
 			"packages/*/test/**/*.ts",
-			"packages/ai/catalog/**/*.ts",
-			"packages/coding-agent/examples/**/*.ts",
-			"packages/agent/examples/**/*.ts",
+			"packages/xpi-ai/catalog/**/*.ts",
+			"packages/xpi-coding-agent/examples/**/*.ts",
+			"packages/xpi-agent-core/examples/**/*.ts",
 			"!**/node_modules/**/*",
 			"!**/test-sessions.ts",
 			"!**/models.generated.ts",
@@ -41,5 +41,17 @@
 			"!!apps"
 		]
 	},
+	"overrides": [
+		{
+			"includes": ["packages/xpi-coding-agent/test/subagent/**"],
+			"linter": {
+				"rules": {
+					"style": { "useTemplate": "off" },
+					"complexity": { "noCommaOperator": "off", "noBannedTypes": "off", "useOptionalChain": "off" },
+					"suspicious": { "noAssignInExpressions": "off", "useIterableCallbackReturn": "off" }
+				}
+			}
+		}
+	],
 	"plugins": ["./scripts/biome/model-type-comparison.grit"]
 }

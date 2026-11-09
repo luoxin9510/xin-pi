@@ -24,7 +24,7 @@ function createFixture(t, { importUndeclared = false } = {}) {
 	mkdirSync(repoRoot, { recursive: true });
 	writeFileSync(join(repoRoot, "package.json"), '{"name":"fixture","private":true}\n');
 	writePackage(
-		join(repoRoot, "packages", codingAgentName.split("/")[1]),
+		join(repoRoot, "packages", codingAgentName),
 		{
 			name: codingAgentName,
 			version: "1.0.0",
@@ -33,10 +33,10 @@ function createFixture(t, { importUndeclared = false } = {}) {
 			types: "./dist/index.d.ts",
 			exports: { ".": { types: "./dist/index.d.ts", import: "./dist/index.js" } },
 			files: ["dist"],
-			bin: { pi: "dist/bundle/cli.js" },
+			bin: { xpi: "dist/bundle/cli.js" },
 		},
 		{
-			"dist/index.js": `${importUndeclared ? 'import "@earendil-works/undeclared";' : ""}
+			"dist/index.js": `${importUndeclared ? 'import "@example/undeclared";' : ""}
 export function createAgentSession() {}
 export class SessionManager { static inMemory() {} }
 export class ModelRuntime { static create() {} }
@@ -59,5 +59,5 @@ test("accepts a valid coding-agent package", (t) => {
 // #9132: smoke-test the public SDK, not just a bundled CLI that hides missing imports.
 test("fails when the SDK imports an undeclared package despite a working CLI", (t) => {
 	const directory = createFixture(t, { importUndeclared: true });
-	assert.throws(() => smokeTestCodingAgent(directory), /Cannot find package '@earendil-works\/undeclared'/);
+	assert.throws(() => smokeTestCodingAgent(directory), /Cannot find package '@example\/undeclared'/);
 });

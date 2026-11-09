@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { isBuiltin } from "node:module";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { SyntaxKind } from "typescript/unstable/ast";
@@ -25,8 +25,14 @@ const failures = [];
 
 function checkSource(source, manifest) {
 	const file = source.fileName;
+	// xpi-coding-agent's bundle inlines the xpi-* workspace packages, which are therefore devDependencies. The bundle itself
+	// is checked below.
+	const inlined = Object.keys(manifest.devDependencies ?? {}).filter(
+		(name) => manifest.name === "xpi-coding-agent" && name.startsWith("xpi-"),
+	);
 	const declared = new Set([
 		manifest.name,
+		...inlined,
 		...Object.keys(manifest.dependencies ?? {}),
 		...Object.keys(manifest.optionalDependencies ?? {}),
 		...Object.keys(manifest.peerDependencies ?? {}),
@@ -131,6 +137,21 @@ try {
 	}
 } finally {
 	api.close();
+}
+
+// A dependency moved to devDependencies because the bundle inlines it must really be inlined: the built bundle
+// (when present) may not import it at runtime.
+const bundleDirectory = resolve("packages/xpi-coding-agent/dist/bundle");
+if (existsSync(bundleDirectory)) {
+	const walk = (directory) =>
+		readdirSync(directory, { withFileTypes: true }).flatMap((entry) =>
+			entry.isDirectory() ? walk(join(directory, entry.name)) : entry.name.endsWith(".js") ? [join(directory, entry.name)] : [],
+		);
+	const runtimeImport = /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bimport\s+)["'](xpi-[a-z-]+)(?:\/[^"']*)?["']/;
+	for (const file of walk(bundleDirectory)) {
+		const match = runtimeImport.exec(readFileSync(file, "utf8"));
+		if (match) failures.push(`${relative(process.cwd(), file)}: the bundle imports ${match[1]} at runtime, but it is not a dependency`);
+	}
 }
 
 if (failures.length > 0) {

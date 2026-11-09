@@ -1,0 +1,1394 @@
+{
+  "runs": 3,
+  "rows": [
+    {
+      "case": "read-only agent cannot write",
+      "kind": "direct",
+      "run": 0,
+      "pass": true,
+      "checks": [
+        {
+          "name": "did not throw / finished",
+          "pass": true
+        },
+        {
+          "name": "no file written",
+          "pass": true
+        },
+        {
+          "name": "on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.00018593499999999997,
+      "ms": 2680
+    },
+    {
+      "case": "explore lists files",
+      "kind": "direct",
+      "run": 0,
+      "pass": true,
+      "checks": [
+        {
+          "name": "completed",
+          "pass": true
+        },
+        {
+          "name": "on haiku",
+          "pass": true
+        },
+        {
+          "name": "names all three files",
+          "pass": true
+        }
+      ],
+      "cost": 0.00019551,
+      "ms": 3434
+    },
+    {
+      "case": "explore lists files",
+      "kind": "direct",
+      "run": 1,
+      "pass": true,
+      "checks": [
+        {
+          "name": "completed",
+          "pass": true
+        },
+        {
+          "name": "on haiku",
+          "pass": true
+        },
+        {
+          "name": "names all three files",
+          "pass": true
+        }
+      ],
+      "cost": 0.00024732499999999995,
+      "ms": 3993
+    },
+    {
+      "case": "explore lists files",
+      "kind": "direct",
+      "run": 2,
+      "pass": true,
+      "checks": [
+        {
+          "name": "completed",
+          "pass": true
+        },
+        {
+          "name": "on haiku",
+          "pass": true
+        },
+        {
+          "name": "names all three files",
+          "pass": true
+        }
+      ],
+      "cost": 0.00024997,
+      "ms": 4417
+    },
+    {
+      "case": "read-only agent cannot write",
+      "kind": "direct",
+      "run": 1,
+      "pass": true,
+      "checks": [
+        {
+          "name": "did not throw / finished",
+          "pass": true
+        },
+        {
+          "name": "no file written",
+          "pass": true
+        },
+        {
+          "name": "on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.000218935,
+      "ms": 3232
+    },
+    {
+      "case": "custom agent writes with its tools",
+      "kind": "direct",
+      "run": 0,
+      "pass": true,
+      "checks": [
+        {
+          "name": "completed",
+          "pass": true
+        },
+        {
+          "name": "agentType scribe",
+          "pass": true
+        },
+        {
+          "name": "file has the content",
+          "pass": true
+        },
+        {
+          "name": "on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.000280095,
+      "ms": 2874
+    },
+    {
+      "case": "read-only agent cannot write",
+      "kind": "direct",
+      "run": 2,
+      "pass": true,
+      "checks": [
+        {
+          "name": "did not throw / finished",
+          "pass": true
+        },
+        {
+          "name": "no file written",
+          "pass": true
+        },
+        {
+          "name": "on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.000204935,
+      "ms": 3510
+    },
+    {
+      "case": "custom agent writes with its tools",
+      "kind": "direct",
+      "run": 1,
+      "pass": true,
+      "checks": [
+        {
+          "name": "completed",
+          "pass": true
+        },
+        {
+          "name": "agentType scribe",
+          "pass": true
+        },
+        {
+          "name": "file has the content",
+          "pass": true
+        },
+        {
+          "name": "on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.000280635,
+      "ms": 3420
+    },
+    {
+      "case": "custom agent writes with its tools",
+      "kind": "direct",
+      "run": 2,
+      "pass": true,
+      "checks": [
+        {
+          "name": "completed",
+          "pass": true
+        },
+        {
+          "name": "agentType scribe",
+          "pass": true
+        },
+        {
+          "name": "file has the content",
+          "pass": true
+        },
+        {
+          "name": "on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.0001181,
+      "ms": 3170
+    },
+    {
+      "case": "resume remembers",
+      "kind": "direct",
+      "run": 0,
+      "pass": true,
+      "checks": [
+        {
+          "name": "both completed",
+          "pass": true
+        },
+        {
+          "name": "same agentId",
+          "pass": true
+        },
+        {
+          "name": "type kept (general-purpose)",
+          "pass": true
+        },
+        {
+          "name": "recalls ZEBRA-41",
+          "pass": true
+        },
+        {
+          "name": "on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.00011643999999999999,
+      "ms": 3067
+    },
+    {
+      "case": "resume remembers",
+      "kind": "direct",
+      "run": 1,
+      "pass": true,
+      "checks": [
+        {
+          "name": "both completed",
+          "pass": true
+        },
+        {
+          "name": "same agentId",
+          "pass": true
+        },
+        {
+          "name": "type kept (general-purpose)",
+          "pass": true
+        },
+        {
+          "name": "recalls ZEBRA-41",
+          "pass": true
+        },
+        {
+          "name": "on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.00011671000000000001,
+      "ms": 2999
+    },
+    {
+      "case": "resume remembers",
+      "kind": "direct",
+      "run": 2,
+      "pass": true,
+      "checks": [
+        {
+          "name": "both completed",
+          "pass": true
+        },
+        {
+          "name": "same agentId",
+          "pass": true
+        },
+        {
+          "name": "type kept (general-purpose)",
+          "pass": true
+        },
+        {
+          "name": "recalls ZEBRA-41",
+          "pass": true
+        },
+        {
+          "name": "on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.00011671000000000001,
+      "ms": 3190
+    },
+    {
+      "case": "maxTurns gives partial",
+      "kind": "direct",
+      "run": 0,
+      "pass": true,
+      "checks": [
+        {
+          "name": "partial",
+          "pass": true
+        },
+        {
+          "name": "stopped at 1 turn",
+          "pass": true
+        },
+        {
+          "name": "usage counted",
+          "pass": true
+        },
+        {
+          "name": "on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.00025465,
+      "ms": 3110
+    },
+    {
+      "case": "skill is preloaded",
+      "kind": "direct",
+      "run": 0,
+      "pass": true,
+      "checks": [
+        {
+          "name": "completed",
+          "pass": true
+        },
+        {
+          "name": "knows PIPIPI-7731",
+          "pass": true
+        },
+        {
+          "name": "on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.000057485,
+      "ms": 1899
+    },
+    {
+      "case": "maxTurns gives partial",
+      "kind": "direct",
+      "run": 1,
+      "pass": true,
+      "checks": [
+        {
+          "name": "partial",
+          "pass": true
+        },
+        {
+          "name": "stopped at 1 turn",
+          "pass": true
+        },
+        {
+          "name": "usage counted",
+          "pass": true
+        },
+        {
+          "name": "on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.00024115,
+      "ms": 3045
+    },
+    {
+      "case": "maxTurns gives partial",
+      "kind": "direct",
+      "run": 2,
+      "pass": true,
+      "checks": [
+        {
+          "name": "partial",
+          "pass": true
+        },
+        {
+          "name": "stopped at 1 turn",
+          "pass": true
+        },
+        {
+          "name": "usage counted",
+          "pass": true
+        },
+        {
+          "name": "on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.0002459,
+      "ms": 3069
+    },
+    {
+      "case": "skill is preloaded",
+      "kind": "direct",
+      "run": 1,
+      "pass": true,
+      "checks": [
+        {
+          "name": "completed",
+          "pass": true
+        },
+        {
+          "name": "knows PIPIPI-7731",
+          "pass": true
+        },
+        {
+          "name": "on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.000057735,
+      "ms": 1732
+    },
+    {
+      "case": "skill is preloaded",
+      "kind": "direct",
+      "run": 2,
+      "pass": true,
+      "checks": [
+        {
+          "name": "completed",
+          "pass": true
+        },
+        {
+          "name": "knows PIPIPI-7731",
+          "pass": true
+        },
+        {
+          "name": "on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.000057735,
+      "ms": 1697
+    },
+    {
+      "case": "context files on, omitClaudeMd off",
+      "kind": "direct",
+      "run": 0,
+      "pass": true,
+      "checks": [
+        {
+          "name": "both completed",
+          "pass": true
+        },
+        {
+          "name": "general-purpose sees AGENTS.md",
+          "pass": true
+        },
+        {
+          "name": "Explore (omitClaudeMd) does not",
+          "pass": true
+        },
+        {
+          "name": "on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.00022046499999999998,
+      "ms": 2091
+    },
+    {
+      "case": "context files on, omitClaudeMd off",
+      "kind": "direct",
+      "run": 1,
+      "pass": true,
+      "checks": [
+        {
+          "name": "both completed",
+          "pass": true
+        },
+        {
+          "name": "general-purpose sees AGENTS.md",
+          "pass": true
+        },
+        {
+          "name": "Explore (omitClaudeMd) does not",
+          "pass": true
+        },
+        {
+          "name": "on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.00019609,
+      "ms": 2169
+    },
+    {
+      "case": "context files on, omitClaudeMd off",
+      "kind": "direct",
+      "run": 2,
+      "pass": true,
+      "checks": [
+        {
+          "name": "both completed",
+          "pass": true
+        },
+        {
+          "name": "general-purpose sees AGENTS.md",
+          "pass": true
+        },
+        {
+          "name": "Explore (omitClaudeMd) does not",
+          "pass": true
+        },
+        {
+          "name": "on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.000213465,
+      "ms": 1797
+    },
+    {
+      "case": "bad model fails structured",
+      "kind": "direct",
+      "run": 0,
+      "pass": true,
+      "checks": [
+        {
+          "name": "failed, not thrown",
+          "pass": true
+        },
+        {
+          "name": "has an error",
+          "pass": true
+        }
+      ],
+      "cost": 0,
+      "ms": 485
+    },
+    {
+      "case": "alias, effort and definition model",
+      "kind": "direct",
+      "run": 0,
+      "pass": true,
+      "checks": [
+        {
+          "name": "call alias resolves",
+          "pass": true
+        },
+        {
+          "name": "definition model resolves",
+          "pass": true
+        }
+      ],
+      "cost": 0.00012689,
+      "ms": 1752
+    },
+    {
+      "case": "alias, effort and definition model",
+      "kind": "direct",
+      "run": 1,
+      "pass": true,
+      "checks": [
+        {
+          "name": "call alias resolves",
+          "pass": true
+        },
+        {
+          "name": "definition model resolves",
+          "pass": true
+        }
+      ],
+      "cost": 0.00012639,
+      "ms": 1582
+    },
+    {
+      "case": "bad model fails structured",
+      "kind": "direct",
+      "run": 1,
+      "pass": true,
+      "checks": [
+        {
+          "name": "failed, not thrown",
+          "pass": true
+        },
+        {
+          "name": "has an error",
+          "pass": true
+        }
+      ],
+      "cost": 0,
+      "ms": 445
+    },
+    {
+      "case": "bad model fails structured",
+      "kind": "direct",
+      "run": 2,
+      "pass": true,
+      "checks": [
+        {
+          "name": "failed, not thrown",
+          "pass": true
+        },
+        {
+          "name": "has an error",
+          "pass": true
+        }
+      ],
+      "cost": 0,
+      "ms": 438
+    },
+    {
+      "case": "alias, effort and definition model",
+      "kind": "direct",
+      "run": 2,
+      "pass": true,
+      "checks": [
+        {
+          "name": "call alias resolves",
+          "pass": true
+        },
+        {
+          "name": "definition model resolves",
+          "pass": true
+        }
+      ],
+      "cost": 0.00012689,
+      "ms": 1709
+    },
+    {
+      "case": "children cannot nest",
+      "kind": "direct",
+      "run": 1,
+      "pass": true,
+      "checks": [
+        {
+          "name": "completed",
+          "pass": true
+        },
+        {
+          "name": "child sees XPI_SUBAGENT_DEPTH=1",
+          "pass": true
+        },
+        {
+          "name": "on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.00012985999999999998,
+      "ms": 2952
+    },
+    {
+      "case": "children cannot nest",
+      "kind": "direct",
+      "run": 0,
+      "pass": true,
+      "checks": [
+        {
+          "name": "completed",
+          "pass": true
+        },
+        {
+          "name": "child sees XPI_SUBAGENT_DEPTH=1",
+          "pass": true
+        },
+        {
+          "name": "on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.00012985999999999998,
+      "ms": 2963
+    },
+    {
+      "case": "children cannot nest",
+      "kind": "direct",
+      "run": 2,
+      "pass": true,
+      "checks": [
+        {
+          "name": "completed",
+          "pass": true
+        },
+        {
+          "name": "child sees XPI_SUBAGENT_DEPTH=1",
+          "pass": true
+        },
+        {
+          "name": "on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.00013013,
+      "ms": 2937
+    },
+    {
+      "case": "three in parallel",
+      "kind": "direct",
+      "run": 0,
+      "pass": true,
+      "checks": [
+        {
+          "name": "all completed",
+          "pass": true
+        },
+        {
+          "name": "right words",
+          "pass": true
+        },
+        {
+          "name": "ran concurrently (wall < 0.7 × sum)",
+          "pass": true
+        },
+        {
+          "name": "on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.0005084050000000001,
+      "ms": 3118,
+      "notes": "wall 3118 ms, sum 9008 ms"
+    },
+    {
+      "case": "three in parallel",
+      "kind": "direct",
+      "run": 2,
+      "pass": true,
+      "checks": [
+        {
+          "name": "all completed",
+          "pass": true
+        },
+        {
+          "name": "right words",
+          "pass": true
+        },
+        {
+          "name": "ran concurrently (wall < 0.7 × sum)",
+          "pass": true
+        },
+        {
+          "name": "on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.000512155,
+      "ms": 3122,
+      "notes": "wall 3120 ms, sum 9235 ms"
+    },
+    {
+      "case": "three in parallel",
+      "kind": "direct",
+      "run": 1,
+      "pass": true,
+      "checks": [
+        {
+          "name": "all completed",
+          "pass": true
+        },
+        {
+          "name": "right words",
+          "pass": true
+        },
+        {
+          "name": "ran concurrently (wall < 0.7 × sum)",
+          "pass": true
+        },
+        {
+          "name": "on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.000515905,
+      "ms": 3599,
+      "notes": "wall 3597 ms, sum 10068 ms"
+    },
+    {
+      "case": "parent runs a codemode script",
+      "kind": "parent",
+      "run": 0,
+      "pass": true,
+      "checks": [
+        {
+          "name": "parent finished",
+          "pass": true
+        },
+        {
+          "name": "Agent called via codemode",
+          "pass": true
+        },
+        {
+          "name": "both completed",
+          "pass": true
+        },
+        {
+          "name": "children report haiku",
+          "pass": true
+        },
+        {
+          "name": "parent and children on haiku",
+          "pass": true
+        },
+        {
+          "name": "count is 2",
+          "pass": true
+        },
+        {
+          "name": "finds src/b.ts",
+          "pass": true
+        }
+      ],
+      "cost": 0.0012168700000000003,
+      "ms": 7502
+    },
+    {
+      "case": "steer changes a running subagent's course",
+      "kind": "direct",
+      "run": 1,
+      "pass": true,
+      "checks": [
+        {
+          "name": "steer was sent",
+          "pass": true
+        },
+        {
+          "name": "completed",
+          "pass": true
+        },
+        {
+          "name": "final reply is the token",
+          "pass": true
+        },
+        {
+          "name": "planned file not written",
+          "pass": true
+        },
+        {
+          "name": "on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.000206325,
+      "ms": 14364
+    },
+    {
+      "case": "steer changes a running subagent's course",
+      "kind": "direct",
+      "run": 0,
+      "pass": true,
+      "checks": [
+        {
+          "name": "steer was sent",
+          "pass": true
+        },
+        {
+          "name": "completed",
+          "pass": true
+        },
+        {
+          "name": "final reply is the token",
+          "pass": true
+        },
+        {
+          "name": "planned file not written",
+          "pass": true
+        },
+        {
+          "name": "on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.00020182499999999999,
+      "ms": 14744
+    },
+    {
+      "case": "steer changes a running subagent's course",
+      "kind": "direct",
+      "run": 2,
+      "pass": true,
+      "checks": [
+        {
+          "name": "steer was sent",
+          "pass": true
+        },
+        {
+          "name": "completed",
+          "pass": true
+        },
+        {
+          "name": "final reply is the token",
+          "pass": true
+        },
+        {
+          "name": "planned file not written",
+          "pass": true
+        },
+        {
+          "name": "on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.000213325,
+      "ms": 14526
+    },
+    {
+      "case": "parent runs a codemode script",
+      "kind": "parent",
+      "run": 1,
+      "pass": true,
+      "checks": [
+        {
+          "name": "parent finished",
+          "pass": true
+        },
+        {
+          "name": "Agent called via codemode",
+          "pass": true
+        },
+        {
+          "name": "both completed",
+          "pass": true
+        },
+        {
+          "name": "children report haiku",
+          "pass": true
+        },
+        {
+          "name": "parent and children on haiku",
+          "pass": true
+        },
+        {
+          "name": "count is 2",
+          "pass": true
+        },
+        {
+          "name": "finds src/b.ts",
+          "pass": true
+        }
+      ],
+      "cost": 0.0008403499999999999,
+      "ms": 6850
+    },
+    {
+      "case": "parent runs a codemode script",
+      "kind": "parent",
+      "run": 2,
+      "pass": true,
+      "checks": [
+        {
+          "name": "parent finished",
+          "pass": true
+        },
+        {
+          "name": "Agent called via codemode",
+          "pass": true
+        },
+        {
+          "name": "both completed",
+          "pass": true
+        },
+        {
+          "name": "children report haiku",
+          "pass": true
+        },
+        {
+          "name": "parent and children on haiku",
+          "pass": true
+        },
+        {
+          "name": "count is 2",
+          "pass": true
+        },
+        {
+          "name": "finds src/b.ts",
+          "pass": true
+        }
+      ],
+      "cost": 0.0008402000000000001,
+      "ms": 7887
+    },
+    {
+      "case": "parent delegates on its own",
+      "kind": "parent",
+      "run": 0,
+      "pass": true,
+      "checks": [
+        {
+          "name": "parent finished",
+          "pass": true
+        },
+        {
+          "name": "used Agent",
+          "pass": true
+        },
+        {
+          "name": "an Explore child ran",
+          "pass": true
+        },
+        {
+          "name": "answers lib/mod7.ts",
+          "pass": true
+        },
+        {
+          "name": "parent and children on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.0005442350000000001,
+      "ms": 7806
+    },
+    {
+      "case": "parent delegates on its own",
+      "kind": "parent",
+      "run": 1,
+      "pass": true,
+      "checks": [
+        {
+          "name": "parent finished",
+          "pass": true
+        },
+        {
+          "name": "used Agent",
+          "pass": true
+        },
+        {
+          "name": "an Explore child ran",
+          "pass": true
+        },
+        {
+          "name": "answers lib/mod7.ts",
+          "pass": true
+        },
+        {
+          "name": "parent and children on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.000560245,
+      "ms": 7430
+    },
+    {
+      "case": "parent delegates on its own",
+      "kind": "parent",
+      "run": 2,
+      "pass": true,
+      "checks": [
+        {
+          "name": "parent finished",
+          "pass": true
+        },
+        {
+          "name": "used Agent",
+          "pass": true
+        },
+        {
+          "name": "an Explore child ran",
+          "pass": true
+        },
+        {
+          "name": "answers lib/mod7.ts",
+          "pass": true
+        },
+        {
+          "name": "parent and children on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.0006989400000000001,
+      "ms": 9861
+    },
+    {
+      "case": "background script frees main",
+      "kind": "parent",
+      "run": 1,
+      "pass": true,
+      "checks": [
+        {
+          "name": "did not time out",
+          "pass": true
+        },
+        {
+          "name": "codemode returned 'moved to the background'",
+          "pass": true
+        },
+        {
+          "name": "main's turn ended while the agent ran",
+          "pass": true
+        },
+        {
+          "name": "result message arrived with the token",
+          "pass": true
+        },
+        {
+          "name": "the message started a new turn",
+          "pass": true
+        },
+        {
+          "name": "main's final answer uses the result",
+          "pass": true
+        },
+        {
+          "name": "parent and children on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.000547035,
+      "ms": 9682
+    },
+    {
+      "case": "background script frees main",
+      "kind": "parent",
+      "run": 0,
+      "pass": true,
+      "checks": [
+        {
+          "name": "did not time out",
+          "pass": true
+        },
+        {
+          "name": "codemode returned 'moved to the background'",
+          "pass": true
+        },
+        {
+          "name": "main's turn ended while the agent ran",
+          "pass": true
+        },
+        {
+          "name": "result message arrived with the token",
+          "pass": true
+        },
+        {
+          "name": "the message started a new turn",
+          "pass": true
+        },
+        {
+          "name": "main's final answer uses the result",
+          "pass": true
+        },
+        {
+          "name": "parent and children on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.000547365,
+      "ms": 9878
+    },
+    {
+      "case": "background script frees main",
+      "kind": "parent",
+      "run": 2,
+      "pass": true,
+      "checks": [
+        {
+          "name": "did not time out",
+          "pass": true
+        },
+        {
+          "name": "codemode returned 'moved to the background'",
+          "pass": true
+        },
+        {
+          "name": "main's turn ended while the agent ran",
+          "pass": true
+        },
+        {
+          "name": "result message arrived with the token",
+          "pass": true
+        },
+        {
+          "name": "the message started a new turn",
+          "pass": true
+        },
+        {
+          "name": "main's final answer uses the result",
+          "pass": true
+        },
+        {
+          "name": "parent and children on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.0005472000000000001,
+      "ms": 10506
+    },
+    {
+      "case": "isolated agent keeps a worktree only when it changes files",
+      "kind": "direct",
+      "run": 0,
+      "pass": true,
+      "checks": [
+        {
+          "name": "both completed",
+          "pass": true
+        },
+        {
+          "name": "writer: worktree kept with path, branch and files",
+          "pass": true
+        },
+        {
+          "name": "writer: file is in the worktree",
+          "pass": true
+        },
+        {
+          "name": "main checkout untouched",
+          "pass": true
+        },
+        {
+          "name": "read-only: nothing kept",
+          "pass": true
+        },
+        {
+          "name": "only the writer's worktree and branch remain",
+          "pass": true
+        },
+        {
+          "name": "on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.000282365,
+      "ms": 9263
+    },
+    {
+      "case": "isolated agent keeps a worktree only when it changes files",
+      "kind": "direct",
+      "run": 2,
+      "pass": true,
+      "checks": [
+        {
+          "name": "both completed",
+          "pass": true
+        },
+        {
+          "name": "writer: worktree kept with path, branch and files",
+          "pass": true
+        },
+        {
+          "name": "writer: file is in the worktree",
+          "pass": true
+        },
+        {
+          "name": "main checkout untouched",
+          "pass": true
+        },
+        {
+          "name": "read-only: nothing kept",
+          "pass": true
+        },
+        {
+          "name": "only the writer's worktree and branch remain",
+          "pass": true
+        },
+        {
+          "name": "on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.000284055,
+      "ms": 7920
+    },
+    {
+      "case": "isolated agent keeps a worktree only when it changes files",
+      "kind": "direct",
+      "run": 1,
+      "pass": true,
+      "checks": [
+        {
+          "name": "both completed",
+          "pass": true
+        },
+        {
+          "name": "writer: worktree kept with path, branch and files",
+          "pass": true
+        },
+        {
+          "name": "writer: file is in the worktree",
+          "pass": true
+        },
+        {
+          "name": "main checkout untouched",
+          "pass": true
+        },
+        {
+          "name": "read-only: nothing kept",
+          "pass": true
+        },
+        {
+          "name": "only the writer's worktree and branch remain",
+          "pass": true
+        },
+        {
+          "name": "on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.00029563500000000004,
+      "ms": 8903
+    },
+    {
+      "case": "agent memory carries a fact across runs",
+      "kind": "direct",
+      "run": 0,
+      "pass": true,
+      "checks": [
+        {
+          "name": "both completed",
+          "pass": true
+        },
+        {
+          "name": "run 1 wrote MEMORY.md with the fact",
+          "pass": true
+        },
+        {
+          "name": "run 2 is a different agent",
+          "pass": true
+        },
+        {
+          "name": "run 2 answers from memory",
+          "pass": true
+        },
+        {
+          "name": "on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.0005227000000000001,
+      "ms": 7937
+    },
+    {
+      "case": "agent memory carries a fact across runs",
+      "kind": "direct",
+      "run": 1,
+      "pass": true,
+      "checks": [
+        {
+          "name": "both completed",
+          "pass": true
+        },
+        {
+          "name": "run 1 wrote MEMORY.md with the fact",
+          "pass": true
+        },
+        {
+          "name": "run 2 is a different agent",
+          "pass": true
+        },
+        {
+          "name": "run 2 answers from memory",
+          "pass": true
+        },
+        {
+          "name": "on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.000528105,
+      "ms": 9408
+    },
+    {
+      "case": "agent memory carries a fact across runs",
+      "kind": "direct",
+      "run": 2,
+      "pass": true,
+      "checks": [
+        {
+          "name": "both completed",
+          "pass": true
+        },
+        {
+          "name": "run 1 wrote MEMORY.md with the fact",
+          "pass": true
+        },
+        {
+          "name": "run 2 is a different agent",
+          "pass": true
+        },
+        {
+          "name": "run 2 answers from memory",
+          "pass": true
+        },
+        {
+          "name": "on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.00052664,
+      "ms": 7831
+    }
+  ]
+}

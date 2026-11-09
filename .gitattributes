@@ -10,7 +10,7 @@
 *.sh text eol=lf
 
 # Archived patch artifacts preserve whitespace exactly
-packages/agent/docs/**/*.diff -whitespace
+packages/xpi-agent-core/docs/**/*.diff -whitespace
 
 # Common binary assets
 *.png binary

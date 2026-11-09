@@ -61,7 +61,6 @@ jobs:
       matrix:
         include:
           - name: coding-agent
-          - name: durable
           - name: other
     steps:
       - name: Checkout
@@ -75,7 +74,6 @@ jobs:
 
       # fd and ripgrep are used by coding-agent tools tests and tui autocomplete tests.
       - name: Install system dependencies
-        if: matrix.name != 'durable'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends fd-find ripgrep
@@ -86,10 +84,6 @@ jobs:
 
       - name: Build
         run: npm run build
-
-      - name: Build the pi-env daemon
-        if: matrix.name == 'other'
-        run: npm run build:daemon --workspace packages/env
 
       - name: Test
         env:
@@ -102,7 +96,7 @@ jobs:
           # Every other workspace, so new packages are tested without editing this workflow.
           args=()
           for dir in packages/*/; do
-            case "$dir" in packages/coding-agent/ | packages/durable/) continue ;; esac
+            case "$dir" in packages/xpi-coding-agent/) continue ;; esac
             args+=(--workspace "${dir%/}")
           done
           npm run test:scripts
@@ -124,6 +118,6 @@ jobs:
         run: npm ci --ignore-scripts
 
       # Runs pi's MCP client from source against the pinned official conformance suite and fails on
-      # regressions against packages/coding-agent/test/mcp-conformance/baseline.json.
+      # regressions against packages/xpi-coding-agent/test/mcp-conformance/baseline.json.
       - name: MCP client conformance
         run: npm run test:mcp-conformance

@@ -67,7 +67,7 @@ cd "$repo_root"
 
 commit="$(git rev-parse --verify --end-of-options "${source_ref}^{commit}")"
 
-package_version="$(git show "${commit}:packages/coding-agent/package.json" | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).version')"
+package_version="$(git show "${commit}:packages/xpi-coding-agent/package.json" | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).version')"
 if [[ "$package_version" != "$version" ]]; then
     echo "Version ${version} does not match package version ${package_version} at ${source_ref}" >&2
     exit 1
@@ -79,7 +79,7 @@ fi
 mkdir -p "$(dirname "$output")"
 output="$(cd "$(dirname "$output")" && pwd)/$(basename "$output")"
 
-model_data_dir="packages/ai/src/providers/data"
+model_data_dir="packages/xpi-ai/src/providers/data"
 if [[ ! -f "${model_data_dir}/.manifest.json" ]]; then
     echo "Generated model data is missing. Run npm run hydrate:model-data first." >&2
     exit 1
@@ -117,23 +117,23 @@ required_paths=(
     "package.json"
     "package-lock.json"
     "scripts/build-binaries.sh"
-    "packages/ai/src/models.generated.ts"
-    "packages/ai/src/providers/data/.manifest.json"
-    "packages/tui/native/napi.h"
-    "packages/tui/native/clipboard.h"
-    "packages/tui/native/darwin/src/darwin-platform.m"
-    "packages/tui/native/darwin/prebuilds/darwin-arm64/darwin-platform.node"
-    "packages/tui/native/darwin/prebuilds/darwin-x64/darwin-platform.node"
-    "packages/tui/native/linux/build.sh"
-    "packages/tui/native/linux/src/linux-platform-x11.c"
-    "packages/tui/native/linux/prebuilds/linux-arm64/linux-platform-x11.node"
-    "packages/tui/native/linux/prebuilds/linux-x64/linux-platform-x11.node"
-    "packages/tui/native/win32/src/win32-platform.c"
-    "packages/tui/native/win32/prebuilds/win32-arm64/win32-platform.node"
-    "packages/tui/native/win32/prebuilds/win32-x64/win32-platform.node"
-    "packages/coding-agent/package.json"
-    "packages/coding-agent/src/utils/image-resize-worker.ts"
-    "packages/coding-agent/src/core/export-html/template.css"
+    "packages/xpi-ai/src/models.generated.ts"
+    "packages/xpi-ai/src/providers/data/.manifest.json"
+    "packages/xpi-tui/native/napi.h"
+    "packages/xpi-tui/native/clipboard.h"
+    "packages/xpi-tui/native/darwin/src/darwin-platform.m"
+    "packages/xpi-tui/native/darwin/prebuilds/darwin-arm64/darwin-platform.node"
+    "packages/xpi-tui/native/darwin/prebuilds/darwin-x64/darwin-platform.node"
+    "packages/xpi-tui/native/linux/build.sh"
+    "packages/xpi-tui/native/linux/src/linux-platform-x11.c"
+    "packages/xpi-tui/native/linux/prebuilds/linux-arm64/linux-platform-x11.node"
+    "packages/xpi-tui/native/linux/prebuilds/linux-x64/linux-platform-x11.node"
+    "packages/xpi-tui/native/win32/src/win32-platform.c"
+    "packages/xpi-tui/native/win32/prebuilds/win32-arm64/win32-platform.node"
+    "packages/xpi-tui/native/win32/prebuilds/win32-x64/win32-platform.node"
+    "packages/xpi-coding-agent/package.json"
+    "packages/xpi-coding-agent/src/utils/image-resize-worker.ts"
+    "packages/xpi-coding-agent/src/core/export-html/template.css"
 )
 
 for path in "${required_paths[@]}"; do
@@ -148,13 +148,13 @@ if ! awk -v prefix="${archive_root}/" 'index($0, prefix) != 1 { exit 1 }' "$mani
     exit 1
 fi
 
-if grep -Eq '(^|/)node_modules/|(^|/)packages/coding-agent/binaries/' "$manifest"; then
+if grep -Eq '(^|/)node_modules/|(^|/)packages/xpi-coding-agent/binaries/' "$manifest"; then
     echo "Source archive contains generated dependencies or binaries" >&2
     exit 1
 fi
 
 tar -xzf "$temporary_archive" -C "$validation_root"
-node "${validation_root}/${archive_root}/packages/ai/scripts/check-model-data.ts"
+node "${validation_root}/${archive_root}/packages/xpi-ai/scripts/check-model-data.ts"
 
 mv "$temporary_archive" "$output"
 trap 'rm -f "$temporary_index" "$manifest"; rm -rf "$validation_root"' EXIT
