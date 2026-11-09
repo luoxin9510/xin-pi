@@ -172,7 +172,7 @@ test("continuing from the subagent screen computes memory like the Agent tool: m
 	s.scenario({ lines: happyLines("hi") });
 	const parent = { cwd: join(repo, "sub"), thinking: "off", trusted: false, sessionFile, sessionId: "parent-id" };
 	await talkTo(parent, first.agentId, "more").done;
-	const prompt = s.record().systemPrompt!;
+	const prompt = s.record().systemPromptTail!;
 	assert.ok(prompt.includes(join(repo, ".claude/agent-memory-local/x")), prompt);
 	assert.ok(!prompt.includes(join(repo, "sub", ".claude")), "not under the parent's subdirectory");
 	assert.match(readFileSync(excludeFile, "utf8"), /agent-memory-local\/x/);

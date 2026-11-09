@@ -30,10 +30,12 @@ export interface ParentContext {
 
 export interface ChildSpec {
 	command: string;
-	args: string[]; // everything except --system-prompt and the prompt, which the runner adds
+	args: string[]; // everything except the system prompt files and the prompt, which the runner adds
 	env: Record<string, string>;
 	cwd: string;
-	systemPrompt: string;
+	// Two prompt-cache regions. `head` (--system-prompt) is the same text for every agent type; the child puts the
+	// project context after it. `tail` (--system-prompt-tail) is this agent's own, volatile part and comes last.
+	systemPrompt: { head: string; tail: string };
 	prompt: string;
 	model: string;
 	thinking: string;
@@ -52,6 +54,9 @@ export interface ResolveOptions {
 	claudeDir?: string; // user memory base, default ~/.claude (tests pass a temp dir)
 }
 
+// The shared head must not name the agent, its directory or the date: those belong to the tail.
+const HEAD_PROMPT =
+	"You are a subagent: another agent handed you one task. Your role and instructions are in the <instructions> section at the end of this prompt.";
 const CODEMODE_PROMPT = "Use the `codemode` tool for all tool calls, and put independent calls in one script.";
 
 const BUILTIN_TOOL_MAP: Record<string, string> = {
@@ -205,7 +210,7 @@ function buildSystemPrompt(
 	now: Date,
 	codemode: boolean,
 	memory?: string,
-): { text: string; warnings: string[] } {
+): { head: string; tail: string; warnings: string[] } {
 	const parts = [def.prompt];
 	const warnings: string[] = [];
 	for (const name of def.skills ?? []) {
@@ -222,8 +227,8 @@ function buildSystemPrompt(
 			`Date: ${now.toISOString().slice(0, 10)}`,
 		].join("\n"),
 	);
-	if (codemode) parts.push(CODEMODE_PROMPT);
-	return { text: parts.join("\n\n"), warnings };
+	const head = codemode ? `${HEAD_PROMPT}\n\n${CODEMODE_PROMPT}` : HEAD_PROMPT;
+	return { head, tail: parts.join("\n\n"), warnings };
 }
 
 export function resolveChild(
@@ -274,7 +279,7 @@ export function resolveChild(
 			...(codemode ? { XPI_SUBAGENT_CHILD_CODEMODE: "only" } : {}),
 		},
 		cwd,
-		systemPrompt: system.text,
+		systemPrompt: { head: system.head, tail: system.tail },
 		prompt: input.prompt,
 		model,
 		thinking,

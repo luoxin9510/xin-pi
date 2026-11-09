@@ -24,7 +24,7 @@ test("project memory lives under the main checkout, also when the agent runs in 
 	const r = (await t.run({ subagent_type: "x" })).structuredContent;
 	const dir = join(root, ".claude/agent-memory/x");
 	assert.ok(existsSync(dir));
-	assert.ok(s.record().systemPrompt!.includes(dir));
+	assert.ok(s.record().systemPromptTail!.includes(dir));
 	assert.equal(
 		r.warnings.some((w: string) => w.includes('"memory"')),
 		false,

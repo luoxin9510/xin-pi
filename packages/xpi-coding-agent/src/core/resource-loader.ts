@@ -186,6 +186,8 @@ export interface ResourceLoader {
 	getAgentsFiles(): { agentsFiles: Array<{ path: string; content: string }> };
 	getSystemPrompt(): string | undefined;
 	getSystemPromptSource(): { path: string } | undefined;
+	/** The prompt tail (`--system-prompt-tail`): see `BuildSystemPromptOptions.tail`. */
+	getSystemPromptTail?(): string | undefined;
 	getAppendSystemPrompt(): string[];
 	getAppendSystemPromptSources(): Array<{ path: string }>;
 	extendResources(paths: ResourceExtensionPaths): void;
@@ -319,6 +321,8 @@ export interface DefaultResourceLoaderOptions {
 	noThemes?: boolean;
 	noContextFiles?: boolean;
 	systemPrompt?: string;
+	/** Text, or the path of a file holding it, for the prompt tail (`BuildSystemPromptOptions.tail`). */
+	systemPromptTail?: string;
 	appendSystemPrompt?: string[];
 	extensionsOverride?: (base: LoadExtensionsResult) => LoadExtensionsResult;
 	skillsOverride?: (base: { skills: Skill[]; diagnostics: ResourceDiagnostic[] }) => {
@@ -388,6 +392,8 @@ export class DefaultResourceLoader implements ResourceLoader {
 	private themeDiagnostics: ResourceDiagnostic[];
 	private agentsFiles: Array<{ path: string; content: string }>;
 	private systemPrompt?: string;
+	private systemPromptTailSource?: string;
+	private systemPromptTail?: string;
 	private systemPromptSourcePath?: string;
 	private appendSystemPrompt: string[];
 	private appendSystemPromptSourcePaths: string[];
@@ -425,6 +431,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		this.noThemes = options.noThemes ?? false;
 		this.noContextFiles = options.noContextFiles ?? false;
 		this.systemPromptSource = options.systemPrompt;
+		this.systemPromptTailSource = options.systemPromptTail;
 		this.appendSystemPromptSource = options.appendSystemPrompt;
 		this.extensionsOverride = options.extensionsOverride;
 		this.skillsOverride = options.skillsOverride;
@@ -480,6 +487,10 @@ export class DefaultResourceLoader implements ResourceLoader {
 
 	getSystemPromptSource(): { path: string } | undefined {
 		return this.systemPromptSourcePath ? { path: this.systemPromptSourcePath } : undefined;
+	}
+
+	getSystemPromptTail(): string | undefined {
+		return this.systemPromptTail;
 	}
 
 	getAppendSystemPrompt(): string[] {
@@ -691,6 +702,8 @@ export class DefaultResourceLoader implements ResourceLoader {
 		this.systemPrompt = this.systemPromptOverride ? this.systemPromptOverride(baseSystemPrompt) : baseSystemPrompt;
 		this.systemPromptSourcePath =
 			systemPromptSource && existsSync(systemPromptSource) ? resolvePath(systemPromptSource) : undefined;
+
+		this.systemPromptTail = resolvePromptInput(this.systemPromptTailSource, "system prompt tail");
 
 		let appendSources = this.appendSystemPromptSource;
 		if (!appendSources) {

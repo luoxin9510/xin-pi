@@ -2,6 +2,8 @@
  * System prompt construction and project context loading
  */
 
+import { homedir } from "node:os";
+import { relative, resolve, sep } from "node:path";
 import { getSystemMessageText } from "xpi-ai";
 import { getDocsPath, getExamplesPath, getReadmePath } from "../config.ts";
 import { formatSkillsForPrompt, type Skill } from "./skills.ts";
@@ -34,6 +36,18 @@ export interface BuildSystemPromptOptions {
 	contextFiles?: Array<{ path: string; content: string }>;
 	/** Pre-loaded skills. */
 	skills?: Skill[];
+	/**
+	 * The directory the project's own files live under (the git checkout holding `cwd`). Context files inside it are
+	 * shown relative to `cwd`, so a worktree of the same project renders the same text. Default: `cwd`.
+	 */
+	projectRoot?: string;
+	/**
+	 * Volatile, caller-specific instructions placed last, as the `instructions` section after `cwd`. It makes the
+	 * prompt two cache regions: the shared head (everything before `cwd`) and the tail (`cwd`, skills that live in
+	 * the project, and `instructions`). Each region ends in a cache breakpoint hint
+	 * ({@link buildSystemPromptCacheBreakpoints}).
+	 */
+	tail?: string;
 }
 
 export type NormalizedBuildSystemPromptOptions = BuildSystemPromptOptions & {
@@ -73,14 +87,47 @@ export function normalizeBuildSystemPromptOptions(input: BuildSystemPromptOption
 		cwd: input.cwd,
 		contextFiles: (input.contextFiles ?? []).map((file) => ({ ...file })),
 		skills: (input.skills ?? []).map((skill) => ({ ...skill })),
+		projectRoot: input.projectRoot,
+		tail: input.tail,
 	};
 }
 
-function renderProjectContext(contextFiles: Array<{ path: string; content: string }>): string {
+/** The prompt section that holds {@link BuildSystemPromptOptions.tail}. */
+export const SYSTEM_PROMPT_TAIL_SECTION = "instructions";
+
+function isWithin(dir: string, path: string): boolean {
+	return path === dir || path.startsWith(dir.endsWith(sep) ? dir : dir + sep);
+}
+
+/**
+ * How a context file's path appears in the prompt. A file inside the project is relative to the working directory,
+ * so a worktree of the same project renders the same text; a file under the home directory (such as the global
+ * `~/.pi/agent/AGENTS.md`) is `~/...`; anything else stays absolute.
+ */
+export function displayContextPath(
+	path: string,
+	cwd: string,
+	projectRoot: string = cwd,
+	home: string = homedir(),
+): string {
+	const file = resolve(path);
+	const posix = (p: string): string => p.split(sep).join("/");
+	if (isWithin(resolve(projectRoot), file)) return posix(relative(resolve(cwd), file));
+	const homeDir = resolve(home);
+	if (isWithin(homeDir, file) && file !== homeDir) return `~/${posix(relative(homeDir, file))}`;
+	return posix(file);
+}
+
+function renderProjectContext(
+	contextFiles: Array<{ path: string; content: string }>,
+	cwd: string,
+	projectRoot: string | undefined,
+): string {
 	return [
 		"Project-specific instructions and guidelines:",
 		...contextFiles.map(
-			({ path, content }) => `<project_instructions path="${path}">\n${content}\n</project_instructions>`,
+			({ path, content }) =>
+				`<project_instructions path="${displayContextPath(path, cwd, projectRoot)}">\n${content}\n</project_instructions>`,
 		),
 	].join("\n\n");
 }
@@ -139,10 +186,13 @@ export function buildSystemPromptSections(input: BuildSystemPromptOptions): Syst
 		cwd,
 		contextFiles,
 		skills,
+		projectRoot,
+		tail,
 	} = options;
 
 	for (const name of Object.keys(customSections)) {
-		if (!SYSTEM_PROMPT_SECTION_NAME.test(name) || name === "preamble") {
+		const reserved = name === "preamble" || (tail !== undefined && name === SYSTEM_PROMPT_TAIL_SECTION);
+		if (!SYSTEM_PROMPT_SECTION_NAME.test(name) || reserved) {
 			throw new Error(`Invalid system prompt section name: ${name}`);
 		}
 	}
@@ -169,19 +219,33 @@ export function buildSystemPromptSections(input: BuildSystemPromptOptions): Syst
 	}
 
 	if (appendSystemPrompt) promptSections.addendum = appendSystemPrompt;
-	if (contextFiles.length > 0) promptSections.project_context = renderProjectContext(contextFiles);
+	if (contextFiles.length > 0) promptSections.project_context = renderProjectContext(contextFiles, cwd, projectRoot);
 	// A hidden reader is still reachable through another tool, so skills stay but the hint names no tool.
 	const readers = ["read", "bash"] as const;
 	const skillFileReadTool =
 		readers.find((tool) => declaredTools.includes(tool)) ??
 		(readers.some((tool) => selectedTools.includes(tool)) ? "indirect" : undefined);
-	if (skillFileReadTool && skills.length > 0) {
-		const skillsPrompt = formatSkillsForPrompt(skills, skillFileReadTool).trim();
+	const skillsPrompt =
+		skillFileReadTool && skills.length > 0 ? formatSkillsForPrompt(skills, skillFileReadTool).trim() : "";
+	const cwdText = cwd.replace(/\\/g, "/");
+	if (tail === undefined) {
 		if (skillsPrompt) promptSections.skills = skillsPrompt;
-	}
-	promptSections.cwd = cwd.replace(/\\/g, "/");
-	for (const [name, content] of Object.entries(customSections)) {
-		if (content) promptSections[name] = content;
+		promptSections.cwd = cwdText;
+		for (const [name, content] of Object.entries(customSections)) {
+			if (content) promptSections[name] = content;
+		}
+	} else {
+		// The shared head ends before `cwd`. Skills are listed with absolute paths, so a skill that lives in the
+		// project would make the head differ between the main checkout and a worktree: the list then follows `cwd`.
+		const root = resolve(projectRoot ?? cwd);
+		const projectSkills = skills.some((skill) => !skill.disableModelInvocation && isWithin(root, skill.filePath));
+		if (skillsPrompt && !projectSkills) promptSections.skills = skillsPrompt;
+		for (const [name, content] of Object.entries(customSections)) {
+			if (content) promptSections[name] = content;
+		}
+		promptSections.cwd = cwdText;
+		if (skillsPrompt && projectSkills) promptSections.skills = skillsPrompt;
+		if (tail) promptSections[SYSTEM_PROMPT_TAIL_SECTION] = tail;
 	}
 
 	const sections: SystemPromptSections = { preamble: promptSections.preamble };
@@ -189,6 +253,17 @@ export function buildSystemPromptSections(input: BuildSystemPromptOptions): Syst
 		if (name !== "preamble") sections[name] = `<${name}>\n${content}\n</${name}>`;
 	}
 	return sections;
+}
+
+/**
+ * Cache breakpoint hints (`SystemMessage.cacheBreakpoints`) for the leading system message built from `input`: the
+ * end of the shared head (the section before `cwd`) and the end of the tail. Undefined without a tail: the prompt is
+ * one region, as before.
+ */
+export function buildSystemPromptCacheBreakpoints(input: BuildSystemPromptOptions): string[] | undefined {
+	if (input.tail === undefined) return undefined;
+	const names = Object.keys(buildSystemPromptSections(input));
+	return [names[names.indexOf("cwd") - 1], names[names.length - 1]];
 }
 
 /**

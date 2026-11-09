@@ -5,7 +5,7 @@
 //   agent_settled aborted: true, writeFile?: string (a file name to create in the child's cwd when the prompt arrives)) }
 // Like pi, it waits for a `prompt` command on stdin, answers it with a response, then plays the lines. Without `hang` it
 // exits after the lines; with `hang` it stays up and ignores stdin closing.
-// FAKE_PI_RECORD: path where argv, XPI_SUBAGENT_DEPTH, the system prompt text and the commands received are written as JSON.
+// FAKE_PI_RECORD: path where argv, XPI_SUBAGENT_DEPTH, the system prompt head and tail texts and the commands received are written as JSON.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { createInterface } from "node:readline";
@@ -13,6 +13,7 @@ import { createInterface } from "node:readline";
 const argv = process.argv.slice(2);
 const scenario = JSON.parse(readFileSync(process.env.FAKE_PI_SCENARIO, "utf8"));
 const sp = argv.indexOf("--system-prompt");
+const spTail = argv.indexOf("--system-prompt-tail");
 const commands = [];
 const record = () =>
   writeFileSync(
@@ -23,6 +24,7 @@ const record = () =>
       commands,
       cwd: process.cwd(),
       systemPrompt: sp === -1 ? undefined : readFileSync(argv[sp + 1], "utf8"),
+      systemPromptTail: spTail === -1 ? undefined : readFileSync(argv[spTail + 1], "utf8"),
     }),
   );
 record();

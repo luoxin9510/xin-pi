@@ -847,6 +847,7 @@ export async function main(args: string[], options?: MainOptions) {
 				noThemes: parsed.noThemes,
 				noContextFiles: parsed.noContextFiles,
 				systemPrompt: parsed.systemPrompt,
+				systemPromptTail: parsed.systemPromptTail,
 				appendSystemPrompt: parsed.appendSystemPrompt,
 				extensionFactories,
 			},

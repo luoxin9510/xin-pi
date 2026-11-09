@@ -80,6 +80,7 @@ export function sandbox() {
 			commands: { type: string; message?: string }[];
 			cwd: string;
 			systemPrompt?: string;
+			systemPromptTail?: string;
 		} {
 			return JSON.parse(readFileSync(recordFile, "utf8"));
 		},

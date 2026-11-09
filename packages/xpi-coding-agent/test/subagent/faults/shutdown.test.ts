@@ -47,7 +47,7 @@ function setup(scenario: Record<string, unknown>) {
 		args: [],
 		env,
 		cwd: dir,
-		systemPrompt: "x",
+		systemPrompt: { head: "x", tail: "y" },
 		prompt: "go",
 		model: "m",
 		thinking: "off",

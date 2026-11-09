@@ -42,7 +42,7 @@ Invalid files are skipped with a warning.
 
 | Field | Handling |
 |---|---|
-| `name`, `description`, body | Same as Claude Code. The body replaces pi's default system prompt. |
+| `name`, `description`, body | Same as Claude Code. The body replaces pi's default system prompt: the child gets a one-line preamble, the project context, then the body in an `<instructions>` section at the end. |
 | `tools`, `disallowedTools` | Without `tools` the agent gets your normal pi tools (`defaultTools`) and every installed extension. Otherwise mapped to `--tools` / `--exclude-tools`. `Read→read`, `Write→write`, `Edit→edit`, `Bash→bash`, `Grep→grep`, `Glob→find`, `LS→ls`, `mcp__*` unchanged. A `tools` list without `mcp__` entries also excludes all MCP tools. A `Bash(...)` deny rule removes the whole tool. Tools with no pi equivalent are dropped with a warning. |
 | `codemode` | `false` keeps this agent on direct tools. Default: children see only the `codemode` tool and call their allowed tools from scripts. See [Codemode-only children](#codemode-only-children). |
 | `model` | See [Model selection](#model-selection). |
@@ -297,8 +297,8 @@ turn ends and a background result would be lost; there `run_in_background: true`
 
 By default a child sees only the `codemode` tool (pi's `codemode` extension in `only` mode, added with `-e`) and calls
 its allowed tools from scripts. The `tools` / `disallowedTools` of the agent still bind inside those scripts, and a
-`tools` list without `mcp__` entries still removes every MCP tool. The child's system prompt gets one extra line:
-"Use the `codemode` tool for all tool calls, and put independent calls in one script."
+`tools` list without `mcp__` entries still removes every MCP tool. The child's system prompt gets one extra line after
+its preamble: "Use the `codemode` tool for all tool calls, and put independent calls in one script."
 
 Why: fewer turns and less wall time. In the [comparison](#codemode-only-vs-direct-tools) below, codemode-only needed
 2 to 3 turns where direct tools needed 2.6 to 4.4, at about the same cost.

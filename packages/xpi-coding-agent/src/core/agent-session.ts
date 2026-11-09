@@ -115,6 +115,7 @@ import {
 	wrapRegisteredTools,
 } from "./extensions/index.ts";
 import { type BeforeAgentStartTrigger, emitSessionShutdownEvent } from "./extensions/runner.ts";
+import { findGitPaths } from "./footer-data-provider.ts";
 import { createToolNameMatcher, isMcpToolName } from "./mcp-servers.ts";
 import { type BashExecutionMessage, type CustomMessage, convertToLlm } from "./messages.ts";
 import { ModelRegistry } from "./model-registry.ts";
@@ -142,6 +143,7 @@ import type { SlashCommandInfo } from "./slash-commands.ts";
 import { BUILTIN_PATH_PREFIX, createSyntheticSourceInfo, isSyntheticPath, type SourceInfo } from "./source-info.ts";
 import {
 	buildSystemPrompt,
+	buildSystemPromptCacheBreakpoints,
 	buildSystemPromptSections,
 	diffSystemPromptSections,
 	type NormalizedBuildSystemPromptOptions,
@@ -1838,6 +1840,8 @@ export class AgentSession {
 			skills: loadedSkills,
 			contextFiles: loadedContextFiles,
 			customPrompt: loaderSystemPrompt,
+			tail: this._resourceLoader.getSystemPromptTail?.(),
+			projectRoot: findGitPaths(this._cwd)?.repoDir,
 			appendSystemPrompt,
 			selectedTools: validToolNames,
 			hiddenTools: [...this._hiddenDeclarations],
@@ -1863,11 +1867,18 @@ export class AgentSession {
 		options.selectedTools = this._applyToolLoadout(options.selectedTools).map((tool) => tool.name);
 		// The tool list and rules must match the declarations the request carries.
 		options.hiddenTools = [...this._hiddenDeclarations];
-		const sections = diffSystemPromptSections(
-			getCurrentSystemMessage(messages)?.sections ?? {},
-			buildSystemPromptSections(options),
-		);
-		return sections ? { role: "system", content: "", sections, timestamp: Date.now() } : undefined;
+		const current = getCurrentSystemMessage(messages);
+		const sections = diffSystemPromptSections(current?.sections ?? {}, buildSystemPromptSections(options));
+		if (!sections) return undefined;
+		// Cache hints belong to the leading system message only: the one that starts the transcript.
+		const cacheBreakpoints = current ? undefined : buildSystemPromptCacheBreakpoints(options);
+		return {
+			role: "system",
+			content: "",
+			sections,
+			...(cacheBreakpoints ? { cacheBreakpoints } : {}),
+			timestamp: Date.now(),
+		};
 	}
 
 	/**
