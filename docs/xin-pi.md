@@ -51,3 +51,32 @@ makes each file append its cost on exit.
 The codemode controller is exercised through `codemodeStandIn` in `test/subagent/helpers.ts` (a stand-in `codemode`
 tool whose scripts are JS functions, driving `beginCodemodeScript` the way `executeCodemode` does) in the fault suite,
 and through the real tool in `parent/` and `tui/`.
+
+## `/upstream`: what upstream pi has that xin-pi does not
+
+`/upstream` is a built-in extension (`packages/xpi-coding-agent/src/extensions/upstream/`, name `upstream`, disabled with
+`-builtin:upstream`). xin-pi no longer merges upstream; the command tells you what to port. It gathers the facts itself,
+writes them to a data file, and injects a short prompt into the main agent (no dedicated subagent), which writes the report.
+
+- **Setting:** `upstream.sourceDir` in settings.json, default `~/Developer/xin-pi`.
+- **Git mode:** the source dir is a git checkout with an `upstream` remote. It runs `git fetch upstream` (a failed fetch is a
+  note, not an error), takes the fork point `git merge-base main upstream/main`, and lists the upstream commits since then
+  (subject, date, author, files capped at 8 per commit), our diff stat against the fork point per package in `xpi-*`
+  names, the files changed on both sides (conflict candidates), commits that look related to subagents, background or
+  codemode, and the new upstream `packages/coding-agent/CHANGELOG.md` lines. Upstream `packages/<x>` is mapped to
+  `packages/xpi-<x>` (`agent` is `xpi-agent-core`); `chord`, `durable`, `env` and `apps/*` are flagged "removed in xin-pi".
+- **Fallback mode:** no checkout, or no `upstream` remote. It reads upstream's CHANGELOG from GitHub raw and keeps the
+  sections newer than this build's coding-agent version (plus Unreleased). The data file and the prompt say it is partial.
+  A notice names the mode that ran.
+- **Files:** `~/.pi/agent/upstream/<YYYY-MM-DD-HHMM>-data.md` (facts) and `<YYYY-MM-DD-HHMM>.md` (the report, written by
+  the agent). The prompt names both paths.
+- **Report:** four `##` sections: Upstream changes (features / fixes / breaking), Conflicts with our changes, Overlap with
+  xin-pi built-ins (take upstream's or keep ours), Recommendations (PORT / ADAPT / SKIP with reason and risk), ending with
+  a suggested next step such as "port commits X and Y on a branch". Porting is a separate request: cherry-pick, then
+  `node scripts/xpi-rename.mjs <paths>`, or rewrite.
+- **Delivery:** `pi.sendUserMessage(prompt, { deliverAs: "steer" })`: an idle main starts a turn, a busy one is steered.
+  The prompt says read-only: no edits other than the report, no merge.
+
+Tests: `npm run test:upstream` (offline `node:test`, part of the package `test` script: temp git repos with a fake local
+`upstream` remote, a stubbed fetch, a fake pi API, a temp agent dir; no network and never `~/.pi/agent`).
+`npm run test:upstream:real` is the by-hand check on the built xpi (rpc mode, Claude Haiku 5.5, needs credentials).

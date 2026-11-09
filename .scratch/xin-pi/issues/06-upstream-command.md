@@ -4,7 +4,7 @@
 
 **Blocked by:** 05
 
-**Status:** ready-for-agent
+**Status:** done
 
 Decisions Grill 2 (22-28) override anything below that assumes merging upstream, `packages/pipipi`, `packages/xpi` or `@earendil-works/*` names: pipipi lives in `xpi-coding-agent/src/extensions/pipipi`, packages are named `xpi-*`.
 
@@ -17,3 +17,8 @@ Decisions Grill 2 (22-28) override anything below that assumes merging upstream,
 - [ ] Docs: `docs/xin-pi.md` gets a `/upstream` section
 
 ## Comments
+
+2026-11-09 (branch `xpi-06-upstream`): done. Built-in extension `upstream` in `packages/xpi-coding-agent/src/extensions/upstream/` (data.ts, paths.ts, prompt.ts, index.ts), registered next to `subagent`; setting `upstream.sourceDir`; docs section in `docs/xin-pi.md`.
+- Offline: `npm run test:upstream` 9/9 (git mode on temp repos with a local fake `upstream` remote, fetch-failure note, fallback with stubbed fetch incl. HTTP 404, path mapping, prompt shape, command delivery with a fake pi API = `sendUserMessage(..., {deliverAs:"steer"})`, bad setting, no command in subagent children). Wired into the package `test` script; `test:subagent` still 129/129. `npm run check` and build green.
+- Real, by hand: `npm run test:upstream:real` on the built xpi (rpc, Claude Haiku 5.5, temp repo + fake upstream, temp agent dir): `/upstream` sent as a prompt; data file and report written; report has `## Upstream changes`, `## Conflicts with our changes`, `## Overlap with xin-pi built-ins`, `## Recommendations` plus a suggested next step; haiku correctly said keep ours for the subagent overlap. 14.7 s.
+- Limits: idle/busy routing is pi's own (sendUserMessage steer), only asserted at the call; the real run covers idle. Branch names assumed `main` (ours) and `upstream/main`.
