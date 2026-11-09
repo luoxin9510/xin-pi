@@ -100,11 +100,11 @@ describe("DefaultResourceLoader", () => {
 			expect(warnings).toHaveLength(1);
 			expect(warnings[0].path).toBe("npm:broken-package");
 			expect(warnings[0].warning).toMatch(/^failed to install \(.*failed with code 1\)\./);
-			expect(warnings[0].warning).toContain('Run "pi remove npm:broken-package" to remove it from settings.json.');
+			expect(warnings[0].warning).toContain('Run "xpi remove npm:broken-package" to remove it from settings.json.');
 		});
 
 		// #11088
-		it("should point temporary extension sources at the source instead of pi remove", async () => {
+		it("should point temporary extension sources at the source instead of xpi remove", async () => {
 			vi.stubEnv("XPI_OFFLINE", "");
 			const loader = new DefaultResourceLoader({
 				cwd,
@@ -121,11 +121,11 @@ describe("DefaultResourceLoader", () => {
 			expect(warnings).toHaveLength(1);
 			expect(warnings[0].path).toBe("npm:broken-package");
 			expect(warnings[0].warning).toContain("Check the source and try again.");
-			expect(warnings[0].warning).not.toContain("pi remove");
+			expect(warnings[0].warning).not.toContain("xpi remove");
 		});
 
 		// #11088
-		it("should point project extension packages at pi remove --local", async () => {
+		it("should point project extension packages at xpi remove --local", async () => {
 			vi.stubEnv("XPI_OFFLINE", "");
 			writeFileSync(
 				join(agentDir, "settings.json"),
@@ -143,7 +143,7 @@ describe("DefaultResourceLoader", () => {
 
 			const warnings = loader.getExtensions().warnings ?? [];
 			expect(warnings).toHaveLength(1);
-			expect(warnings[0].warning).toContain('Run "pi remove npm:broken-package --local"');
+			expect(warnings[0].warning).toContain('Run "xpi remove npm:broken-package --local"');
 		});
 
 		// #11088
