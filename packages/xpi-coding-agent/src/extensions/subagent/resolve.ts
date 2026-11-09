@@ -3,6 +3,7 @@
 import { mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { findGitPaths } from "../../core/footer-data-provider.ts";
 import type { Config } from "./config.ts";
 import type { AgentDefinition } from "./definition.ts";
 import { childInvocation } from "./invocation.ts";
@@ -36,6 +37,9 @@ export interface ChildSpec {
 	// Two prompt-cache regions. `head` (--system-prompt) is the same text for every agent type; the child puts the
 	// project context after it. `tail` (--system-prompt-tail) is this agent's own, volatile part and comes last.
 	systemPrompt: { head: string; tail: string };
+	// Children with the same key send the same start of a request (tools, then the head and the project context), so
+	// one can read what another wrote to the provider's prompt cache (stagger.ts).
+	prefixKey: string;
 	prompt: string;
 	model: string;
 	thinking: string;
@@ -280,6 +284,13 @@ export function resolveChild(
 		},
 		cwd,
 		systemPrompt: { head: system.head, tail: system.tail },
+		prefixKey: [
+			model,
+			...tools.args,
+			def.omitClaudeMd ? "no context files" : "",
+			system.head,
+			findGitPaths(parent.cwd)?.repoDir ?? parent.cwd, // the same for a child in a worktree of this checkout
+		].join("\0"),
 		prompt: input.prompt,
 		model,
 		thinking,

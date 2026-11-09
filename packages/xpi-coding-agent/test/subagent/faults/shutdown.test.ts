@@ -48,6 +48,7 @@ function setup(scenario: Record<string, unknown>) {
 		env,
 		cwd: dir,
 		systemPrompt: { head: "x", tail: "y" },
+		prefixKey: "k",
 		prompt: "go",
 		model: "m",
 		thinking: "off",

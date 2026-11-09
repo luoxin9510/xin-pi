@@ -14,6 +14,7 @@ const fakeSpec = (cwd: string) => ({
 	env: process.env as Record<string, string>,
 	cwd,
 	systemPrompt: { head: "x", tail: "y" },
+	prefixKey: "k",
 	prompt: "go",
 	model: "m",
 	thinking: "off",

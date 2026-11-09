@@ -2,16 +2,21 @@
 // Scripted stand-in for `pi --mode rpc`.
 // FAKE_PI_SCENARIO: path to JSON { lines: string[] (raw stdout lines), exitCode?, stderr?, delayMs?, hang?, sessionFile?,
 //   promptError?: string (answer the prompt command with success: false), abortSettles?: boolean (answer rpc abort with
-//   agent_settled aborted: true, writeFile?: string (a file name to create in the child's cwd when the prompt arrives)) }
+//   agent_settled aborted: true, writeFile?: string (a file name to create in the child's cwd when the prompt arrives),
+//   logFile?: string (append "start" when the process starts and "line <n>" before each line: the order of events
+//   across several children), hold?: { line, starts } (before that line, wait until the log has that many "start"
+//   entries, at most 4 s: siblings that should run at the same time are seen to, however slow the machine) }
 // Like pi, it waits for a `prompt` command on stdin, answers it with a response, then plays the lines. Without `hang` it
 // exits after the lines; with `hang` it stays up and ignores stdin closing.
 // FAKE_PI_RECORD: path where argv, XPI_SUBAGENT_DEPTH, the system prompt head and tail texts and the commands received are written as JSON.
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { createInterface } from "node:readline";
 
 const argv = process.argv.slice(2);
 const scenario = JSON.parse(readFileSync(process.env.FAKE_PI_SCENARIO, "utf8"));
+const log = (text) => scenario.logFile && appendFileSync(scenario.logFile, `${text}\n`);
+log("start");
 const sp = argv.indexOf("--system-prompt");
 const spTail = argv.indexOf("--system-prompt-tail");
 const commands = [];
@@ -79,7 +84,12 @@ rl.on("line", async (line) => {
   } else {
     out({ id: cmd.id, type: "response", command: "prompt", success: true, data: { disposition: "started" } });
   }
-  for (const l of scenario.lines) {
+  const starts = () => readFileSync(scenario.logFile, "utf8").split("\n").filter((entry) => entry === "start").length;
+  for (const [n, l] of scenario.lines.entries()) {
+    if (scenario.hold?.line === n) {
+      for (let waited = 0; starts() < scenario.hold.starts && waited < 4000; waited += 20) await sleep(20);
+    }
+    log(`line ${n}`);
     out(l);
     if (scenario.delayMs) await sleep(scenario.delayMs);
   }
