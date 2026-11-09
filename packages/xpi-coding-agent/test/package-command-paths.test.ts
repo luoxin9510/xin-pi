@@ -130,6 +130,8 @@ if (process.platform !== "win32") fs.chmodSync(piPath, 0o755);
 		projectDir = join(tempDir, "project");
 		packageDir = join(tempDir, "local-package");
 		mkdirSync(agentDir, { recursive: true });
+		// User-scope resources (~/.agents/skills etc.) must not leak in from the machine running the tests.
+		vi.stubEnv("HOME", join(tempDir, "home"));
 		mkdirSync(projectDir, { recursive: true });
 		mkdirSync(packageDir, { recursive: true });
 
