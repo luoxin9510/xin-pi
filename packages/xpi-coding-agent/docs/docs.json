@@ -145,6 +145,14 @@
           "path": "codemode.md"
         },
         {
+          "title": "Subagents",
+          "path": "subagent.md"
+        },
+        {
+          "title": "Subagent porting",
+          "path": "subagent-porting.md"
+        },
+        {
           "title": "Slash Commands",
           "path": "slash-commands.md"
         },

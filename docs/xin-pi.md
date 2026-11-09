@@ -1,8 +1,71 @@
-# xpi: what differs from upstream pi
+# xin-pi
 
-Short, file by file. Paths are under `packages/xpi-coding-agent/` unless noted.
+xin-pi is an independent fork of [pi](https://github.com/earendil-works/pi) by earendil-works (MIT; the original
+copyright notice is kept in `LICENSE`). It follows its own course: upstream is never merged, only read and ported from.
+This document is the single place that says what differs from upstream pi and how to keep up with it. Paths are
+relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent/`.
 
-## Codemode: background scripts
+## Product line
+
+- Command `xpi` (`bin.xpi` and `piConfig.name: "xpi"` in `packages/xpi-coding-agent/package.json`). The config directory
+  stays the shared `~/.pi/agent` (and `.pi/` in projects); override the agent dir with `XPI_CODING_AGENT_DIR` and the
+  session dir with `XPI_CODING_AGENT_SESSION_DIR`.
+- Packages are unscoped `xpi-*`, directory name equal to package name: `xpi-ai`, `xpi-agent-core`, `xpi-tui`,
+  `xpi-coding-agent`, `xpi-codemode`, `xpi-mcp`, `xpi-schema`, `xpi-telemetry`, `xpi-evals`. They are not published to npm.
+- App-config environment variables carry the prefix `XPI_` instead of `PI_` (`XPI_OFFLINE`, `XPI_TELEMETRY`,
+  `XPI_PACKAGE_DIR`, `XPI_SKIP_VERSION_CHECK`, ...). The list of renamed names is `ENV_VARS` in `scripts/xpi-rename.mjs`.
+  CI secrets, build constants and release tooling variables keep their names.
+- Removed from the monorepo: `packages/chord`, `packages/durable`, `packages/env`, `apps/p2`, `apps/p3` (coding-agent, ai,
+  agent-core and tui did not depend on them), together with their build, workspace, tsconfig and CI wiring. The
+  version check is skipped by default (`XPI_SKIP_VERSION_CHECK ??= "1"` in `coding-agent/src/cli/setup.ts`).
+- Two built-in extensions, registered in `coding-agent/src/extensions/index.ts` and not replaceable:
+  - `subagent` (`src/extensions/subagent/`, off with `-builtin:subagent`): the `Agent` tool for codemode scripts, the panel,
+    `/subagents`. Settings namespace `subagent.*`, env `XPI_SUBAGENT_*`, branches `subagent/<id>`. It was the separate
+    extension pi-pipipi. User docs: [subagent.md](../packages/xpi-coding-agent/docs/subagent.md); porting contracts:
+    [subagent-porting.md](../packages/xpi-coding-agent/docs/subagent-porting.md).
+  - `upstream` (`src/extensions/upstream/`, off with `-builtin:upstream`): `/upstream`, see below.
+- `coding-agent/package.json`: `copy-assets` also copies `src/extensions/subagent/builtin/*.md` to
+  `dist/extensions/subagent/builtin`.
+- Running it: `npm install && npm run build`, then `node packages/xpi-coding-agent/dist/bundle/cli.js`, or from sources
+  `./pi-test.sh`. Subagent children run the same build as their parent (`src/extensions/subagent/invocation.ts`).
+- Extensions written for upstream pi import `@earendil-works/*`. There are no compatibility aliases (decision 29): such an
+  extension may fail to load until it is translated, see the next section.
+
+## Keeping up with pi
+
+xin-pi does not merge upstream. The `upstream` remote stays for reading. The fork point is
+`git merge-base main upstream/main`.
+
+1. Ask for the list: run `/upstream` in xpi (details below). It fetches, lists upstream commits since the fork point, flags
+   files changed on both sides, and recommends PORT / ADAPT / SKIP for each. Read-only.
+2. Port what you chose, on a branch. For a small upstream commit:
+   ```bash
+   git format-patch -1 <sha> --stdout > /tmp/port/x.patch      # outside the repo
+   node scripts/xpi-rename.mjs /tmp/port/x.patch               # packages/ai -> packages/xpi-ai, @earendil-works/pi-ai -> xpi-ai, PI_* -> XPI_*
+   git apply --check /tmp/port/x.patch && git apply /tmp/port/x.patch
+   ```
+   For a larger change, cherry-pick, then run the script on the files it touched, or rewrite by hand. Where a changed
+   file is one of the xin-pi core changes in this document, rewrite instead of resolving conflicts mechanically.
+3. `node scripts/xpi-rename.mjs --check <paths>` must be clean, then `npm run check`, then the tests of the touched
+   package (see Testing). Add a changelog line if the package keeps one.
+
+`scripts/xpi-rename.mjs` is table-driven (`PACKAGES`, `NAMES`, `ENV_VARS`, `KEEP_SCOPED`): `node scripts/xpi-rename.mjs`
+rewrites the whole repo, `<path>...` only the given files or directories, `--check` reports leftovers (exit 1),
+`--dry-run` lists what would change. It is idempotent, and a line containing `xpi-rename-keep` is never touched. A new
+upstream package or environment variable means a new table entry. Names under `@earendil-works/` that are not ours
+(`gondolin`) stay.
+
+Translating a third-party extension that targets upstream pi (pi-roost, critic-guy, pi-mobile, ...): copy it, run
+`node scripts/xpi-rename.mjs <its directory>` (imports of `@earendil-works/pi-coding-agent`, `pi-ai`, `pi-tui` and
+`pi-agent-core` become `xpi-coding-agent`, `xpi-ai`, `xpi-tui`, `xpi-agent-core`; `PI_*` names become `XPI_*`), fix its
+`package.json` dependencies by hand, and load it with `xpi -e <dir>` to see if it works. Nothing does this at load time.
+
+Dry run of the procedure (2026-11-09, recorded in ticket 07): upstream had no commits after the fork point, so the
+upstream commit `566344046` (a 3-line retry-pattern fix in `packages/ai`) was reverted in our tree on a throwaway branch,
+then ported with the steps above. The renamed patch applied cleanly, `xpi-rename --check` was clean, the package's
+retry test passed and `npm run check` was green. The branch was not merged.
+
+## Core changes: codemode background controller
 
 A codemode script can be moved to the background: the `codemode` call returns early, the script keeps running
 detached from the turn's abort signal. The codemode built-in owns the mechanism; the `subagent` extension owns the
@@ -28,29 +91,32 @@ policy (when to move, the end message). The `codemode` tool is no longer wrapped
   no UI (print mode), means scripts are neither tracked nor moved.
 - Tests: `test/nested-tool-calls.test.ts` (detached scopes), `test/suite/codemode-scripts.test.ts` (controller).
 
-## Testing the subagent extension
+## Testing
 
-The suites ported from pi-pipipi are `node:test` files in `packages/xpi-coding-agent/test/subagent/` (Node >= 22.18
-strips the types). Run them from the package root. Tests assert on structure and side effects (result fields, files, the
-child's session file), never on model wording, and never start a test runner from inside a test.
+Everything below runs from `packages/xpi-coding-agent/`. Tests assert on structure and side effects (result fields,
+files, the child's session file), never on model wording, and never start a test runner from inside a test.
 
-| script | seam | needs |
+| script | what | needs |
 |---|---|---|
-| `npm run test:subagent` | `faults` (scripted fake child), `panel`, `worktree`, `memory` | nothing: no auth, no network, git identity set inside the tests. Part of the package `test` script, so root `npm test` and `./test.sh` run it |
+| `npm test` | `test:subagent`, `test:upstream`, then the vitest suite. Root `npm test` and `./test.sh` run it | the vitest part skips what needs keys |
+| `npm run test:subagent` | offline `node:test`: `faults` (scripted fake child), `panel`, `worktree`, `memory` | nothing: no auth, no network, git identity set inside the tests |
+| `npm run test:upstream` | offline `node:test` for `/upstream`: temp git repos with a fake `upstream` remote, a stubbed fetch, a fake pi API, a temp agent dir | nothing |
 | `npm run test:subagent:real` | `real/*`: the extension in-process, children are the built xpi on real haiku | `npm run build`, auth |
 | `npm run test:subagent:parent` | `parent/*`: a real `xpi --mode rpc` parent, background scripts, `/subagents stop` | `npm run build`, auth |
-| `npm run test:subagent:tui` | `tui/*`: interactive xpi in a pty (node-pty + headless xterm): panel, screen, `x`, `shift+x`, ctrl+b | `npm run build`, auth |
+| `npm run test:subagent:tui` | `tui/*`: interactive xpi in a pty (node-pty + headless xterm): panel, screen, keys | `npm run build`, auth |
 | `npm run test:subagent:evals -- --runs 3` | `evals/`: 17 cases on haiku, graded on structure | `npm run build`, auth |
 | `npm run test:subagent:stress -- --calls 20 --limit 20` | `stress/`: 20 concurrent children | `npm run build`, auth, about 4 GB of memory |
+| `npm run test:upstream:real` | `/upstream` on the built xpi in rpc mode, Claude Haiku 5.5 | `npm run build`, auth |
 
-The real seams use the built bundle (`dist/bundle/cli.js`); `XPI_SUBAGENT_TEST_PI` points them at another build. Every
-sandbox sets `XPI_CODING_AGENT_DIR` to a temp dir holding a copy of `~/.pi/agent/auth.json` and nothing else, so the
-user's agent dir is never written, and a temp `HOME`. Only Claude Haiku 5.5 is used. `XPI_SUBAGENT_COST_LOG=<file>`
-makes each file append its cost on exit.
+The real-model scripts are run by hand, never in CI. They use the built bundle (`dist/bundle/cli.js`);
+`XPI_SUBAGENT_TEST_PI` points them at another build. Every sandbox sets `XPI_CODING_AGENT_DIR` to a temp dir holding a copy
+of `~/.pi/agent/auth.json` and nothing else, so the user's agent dir is never written, and a temp `HOME`. Only Claude Haiku
+5.5 is used. `XPI_SUBAGENT_COST_LOG=<file>` makes each file append its cost on exit.
 
-The codemode controller is exercised through `codemodeStandIn` in `test/subagent/helpers.ts` (a stand-in `codemode`
-tool whose scripts are JS functions, driving `beginCodemodeScript` the way `executeCodemode` does) in the fault suite,
-and through the real tool in `parent/` and `tui/`.
+The codemode controller is exercised through `codemodeStandIn` in `test/subagent/helpers.ts` (a stand-in `codemode` tool
+whose scripts are JS functions, driving `beginCodemodeScript` the way `executeCodemode` does) in the fault suite, and
+through the real tool in `parent/` and `tui/`. Root-level checks: `npm run check` (lint, format, types, entry graphs,
+install lock) and `node scripts/xpi-rename.mjs --check`.
 
 ## `/upstream`: what upstream pi has that xin-pi does not
 
@@ -77,6 +143,4 @@ writes them to a data file, and injects a short prompt into the main agent (no d
 - **Delivery:** `pi.sendUserMessage(prompt, { deliverAs: "steer" })`: an idle main starts a turn, a busy one is steered.
   The prompt says read-only: no edits other than the report, no merge.
 
-Tests: `npm run test:upstream` (offline `node:test`, part of the package `test` script: temp git repos with a fake local
-`upstream` remote, a stubbed fetch, a fake pi API, a temp agent dir; no network and never `~/.pi/agent`).
-`npm run test:upstream:real` is the by-hand check on the built xpi (rpc mode, Claude Haiku 5.5, needs credentials).
+Tests: see Testing above.

@@ -1,0 +1,282 @@
+# Porting the subagent extension to another pi-based agent
+
+The subagent extension is a built-in of xpi (xin-pi), written against pi 1.5.0 and since evolved with xpi. Many teams run their own agent
+built on pi: a fork, a rebranded build, or an app on pi's SDK with its own extensions. This guide lists every pi
+contract the subagent extension relies on, which file relies on it, and what still works if your agent differs. Work through it
+top to bottom: each layer only needs the ones above it.
+
+If your agent still loads pi extensions and still has pi's CLI, you may need no code changes at all: set
+`subagent.piCommand` to your binary and run the checks in [Verify](#verify).
+
+## The layers
+
+| Layer | Needed for | Files |
+|---|---|---|
+| 1. Child process (CLI + rpc) | everything: each subagent is a child process | `src/extensions/subagent/resolve.ts`, `src/extensions/subagent/runner.ts` |
+| 2. Session files | resume, `/subagents` after reload, the transcript on the subagent screen | `src/extensions/subagent/sessions.ts`, `src/extensions/subagent/registry.ts`, `src/extensions/subagent/subagent-screen.ts` |
+| 3. Extension API (parent) | the `Agent` tool, config, the note to main | `src/extensions/subagent/index.ts`, `src/extensions/subagent/agent-tool.ts`, `src/extensions/subagent/config.ts` |
+| 4. Codemode | calling `Agent` from scripts; codemode-only children; background scripts | `src/extensions/subagent/agent-tool.ts`, `src/extensions/subagent/child-codemode.ts`, `src/extensions/subagent/resolve.ts`, `src/extensions/subagent/background.ts` (host: `src/extensions/codemode/scripts.ts`) |
+| 5. TUI | the panel, the subagent screen, `/subagents`, `/model` picker | `src/extensions/subagent/panel.ts`, `src/extensions/subagent/subagent-screen.ts`, `src/extensions/subagent/subagents-command.ts`, `src/extensions/subagent/live.ts` |
+
+Layers 1-4 are the `Agent` tool. Layer 5 is only the UI: without it (a headless or web front end) the tool works and
+the UI parts can be left out (see [Without pi's TUI](#without-pis-tui)).
+
+## 1. Child process
+
+the subagent extension starts every subagent as `<piCommand> --mode rpc ...` (`subagent.piCommand`, default `pi`), with stdin, stdout
+and stderr as pipes and the parent's cwd.
+
+### Command-line flags (`src/extensions/subagent/resolve.ts`, `src/extensions/subagent/runner.ts`)
+
+| Flag | Why |
+|---|---|
+| `--mode rpc` | JSONL commands on stdin, events on stdout |
+| `--model <provider/id>` | the resolved model |
+| `--thinking <level>` | `effort`, or the parent's level; must accept `off` |
+| `--tools a,b` | the agent's `tools`, mapped (`Read→read`, `Glob→find`, ...). Without a list, `--tools +codemode`: the `+` prefix adds to the default tools and must be supported |
+| `--exclude-tools a,b` | `disallowedTools`, and `mcp__*` when `tools` lists no MCP tool: entries are glob patterns |
+| `--system-prompt <path>` | the agent body + skills + environment block, written to a temp file; pi reads a path as the prompt's contents. If your agent takes the value as literal text, every child gets the path as its prompt: change `runChild` in `src/extensions/subagent/runner.ts` |
+| `--no-context-files` | `omitClaudeMd` |
+| `--approve` / `--no-approve` | the child gets the parent's project trust |
+| `--session-dir <dir> --session-id <id>` | a persisted child session (or `--no-session` for an in-memory parent) |
+| `-e <file>` | `src/extensions/subagent/child-codemode.ts` for codemode-only children (layer 4). Loaded as TypeScript source, as pi loads every extension (the subagent extension has no build step): your agent's extension loader must handle `.ts` |
+
+The environment is the parent's plus `XPI_SUBAGENT_DEPTH=1`. The extension does nothing when that variable is set, so
+children get no `Agent` tool. If your agent drops unknown environment variables before loading extensions, nesting
+protection breaks.
+
+If a flag has another name in your agent, change it in `resolveChild` (`src/extensions/subagent/resolve.ts`). If one is missing:
+
+- no `--system-prompt`: agent prompts cannot replace the default; prepend them to the prompt instead (behaviour changes).
+- no `--tools` / `--exclude-tools`: tool restrictions cannot be enforced. Do not ship read-only agents.
+- no `--session-dir` / `--session-id`: no resume and no transcripts; use `--no-session` everywhere.
+
+### rpc protocol (`src/extensions/subagent/runner.ts`)
+
+One JSON object per line, LF only (JSON strings may contain U+2028, so the subagent extension splits on the byte `0x0a`).
+
+Commands the subagent extension sends:
+
+| Command | When |
+|---|---|
+| `{"id":"subagent-prompt","type":"prompt","message":...}` | start of every exchange |
+| `{"type":"steer","message":...}` (no id; pi's `response` to it is ignored) | the user types to a running subagent |
+| `{"type":"abort"}` (no id; response ignored) | maxTurns reached on a tool turn, the caller aborted, the user pressed `x` / `/stop` |
+| `{"id":...,"type":"set_model","provider":...,"modelId":...}` | `/model` on a running subagent |
+
+Then stdin is closed after `agent_settled`; the child must exit (the subagent extension sends SIGTERM, then SIGKILL, if it does not).
+Note that pi in rpc mode also exits when stdin closes *during* a run, so stdin must stay open until `agent_settled`.
+
+What the subagent extension reads:
+
+| Record | Used for |
+|---|---|
+| `{"type":"response","id","success","error"}` | a failed `prompt` fails the run; `set_model` errors are shown |
+| `message_start` / `message_update` (`assistantMessageEvent`: `text_*`, `thinking_*`, `toolcall_end`) | live streaming on the subagent screen (`src/extensions/subagent/live.ts`) |
+| `message_end` with `message.role`, `content[]`, `usage`, `stopReason`, `errorMessage` | output, usage and cost, errors; `stopReason: "toolUse"` / `"error"` drive maxTurns and retries |
+| `tool_execution_start` (`toolName`) | progress: last tool |
+| `turn_end` | turn count, maxTurns |
+| `agent_settled` (`aborted`) | end of the run |
+
+`usage` must have `input`, `output`, `cacheRead`, `cacheWrite`, `totalTokens` and `cost.{input,output,cacheRead,cacheWrite,total}`.
+pi's rpc mode sends no session header (json mode does); the subagent extension does not need one.
+
+If your agent has no rpc mode but has pi's json print mode (`--mode json -p <prompt>`), v1 of the subagent extension (commit `9d3f5a6`,
+`main` before v2) used that: everything works except steer, `/model` on a running
+subagent and `x` / `/stop` (they need a live stdin).
+
+## 2. Session files
+
+- A child started with `--session-dir D --session-id I` writes `D/<timestamp>_I.jsonl` (`src/extensions/subagent/subagent-screen.ts`
+  finds it by the `_I.jsonl` suffix). A resume starts a new child with the same flags and must append to that file.
+- Child sessions live in `<parent session dir>/subagents/<parent session id>/`, next to a meta file `<agentId>.json`
+  that the subagent extension writes (agent type, description, model, status, usage, times). Your agent never reads these.
+- A background script's end message or a detached agent's end message over 8 KB (UTF-8 bytes) is cut, and the full text
+  is written to `subagents/<parent session id>/` next to the child sessions (a temp dir when the parent session is in memory).
+- The subagent screen reads the file with pi's `parseSessionEntries` and `buildSessionContext` and draws messages with
+  role `user`, `assistant` (content parts `text`, `thinking`, `toolCall`) and `toolResult`. A different session format
+  only affects `transcriptParts` in `src/extensions/subagent/subagent-screen.ts`.
+
+### Git (worktree isolation, `src/extensions/subagent/worktree.ts`)
+
+`isolation: "worktree"` needs only `git` on the PATH (no pi contract); a host without git can drop it. The commands, all run
+with `execFile`, never through a shell, and serialised per repository (git's own lock fails concurrent `worktree add`):
+
+| Command | For |
+|---|---|
+| `git rev-parse --show-toplevel` | the checkout of the parent's cwd; failing means "not a git repository" (the call throws) |
+| `git rev-parse --verify HEAD^{commit}` | the base commit; failing means no commits (the call throws) |
+| `git rev-parse --path-format=absolute --git-common-dir` | agent memory's root: the parent of a `.git` common dir, i.e. the main checkout even from a linked worktree (else `--show-toplevel`) |
+| `git cat-file -e <base>:<subdir>` | the parent's cwd subdirectory exists in the starting commit, so the child starts in it inside the worktree (else the root, with a warning) |
+| `git rev-parse --git-path info/exclude` | where `/.pi/worktrees/` is appended once (relative to the root; inside a linked worktree it is the shared main `.git/info/exclude`) |
+| `git status --porcelain` (main checkout) | dirty main checkout: a warning on the result |
+| `git worktree prune`, `git branch --list subagent/<id>` | before a (re)create; an existing branch with a missing worktree is an error |
+| `git worktree add -q -b subagent/<id> <root>/.pi/worktrees/<id> <base>` | create |
+| `git ls-files --others --ignored --exclude-from=.worktreeinclude -z`, `git check-ignore -z --stdin` | `.worktreeinclude`: pattern match, then keep only gitignored files |
+| `git status --porcelain -z --untracked-files=all --ignored`, `git symbolic-ref -q HEAD`, `git stash list --format=%gs`, `git rev-parse HEAD`, `git diff --name-only -z <base> HEAD`, `git log --format=%h\ %s <base>..HEAD` | changed or not, and what changed, after the child has exited. Changed also when gitignored files were made (not `.pi/`, not unmodified `.worktreeinclude` copies), HEAD is not `refs/heads/subagent/<id>`, or a stash entry was made on that branch (the outcome then has a `note`) |
+| `git worktree remove --force <path>`, `git branch -D subagent/<id>` | remove an unchanged worktree; also `/subagents worktrees` removal of a picked one |
+| `git worktree list --porcelain`, `git merge-base <worktree HEAD> <main HEAD>` | `/subagents worktrees`: the entries after the first (the main checkout) whose path is under `<root>/.pi/worktrees/` (any branch or detached), and the fork point used as the base for the change summary |
+
+Verified on git 2.54: `worktree add` works from a repository that is itself a linked worktree; with no commits `HEAD` does
+not resolve (`fatal: invalid reference: HEAD`); the exclude path from `--git-path` is the shared one in a linked worktree.
+The child gets the worktree as its cwd (`spawn` option) and in the prompt's `Working directory:` line; its session files
+stay in the parent's `subagents/<parent session id>/`. The meta file `<agentId>.json` gains
+`worktree: { root, path, branch, base }`.
+
+Failure behaviour worth copying. The per-repository lock is in-process only: two pi processes working in one repository
+are not serialised against each other (git's own lock then fails the second `worktree add`). Settling at the end of an
+exchange degrades instead of losing the run: if a git command fails there, the worktree is reported as kept with a result
+warning (path and branch given); a worktree whose directory vanished is reported as removed, with a warning, and its
+branch is left alone. A worktree removed by `/subagents worktrees` gets `removed: "user"` in the meta file's `worktree`
+object, and a resume of it throws naming the path instead of recreating it. Only an unchanged worktree removed by the
+exchange itself is recreated on resume. A foreground call aborted while its worktree was kept throws an error whose
+message ends with the kept path and branch.
+
+### Agent memory (`memory` in the agent file, `src/extensions/subagent/resolve.ts`)
+
+No pi contract; the host needs Read, Write and Edit tools (mapped through `toolMap`) and the same two `rev-parse`
+commands as above (`--show-toplevel`, `--git-path info/exclude`). Directories: `~/.claude/agent-memory/<name>/`,
+`<repository root of the parent cwd>/.claude/agent-memory/<name>/`, `.../.claude/agent-memory-local/<name>/` (outside a
+repository the parent cwd replaces the root and no exclude is written; an agent file whose `name` is unsafe as a directory name is skipped when it sets `memory`). Created
+with `mkdir -p` when the child is resolved. Local scope appends `/.claude/agent-memory-local/<name>/` to the info/exclude
+file once. The prompt gets a `# Persistent memory` section after the skills and before `# Environment`: the directory, our
+instructions (read-only wording when Write or Edit is denied) and the head of `MEMORY.md` (first 200 lines, then at most
+25000 bytes, a cut multibyte character dropped whole, plus a truncation note). `Read`, `Write`, `Edit` are added to the
+`--tools` list unless `disallowedTools` denies them; Write or Edit denied means read-only memory plus a result warning.
+
+## 3. Extension API (parent side)
+
+| API | Where | If missing |
+|---|---|---|
+| `pi.registerTool({ name, parameters, outputSchema, exposure: "codemode", execute })`; `execute` returns `content`, `details`, `structuredContent`, `usage`, `isError` | `src/extensions/subagent/agent-tool.ts` | no tool: nothing works |
+| `pi.on("session_start", (event, ctx))` | `src/extensions/subagent/index.ts` | config and discovery never run |
+| `pi.on("session_shutdown", (event, ctx))` (emitted on quit, reload, /new, resume and fork, before the runtime is torn down; rpc SIGTERM emits it with reason "quit") | `src/extensions/subagent/index.ts` | background scripts and detached agents keep running past the session; with it they are stopped (agents `stopped`, resumable) and main is sent nothing |
+| `pi.on("agent_start" / "agent_end", (event, ctx))` | `src/extensions/subagent/index.ts` | the subagent extension keeps the latest `ctx` from these and `session_start`; without them the note to main and main's state on the screen use the context of session start, which a reload replaces |
+| `pi.getSettings()` keeping the unknown `subagent` key | `src/extensions/subagent/config.ts` | defaults only (replace with your own config source) |
+| `pi.registerCommand(name, { handler(args, ctx: ExtensionCommandContext) })` | `/subagents` | no `/subagents` |
+| `pi.sendMessage({ customType, content, display }, { deliverAs: "steer" })`; `{ triggerTurn: true, deliverAs: "steer" }` for a background script's or detached agent's result | the note to main, the background script message | main is not told about your exchanges |
+| `ctx.cwd`, `ctx.model {provider,id}` (may be undefined: `inherit` then throws), `ctx.thinkingLevel`, `ctx.isProjectTrusted()`, `ctx.isIdle()` | `src/extensions/subagent/agent-tool.ts`, `src/extensions/subagent/index.ts` | `inherit`, thinking and trust mirroring, the note's delivery |
+| `ctx.hasUI`, `ctx.ui.notify` | `src/extensions/subagent/index.ts` | gates the panel, discovery warnings and background scripts; false = tool only, no UI, scripts stay in the foreground (print mode exits at turn end) |
+| `ctx.sessionManager.getSessionFile()` / `getSessionId()` | sessions, registry | children run `--no-session`, no resume. The session dir must be writable: the subagent extension writes `subagents/` there and rebuilds its list from it on every `session_start` (startup, reload, resume, new) |
+| `ctx.modelRegistry.getAvailable()` | `/model` picker | type `/model provider/id` only |
+
+Imports: `xpi-coding-agent`, `xpi-tui`, `xpi-ai` (only `StringEnum` and types), plus `typebox` and `yaml`. xpi provides its
+own packages to extensions at load time. If your fork publishes them under other names, replace the import paths
+(`grep -rn "xpi-" src/extensions/subagent`), or alias them in your extension loader. (Extensions written for upstream pi
+that import `@earendil-works/*` are not supported by xpi; see [xin-pi.md](../../../docs/xin-pi.md).)
+
+## 4. Codemode
+
+- `Agent` is registered with `exposure: "codemode"`: the model reaches it only from codemode scripts
+  (`tools.Agent(...)`). If your agent has no codemode, change it to a direct tool (`exposure` default) and drop the
+  codemode examples in [subagent.md](subagent.md). Everything else is unchanged.
+- Codemode-only children (`subagent.childCodemode: "only"`, the default) load `src/extensions/subagent/child-codemode.ts`, which registers
+  `createCodemodeExtension({ mode: "only" })` from the package index. The host then skips its built-in codemode extension
+  (an extension that registers the same tool replaces a built-in one). Without that export or that replacement rule,
+  set `"childCodemode": "inherit"`: children get direct tools, as in v1.
+- Background scripts. In xpi the codemode built-in owns the mechanism and the subagent extension owns the policy; the
+  `codemode` tool is not wrapped, proxied or replaced. The host must provide:
+  - A script controller exported from the package index, `codemodeScripts` (`src/extensions/codemode/scripts.ts`): `owner`,
+    `list`, `background`, `backgroundAll`, `stop`, `stopAll`, `subscribe`, plus the `beginCodemodeScript` hook the executor
+    calls for each script. `executeCodemode` registers every script, links the turn's abort signal only while the script is
+    in the foreground, races the script against "moved to background", and on a move returns early with
+    `details.background` / `details.scriptId`; the real end is reported through the script's `onEnd`.
+  - Nested tool call ids `<codemode call id>/<n>`; the owner of an `Agent` call is found by that prefix
+    (`codemodeScripts.owner`).
+  - `ctx.detachNestedCalls()` / `ctx.releaseNestedCalls()` on the tool context (`NestedToolCallRunner.detach/release` in
+    `src/core/nested-tool-calls.ts`): a detached scope survives `takeRecord()` and `clear()` at `agent_end`, so nested ids
+    keep counting and later calls and their usage keep going into the same recorder.
+  - `ctx.executeTool` working after the tool call returned (the script keeps using the original context).
+  - `pi.sendMessage(msg, { triggerTurn: true, deliverAs: "steer" })`: the host routes it itself (streaming: steer; idle or
+    compacting: a run starts, deferred while the previous run settles), so a result is never only appended while main
+    sleeps. A throwing delivery is logged with `console.error`, never rethrown.
+  - `ctx.ui.onTerminalInput` for ctrl+b (layer 5; without a TUI, scripts move to the background only by starting an
+    `Agent`).
+
+  The extension connects its registry to `codemodeScripts.subscribe` at `session_start` (`src/extensions/subagent/background.ts`);
+  the policy (move on the first `Agent` call unless `run_in_background: false`, the end message to main) is in the
+  extension. `run_in_background: true` agents run detached from the call's signal and report with the same
+  `sendMessage` delivery. Esc aborts main's signal, which stops only foreground scripts; session shutdown stops every
+  script and detached agent. Without a controller, set `subagent.backgroundScripts: false`: scripts stay in the foreground
+  (v2 behaviour). The file-by-file list of core changes is in [xin-pi.md](../../../docs/xin-pi.md).
+- With codemode-only, an agent's `tools` list must also bind inside scripts (a script calling a tool outside `--tools`
+  gets "does not exist"). Check with `test/subagent/real/09-codemode-only.test.ts`.
+
+## 5. TUI
+
+Only needed for the panel and the subagent screen.
+
+| API | Where | Notes |
+|---|---|---|
+| `ctx.ui.setWidget(key, (tui, theme) => Component, { placement: "belowEditor" })`; `tui.requestRender()` | the panel | components implement `render(width)` and `invalidate()` |
+| `ctx.ui.onTerminalInput(handler)` returning `{ consume: true }` | ↓ into the panel, panel keys, ctrl+b (`scripts.backgroundAll`; passes through as cursor-left when the editor has text or no script runs) | the handler gets raw input including kitty key **releases**; the subagent extension ignores them with pi-tui's `isKeyRelease`. If your terminal layer sends other event encodings, check `handleKey` in `src/extensions/subagent/panel.ts` |
+| `tui.focusedComponent` (not public API) | the panel acts only while the editor (a component with `getText`) has focus | if your TUI renames it, the panel may steal keys from pickers: fix `focusedIsEditor` in `src/extensions/subagent/panel.ts` |
+| `ctx.ui.getEditorText()` | ↓ only on an empty editor; ctrl+b moves foreground scripts to the background only when the editor is empty | |
+| `ctx.ui.custom(factory, { overlay: true, overlayOptions })`, full width and height; `tui.terminal.rows` | the subagent screen (it draws exactly the terminal's rows; its commands: `/main`, `/model`, `/stop`) | must not stop main's run; pi's `switchSession` would, so it is not used. The screen is `Focusable` and gets keys through `handleInput` (pi filters key releases for components) |
+| `ctx.ui.select`, `ctx.ui.confirm`, `ctx.ui.notify`, `ctx.cwd` | `/subagents`, `/subagents worktrees` (the confirm names what removal loses), notices | |
+| pi components `AssistantMessageComponent`, `UserMessageComponent`, `ToolExecutionComponent`, `getMarkdownTheme`; pi-tui `Input`, `Text`, the `TUI`, `Component` and `Focusable` types, `matchesKey`, `isKeyRelease`, `truncateToWidth` | the transcript, the screen, the panel | |
+| `theme.fg/bg/bold`; colour names `accent`, `success`, `error`, `warning`, `muted`, `dim`, `toolTitle`, `selectedBg` | panel and screen | a theme must define them (pi's built-in themes do) |
+| raw 256-colour SGR escapes `\x1b[38;5;<n>m` ... `\x1b[39m` (palette in `src/extensions/subagent/color.ts`) | agent `color`: panel row label and screen header | the host's TUI must pass SGR through; without it the label shows escape text, so drop the `color` field |
+
+### Without pi's TUI
+
+Web or headless front ends: the `Agent` tool, resume, codemode-only and queueing all live below the UI. Leave out
+`installPanel` and the `/subagents` registration in `src/extensions/subagent/index.ts`. The registry (`src/extensions/subagent/registry.ts`) exposes what a UI
+needs: `list(parentSessionId)`, `get(id)`, `subscribe(fn)`, `watch(id, fn)` for live rpc events, `stop(id)`,
+`setModel(id, model)`, and `talkTo` in `src/extensions/subagent/talk.ts` for steer / continue. A web panel can be built on those.
+
+## Models and credentials
+
+Aliases default to Anthropic models (`haiku` → `anthropic/claude-haiku-5-5`, the default for every subagent). If your
+agent uses another provider or naming, remap them in settings; no code change:
+
+```jsonc
+"subagent": {
+  "models": { "haiku": "<provider>/<cheap-model>", "sonnet": "<provider>/<model>", "opus": "<provider>/<big-model>" },
+  "piCommand": "<your agent's binary>"
+}
+```
+
+## Verify
+
+From `packages/xpi-coding-agent/` of an xin-pi checkout, with your agent's binary:
+
+```bash
+npm run test:subagent                                              # runner logic against a scripted fake child; no model, no binary
+XPI_SUBAGENT_TEST_PI=/path/to/your-agent npm run test:subagent:parent  # background scripts in a real rpc parent (needs haiku)
+XPI_SUBAGENT_TEST_PI=/path/to/your-agent npm run test:subagent:real    # real children on your binary (needs Anthropic haiku)
+XPI_SUBAGENT_TEST_PI=/path/to/your-agent npm run test:subagent:tui     # your binary's interactive TUI in a pty
+XPI_SUBAGENT_TEST_PI=/path/to/your-agent npm run test:subagent:evals   # real-model evals
+```
+
+The real, tui and eval suites call Claude Haiku 5.5 and expect `~/.pi/agent/auth.json` (they copy it into a temp agent
+dir, `XPI_CODING_AGENT_DIR`). If your binary reads its config elsewhere, adapt `sandbox()` in
+`test/subagent/real/helpers.ts` and the env in `test/subagent/tui/harness.ts`.
+
+Read failures by layer:
+
+| Layer | Tests |
+|---|---|
+| 1. Child process | `test/subagent/real/01-tracer-bullet`, `02-agent-files`, `03-model-selection`, `04-tools-and-flags` (flags such as `--tools`, `--exclude-tools`, `--no-context-files`), `05-skills`, `06-run-outcomes`, `08-concurrency-and-config`, `11-talk` (steer), `12-stop-and-model` (abort, set_model); `test/subagent/faults/` (stream handling) |
+| 2. Session files | `test/subagent/real/07-sessions-and-resume`, `10-registry` |
+| 4. Codemode | `test/subagent/real/09-codemode-only`; `test/subagent/parent/` (a real parent `xpi --mode rpc` : `01-background-script` early return, new turn from the result message and nested ids; `02-run-in-background` `false`/`true`; `03-edges` errors, long results, steer delivery, stop, shutdown) |
+| 5. TUI | `test/subagent/panel/` (no pi; `scripts.test.ts` for script rows and `x`), `test/subagent/tui/05-panel`, `06-screen`, `07-talk`, `08-stop-model`, `09-streaming`, `10-script-panel` (script rows, `x`, ctrl+b) |
+
+Quick manual check that a binary speaks the rpc protocol (one haiku call):
+
+```bash
+{ printf '%s\n' '{"id":"p","type":"prompt","message":"Reply OK"}'; sleep 15; } \
+  | /path/to/your-agent --mode rpc --no-session --model anthropic/claude-haiku-5-5 \
+  | grep -oE '"type":"(response|message_end|agent_settled)"' | sort | uniq -c
+```
+
+Expect one `response` (for `p`, with `"success":true`), `message_end` records (user and assistant), and one
+`agent_settled`; the process exits when stdin closes after the `sleep`. Without the `sleep`, stdin closes at once and
+pi exits before answering.
+
+## Keeping up with pi
+
+xin-pi no longer merges upstream pi. To follow it, run `/upstream` (it lists what upstream changed since the fork point
+and recommends what to port) and translate ported code with `node scripts/xpi-rename.mjs <paths>`; the procedure is in
+[xin-pi.md](../../../docs/xin-pi.md). The facts the code relies on are also noted where they are used (comments in
+`src/runner.ts`, `src/panel.ts`, `src/subagent-screen.ts`).

@@ -31,7 +31,7 @@
 ## Commands
 
 - After code changes (not docs): `npm run check` (full output, no tail). Fix all errors, warnings, and infos before committing. Does not run tests.
-- Run `npm run build` whenever something needs built output (`dist/`): tests or benchmarks that import built packages, Durable's workerd suite. The full suites of Chord and Durable need it: Chord's tests that start Node processes or bundle with esbuild load workspace packages from `dist/` (the rest run from source by its vitest config), and Durable imports pi-ai's `utils/*`, which have no source export. Never use it to type check or lint: that is `npm run check`, the preferred check.
+- Run `npm run build` whenever something needs built output (`dist/`): tests or benchmarks that import built packages, and the real-model subagent suites (they start `dist/bundle/cli.js`). Never use it to type check or lint: that is `npm run check`, the preferred check.
 - Never run `npm test` unless requested by the user.
 - Never run the full vitest suite directly: it includes e2e tests that activate when endpoint/auth env vars are present. For all non-e2e tests, run `./test.sh` from the repo root. It runs `packages/*` only. Otherwise run specific tests from the package root:
   - Vitest: `node "$(git rev-parse --show-toplevel)/node_modules/vitest/dist/cli.js" --run test/specific.test.ts`
@@ -42,6 +42,17 @@
 - When regressions tests for fixing a github issue, add a comment with the github issue number next to the test.
 - For ad-hoc scripts, `write` them to a temp file (e.g. `/tmp`), run, edit if needed, remove when done. Don't embed multi-line scripts in `bash` commands.
 - Never commit unless the user asks.
+
+## Subagent and upstream extensions
+
+Built-in extensions under `packages/xpi-coding-agent/src/extensions/`: `subagent/` (the `Agent` tool, panel, `/subagents`; user docs `packages/xpi-coding-agent/docs/subagent.md`) and `upstream/` (`/upstream`). Details and the core files they touch: `docs/xin-pi.md`.
+
+- Run from `packages/xpi-coding-agent/`. Offline and free (part of `npm test`): `npm run test:subagent`, `npm run test:upstream`. Both need no auth, no network.
+- Real-model suites run by hand, never in CI or `./test.sh`, and only on Claude Haiku 5.5: `test:subagent:real`, `:parent`, `:tui`, `:evals`, `:stress`, `test:upstream:real`. They need `npm run build` and credentials.
+- Tests never touch the real `~/.pi/agent`: every sandbox sets `XPI_CODING_AGENT_DIR` to a temp dir (auth copied in) and a temp HOME. Keep it that way for new tests.
+- Never start a test runner (`npm test`, `vitest`, `node --test`) from inside a test or a script a test runs; a past test did and forked until the machine stalled.
+- Tests assert on structure and side effects, not model wording. Lint and indent follow `npm run check`.
+- Porting something from upstream pi: `/upstream` for the list, then `node scripts/xpi-rename.mjs <paths>` on the ported files; see "Keeping up with pi" in `docs/xin-pi.md`.
 
 ## Dependency and Install Security
 
