@@ -231,3 +231,94 @@ describe("NestedCallRecorder", () => {
 		expect(records).toHaveLength(6);
 	});
 });
+
+describe("NestedToolCallRunner after an early return (detached scripts)", () => {
+	const quick: AgentTool = {
+		name: "quick",
+		label: "Quick",
+		description: "Quick",
+		parameters: Type.Object({}),
+		async execute() {
+			return { content: [], details: {}, usage: usage(5, 0.005) };
+		},
+	};
+
+	// Facts section 3 of the xin-pi notes: the first two document what happens without detach().
+	it("without detach, taking the record resets the ids and drops later usage", async () => {
+		const { runner } = createRunner([quick]);
+		await runner.execute("call", "quick", {});
+		expect(runner.takeRecord("call")?.calls?.calls.map((call) => call.id)).toEqual(["call/1"]);
+		const later = await runner.execute("call", "quick", {});
+		expect(later.toolCall.id).toBe("call/1"); // duplicate id
+		expect(runner.takeRecord("call")?.usage?.cost.total).toBe(0.005); // only the call after the take
+	});
+
+	it("without detach, clear() resets the ids", async () => {
+		const { runner } = createRunner([quick]);
+		await runner.execute("call", "quick", {});
+		runner.clear();
+		expect((await runner.execute("call", "quick", {})).toolCall.id).toBe("call/1");
+	});
+
+	it("detach keeps the ids counting through takeRecord and clear", async () => {
+		const { runner } = createRunner([quick]);
+		await runner.execute("call", "quick", {});
+		runner.detach("call");
+		expect(runner.takeRecord("call")?.calls?.calls.map((call) => call.id)).toEqual(["call/1"]);
+		runner.clear();
+		expect((await runner.execute("call", "quick", {})).toolCall.id).toBe("call/2");
+		expect((await runner.execute("call", "quick", {})).toolCall.id).toBe("call/3");
+	});
+
+	it("detach keeps recording usage and calls; release returns the full record and frees the scope", async () => {
+		const { runner } = createRunner([quick]);
+		await runner.execute("call", "quick", {});
+		runner.detach("call");
+		runner.takeRecord("call");
+		await runner.execute("call", "quick", {});
+		const released = runner.release("call");
+		expect(released?.calls?.calls.map((call) => call.id)).toEqual(["call/1", "call/2"]);
+		expect(released?.usage?.cost.total).toBeCloseTo(0.01);
+		expect(runner.release("call")).toBeUndefined();
+		expect((await runner.execute("call", "quick", {})).toolCall.id).toBe("call/1"); // a fresh scope
+	});
+
+	it("clear() keeps the scopes of nested calls that run below a detached script", async () => {
+		const tools: AgentTool[] = [];
+		const { runner } = createRunner(tools);
+		let inner: string[] = [];
+		let proceed!: () => void;
+		const gate = new Promise<void>((r) => {
+			proceed = r;
+		});
+		tools.push(quick, {
+			name: "middle",
+			label: "Middle",
+			description: "Middle",
+			parameters: Type.Object({}),
+			async execute(toolCallId) {
+				await gate;
+				inner = [(await runner.execute(toolCallId, "quick", {})).toolCall.id];
+				inner.push((await runner.execute(toolCallId, "quick", {})).toolCall.id);
+				return { content: [], details: {} };
+			},
+		});
+		runner.detach("call");
+		const running = runner.execute("call", "middle", {});
+		await new Promise((r) => setTimeout(r, 0));
+		runner.clear(); // agent_end while the script is still running
+		proceed();
+		await running;
+		expect(inner).toEqual(["call/1/1", "call/1/2"]);
+		expect(runner.release("call")?.calls?.calls.map((call) => call.id)).toEqual(["call/1", "call/1/1", "call/1/2"]);
+	});
+
+	it("a detached script's calls do not deadlock behind the exclusive queue of sequential agents", async () => {
+		const { runner } = createRunner([quick], { sequential: true });
+		runner.detach("call");
+		const [a, b] = await Promise.all([runner.execute("call", "quick", {}), runner.execute("call", "quick", {})]);
+		expect([a.toolCall.id, b.toolCall.id]).toEqual(["call/1", "call/2"]);
+		// ... and another caller's call still runs after them.
+		expect((await runner.execute("other", "quick", {})).toolCall.id).toBe("other/1");
+	});
+});
