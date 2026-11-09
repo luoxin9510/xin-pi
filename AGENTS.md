@@ -37,6 +37,7 @@
   - Vitest: `node "$(git rev-parse --show-toplevel)/node_modules/vitest/dist/cli.js" --run test/specific.test.ts`
   - `packages/xpi-tui` (`node:test`): `node --test test/specific.test.ts`
 - If you create or modify a test file, run it and iterate on test or implementation until it passes.
+- `packages/xpi-coding-agent/test/subagent/` holds the subagent extension's `node:test` suites; see "Testing the subagent extension" in `docs/xin-pi.md`. `npm run test:subagent` is offline. The `test:subagent:real|parent|tui|evals|stress` scripts use real Haiku 5.5 and run by hand. Never start a test runner from inside a test (a past fork bomb).
 - For `packages/xpi-coding-agent/test/suite/`, use `test/suite/harness.ts` + the faux provider. No real provider APIs, keys, or paid tokens.
 - When regressions tests for fixing a github issue, add a comment with the github issue number next to the test.
 - For ad-hoc scripts, `write` them to a temp file (e.g. `/tmp`), run, edit if needed, remove when done. Don't embed multi-line scripts in `bash` commands.

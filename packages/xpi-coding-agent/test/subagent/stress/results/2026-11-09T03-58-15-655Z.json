@@ -1,0 +1,34 @@
+[
+  {
+    "mode": "haiku",
+    "calls": 20,
+    "limit": 20,
+    "wall": 5091,
+    "ok": 20,
+    "failed": 0,
+    "wrong": 0,
+    "wrongModel": 0,
+    "latency": {
+      "p50": 3616,
+      "p95": 4836,
+      "max": 5083
+    },
+    "childMs": {
+      "p50": 3603,
+      "p95": 4825,
+      "max": 5069
+    },
+    "queueAndSpawn": {
+      "p50": 12,
+      "p95": 14,
+      "max": 15
+    },
+    "peak": {
+      "children": 20,
+      "rssMb": 3509,
+      "cpu": 728
+    },
+    "cost": 0.0035205499999999995,
+    "errors": []
+  }
+]
