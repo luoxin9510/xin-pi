@@ -8,6 +8,7 @@ export interface Config {
 	piCommand?: string; // unset: children run the build of this process (invocation.ts)
 	childCodemode: "only" | "inherit";
 	backgroundScripts: boolean; // a script that starts an Agent moves to the background
+	shutdownGraceMs: number; // how long a stopped child may take to shut down (SIGTERM) before SIGKILL
 	panelLingerMs: number; // how long a finished subagent stays in the panel
 }
 
@@ -56,12 +57,17 @@ export function readConfig(raw: unknown): Config {
 	if (typeof panelLingerMs !== "number" || !(panelLingerMs >= 0))
 		throw new Error("subagent.panelLingerMs must be a number of milliseconds, 0 or more");
 
+	const shutdownGraceMs = r.shutdownGraceMs ?? 10_000;
+	if (typeof shutdownGraceMs !== "number" || !Number.isFinite(shutdownGraceMs) || shutdownGraceMs < 0)
+		throw new Error("subagent.shutdownGraceMs must be a number of milliseconds, 0 or more");
+
 	const backgroundScripts = r.backgroundScripts ?? true;
 	if (typeof backgroundScripts !== "boolean")
 		throw new Error(`subagent.backgroundScripts must be true or false, got ${JSON.stringify(backgroundScripts)}`);
 
 	return {
 		panelLingerMs,
+		shutdownGraceMs,
 		backgroundScripts,
 		models: { ...DEFAULT_MODELS, ...stringMap(r.models, "models") },
 		defaultModel: optionalString(r.defaultModel, "defaultModel") ?? "haiku",

@@ -40,6 +40,7 @@ export interface ChildSpec {
 	maxTurns?: number;
 	agentId: string;
 	warnings: string[];
+	shutdownGraceMs?: number; // time after SIGTERM before SIGKILL (subagent.shutdownGraceMs)
 	worktree?: WorktreeRef; // isolation: the child's cwd is its path; the exchange creates and settles it
 }
 
@@ -280,6 +281,7 @@ export function resolveChild(
 		maxTurns: def.maxTurns,
 		agentId,
 		warnings: [...tools.warnings, ...system.warnings],
+		shutdownGraceMs: config.shutdownGraceMs,
 		worktree: options.worktree,
 	};
 }

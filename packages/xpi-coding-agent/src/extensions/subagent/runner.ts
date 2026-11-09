@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Readable, Writable } from "node:stream";
 import { type Static, Type } from "typebox";
+import { GROUPS, signalTree, trackTree } from "./process-tree.ts";
 import type { ChildSpec } from "./resolve.ts";
 
 export const usageSchema = Type.Object({
@@ -42,7 +43,8 @@ export interface Progress {
 	lastTool?: string;
 }
 
-const KILL_GRACE_MS = 5000;
+// After SIGTERM a child gets this long to shut down (e.g. close MCP servers) before SIGKILL; subagent.shutdownGraceMs.
+export const DEFAULT_SHUTDOWN_GRACE_MS = 10_000;
 // How long a child may take to exit after agent_settled, and to settle after its last allowed turn.
 const SETTLE_GRACE_MS = 2000;
 const STDERR_LINES = 30;
@@ -109,7 +111,12 @@ export function runChild(
 	return new Promise((resolve, reject) => {
 		let child: ChildProcessByStdio<Writable, Readable, Readable>;
 		try {
-			child = spawn(spec.command, argv, { cwd: spec.cwd, env: spec.env, stdio: ["pipe", "pipe", "pipe"] });
+			child = spawn(spec.command, argv, {
+				cwd: spec.cwd,
+				env: spec.env,
+				stdio: ["pipe", "pipe", "pipe"],
+				detached: GROUPS, // own process group: signals reach the child's whole tree (process-tree.ts)
+			});
 		} catch (err) {
 			// spawn throws synchronously for arguments it rejects, such as a NUL byte in the prompt
 			rmSync(tmp, { recursive: true, force: true });
@@ -124,6 +131,9 @@ export function runChild(
 				aborted: false,
 			});
 		}
+
+		const shutdownGraceMs = spec.shutdownGraceMs ?? DEFAULT_SHUTDOWN_GRACE_MS;
+		const untrack = trackTree(child, shutdownGraceMs);
 
 		// rpc: one JSON command per LF-terminated line. A child that already exited makes the write fail: ignore it,
 		// the exit is handled by "close".
@@ -158,8 +168,8 @@ export function runChild(
 
 		const stopChild = () => {
 			if (child.exitCode !== null || child.signalCode !== null) return;
-			child.kill("SIGTERM");
-			killTimer ??= setTimeout(() => child.kill("SIGKILL"), KILL_GRACE_MS);
+			signalTree(child, "SIGTERM");
+			killTimer ??= setTimeout(() => signalTree(child, "SIGKILL"), shutdownGraceMs);
 			killTimer.unref();
 		};
 
@@ -286,7 +296,13 @@ export function runChild(
 		const finish = (code: number | null, spawnError?: Error) => {
 			if (finished) return; // a failed spawn emits both "error" and "close"
 			finished = true;
+			untrack();
 			if (killTimer) clearTimeout(killTimer);
+			// The child is gone; whatever of its tree is left (a bash tool's background job, an MCP server) goes too.
+			if (child.pid && GROUPS) {
+				signalTree(child, "SIGTERM");
+				setTimeout(() => signalTree(child, "SIGKILL"), shutdownGraceMs).unref();
+			}
 			if (graceTimer) clearTimeout(graceTimer);
 			signal?.removeEventListener("abort", onAbort);
 			rmSync(tmp, { recursive: true, force: true });

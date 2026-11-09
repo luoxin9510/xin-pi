@@ -32,6 +32,25 @@ if (scenario.sessionFile) {
 }
 if (scenario.stderr) process.stderr.write(scenario.stderr);
 
+// Process-tree scenario knobs: grandchildPidFile (spawn `sleep 60`, write its pid there), pidFile (own pid),
+// termDelayMs (on SIGTERM wait that long, write cleanFile, then exit; -1 = ignore SIGTERM for ever).
+import { spawn } from "node:child_process";
+if (scenario.pidFile) writeFileSync(scenario.pidFile, String(process.pid));
+if (scenario.grandchildPidFile) {
+  const gc = spawn("sleep", ["60"], { stdio: "ignore" });
+  gc.unref();
+  writeFileSync(scenario.grandchildPidFile, String(gc.pid));
+}
+if (scenario.termDelayMs !== undefined) {
+  process.on("SIGTERM", () => {
+    if (scenario.termDelayMs < 0) return;
+    setTimeout(() => {
+      if (scenario.cleanFile) writeFileSync(scenario.cleanFile, "clean\n");
+      process.exit(0);
+    }, scenario.termDelayMs);
+  });
+}
+
 const out = (o) => process.stdout.write((typeof o === "string" ? o : JSON.stringify(o)) + "\n");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let played = false;
