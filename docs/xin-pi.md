@@ -137,16 +137,18 @@ install lock) and `node scripts/xpi-rename.mjs --check`.
 writes them to a data file, and injects a short prompt into the main agent (no dedicated subagent), which writes the report.
 
 - **Setting:** `upstream.sourceDir` in settings.json, default `~/Developer/xin-pi`.
-- **Git mode:** the source dir is a git checkout with an `upstream` remote. It runs `git fetch upstream` (a failed fetch is a
-  note, not an error), takes the fork point `git merge-base main upstream/main`, and lists the upstream commits since then
+- **Git mode:** the source dir is a git checkout with an `upstream` remote. It runs `git fetch upstream` (with `GIT_TERMINAL_PROMPT=0`; a failed fetch is a
+  note, not an error), takes the upstream branch to be the remote's default branch (`refs/remotes/upstream/HEAD`, else
+  `git ls-remote --symref upstream HEAD`, else `main`; a missing branch falls back to CHANGELOG mode with a notice), takes the
+  fork point `git merge-base main upstream/<default branch>`, and lists the upstream commits since then
   (subject, date, author, files capped at 8 per commit), our diff stat against the fork point per package in `xpi-*`
   names, the files changed on both sides (conflict candidates), commits that look related to subagents, background or
   codemode, and the new upstream `packages/coding-agent/CHANGELOG.md` lines. Upstream `packages/<x>` is mapped to
   `packages/xpi-<x>` (`agent` is `xpi-agent-core`); `chord`, `durable`, `env` and `apps/*` are flagged "removed in xin-pi".
 - **Fallback mode:** no checkout, or no `upstream` remote. It reads upstream's CHANGELOG from GitHub raw and keeps the
-  sections newer than this build's coding-agent version (plus Unreleased). The data file and the prompt say it is partial.
+  sections newer than this build's coding-agent version (plus Unreleased). The request times out after 15 s with a clear error. The data file and the prompt say it is partial.
   A notice names the mode that ran.
-- **Files:** `~/.pi/agent/upstream/<YYYY-MM-DD-HHMM>-data.md` (facts) and `<YYYY-MM-DD-HHMM>.md` (the report, written by
+- **Files:** `~/.pi/agent/upstream/<YYYY-MM-DD-HHMMSS>-data.md` (facts) and `<YYYY-MM-DD-HHMMSS>.md` (the report, written by
   the agent). The prompt names both paths.
 - **Report:** four `##` sections: Upstream changes (features / fixes / breaking), Conflicts with our changes, Overlap with
   xin-pi built-ins (take upstream's or keep ours), Recommendations (PORT / ADAPT / SKIP with reason and risk), ending with

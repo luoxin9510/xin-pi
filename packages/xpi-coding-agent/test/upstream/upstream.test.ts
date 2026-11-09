@@ -6,7 +6,12 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
-import { gather, newerChangelogSections, numstatNewPath } from "../../src/extensions/upstream/data.ts";
+import {
+	defaultUpstreamBranch,
+	gather,
+	newerChangelogSections,
+	numstatNewPath,
+} from "../../src/extensions/upstream/data.ts";
 import { createUpstreamExtension, readSourceDir } from "../../src/extensions/upstream/index.ts";
 import { describeUpstreamPath, mapUpstreamPath } from "../../src/extensions/upstream/paths.ts";
 import { buildPrompt, REPORT_SECTIONS } from "../../src/extensions/upstream/prompt.ts";
@@ -25,12 +30,12 @@ const put = (root: string, rel: string, text: string) => {
 };
 
 /** Upstream repo U, our checkout C cloned from it (remote renamed `upstream`), then both sides diverge. */
-function fixture() {
+function fixture(_unused = 0, branch = "main") {
 	const dir = mkdtempSync(join(tmp, "fx-"));
 	const up = join(dir, "up");
 	const ours = join(dir, "ours");
 	mkdirSync(up);
-	git(up, "init", "-q", "-b", "main");
+	git(up, "init", "-q", "-b", branch);
 	put(up, "packages/coding-agent/src/foo.ts", "a\n");
 	put(up, "packages/chord/x.ts", "a\n");
 	put(up, "packages/coding-agent/CHANGELOG.md", "# Changelog\n\n## [1.0.0]\n\n- old\n");
@@ -38,6 +43,7 @@ function fixture() {
 	git(up, "commit", "-qm", "base");
 	git(dir, "clone", "-q", up, "ours");
 	git(ours, "remote", "rename", "origin", "upstream");
+	git(ours, "branch", "-m", "main"); // our product branch is always main
 	// Our side: rename the package, change foo.ts, add the subagent extension.
 	git(ours, "mv", "packages/coding-agent", "packages/xpi-coding-agent");
 	put(ours, "packages/xpi-coding-agent/src/foo.ts", "a\nours\n");
@@ -67,13 +73,13 @@ test("git mode: the data file holds the fork point, mapped paths, both-side file
 		sourceDir: f.ours,
 		agentDir: f.agentDir,
 		version: "1.0.0",
-		now: new Date(2026, 10, 9, 14, 5),
+		now: new Date(2026, 10, 9, 14, 5, 7),
 	});
 	assert.equal(r.mode, "git");
 	assert.equal(r.partial, false);
-	assert.equal(r.stamp, "2026-11-09-1405");
-	assert.equal(r.dataPath, join(f.agentDir, "upstream", "2026-11-09-1405-data.md"));
-	assert.equal(r.reportPath, join(f.agentDir, "upstream", "2026-11-09-1405.md"));
+	assert.equal(r.stamp, "2026-11-09-140507");
+	assert.equal(r.dataPath, join(f.agentDir, "upstream", "2026-11-09-140507-data.md"));
+	assert.equal(r.reportPath, join(f.agentDir, "upstream", "2026-11-09-140507.md"));
 	const d = readFileSync(r.dataPath, "utf8");
 	const base = git(f.ours, "merge-base", "main", "upstream/main");
 	assert.ok(d.includes(`fork point (merge-base): ${base.slice(0, 9)}`));
@@ -95,16 +101,105 @@ test("git mode: the data file holds the fork point, mapped paths, both-side file
 	assert.ok(d.split("## New upstream coding-agent CHANGELOG entries")[1].includes("shiny upstream thing"));
 });
 
-test("git mode: fetch failure is a note, not an error; missing upstream ref throws", async () => {
+test("git mode: fetch failure is a note, not an error", async () => {
 	const f = fixture();
 	git(f.ours, "remote", "set-url", "upstream", join(f.dir, "gone"));
 	const r = await gather({ sourceDir: f.ours, agentDir: f.agentDir, version: "1.0.0" });
 	assert.equal(r.mode, "git");
 	assert.ok(r.notes.some((n) => n.includes("git fetch upstream failed")));
-	await assert.rejects(
-		gather({ sourceDir: f.ours, agentDir: f.agentDir, version: "1.0.0", upstreamBranch: "nope" }),
-		/upstream\/nope does not exist/,
+});
+
+test("U3: the upstream branch is the remote's default branch (here `trunk`), not a hard-coded main", async () => {
+	const f = fixture(2, "trunk");
+	const r = await gather({ sourceDir: f.ours, agentDir: f.agentDir, version: "1.0.0" });
+	assert.equal(r.mode, "git");
+	const d = readFileSync(r.dataPath, "utf8");
+	assert.ok(d.includes("upstream ref: upstream/trunk"), d.split("\n").slice(0, 8).join("\n"));
+	assert.ok(d.includes("upstream commits since the fork point: 3"));
+});
+
+test("U3: with no refs/remotes/upstream/HEAD the default branch is asked from the remote", async () => {
+	const f = fixture(2, "trunk");
+	git(f.ours, "remote", "set-head", "upstream", "-d");
+	assert.equal(await defaultUpstreamBranch(f.ours), "trunk");
+	// a remote that cannot be asked ends at main
+	git(f.ours, "remote", "set-url", "upstream", join(f.dir, "gone"));
+	assert.equal(await defaultUpstreamBranch(f.ours), "main");
+});
+
+test("U3: a missing upstream branch falls back to the CHANGELOG with a notice instead of throwing", async () => {
+	const f = fixture();
+	const r = await gather({
+		sourceDir: f.ours,
+		agentDir: f.agentDir,
+		version: "1.0.0",
+		upstreamBranch: "nope",
+		fetch: async () => ({ ok: true, status: 200, text: async () => "# Changelog\n\n## [1.1.0]\n\n- new thing\n" }),
+	});
+	assert.equal(r.mode, "fallback");
+	assert.equal(r.partial, true);
+	assert.ok(
+		r.notes.some((n) => n.includes("upstream/nope does not exist")),
+		r.notes.join("|"),
 	);
+	assert.ok(readFileSync(r.dataPath, "utf8").includes("new thing"));
+});
+
+test("U3: git runs with GIT_TERMINAL_PROMPT=0", async () => {
+	const f = fixture();
+	const bin = mkdtempSync(join(tmp, "bin-"));
+	const log = join(bin, "env.log");
+	const real = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+	writeFileSync(join(bin, "git"), `#!/bin/sh\necho "$GIT_TERMINAL_PROMPT" >> '${log}'\nexec '${real}' "$@"\n`, {
+		mode: 0o755,
+	});
+	const oldPath = process.env.PATH;
+	process.env.PATH = `${bin}:${oldPath}`;
+	try {
+		await gather({ sourceDir: f.ours, agentDir: f.agentDir, version: "1.0.0" });
+	} finally {
+		process.env.PATH = oldPath;
+	}
+	const seen = readFileSync(log, "utf8").trim().split("\n");
+	assert.ok(seen.length > 3);
+	assert.ok(
+		seen.every((v) => v === "0"),
+		seen.join(","),
+	);
+});
+
+test("U3: the CHANGELOG fallback gives up after the timeout with a clear error", async () => {
+	const dir = mkdtempSync(join(tmp, "to-"));
+	await assert.rejects(
+		gather({
+			sourceDir: join(dir, "nothing-here"),
+			agentDir: join(dir, "agent"),
+			version: "1.0.0",
+			fetchTimeoutMs: 50,
+			fetch: (_url, init) =>
+				new Promise((_resolve, reject) =>
+					init?.signal?.addEventListener("abort", () => reject(init.signal?.reason)),
+				),
+		}),
+		/could not fetch upstream CHANGELOG \(no answer within 0\.05s\)/,
+	);
+});
+
+test("U3: two runs in the same minute (even the same second) never overwrite each other's files", async () => {
+	const f = fixture();
+	const now = new Date(2026, 10, 9, 14, 5, 7);
+	const a = await gather({ sourceDir: f.ours, agentDir: f.agentDir, version: "1.0.0", now });
+	const b = await gather({ sourceDir: f.ours, agentDir: f.agentDir, version: "1.0.0", now });
+	const c = await gather({
+		sourceDir: f.ours,
+		agentDir: f.agentDir,
+		version: "1.0.0",
+		now: new Date(2026, 10, 9, 14, 5, 8),
+	});
+	assert.equal(new Set([a.dataPath, b.dataPath, c.dataPath]).size, 3);
+	assert.match(a.stamp, /^2026-11-09-140507$/);
+	assert.equal(b.stamp, "2026-11-09-140507-2");
+	assert.equal(c.stamp, "2026-11-09-140508");
 });
 
 test("fallback mode: no checkout -> CHANGELOG through the stubbed fetch, newer sections only, marked partial", async () => {

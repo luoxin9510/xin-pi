@@ -19,7 +19,13 @@ const MAX_OWN_FILES = 40;
 const MAX_OVERLAP = 40;
 const MAX_BOTH = 80;
 
-export type FetchFn = (url: string) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
+export type FetchFn = (
+	url: string,
+	init?: { signal?: AbortSignal },
+) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
+
+/** How long the CHANGELOG fallback waits for GitHub. */
+export const FETCH_TIMEOUT_MS = 15_000;
 
 export interface GatherOptions {
 	sourceDir: string;
@@ -27,8 +33,10 @@ export interface GatherOptions {
 	/** Version of this build's coding agent (fallback mode compares against it). */
 	version: string;
 	fetch?: FetchFn;
+	/** Timeout of the CHANGELOG fallback request; default {@link FETCH_TIMEOUT_MS}. */
+	fetchTimeoutMs?: number;
 	now?: Date;
-	/** Branch of the `upstream` remote; default `main`. */
+	/** Branch of the `upstream` remote; default: the remote's default branch (`main` when it cannot be told). */
 	upstreamBranch?: string;
 	/** Our product branch; default `main`. */
 	ourBranch?: string;
@@ -47,7 +55,7 @@ export interface GatherResult {
 
 export function stampOf(d: Date): string {
 	const p = (n: number) => String(n).padStart(2, "0");
-	return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
+	return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
 
 function firstLine(err: unknown): string {
@@ -59,6 +67,8 @@ async function git(dir: string, args: string[], timeout = 30_000): Promise<strin
 		encoding: "utf8",
 		timeout,
 		maxBuffer: 64 * 1024 * 1024,
+		// Never wait for a credential prompt: a private or renamed remote fails instead of hanging.
+		env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
 	});
 	return stdout;
 }
@@ -98,6 +108,21 @@ export function numstatNewPath(p: string): string {
 	return arrow ? p.slice(arrow.index + 4) : p;
 }
 
+/**
+ * The branch to compare with: the remote's default branch. Read from `refs/remotes/upstream/HEAD` when the clone set it,
+ * else asked from the remote (`git ls-remote --symref`), else `main`. Reads only: nothing is written.
+ */
+export async function defaultUpstreamBranch(dir: string): Promise<string> {
+	const head = await gitOk(dir, ["symbolic-ref", "--short", "refs/remotes/upstream/HEAD"]);
+	if (head?.startsWith("upstream/")) return head.slice("upstream/".length);
+	const remote = await gitOk(dir, ["ls-remote", "--symref", "upstream", "HEAD"]);
+	const m = /^ref: refs\/heads\/(\S+)\s+HEAD$/m.exec(remote ?? "");
+	return m?.[1] ?? "main";
+}
+
+/** Signals that git mode cannot run for a reason the caller answers with the CHANGELOG fallback. */
+class NoUpstreamBranch extends Error {}
+
 interface Body {
 	body: string;
 	notes: string[];
@@ -106,8 +131,8 @@ interface Body {
 
 async function gitMode(o: GatherOptions, stamp: string): Promise<Body> {
 	const notes: string[] = [];
-	const up = o.upstreamBranch ?? "main";
 	const ours = o.ourBranch ?? "main";
+	const up = o.upstreamBranch ?? (await defaultUpstreamBranch(o.sourceDir));
 	try {
 		await git(o.sourceDir, ["fetch", "upstream"], 120_000);
 	} catch (err) {
@@ -115,7 +140,7 @@ async function gitMode(o: GatherOptions, stamp: string): Promise<Body> {
 	}
 	const upRef = `upstream/${up}`;
 	if ((await gitOk(o.sourceDir, ["rev-parse", "--verify", `${upRef}^{commit}`])) === undefined) {
-		throw new Error(`${upRef} does not exist in ${o.sourceDir}`);
+		throw new NoUpstreamBranch(`${upRef} does not exist in ${o.sourceDir}`);
 	}
 	const ourRef = (await gitOk(o.sourceDir, ["rev-parse", "--verify", `${ours}^{commit}`])) ? ours : "HEAD";
 	if (ourRef !== ours) notes.push(`branch ${ours} not found; compared with HEAD`);
@@ -285,10 +310,20 @@ export function newerChangelogSections(text: string, version: string): { heading
 }
 
 async function fallbackMode(o: GatherOptions, stamp: string, why: string): Promise<Body> {
-	const doFetch: FetchFn = o.fetch ?? ((url) => fetch(url));
-	const res = await doFetch(CHANGELOG_URL);
-	if (!res.ok) throw new Error(`could not fetch upstream CHANGELOG (HTTP ${res.status})`);
-	const sections = newerChangelogSections(await res.text(), o.version);
+	const doFetch: FetchFn = o.fetch ?? ((url, init) => fetch(url, init));
+	let text: string;
+	try {
+		const res = await doFetch(CHANGELOG_URL, { signal: AbortSignal.timeout(o.fetchTimeoutMs ?? FETCH_TIMEOUT_MS) });
+		if (!res.ok) throw new Error(`HTTP ${res.status}`);
+		text = await res.text();
+	} catch (err) {
+		const timedOut = err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
+		throw new Error(
+			`could not fetch upstream CHANGELOG (${timedOut ? `no answer within ${(o.fetchTimeoutMs ?? FETCH_TIMEOUT_MS) / 1000}s` : firstLine(err)}) from ${CHANGELOG_URL}`,
+			{ cause: err },
+		);
+	}
+	const sections = newerChangelogSections(text, o.version);
 	const L: string[] = [];
 	L.push(`# Upstream data (fallback mode, partial, ${stamp})`, "");
 	L.push(`- reason: ${why}`);
@@ -326,14 +361,25 @@ export async function isUpstreamCheckout(dir: string): Promise<boolean> {
 }
 
 export async function gather(o: GatherOptions): Promise<GatherResult> {
-	const stamp = stampOf(o.now ?? new Date());
 	const dir = join(o.agentDir, "upstream");
 	mkdirSync(dir, { recursive: true });
+	// Seconds are part of the stamp, and a stamp that is taken gets a suffix: no run overwrites another's files.
+	const base = stampOf(o.now ?? new Date());
+	let stamp = base;
+	for (let n = 2; existsSync(join(dir, `${stamp}-data.md`)) || existsSync(join(dir, `${stamp}.md`)); n++) {
+		stamp = `${base}-${n}`;
+	}
 	let r: Body;
 	let mode: "git" | "fallback";
 	if (await isUpstreamCheckout(o.sourceDir)) {
-		mode = "git";
-		r = await gitMode(o, stamp);
+		try {
+			mode = "git";
+			r = await gitMode(o, stamp);
+		} catch (err) {
+			if (!(err instanceof NoUpstreamBranch)) throw err;
+			mode = "fallback";
+			r = await fallbackMode(o, stamp, `${err.message}; showing the upstream CHANGELOG only`);
+		}
 	} else {
 		mode = "fallback";
 		r = await fallbackMode(o, stamp, `${o.sourceDir} is not a git checkout with an \`upstream\` remote`);
