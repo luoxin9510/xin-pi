@@ -60,3 +60,6 @@ The owner wants xin-pi to become his own agent for good. This supersedes earlier
 27. MIT: keep the original copyright notice, add the owner's line; README says it is based on pi by earendil-works.
 28. Order: 01 (in progress, adapted to 25) → slim (23) → rename (24) → native codemode background → port the rest
     → /upstream → docs → freeze pi-pipipi → owner's look and switch.
+
+29. (2026-11-09) No compatibility aliases for old `@earendil-works/*` imports in third-party extensions (pi-roost,
+    critic-guy, pi-mobile, ...). They are ported to xpi later if needed; until then they may fail to load under xpi.
