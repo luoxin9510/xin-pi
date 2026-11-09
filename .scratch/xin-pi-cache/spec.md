@@ -167,20 +167,22 @@ Background-result messages need no change (E4: the note is appended, the cache p
   more; ticket 2 runs the existing subagent evals (haiku, 17 cases) before and after.
 - Date in the tail: a day rollover is only an expected invalidation of the tail now; it was not forced in E2.
 
-## Open questions
+## Resolved questions
 
-1. Generic API or subagent-only? Recommendation: generic and small (`cacheBreakpoints` on `SystemMessage`, decision 1).
+Answered by the owner on 2026-11-09: every recommendation below is accepted as the decision.
+
+1. Generic API or subagent-only? Decided: generic and small (`cacheBreakpoints` on `SystemMessage`, decision 1).
    A subagent-only hack would need a marker in the text or a provider fork; the generic form costs about the same code, is
    testable by type, and lets the main agent use it later (for example project context vs volatile `cwd`).
-2. Relative path rendering changes the main agent's prompt text. Recommendation: accept, because main also benefits when
+2. Relative path rendering changes the main agent's prompt text. Decided: accept, because main also benefits when
    it runs in worktrees and the path is still unique (`AGENTS.md` vs `~/.pi/agent/AGENTS.md`). Alternative: render the
    relative form only when `tail` is set, which keeps main byte-identical; costs one branch. Decide in review.
-3. pi's own `<skills>` section lists skill files with absolute paths; project-level skills in a worktree differ. Recommendation:
+3. pi's own `<skills>` section lists skill files with absolute paths; project-level skills in a worktree differ. Decided:
    keep it in the head, and let ticket 2's payload comparison (main checkout vs worktree) decide; if it differs, put skills
    with the worktree-dependent paths in the tail.
-4. Stagger threshold (minimum siblings, minimum prefix size). Recommendation: none; boolean only. N >= 2 is the
+4. Stagger threshold (minimum siblings, minimum prefix size). Decided: none; boolean only. N >= 2 is the
    only case where it can matter, and the docs state when to enable it. Add `staggerMinSiblings` only if the owner
    finds the 2-3 s cost bites for pairs.
-5. Stagger release signal. Recommendation: release on the earliest rpc event showing the first request has started
+5. Stagger release signal. Decided: release on the earliest rpc event showing the first request has started
    streaming, with a 5 s timeout; ticket 3 checks which event exists and falls back to the first assistant event
    (E3's measured +1.8-3.1 s) if none does.
