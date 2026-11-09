@@ -56,12 +56,13 @@ function install(): void {
 	process.on("exit", leave);
 	for (const s of SIGNALS) {
 		const h = () => {
-			// With no other handler the signal would have ended the process: let it, the children are signalled now.
+			// Another handler (pi's own graceful quit) owns the signal: let it stop the children first (session_shutdown
+			// marks them stopped and resumable); the "exit" handler then sweeps whatever is still alive.
+			if (process.listenerCount(s) > 1) return;
+			// With no other handler the signal would have ended the process: signal the children, then let it.
 			leave();
-			if (process.listenerCount(s) === 1) {
-				uninstall();
-				process.kill(process.pid, s);
-			}
+			uninstall();
+			process.kill(process.pid, s);
 		};
 		handlers.set(s, h);
 		process.on(s, h);
