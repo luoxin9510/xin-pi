@@ -149,6 +149,12 @@ interface CallScope {
 	nextId: number;
 	/** Set inside a call that holds the exclusive queue, so its own nested calls do not wait on it. */
 	holdsQueue: boolean;
+	/**
+	 * The calling tool returned early and keeps running (a codemode script moved to the background).
+	 * The scope outlives `takeRecord()` and `clear()` until `release()`, so ids keep counting and
+	 * later calls and their usage keep going into the same recorder.
+	 */
+	detached?: boolean;
 }
 
 function textOf(result: AgentToolResult<unknown>): string {
@@ -252,12 +258,38 @@ export class NestedToolCallRunner {
 	/** Remove and return the record of the nested calls a model-issued call made. */
 	takeRecord(toolCallId: string): NestedCallSummary | undefined {
 		const scope = this.scopes.get(toolCallId);
-		this.scopes.delete(toolCallId);
 		if (!scope) return undefined;
+		// A detached scope stays: the calling tool is still running and makes more calls.
+		if (!scope.detached) this.scopes.delete(toolCallId);
 		return { calls: scope.recorder.snapshot(), usage: scope.recorder.totalUsage };
 	}
 
+	/**
+	 * Keep the scope of `callerId` alive after its tool call returned early. Call it before the
+	 * tool result is emitted; `release()` ends it when the tool really finishes.
+	 */
+	detach(callerId: string): void {
+		let scope = this.scopes.get(callerId);
+		if (!scope) {
+			scope = { recorder: new NestedCallRecorder(), nextId: 1, holdsQueue: false };
+			this.scopes.set(callerId, scope);
+		}
+		scope.detached = true;
+	}
+
+	/** End a detached scope; returns everything it recorded (the calls and usage over its whole life). */
+	release(callerId: string): NestedCallSummary | undefined {
+		const scope = this.scopes.get(callerId);
+		if (!scope?.detached) return undefined;
+		this.scopes.delete(callerId);
+		return { calls: scope.recorder.snapshot(), usage: scope.recorder.totalUsage };
+	}
+
+	/** Drop every scope except detached ones and the scopes of calls running below them. */
 	clear(): void {
-		this.scopes.clear();
+		const detached = [...this.scopes].filter(([, scope]) => scope.detached).map(([id]) => id);
+		for (const id of [...this.scopes.keys()]) {
+			if (!detached.some((root) => id === root || id.startsWith(`${root}/`))) this.scopes.delete(id);
+		}
 	}
 }

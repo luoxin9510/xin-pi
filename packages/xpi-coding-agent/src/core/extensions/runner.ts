@@ -378,6 +378,8 @@ export class ExtensionRunner {
 	private getSystemPromptOptionsFn: () => BuildSystemPromptOptions = () =>
 		normalizeBuildSystemPromptOptions({ cwd: this.cwd });
 	private executeToolFn: ExtensionContextActions["executeTool"];
+	private detachNestedCallsFn: ExtensionContextActions["detachNestedCalls"];
+	private releaseNestedCallsFn: ExtensionContextActions["releaseNestedCalls"];
 	private getCallableToolsFn: () => readonly AgentTool[] = () => [];
 	/** Registered MCP servers already reported as unhandled. */
 	private readonly reportedMcpServers = new Set<string>();
@@ -452,6 +454,8 @@ export class ExtensionRunner {
 		this.getSystemPromptOptionsFn =
 			contextActions.getSystemPromptOptions ?? (() => normalizeBuildSystemPromptOptions({ cwd: this.cwd }));
 		this.executeToolFn = contextActions.executeTool;
+		this.detachNestedCallsFn = contextActions.detachNestedCalls;
+		this.releaseNestedCallsFn = contextActions.releaseNestedCalls;
 		this.getCallableToolsFn = contextActions.getCallableTools ?? (() => []);
 
 		// Servers registered from now on reach the extension that connects them right away. Servers
@@ -992,6 +996,9 @@ export class ExtensionRunner {
 					return runner.executeToolFn(toolCallId, name, args, { ...options, signal: options.signal ?? signal });
 				},
 			},
+			detachNestedCalls: { value: () => runner.detachNestedCallsFn?.(toolCallId) },
+			// Not guarded by assertActive(): a script that ends after a reload must still release its scope.
+			releaseNestedCalls: { value: () => runner.releaseNestedCallsFn?.(toolCallId) },
 		});
 	}
 

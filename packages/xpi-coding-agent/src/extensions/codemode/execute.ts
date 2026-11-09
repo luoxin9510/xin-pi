@@ -31,6 +31,7 @@ import { formatSize, sliceHead, sliceTail } from "../../core/tools/truncate.ts";
 import { combineUsage } from "../../core/usage-totals.ts";
 import { writeOutputFile } from "../../utils/output-files.ts";
 import { Bm25Ranker, createToolSearchDocument, DEFAULT_TOOL_SEARCH_LIMIT } from "../tool-search/tool.ts";
+import { beginCodemodeScript } from "./scripts.ts";
 import {
 	CODEMODE_DOCS_PATH,
 	CODEMODE_STORE_ENTRY_TYPE,
@@ -489,7 +490,7 @@ function toScriptValue(tool: AgentTool<any>, outcome: AgentToolCallOutcome): unk
  * Run one script. Without a session context (a plain Agent or a direct call) scripts cannot call
  * tools, `store()` starts empty, and writes are dropped.
  */
-export async function executeCodemode(
+async function runCodemode(
 	toolCallId: string,
 	input: CodemodeToolInput,
 	signal: AbortSignal | undefined,
@@ -648,6 +649,72 @@ export async function executeCodemode(
 		details,
 		...(modelUsage ? { usage: modelUsage } : {}),
 		...(result.ok ? {} : { isError: true }),
+	};
+}
+
+/**
+ * Run one script. The script is registered with `codemodeScripts`: a caller may move it to the background, which
+ * returns this call early (`details.background`) while the script keeps running, detached from `signal` (the turn's
+ * abort). Nothing calling `background()` leaves the call as it always was.
+ */
+export async function executeCodemode(
+	toolCallId: string,
+	input: CodemodeToolInput,
+	signal: AbortSignal | undefined,
+	onUpdate: ((result: AgentToolResult<CodemodeToolDetails>) => void) | undefined,
+	ctx: ExtensionToolContext | undefined,
+	options: CodemodeToolOptions = {},
+): Promise<AgentToolResult<CodemodeToolDetails>> {
+	// Without a session there is nobody to move or stop the script.
+	if (!ctx) return runCodemode(toolCallId, input, signal, onUpdate, undefined, options);
+	const script = beginCodemodeScript(toolCallId, ctx.sessionManager.getSessionId(), signal);
+	let latest: CodemodeToolDetails = { calls: [] };
+	const run = runCodemode(
+		toolCallId,
+		input,
+		script.signal,
+		(update) => {
+			latest = update.details ?? latest;
+			if (script.isForeground()) onUpdate?.(update);
+		},
+		ctx,
+		options,
+	);
+	const finished = run.then(
+		() => "done" as const,
+		() => "done" as const,
+	);
+	const first = await Promise.race([finished, script.moved]);
+	if (first === "done") {
+		try {
+			const result = await run;
+			script.end({ result });
+			return result;
+		} catch (error) {
+			script.end({ error: error as Error });
+			throw error;
+		}
+	}
+	// Keep the nested-call scope alive: ids continue and later calls are recorded, until the script really ends.
+	ctx.detachNestedCalls?.();
+	run.then(
+		(result) => {
+			ctx.releaseNestedCalls?.();
+			script.end({ result });
+		},
+		(error) => {
+			ctx.releaseNestedCalls?.();
+			script.end({ error: error as Error });
+		},
+	);
+	return {
+		content: [{ type: "text", text: first }],
+		details: {
+			...latest,
+			calls: latest.calls.map((call) => ({ ...call })),
+			background: true,
+			scriptId: script.info.id,
+		},
 	};
 }
 

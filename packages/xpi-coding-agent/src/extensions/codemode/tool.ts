@@ -108,6 +108,10 @@ export interface CodemodeToolDetails {
 	calls: CodemodeNestedCall[];
 	/** Temp file with the full text output, when the output was truncated. */
 	fullOutputPath?: string;
+	/** The script was moved to the background: this result came early and the script keeps running. */
+	background?: boolean;
+	/** Id of the script in `codemodeScripts`, set with `background`. */
+	scriptId?: string;
 }
 
 export const codemodeToolSystemPromptContribution = {

@@ -794,6 +794,10 @@ export class AgentSession {
 		args: unknown,
 		options: ExecuteToolOptions,
 	): Promise<AgentToolCallOutcome> {
+		return this._getNestedToolCalls().execute(parentToolCallId, name, args, options);
+	}
+
+	private _getNestedToolCalls(): NestedToolCallRunner {
 		this._nestedToolCalls ??= new NestedToolCallRunner({
 			getTools: () => this._getCallableTools(),
 			isSequential: () => this.agent.toolExecution === "sequential",
@@ -821,7 +825,7 @@ export class AgentSession {
 				this._emit(event);
 			},
 		});
-		return this._nestedToolCalls.execute(parentToolCallId, name, args, options);
+		return this._nestedToolCalls;
 	}
 
 	/** Whether `projection`, the current session projection, exceeds the compaction threshold of `model`. */
@@ -3620,6 +3624,8 @@ export class AgentSession {
 				getSystemPrompt: () => this.systemPrompt,
 				getSystemPromptOptions: () => this._baseSystemPromptOptions,
 				executeTool: (callerId, name, args, options) => this._executeNestedToolCall(callerId, name, args, options),
+				detachNestedCalls: (callerId) => this._getNestedToolCalls().detach(callerId),
+				releaseNestedCalls: (callerId) => void this._nestedToolCalls?.release(callerId),
 				getCallableTools: () => this._getCallableTools(),
 			},
 			{

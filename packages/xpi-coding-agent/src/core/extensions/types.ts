@@ -413,6 +413,14 @@ export interface ExtensionToolContext extends ExtensionContext {
 	 * errors come back as `isError: true`.
 	 */
 	executeTool(name: string, args: unknown, options?: ExecuteToolOptions): Promise<AgentToolCallOutcome>;
+	/**
+	 * Call before this tool call returns early while its work (and its `executeTool()` calls) goes on, as when a
+	 * codemode script moves to the background. The nested-call ids keep counting and later calls and usage are
+	 * kept, instead of being dropped when the result is recorded or the run ends.
+	 */
+	detachNestedCalls?(): void;
+	/** End what `detachNestedCalls()` started, when the work really finishes. */
+	releaseNestedCalls?(): void;
 }
 
 /**
@@ -2277,6 +2285,10 @@ export interface ExtensionContextActions {
 		args: unknown,
 		options: ExecuteToolOptions,
 	) => Promise<AgentToolCallOutcome>;
+	/** Backs `ExtensionToolContext.detachNestedCalls()`. */
+	detachNestedCalls?: (callerId: string) => void;
+	/** Backs `ExtensionToolContext.releaseNestedCalls()`. */
+	releaseNestedCalls?: (callerId: string) => void;
 	/** Backs `ExtensionToolContext.tools`. */
 	getCallableTools?: () => readonly AgentTool[];
 }
