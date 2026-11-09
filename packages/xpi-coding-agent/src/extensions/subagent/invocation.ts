@@ -31,8 +31,8 @@ export function piInvocation(
 	return { command: "xpi", args: [] };
 }
 
-// An explicit command wins: the `pipipi.piCommand` setting, then PIPIPI_TEST_PI (suites run against another build).
+// An explicit command wins: the `subagent.piCommand` setting, then XPI_SUBAGENT_TEST_PI (suites run against another build).
 export function childInvocation(piCommand: string | undefined): Invocation {
-	const explicit = piCommand ?? process.env.PIPIPI_TEST_PI;
+	const explicit = piCommand ?? process.env.XPI_SUBAGENT_TEST_PI;
 	return explicit ? { command: explicit, args: [] } : piInvocation();
 }

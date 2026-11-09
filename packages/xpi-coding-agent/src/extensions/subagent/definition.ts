@@ -42,7 +42,7 @@ const INERT_FIELDS = [
 	"experimental",
 ];
 
-export const inertNotice = (field: string) => `field "${field}" has no effect in pi-pipipi`;
+export const inertNotice = (field: string) => `field "${field}" has no effect in subagent`;
 
 class Skip extends Error {}
 

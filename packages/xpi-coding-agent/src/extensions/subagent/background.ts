@@ -1,4 +1,4 @@
-// Background scripts (v3a): a codemode script that starts a subagent moves to the background. pi-pipipi registers a
+// Background scripts (v3a): a codemode script that starts a subagent moves to the background. subagent registers a
 // `codemode` tool that wraps pi's own; the wrapper returns to main as soon as the script starts an `Agent`, lets the
 // script run on, and hands main the script's return value as a message when it ends.
 
@@ -164,7 +164,7 @@ export function endMessage(
 }
 
 // Register the wrapper. `deliver` hands main a message (the extension entry decides triggerTurn or steer).
-// With `enabled()` false (pipipi.backgroundScripts: false) or no UI (print mode) the wrapper passes every call straight
+// With `enabled()` false (subagent.backgroundScripts: false) or no UI (print mode) the wrapper passes every call straight
 // to pi's codemode.
 export function installBackground(
 	pi: ExtensionAPI,
@@ -267,7 +267,7 @@ export function installBackground(
 					const { state, text, allFailed } = settle(result, err);
 					deliver(endMessage(script, state, text, parent, allFailed));
 				} catch (e) {
-					console.error(`pi-pipipi: could not deliver the end of script ${script.id}: ${(e as Error).message}`); // never crash pi
+					console.error(`subagent: could not deliver the end of script ${script.id}: ${(e as Error).message}`); // never crash pi
 				}
 			};
 			run.then(

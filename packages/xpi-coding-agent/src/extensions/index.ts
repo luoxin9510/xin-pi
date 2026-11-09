@@ -2,7 +2,7 @@ import type { InlineExtension } from "../core/extensions/types.ts";
 import codemodeExtension from "./codemode/index.ts";
 import llamaExtension from "./llama/index.ts";
 import mcpExtension from "./mcp/index.ts";
-import pipipiExtension from "./pipipi/index.ts";
+import subagentExtension from "./subagent/index.ts";
 import toolSearchExtension from "./tool-search/index.ts";
 
 export const builtInExtensions: InlineExtension[] = [
@@ -12,6 +12,6 @@ export const builtInExtensions: InlineExtension[] = [
 	{ name: "codemode", factory: codemodeExtension, replaceable: true, builtin: true },
 	{ name: "tool-search", factory: toolSearchExtension, replaceable: true, builtin: true },
 	{ name: "mcp", factory: mcpExtension, replaceable: true, builtin: true },
-	// Not replaceable: pipipi must never be silently dropped. Disable it with `-builtin:pipipi`.
-	{ name: "pipipi", factory: pipipiExtension, builtin: true },
+	// Not replaceable: subagent must never be silently dropped. Disable it with `-builtin:subagent`.
+	{ name: "subagent", factory: subagentExtension, builtin: true },
 ];

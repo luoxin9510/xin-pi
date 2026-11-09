@@ -266,11 +266,11 @@ export function resolveChild(
 	return {
 		command: invocation.command,
 		args,
-		// A codemode-only child gets `codemode` in mode "only" from the pipipi extension itself (index.ts).
+		// A codemode-only child gets `codemode` in mode "only" from the subagent extension itself (index.ts).
 		env: {
 			...(process.env as Record<string, string>),
-			PIPIPI_DEPTH: "1",
-			...(codemode ? { PIPIPI_CHILD_CODEMODE: "only" } : {}),
+			XPI_SUBAGENT_DEPTH: "1",
+			...(codemode ? { XPI_SUBAGENT_CHILD_CODEMODE: "only" } : {}),
 		},
 		cwd,
 		systemPrompt: system.text,

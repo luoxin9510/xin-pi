@@ -104,7 +104,7 @@ const BACKGROUND_RULES = [
 	"output, status and cost as a message. It does not move the script to the background.",
 ];
 
-// pipipi.backgroundScripts: false: scripts always wait; only an explicit `true` detaches an agent.
+// subagent.backgroundScripts: false: scripts always wait; only an explicit `true` detaches an agent.
 const DETACHED_RULES = [
 	'Scripts wait for their agents. `run_in_background: true` makes a call return at once with status "running" and the',
 	"agentId (output is empty); the agent finishes on its own and you get its output, status and cost as a message.",
@@ -286,7 +286,7 @@ export function agentTool(getConfig: () => Config, description: string, deliver:
 					try {
 						deliver(content);
 					} catch (err) {
-						console.error(`pi-pipipi: could not deliver the end of agent ${agentId}: ${(err as Error).message}`); // never crash pi
+						console.error(`subagent: could not deliver the end of agent ${agentId}: ${(err as Error).message}`); // never crash pi
 					}
 				};
 				run.then(

@@ -1,5 +1,5 @@
 // `/subagents`: pick one of the session's subagents, newest first. Opening one shows the subagent screen.
-// `/subagents worktrees`: the kept `pipipi/*` worktrees of the current checkout, and removal of the ones the user picks.
+// `/subagents worktrees`: the kept `subagent/*` worktrees of the current checkout, and removal of the ones the user picks.
 
 import type { ExtensionCommandContext } from "../../core/extensions/types.ts";
 import { label, modelInfo, registry, type SubagentRecord } from "./registry.ts";
@@ -16,24 +16,24 @@ export async function subagentsCommand(ctx: ExtensionCommandContext, args = ""):
 		const { agents, scripts } = await stopEverything(ctx.sessionManager.getSessionId());
 		return ctx.ui.notify(
 			agents + scripts === 0
-				? "pi-pipipi: nothing is running"
-				: `pi-pipipi: stopped ${agents} subagent${agents === 1 ? "" : "s"} and ${scripts} script${scripts === 1 ? "" : "s"}`,
+				? "subagent: nothing is running"
+				: `subagent: stopped ${agents} subagent${agents === 1 ? "" : "s"} and ${scripts} script${scripts === 1 ? "" : "s"}`,
 			"info",
 		);
 	}
 	if (args.trim() !== "")
 		return ctx.ui.notify(
-			`pi-pipipi: unknown argument "${args.trim()}"; use /subagents, /subagents stop or /subagents worktrees`,
+			`subagent: unknown argument "${args.trim()}"; use /subagents, /subagents stop or /subagents worktrees`,
 			"warning",
 		);
 	if (!ctx.sessionManager.getSessionFile()) {
 		return ctx.ui.notify(
-			"pi-pipipi: subagents of an in-memory session cannot be viewed (the session is not saved)",
+			"subagent: subagents of an in-memory session cannot be viewed (the session is not saved)",
 			"info",
 		);
 	}
 	const rows = registry.list(ctx.sessionManager.getSessionId());
-	if (rows.length === 0) return ctx.ui.notify("pi-pipipi: this session has no subagents yet", "info");
+	if (rows.length === 0) return ctx.ui.notify("subagent: this session has no subagents yet", "info");
 	const labels = rows.map(line);
 	const choice = await ctx.ui.select("Subagents", labels);
 	if (choice === undefined) return;
@@ -70,14 +70,14 @@ export async function worktreesCommand(ctx: ExtensionCommandContext): Promise<vo
 	for (;;) {
 		const found = await listWorktrees(ctx.cwd);
 		if (found.length === 0)
-			return removedAny ? undefined : ctx.ui.notify("pi-pipipi: no kept worktrees in this checkout", "info");
+			return removedAny ? undefined : ctx.ui.notify("subagent: no kept worktrees in this checkout", "info");
 		const rows = found.map(worktreeRow);
 		const choice = await ctx.ui.select("Kept worktrees (pick one to remove)", rows);
 		if (choice === undefined) return;
 		const picked = found[rows.indexOf(choice)]!;
 		if (isRunning(picked)) {
 			ctx.ui.notify(
-				`pi-pipipi: agent ${picked.agentId} is still running in ${picked.ref.path}; stop it (or wait) before removing its worktree`,
+				`subagent: agent ${picked.agentId} is still running in ${picked.ref.path}; stop it (or wait) before removing its worktree`,
 				"warning",
 			);
 			continue;
@@ -87,9 +87,9 @@ export async function worktreesCommand(ctx: ExtensionCommandContext): Promise<vo
 			await removeWorktree(picked.ref);
 			registry.markWorktreeRemoved(picked.agentId);
 			removedAny = true;
-			ctx.ui.notify(`pi-pipipi: removed worktree ${picked.ref.path} and branch ${picked.ref.branch}`, "info");
+			ctx.ui.notify(`subagent: removed worktree ${picked.ref.path} and branch ${picked.ref.branch}`, "info");
 		} catch (err) {
-			ctx.ui.notify(`pi-pipipi: could not remove the worktree: ${(err as Error).message}`, "error");
+			ctx.ui.notify(`subagent: could not remove the worktree: ${(err as Error).message}`, "error");
 			return;
 		}
 	}

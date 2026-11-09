@@ -1,4 +1,4 @@
-// pi-pipipi extension entry: register the `Agent` tool for codemode scripts.
+// subagent extension entry: register the `Agent` tool for codemode scripts.
 
 import type { ExtensionAPI, ExtensionContext } from "../../core/extensions/types.ts";
 import { createCodemodeExtension } from "../codemode/index.ts";
@@ -11,11 +11,11 @@ import { installPanel } from "./panel.ts";
 import { registry } from "./registry.ts";
 import { subagentsCommand } from "./subagents-command.ts";
 
-export default function pipipi(pi: ExtensionAPI) {
-	// Children run with PIPIPI_DEPTH=1. Nesting is fixed at one level, so they get no Agent tool. A codemode-only child
+export default function subagent(pi: ExtensionAPI) {
+	// Children run with XPI_SUBAGENT_DEPTH=1. Nesting is fixed at one level, so they get no Agent tool. A codemode-only child
 	// gets `codemode` in mode "only" here, which replaces pi's built-in codemode extension.
-	if (process.env.PIPIPI_DEPTH) {
-		if (process.env.PIPIPI_CHILD_CODEMODE === "only") createCodemodeExtension({ mode: "only" })(pi);
+	if (process.env.XPI_SUBAGENT_DEPTH) {
+		if (process.env.XPI_SUBAGENT_CHILD_CODEMODE === "only") createCodemodeExtension({ mode: "only" })(pi);
 		return;
 	}
 
@@ -27,13 +27,13 @@ export default function pipipi(pi: ExtensionAPI) {
 		current = ctx;
 	};
 
-	// Wraps codemode so a script that starts an Agent moves to the background (unless pipipi.backgroundScripts is false).
+	// Wraps codemode so a script that starts an Agent moves to the background (unless subagent.backgroundScripts is false).
 	// Delivery to main: a steer when it runs, else a turn starts.
 	let closing = false; // the session is ending: its stops send nothing to main
 	// pi routes `triggerTurn` + `steer` itself: streaming -> steer, otherwise (idle, compacting) a run starts.
 	const deliver = (content: string) =>
 		!closing &&
-		pi.sendMessage({ customType: "pi-pipipi", content, display: true }, { triggerTurn: true, deliverAs: "steer" });
+		pi.sendMessage({ customType: "subagent", content, display: true }, { triggerTurn: true, deliverAs: "steer" });
 	installBackground(pi, deliver, () => config?.backgroundScripts !== false);
 
 	pi.registerCommand("subagents", {
@@ -63,9 +63,9 @@ export default function pipipi(pi: ExtensionAPI) {
 		closing = false;
 		track(_event, ctx);
 		try {
-			config = readConfig((pi.getSettings() as { pipipi?: unknown }).pipipi);
+			config = readConfig((pi.getSettings() as { subagent?: unknown }).subagent);
 		} catch (err) {
-			if (ctx.hasUI) ctx.ui.notify(`pi-pipipi: ${(err as Error).message}`, "error");
+			if (ctx.hasUI) ctx.ui.notify(`subagent: ${(err as Error).message}`, "error");
 			throw err;
 		}
 		limitConcurrency(config.maxConcurrent);
@@ -75,7 +75,7 @@ export default function pipipi(pi: ExtensionAPI) {
 			note: (content) =>
 				!closing &&
 				pi.sendMessage(
-					{ customType: "pi-pipipi", content, display: true },
+					{ customType: "subagent", content, display: true },
 					current!.isIdle() ? undefined : { deliverAs: "steer" },
 				),
 		});
@@ -86,7 +86,7 @@ export default function pipipi(pi: ExtensionAPI) {
 		);
 		if (ctx.hasUI) {
 			installPanel(() => current!, config);
-			for (const warning of [...warnings, ...discovery.warnings]) ctx.ui.notify(`pi-pipipi: ${warning}`, "warning");
+			for (const warning of [...warnings, ...discovery.warnings]) ctx.ui.notify(`subagent: ${warning}`, "warning");
 		}
 	});
 }

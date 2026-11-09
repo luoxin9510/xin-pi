@@ -212,7 +212,7 @@ export class Panel {
 
 // Wire the panel into a session: the widget, and the key hook that feeds it. Installing again (a new session in the
 // same pi process) takes the old panel down first.
-const KEY = "pipipi-panel";
+const KEY = "subagent-panel";
 let installed: { panel?: Panel; removeHook: () => void } | undefined;
 
 export function installPanel(current: () => ExtensionContext, config: Config): void {

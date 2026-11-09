@@ -41,7 +41,7 @@ export const RESULT_LIMIT = 8000; // bytes (UTF-8)
 export function capText(text: string, parent: SessionRef, name: string): string {
 	const bytes = Buffer.from(text);
 	if (bytes.length <= RESULT_LIMIT) return text;
-	const dir = parent.sessionFile ? subagentSessionDir(parent) : mkdtempSync(join(tmpdir(), "pipipi-"));
+	const dir = parent.sessionFile ? subagentSessionDir(parent) : mkdtempSync(join(tmpdir(), "subagent-"));
 	mkdirSync(dir, { recursive: true });
 	const file = join(dir, `${name}-${Date.now()}.txt`);
 	writeFileSync(file, text);

@@ -9,7 +9,7 @@ import { basename, dirname, join, relative, resolve, sep } from "node:path";
 export interface WorktreeRef {
 	root: string; // the main checkout (git root of the parent's cwd)
 	path: string; // <root>/.pi/worktrees/<agentId>
-	branch: string; // pipipi/<agentId>
+	branch: string; // subagent/<agentId>
 	base: string; // commit the worktree started from
 	subdir?: string; // the parent's cwd relative to the checkout; the child starts in the same directory inside the worktree
 	removed?: "user"; // `/subagents worktrees` removed it (and its branch) while it held changes: a resume must not recreate it
@@ -91,7 +91,7 @@ export async function planWorktree(cwd: string, agentId: string): Promise<Worktr
 	} catch {
 		throw new Error(`isolation "worktree" needs a commit to start from: the repository at ${root} has no commits`);
 	}
-	return { root, path: join(root, ".pi", "worktrees", agentId), branch: `pipipi/${agentId}`, base };
+	return { root, path: join(root, ".pi", "worktrees", agentId), branch: `subagent/${agentId}`, base };
 }
 
 // Append `line` to the repository's info/exclude once (also used for local agent memory).
@@ -293,7 +293,7 @@ export interface WorktreeInfo {
 	outcome: WorktreeOutcome; // changed: false = nothing in it yet
 }
 
-// The `pipipi/*` worktrees of the main checkout that `cwd` belongs to (also when `cwd` is inside one of them), from
+// The `subagent/*` worktrees of the main checkout that `cwd` belongs to (also when `cwd` is inside one of them), from
 // `git worktree list --porcelain`. Outside a repository: none.
 export async function listWorktrees(cwd: string): Promise<WorktreeInfo[]> {
 	let out: string;
@@ -321,9 +321,9 @@ export async function listWorktrees(cwd: string): Promise<WorktreeInfo[]> {
 	const found: WorktreeInfo[] = [];
 	const dir = join(root, ".pi", "worktrees") + sep;
 	for (const { path } of entries.slice(1)) {
-		// By location, not branch name: a detached or renamed branch still belongs to the agent. Its branch is pipipi/<id>.
+		// By location, not branch name: a detached or renamed branch still belongs to the agent. Its branch is subagent/<id>.
 		if (path === undefined || !path.startsWith(dir) || !existsSync(path)) continue;
-		const branch = `pipipi/${basename(path)}`;
+		const branch = `subagent/${basename(path)}`;
 		const head = await gitLine(path, ["rev-parse", "HEAD"]);
 		const base =
 			mainHead === undefined
@@ -333,7 +333,7 @@ export async function listWorktrees(cwd: string): Promise<WorktreeInfo[]> {
 						throw err;
 					});
 		const ref: WorktreeRef = { root, path, branch, base };
-		found.push({ agentId: branch.slice("pipipi/".length), ref, outcome: await inspect(ref) });
+		found.push({ agentId: branch.slice("subagent/".length), ref, outcome: await inspect(ref) });
 	}
 	return found;
 }

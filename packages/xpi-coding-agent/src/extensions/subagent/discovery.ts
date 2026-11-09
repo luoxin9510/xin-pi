@@ -12,7 +12,7 @@ export const BUILTIN_DIR = join(
 	packageDir,
 	existsSync(join(packageDir, "src")) ? "src" : "dist",
 	"extensions",
-	"pipipi",
+	"subagent",
 	"builtin",
 );
 

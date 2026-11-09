@@ -101,7 +101,7 @@ export function runChild(
 	if (signal?.aborted) return Promise.reject(new Error("aborted"));
 
 	const started = Date.now();
-	const tmp = mkdtempSync(join(tmpdir(), "pipipi-"));
+	const tmp = mkdtempSync(join(tmpdir(), "subagent-"));
 	const systemPromptFile = join(tmp, "system-prompt.md");
 	writeFileSync(systemPromptFile, spec.systemPrompt);
 	const argv = [...spec.args, "--system-prompt", systemPromptFile];
@@ -131,7 +131,7 @@ export function runChild(
 		const send = (command: Record<string, unknown>) => {
 			child.stdin.write(`${JSON.stringify(command)}\n`);
 		};
-		const PROMPT_ID = "pipipi-prompt";
+		const PROMPT_ID = "subagent-prompt";
 		let modelRequests = 0; // set_model request ids
 		const requests = new Map<string, (error: string | undefined) => void>(); // commands waiting for pi's response
 
@@ -319,7 +319,7 @@ export function runChild(
 			setModel: (provider, modelId) =>
 				new Promise((resolve) => {
 					if (settled || finished) return resolve("the subagent is not running");
-					const id = `pipipi-model-${modelRequests++}`;
+					const id = `subagent-model-${modelRequests++}`;
 					requests.set(id, resolve);
 					send({ id, type: "set_model", provider, modelId });
 				}),
