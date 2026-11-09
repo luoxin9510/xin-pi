@@ -3,7 +3,7 @@
 import type { ExtensionAPI, ExtensionContext } from "../../core/extensions/types.ts";
 import { createCodemodeExtension } from "../codemode/index.ts";
 import { agentTool, describeAgents, parentContext } from "./agent-tool.ts";
-import { installBackground, scripts } from "./background.ts";
+import { scripts } from "./background.ts";
 import { type Config, readConfig } from "./config.ts";
 import { discoverAgents } from "./discovery.ts";
 import { bindHost, limitConcurrency } from "./exchange.ts";
@@ -27,14 +27,15 @@ export default function subagent(pi: ExtensionAPI) {
 		current = ctx;
 	};
 
-	// Wraps codemode so a script that starts an Agent moves to the background (unless subagent.backgroundScripts is false).
+	// A codemode script that starts an Agent moves to the background (codemode's `codemodeScripts` does the moving; unless
+	// subagent.backgroundScripts is false, or there is no UI: print mode exits at the turn's end, so it stays in front).
 	// Delivery to main: a steer when it runs, else a turn starts.
 	let closing = false; // the session is ending: its stops send nothing to main
 	// pi routes `triggerTurn` + `steer` itself: streaming -> steer, otherwise (idle, compacting) a run starts.
 	const deliver = (content: string) =>
 		!closing &&
 		pi.sendMessage({ customType: "subagent", content, display: true }, { triggerTurn: true, deliverAs: "steer" });
-	installBackground(pi, deliver, () => config?.backgroundScripts !== false);
+	let disconnect: (() => void) | undefined;
 
 	pi.registerCommand("subagents", {
 		description:
@@ -69,6 +70,16 @@ export default function subagent(pi: ExtensionAPI) {
 			throw err;
 		}
 		limitConcurrency(config.maxConcurrent);
+		disconnect?.();
+		disconnect = scripts.connect({
+			sessionId: () => current?.sessionManager.getSessionId(),
+			enabled: () => config?.backgroundScripts !== false && current?.hasUI === true,
+			deliver,
+			parent: () => ({
+				sessionFile: current!.sessionManager.getSessionFile(),
+				sessionId: current!.sessionManager.getSessionId(),
+			}),
+		});
 		bindHost({
 			config: () => config!,
 			// Main running: the note steers it (no new turn). Main idle: it is stored, and no turn starts.

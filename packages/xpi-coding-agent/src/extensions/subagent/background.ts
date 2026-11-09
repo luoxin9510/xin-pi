@@ -1,16 +1,15 @@
-// Background scripts (v3a): a codemode script that starts a subagent moves to the background. subagent registers a
-// `codemode` tool that wraps pi's own; the wrapper returns to main as soon as the script starts an `Agent`, lets the
-// script run on, and hands main the script's return value as a message when it ends.
+// Background scripts (v3a policy): a codemode script that starts a subagent moves to the background. The mechanism (the
+// early return, the detached script, stop, the nested-call bookkeeping) is the codemode built-in's `codemodeScripts`;
+// this file keeps the policy: when to move, the registry rows the panel shows, and the end message handed to main.
 
-import type { ExtensionAPI, ExtensionContext } from "../../core/extensions/types.ts";
-import { createCodemodeExtension } from "../codemode/index.ts";
+import { type CodemodeScriptEnd, codemodeScripts } from "../codemode/scripts.ts";
 import { registry } from "./registry.ts";
 import { capText } from "./sessions.ts";
 
 export type ScriptState = "foreground" | "background" | "completed" | "failed" | "stopped";
 
 export interface ScriptRecord {
-	id: string; // S1, S2, ...
+	id: string; // S1, S2, ... (the controller's script id)
 	callId: string; // the codemode tool call id; the script's Agent calls have ids "<callId>/<n>"
 	sessionId: string; // the main session the script belongs to
 	state: ScriptState;
@@ -21,12 +20,23 @@ export interface ScriptRecord {
 	endedAt?: number;
 }
 
+/** What the registry needs from the extension instance it follows. */
+export interface ScriptLink {
+	sessionId(): string | undefined; // the session this extension instance belongs to
+	enabled(): boolean;
+	deliver(content: string): void;
+	parent(): { sessionFile: string | undefined; sessionId: string };
+}
+
+const BACKGROUND_TEXT = (id: string) =>
+	`Script moved to the background (id ${id}) and keeps running. Its result arrives as a message when it ends. Do not wait or poll; end your turn or do other work.`;
+
+const textOf = (result: { content?: { type: string; text?: string }[] } | undefined) =>
+	(result?.content ?? []).map((c) => c.text ?? "").join("");
+
 class ScriptRegistry {
 	private scripts = new Map<string, ScriptRecord>();
-	private movers = new Map<string, () => void>(); // script id -> move this foreground script to the background
-	private stoppers = new Map<string, () => Promise<void>>(); // script id -> stop this running script
 	private listeners = new Set<() => void>();
-	private counter = 0;
 	private keepEnded = 50; // ended scripts kept for the panel's linger; older ones are dropped
 
 	list(sessionId: string): ScriptRecord[] {
@@ -37,12 +47,12 @@ class ScriptRegistry {
 		return this.scripts.get(id);
 	}
 
-	// The script whose codemode call id prefixes this tool call id (nested ids are "<codemode id>/<n>"). A provider may
-	// reuse call ids: the newest active script wins.
+	// The running script whose codemode call id prefixes this tool call id (nested ids are "<codemode id>/<n>"). A
+	// provider may reuse call ids: the controller picks the newest.
 	owner(toolCallId: string): ScriptRecord | undefined {
-		return [...this.scripts.values()]
-			.reverse()
-			.find((s) => (s.state === "foreground" || s.state === "background") && toolCallId.startsWith(`${s.callId}/`));
+		const info = codemodeScripts.owner(toolCallId);
+		const script = info && this.scripts.get(info.id);
+		return script && (script.state === "foreground" || script.state === "background") ? script : undefined;
 	}
 
 	subscribe(listener: () => void): () => void {
@@ -50,22 +60,59 @@ class ScriptRegistry {
 		return () => this.listeners.delete(listener);
 	}
 
-	start(callId: string, sessionId: string, move: () => void, stop: () => Promise<void>): ScriptRecord {
-		const script: ScriptRecord = {
-			id: `S${++this.counter}`,
-			callId,
-			sessionId,
-			state: "foreground",
-			stopRequested: false,
-			pinned: false,
-			agents: [],
-			startedAt: Date.now(),
-		};
-		this.scripts.set(script.id, script);
-		this.movers.set(script.id, move);
-		this.stoppers.set(script.id, stop);
-		this.changed();
-		return script;
+	// Follow the codemode controller for one session: track its scripts, and hand main the end of each background script
+	// through `link.deliver`. With `enabled()` false (subagent.backgroundScripts: false, or no UI: print mode exits at the
+	// turn's end, so a background result would be lost) scripts are neither tracked nor moved. Returns the disposer.
+	connect(link: ScriptLink): () => void {
+		return codemodeScripts.subscribe({
+			onStart: (info) => {
+				if (info.sessionId !== link.sessionId() || !link.enabled()) return;
+				this.scripts.set(info.id, {
+					id: info.id,
+					callId: info.toolCallId,
+					sessionId: info.sessionId,
+					state: "foreground",
+					stopRequested: false,
+					pinned: false,
+					agents: [],
+					startedAt: info.startedAt,
+				});
+				this.changed();
+			},
+			onBackground: (info) => {
+				const script = this.scripts.get(info.id);
+				if (script) this.setState(script, "background");
+			},
+			onEnd: (info, outcome) => {
+				const script = this.scripts.get(info.id);
+				if (script) this.ended(script, outcome, link);
+			},
+		});
+	}
+
+	// How the script ended: stopped; failed (an error result, a throw, or every agent it ran failed or was stopped);
+	// else completed. A background script's end goes to main as a message.
+	private ended(script: ScriptRecord, outcome: CodemodeScriptEnd, link: ScriptLink): void {
+		const everyAgentFailed =
+			script.agents.length > 0 &&
+			script.agents.every((a) => ["failed", "stopped"].includes(registry.get(a)?.status ?? ""));
+		const state: ScriptState =
+			script.stopRequested || outcome.stopped
+				? "stopped"
+				: outcome.error || outcome.result?.isError || everyAgentFailed
+					? "failed"
+					: "completed";
+		this.setState(script, state);
+		if (!outcome.background) return;
+		try {
+			// `text` is what an end message shows: the error, or the return value. `allFailed`: it returned normally but
+			// every agent it ran failed or was stopped.
+			const allFailed = !outcome.error && !outcome.result?.isError && state === "failed";
+			const text = outcome.error ? outcome.error.message : textOf(outcome.result);
+			link.deliver(endMessage(script, state, text, link.parent(), allFailed));
+		} catch (e) {
+			console.error(`subagent: could not deliver the end of script ${script.id}: ${(e as Error).message}`); // never crash pi
+		}
 	}
 
 	// An Agent call is about to start. `false` pins its foreground script (later calls do not move it); `true` leaves the
@@ -76,7 +123,7 @@ class ScriptRegistry {
 		if (script.stopRequested) throw new Error(`script ${script.id} is being stopped`);
 		if (runInBackground === false) script.pinned = true;
 		else if (runInBackground === undefined && script.state === "foreground" && !script.pinned)
-			this.movers.get(script.id)!();
+			codemodeScripts.background(script.id, BACKGROUND_TEXT(script.id));
 	}
 
 	addAgent(toolCallId: string, agentId: string): void {
@@ -90,35 +137,30 @@ class ScriptRegistry {
 		script.state = state;
 		if (state !== "foreground" && state !== "background") {
 			script.endedAt = Date.now();
-			this.movers.delete(script.id);
-			this.stoppers.delete(script.id);
 			const ended = [...this.scripts.values()].filter((x) => x.endedAt !== undefined);
 			for (const old of ended.slice(0, Math.max(0, ended.length - this.keepEnded))) this.scripts.delete(old.id);
 		}
 		this.changed();
 	}
 
-	// Move a foreground script to the background (ctrl+b): the wrapper's race resolves and the codemode call returns.
-	background(id: string): boolean {
-		const script = this.scripts.get(id);
-		if (!script || script.state !== "foreground") return false;
-		this.movers.get(script.id)!();
-		return true;
-	}
-
-	// Move every foreground script of the session; true when there was one.
+	// Move every foreground script of the session this extension tracks to the background (ctrl+b); true when there was
+	// one. Nothing is tracked with subagent.backgroundScripts: false.
 	backgroundAll(sessionId: string): boolean {
-		return this.list(sessionId).filter((s) => this.background(s.id)).length > 0;
+		let any = false;
+		for (const s of this.list(sessionId)) {
+			if (s.state === "foreground") any = codemodeScripts.background(s.id, BACKGROUND_TEXT(s.id)) || any;
+		}
+		return any;
 	}
 
 	// Stop a running script (the panel's `x` calls this): its running agents stop (failed / "stopped by user"), then the
 	// script is aborted and ends `stopped`; main gets the usual end message. False when the script is not running.
 	async stop(id: string): Promise<boolean> {
 		const script = this.scripts.get(id);
-		const stopper = script && this.stoppers.get(script.id);
-		if (!stopper) return false;
-		await stopper();
-		return true;
+		if (!script || (script.state !== "foreground" && script.state !== "background")) return false;
+		script.stopRequested = true; // from here on the script's Agent calls throw (agentStarting)
+		await registry.stopAll(script.agents); // each running agent ends failed / "stopped by user"
+		return codemodeScripts.stop(id); // the script itself, and any agent still waiting for a slot
 	}
 
 	// Stop every running script of the session (session end, reload).
@@ -132,12 +174,6 @@ class ScriptRegistry {
 }
 
 export const scripts = new ScriptRegistry();
-
-const BACKGROUND_TEXT = (id: string) =>
-	`Script moved to the background (id ${id}) and keeps running. Its result arrives as a message when it ends. Do not wait or poll; end your turn or do other work.`;
-
-const textOf = (result: { content?: { type: string; text?: string }[] } | undefined) =>
-	(result?.content ?? []).map((c) => c.text ?? "").join("");
 
 // `allFailed`: the script returned normally (text is its return value) but every agent it ran failed or was stopped.
 export function endMessage(
@@ -161,120 +197,4 @@ export function endMessage(
 				: `Return value:\n${text}`,
 		agents.length > 0 ? `Agents:\n${agents.join("\n")}` : "Agents: none",
 	].join("\n");
-}
-
-// Register the wrapper. `deliver` hands main a message (the extension entry decides triggerTurn or steer).
-// With `enabled()` false (subagent.backgroundScripts: false) or no UI (print mode) the wrapper passes every call straight
-// to pi's codemode.
-export function installBackground(
-	pi: ExtensionAPI,
-	deliver: (content: string) => void,
-	enabled: () => boolean,
-	codemode: (pi: ExtensionAPI) => void = createCodemodeExtension(), // tests pass a stand-in
-): void {
-	let def: any;
-	const capture = new Proxy(pi, {
-		get: (t, k) =>
-			k === "registerTool"
-				? (d: any) => {
-						def = d;
-					}
-				: (t as any)[k],
-	});
-	codemode(capture);
-
-	pi.registerTool({
-		...def,
-		async execute(
-			id: string,
-			params: unknown,
-			signal: AbortSignal | undefined,
-			onUpdate: any,
-			ctx: ExtensionContext,
-		) {
-			// No UI (print mode): pi exits when the turn ends, so a background result would be lost; keep the script in front.
-			if (!enabled() || !ctx.hasUI) return def.execute(id, params, signal, onUpdate, ctx);
-			const own = new AbortController(); // not tied to main's turn once the script is in the background
-			let moved!: () => void;
-			const background = new Promise<"background">((r) => {
-				moved = () => r("background");
-			});
-			const abort = () => own.abort();
-			const parent = {
-				sessionFile: ctx.sessionManager.getSessionFile(),
-				sessionId: ctx.sessionManager.getSessionId(),
-			};
-			const script = scripts.start(
-				id,
-				parent.sessionId,
-				() => {
-					scripts.setState(script, "background");
-					signal?.removeEventListener("abort", abort);
-					moved();
-				},
-				async () => {
-					script.stopRequested = true; // from here on the script's Agent calls throw (agentStarting)
-					await registry.stopAll(script.agents); // each running agent ends failed / "stopped by user"
-					own.abort(); // the script itself, and any agent still waiting for a slot
-				},
-			);
-			// How the script ended: stopped; failed (an error result, a throw, or every agent it ran failed or was stopped);
-			// else completed. `text` is what an end message shows: the error, or the return value.
-			const settle = (result?: { isError?: boolean; content?: { type: string; text?: string }[] }, err?: Error) => {
-				const everyAgentFailed =
-					script.agents.length > 0 &&
-					script.agents.every((a) => ["failed", "stopped"].includes(registry.get(a)?.status ?? ""));
-				const state: ScriptState =
-					script.stopRequested || own.signal.aborted
-						? "stopped"
-						: err || result?.isError || everyAgentFailed
-							? "failed"
-							: "completed";
-				scripts.setState(script, state);
-				const returned = !err && !result?.isError && state === "failed"; // it ended normally, but every agent failed
-				return { state, text: err ? err.message : textOf(result), allFailed: returned };
-			};
-			if (signal?.aborted) abort();
-			else signal?.addEventListener("abort", abort, { once: true });
-
-			const run = def.execute(
-				id,
-				params,
-				own.signal,
-				(u: unknown) => script.state === "foreground" && onUpdate?.(u),
-				ctx,
-			);
-			const first = await Promise.race([
-				run.then(
-					() => "done" as const,
-					() => "done" as const,
-				),
-				background,
-			]);
-			if (first === "done") {
-				signal?.removeEventListener("abort", abort);
-				try {
-					const result = await run;
-					settle(result);
-					return result;
-				} catch (err) {
-					settle(undefined, err as Error);
-					throw err;
-				}
-			}
-			const ended = (result?: any, err?: Error) => {
-				try {
-					const { state, text, allFailed } = settle(result, err);
-					deliver(endMessage(script, state, text, parent, allFailed));
-				} catch (e) {
-					console.error(`subagent: could not deliver the end of script ${script.id}: ${(e as Error).message}`); // never crash pi
-				}
-			};
-			run.then(
-				(result: any) => ended(result),
-				(err: Error) => ended(undefined, err),
-			);
-			return { content: [{ type: "text", text: BACKGROUND_TEXT(script.id) }] };
-		},
-	});
 }
