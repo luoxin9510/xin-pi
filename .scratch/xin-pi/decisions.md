@@ -63,3 +63,8 @@ The owner wants xin-pi to become his own agent for good. This supersedes earlier
 
 29. (2026-11-09) No compatibility aliases for old `@earendil-works/*` imports in third-party extensions (pi-roost,
     critic-guy, pi-mobile, ...). They are ported to xpi later if needed; until then they may fail to load under xpi.
+
+30. (2026-11-09) Inside xpi, pipipi is renamed `subagent` everywhere: built-in `builtin:subagent` (`-builtin:subagent`),
+    directory `packages/<coding-agent>/src/extensions/subagent/`, settings namespace `subagent.*` (was `pipipi.*`),
+    message customType `subagent` (was `pi-pipipi`), env vars `XPI_SUBAGENT_*` (was `PIPIPI_*`), docs and UI text
+    "subagent" where they said pipipi. The pi-pipipi repo keeps its own name.
