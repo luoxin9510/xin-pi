@@ -1,6 +1,6 @@
 # xin-pi: a pi distribution with pipipi built in
 
-Status: needs-owner-approval
+Status: ready-for-agent (owner approved 2026-11-09)
 
 Decisions behind this spec: `decisions.md`, "Grill 1" (2026-11-09), items 1-8. Facts with file paths: `facts.md`.
 pi-pipipi design history: `~/Developer/pi-pipipi/.scratch/` (v1, v2, v3a) and `~/Developer/pi-pipipi/docs/porting.md`.
