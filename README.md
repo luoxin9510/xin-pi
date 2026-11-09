@@ -75,10 +75,8 @@ This monorepo contains the Pi CLI and its supporting libraries.
 
 | Package | Description |
 |---------|-------------|
-| **[@earendil-works/chord](packages/chord)** | Object runtime for apps across processes: contracts, documents, a store, links, plugins with hot reload, HTTP, workers, web and terminal clients |
 | **[@earendil-works/pi-telemetry](packages/telemetry)** | Vendor-neutral telemetry contracts, reference adapter, conformance tests, and typed schemas |
 | **[@earendil-works/pi-ai](packages/ai)** | Unified multi-provider LLM API (OpenAI, Anthropic, Google, etc.) |
-| **[@earendil-works/pi-durable](packages/durable)** | Durable conversation, task, and document runtime |
 | **[@earendil-works/pi-agent-core](packages/agent)** | Agent runtime with tool calling and state management |
 | **[@earendil-works/pi-coding-agent](packages/coding-agent)** | Interactive coding agent CLI |
 | **[@earendil-works/pi-tui](packages/tui)** | Terminal UI library with differential rendering |
@@ -128,7 +126,7 @@ its Pi dependencies from the same artifact set. npm is the default:
 node scripts/use-local-packages.mjs \
   --manifest .artifacts/pi-packages/manifest.json \
   --consumer ../my-project \
-  --package @earendil-works/pi-durable \
+  --package @earendil-works/pi-ai \
   --package @earendil-works/pi-agent-core
 cd ../my-project
 npm install --ignore-scripts
