@@ -5,10 +5,13 @@ import { scripts } from "./background.ts";
 import { registry } from "./registry.ts";
 
 export async function stopEverything(sessionId: string): Promise<{ agents: number; scripts: number }> {
-  const agents = registry.list(sessionId).filter((r) => r.status === "running").map((r) => r.id);
-  const running = scripts.list(sessionId).filter((s) => s.state === "foreground" || s.state === "background").length;
-  await scripts.stopAll(sessionId);
-  registry.abortQueuedOf(sessionId);
-  await registry.stopAll(agents);
-  return { agents: agents.length, scripts: running };
+	const agents = registry
+		.list(sessionId)
+		.filter((r) => r.status === "running")
+		.map((r) => r.id);
+	const running = scripts.list(sessionId).filter((s) => s.state === "foreground" || s.state === "background").length;
+	await scripts.stopAll(sessionId);
+	registry.abortQueuedOf(sessionId);
+	await registry.stopAll(agents);
+	return { agents: agents.length, scripts: running };
 }
