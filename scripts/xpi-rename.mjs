@@ -105,25 +105,48 @@ const dirMap = new Map(PACKAGES.map((entry) => [entry.oldDir, entry.newName]));
 const envMap = new Map(ENV_VARS.map((name) => [name, `X${name}`]));
 
 // `pi-monorepo` is a bare word; it must not be part of a longer identifier (`xpi-monorepo`).
-const scopedNameRegex = new RegExp(`${alt([...nameMap.keys()].filter((name) => name.startsWith("@")))}${NAME_END}`, "g");
+// Also matches the regex-escaped form `@earendil-works\/pi-ai` found inside regular expression literals.
+const scopedNameRegex = new RegExp(`${alt([...nameMap.keys()].filter((name) => name.startsWith("@"))).replaceAll("/", "\\\\?/")}${NAME_END}`, "g");
 const bareNameRegex = new RegExp(`(?<![A-Za-z0-9_@/.-])pi-monorepo${NAME_END}`, "g");
 const dirRegex = new RegExp(`(?<![A-Za-z0-9_-])packages/(${alt(dirMap.keys())})${NAME_END}`, "g");
+// Cross-package relative paths (`../../tui/src/x.ts`): rewritten only when they resolve to packages/<oldDir> from the
+// file's own location, so an inner directory that happens to be called `agent` or `ai` is left alone.
+const relativeDirRegex = new RegExp(`((?:\\.\\./)+)(${alt(dirMap.keys())})${NAME_END}`, "g");
+const joinedDirRegex = new RegExp(`("packages",\\s*")(${alt(dirMap.keys())})(")`, "g");
 const envRegex = new RegExp(`(?<![A-Za-z0-9_])(${alt(envMap.keys())})(?![A-Za-z0-9_])`, "g");
 
 // Anything still under the old scope after rewriting, other than the explicit keeps, is reported.
-const leftoverScopeRegex = new RegExp(`@earendil-works/(?!(?:${alt(KEEP_SCOPED.map((name) => name.split("/")[1]))})${NAME_END})[A-Za-z0-9_.-]*`, "g");
+const leftoverScopeRegex = new RegExp(`@earendil-works\\\\?/(?!(?:${alt(KEEP_SCOPED.map((name) => name.split("/")[1]))})${NAME_END})[A-Za-z0-9_.-]*`, "g");
 const leftoverOldDirRegex = dirRegex;
 const leftoverEnvRegex = envRegex;
 
-export function translate(text) {
+function translateRelativeDirs(line, file) {
+	if (!file) return line;
+	return line.replace(relativeDirRegex, (match, ups, dir) => {
+		const resolved = resolve(dirname(file), ups, dir);
+		return dirname(resolved) === join(repoRoot, "packages") ? `${ups}${dirMap.get(dir)}` : match;
+	});
+}
+
+// URLs point at the original project (or npm) and stay as they are.
+function guardUrl(line, replace) {
+	return (match, ...rest) => {
+		const offset = rest[rest.length - 2];
+		const tokenStart = Math.max(line.lastIndexOf(" ", offset), line.lastIndexOf("(", offset), line.lastIndexOf("\"", offset), line.lastIndexOf("`", offset), line.lastIndexOf("'", offset)) + 1;
+		return line.slice(tokenStart, offset).includes("://") ? match : replace(match, ...rest);
+	};
+}
+
+export function translate(text, file) {
 	return text
 		.split("\n")
 		.map((line) => {
 			if (line.includes(KEEP_MARKER)) return line;
-			return line
-				.replace(scopedNameRegex, (match) => nameMap.get(match) ?? match)
+			return translateRelativeDirs(line, file)
+				.replace(scopedNameRegex, guardUrl(line, (match) => nameMap.get(match.replace("\\/", "/")) ?? match))
 				.replace(bareNameRegex, "xpi-monorepo")
-				.replace(dirRegex, (_match, dir) => `packages/${dirMap.get(dir)}`)
+				.replace(dirRegex, guardUrl(line, (_match, dir) => `packages/${dirMap.get(dir)}`))
+				.replace(joinedDirRegex, (_match, open, dir, close) => `${open}${dirMap.get(dir)}${close}`)
 				.replace(envRegex, (match) => envMap.get(match) ?? match);
 		})
 		.join("\n");
@@ -133,13 +156,14 @@ export function findLeftovers(text) {
 	const found = [];
 	text.split("\n").forEach((line, index) => {
 		if (line.includes(KEEP_MARKER)) return;
-		const hits = [
-			...(line.match(leftoverScopeRegex) ?? []),
-			...(line.match(bareNameRegex) ?? []),
-			...(line.match(leftoverOldDirRegex) ?? []),
-			...(line.match(leftoverEnvRegex) ?? []),
-		];
-		for (const hit of hits) found.push({ line: index + 1, hit });
+		for (const regex of [leftoverScopeRegex, bareNameRegex, leftoverOldDirRegex, leftoverEnvRegex]) {
+			for (const match of line.matchAll(regex)) {
+				const before = line.slice(0, match.index);
+				const tokenStart = Math.max(before.lastIndexOf(" "), before.lastIndexOf("("), before.lastIndexOf("\""), before.lastIndexOf("`"), before.lastIndexOf("'")) + 1;
+				if (regex !== leftoverEnvRegex && before.slice(tokenStart).includes("://")) continue;
+				found.push({ line: index + 1, hit: match[0] });
+			}
+		}
 	});
 	return found;
 }
@@ -230,7 +254,7 @@ function main() {
 	for (const file of current) {
 		const text = readText(file);
 		if (text === undefined) continue;
-		const next = translate(text);
+		const next = translate(text, file);
 		if (next === text) continue;
 		changed++;
 		console.log(`${dryRun ? "would change" : "rewrote"} ${relative(repoRoot, file)}`);
