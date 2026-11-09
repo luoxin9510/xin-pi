@@ -25,7 +25,6 @@ type UpdateTarget = { type: "all" } | { type: "self" } | { type: "extensions"; s
 /** What `xpi update` says about updating xpi itself. */
 export const SELF_UPDATE_DISABLED = `${APP_NAME} is installed from source; rebuild and reinstall — see docs/xin-pi.md`;
 
-const _DEFAULT_INSTALLER_API_BASE = "https://pi.dev/api/installer/releases";
 const MANAGED_INSTALL_MARKER = "managed-install.json";
 const MANAGED_RELEASE_VERSION_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 

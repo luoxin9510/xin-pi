@@ -14,10 +14,9 @@ const outputLockfilePath = join(outputDir, "package-lock.json");
 const internalPackagePrefix = "xpi-";
 const internalPackageNames = new Set();
 const installPackageName = "xpi-coding-agent-install";
-const allowedInstallScriptPackages = new Map([
-	["@google/genai@2.21.0", "preinstall is a no-op in the published package"],
-	["protobufjs@7.6.6", "postinstall only warns about protobufjs version scheme mismatches"],
-]);
+// The bundle inlines xpi-ai and the other workspace packages, so their third-party dependencies (for example
+// @google/genai, protobufjs) are not installed with the CLI and need no entry here.
+const allowedInstallScriptPackages = new Map([]);
 
 const args = new Set(process.argv.slice(2));
 const checkOnly = args.has("--check");
