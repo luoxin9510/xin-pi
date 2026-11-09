@@ -6,7 +6,7 @@ In interactive mode, use `/settings` to change common preferences. For other opt
 
 ## Agent directory
 
-The agent directory is shown as `<agent-dir>` below. Set its location with the `PI_CODING_AGENT_DIR` environment variable or the SDK's [`agentDir`](sdk.md) option.
+The agent directory is shown as `<agent-dir>` below. Set its location with the `XPI_CODING_AGENT_DIR` environment variable or the SDK's [`agentDir`](sdk.md) option.
 
 | Path | Responsibility |
 |---|---|
