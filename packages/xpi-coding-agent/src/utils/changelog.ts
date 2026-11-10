@@ -9,7 +9,9 @@ export interface ChangelogEntry {
 }
 
 const GITHUB_REPO = "earendil-works/pi";
-const CHANGELOG_LINK_BASE_PATH = "packages/xpi-coding-agent";
+// The changelog entries come from upstream pi and their links go to its repository at the entry's tag, where this
+// package still has its upstream directory name.
+const CHANGELOG_LINK_BASE_PATH = "packages/coding-agent"; // xpi-rename-keep
 const LEGACY_REPO_RE = /^https:\/\/github\.com\/(?:badlogic|earendil-works)\/pi-mono(?=\/|$)/;
 const URL_SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i;
 const INLINE_MARKDOWN_LINK_RE = /(!?\[[^\]\n]+\]\()([^\s)]+)((?:\s+[^)]*)?\))/g;

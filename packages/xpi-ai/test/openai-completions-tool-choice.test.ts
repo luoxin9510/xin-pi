@@ -1140,7 +1140,7 @@ describe("openai-completions tool_choice", () => {
 		expect(grepCall).not.toHaveProperty("partialArgs");
 		expect(listCall.id).toBe("tc_list_no_index");
 		expect(listCall.name).toBe("list");
-		expect(listCall.arguments).toEqual({ path: "packages/xpi-ai" });
+		expect(listCall.arguments).toEqual({ path: "packages/ai" }); // xpi-rename-keep: joined from two fixture deltas
 		expect(listCall).not.toHaveProperty("streamIndex");
 		expect(listCall).not.toHaveProperty("partialArgs");
 		expect(writeCall.id).toBe("tc_write_no_index");

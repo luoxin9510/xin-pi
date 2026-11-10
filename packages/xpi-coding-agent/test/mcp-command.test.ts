@@ -105,12 +105,12 @@ describe("pi mcp", () => {
 			const signedOut = await run(["list"], radius, undefined, async () => undefined);
 			expect(signedOut.exitCode).toBe(1);
 			expect(signedOut.output).toContain("radius: needs sign-in (codemode, global)");
-			expect(signedOut.output).toContain("  sign in with: /login radius in pi");
+			expect(signedOut.output).toContain("  sign in with: /login radius in xpi");
 
 			for (const command of ["login", "logout"]) {
 				expect(await run([command, "radius"], radius)).toMatchObject({
 					exitCode: 1,
-					output: `MCP server "radius" uses the credentials of provider "radius". Run "pi auth ${command} radius".`,
+					output: `MCP server "radius" uses the credentials of provider "radius". Run "xpi auth ${command} radius".`,
 				});
 			}
 		} finally {
@@ -204,7 +204,7 @@ describe("pi mcp", () => {
 			undefined,
 			agentDir,
 		);
-		expect(oauth.output).toContain("If it requires sign-in: pi mcp login sentry");
+		expect(oauth.output).toContain("If it requires sign-in: xpi mcp login sentry");
 		expect(readConfig(join(agentDir, "mcp.json")).mcpServers).toMatchObject({
 			sentry: { url: "https://mcp.sentry.dev/mcp", oauth: { clientId: "pi", clientName: "Claude Code" } },
 		});

@@ -38,7 +38,7 @@ function leave(): void {
 		if (!GROUPS) continue;
 		try {
 			const seconds = Math.max(0.1, graceMs / 1000);
-			spawn("sh", ["-c", `sleep ${seconds}; kill -KILL -- -${child.pid} 2>/dev/null`], {
+			spawn("sh", ["-c", `sleep ${seconds}; kill -s KILL -- -${child.pid} 2>/dev/null`], {
 				detached: true,
 				stdio: "ignore",
 			}).unref();
