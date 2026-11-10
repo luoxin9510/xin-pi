@@ -182,7 +182,8 @@ preloaded skills, memory, working directory, date). The main agent's prompt has 
 the content with trailing spaces, tabs and CR removed per line; a paged read fingerprints the whole file as it streams;
 an image read records nothing). `edit` and `write` over an existing file verify it inside the per-path mutation queue
 and throw `File <path> has not been read in this session. Read it before editing.` or `File <path> changed since you
-last read it. Read it again before editing.`; a successful edit or write records the new content. Nothing is persisted,
+last read it. Read it again before editing.` (`write` ends `before overwriting it`); recording continues while the
+setting is off; a successful edit or write records the new content. Nothing is persisted,
 so resume, fork and subagent children start empty. Setting `staleEditGuard` (default true) turns it off. Tools made
 alone (`createEditTool(cwd)`) have no store and are unguarded; the multi-tool factories create one. This follows Claude
 Code's rule; upstream pi has no such check. User docs: `settings.md#edit-and-write-safety`.

@@ -320,7 +320,7 @@ export function createReadToolDefinition(
 								// Read text content. Convert offset from 1-indexed input to 0-indexed line access.
 								const startLine = offset ? Math.max(0, offset - 1) : 0;
 								const startLineDisplay = startLine + 1;
-								const fingerprint = fileState?.enabled ? new TextFingerprint() : undefined;
+								const fingerprint = fileState ? new TextFingerprint() : undefined;
 								const { totalFileLines, truncation, firstLineBytes } =
 									ops.createReadStream && isStreamableRange(offset, limit)
 										? await selectLinesFromStream(

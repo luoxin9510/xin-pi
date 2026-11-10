@@ -190,7 +190,7 @@ export function createEditToolDefinition(
 				throwIfAborted();
 
 				if (fileState?.enabled) {
-					await fileState.verify(absolutePath, path, fingerprintText(rawContent));
+					await fileState.verify(absolutePath, path, fingerprintText(rawContent), "editing");
 					throwIfAborted();
 				}
 

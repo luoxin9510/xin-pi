@@ -101,7 +101,13 @@ export function createWriteToolDefinition(
 						if (!isMissingFileError(error)) throw error;
 					}
 					throwIfAborted();
-					if (existing) await fileState.verify(absolutePath, path, fingerprintText(existing.toString("utf-8")));
+					if (existing)
+						await fileState.verify(
+							absolutePath,
+							path,
+							fingerprintText(existing.toString("utf-8")),
+							"overwriting it",
+						);
 				}
 
 				// Create parent directories if needed.

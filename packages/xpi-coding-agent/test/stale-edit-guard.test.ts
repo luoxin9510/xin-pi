@@ -33,8 +33,11 @@ describe("stale-edit guard", () => {
 	}
 
 	const file = (name: string) => join(dir, name);
-	const NOT_READ = (name: string) => `File ${name} has not been read in this session. Read it before editing.`;
-	const CHANGED = (name: string) => `File ${name} changed since you last read it. Read it again before editing.`;
+	const NOT_READ = (name: string, action = "editing") =>
+		`File ${name} has not been read in this session. Read it before ${action}.`;
+	const CHANGED = (name: string, action = "editing") =>
+		`File ${name} changed since you last read it. Read it again before ${action}.`;
+	const OVERWRITE = "overwriting it";
 
 	it("refuses to edit a file that was not read", async () => {
 		const t = createTools();
@@ -84,10 +87,10 @@ describe("stale-edit guard", () => {
 	it("refuses to overwrite an existing file that was not read or that changed, and lets a new file be created", async () => {
 		const t = createTools();
 		writeFileSync(file("a.txt"), "keep me\n");
-		await expect(t.write("a.txt", "x")).rejects.toThrow(NOT_READ("a.txt"));
+		await expect(t.write("a.txt", "x")).rejects.toThrow(NOT_READ("a.txt", OVERWRITE));
 		await t.read("a.txt");
 		writeFileSync(file("a.txt"), "someone else\n");
-		await expect(t.write("a.txt", "x")).rejects.toThrow(CHANGED("a.txt"));
+		await expect(t.write("a.txt", "x")).rejects.toThrow(CHANGED("a.txt", OVERWRITE));
 		expect(readFileSync(file("a.txt"), "utf-8")).toBe("someone else\n");
 
 		await t.write("sub/new.txt", "fresh\n");
@@ -112,7 +115,7 @@ describe("stale-edit guard", () => {
 		const t = createTools();
 		writeFileSync(file("pixel.png"), Buffer.from(TINY_PNG_BASE64, "base64"));
 		await t.read("pixel.png");
-		await expect(t.write("pixel.png", "not an image")).rejects.toThrow(NOT_READ("pixel.png"));
+		await expect(t.write("pixel.png", "not an image")).rejects.toThrow(NOT_READ("pixel.png", OVERWRITE));
 	});
 
 	it("keeps one store per set of tools", async () => {
@@ -123,15 +126,21 @@ describe("stale-edit guard", () => {
 		await expect(second.edit("a.txt", "alpha", "ALPHA")).rejects.toThrow(NOT_READ("a.txt"));
 	});
 
-	it("checks nothing when the store is off, and starts clean when turned on again", async () => {
+	it("checks nothing when off but keeps recording, so turning it on needs no re-read", async () => {
 		const t = createTools();
 		writeFileSync(file("a.txt"), "alpha\n");
+		writeFileSync(file("b.txt"), "beta\n");
 		enabled = false;
 		await t.edit("a.txt", "alpha", "ALPHA");
 		await t.write("a.txt", "rewritten\n");
 		expect(readFileSync(file("a.txt"), "utf-8")).toBe("rewritten\n");
+		await t.read("b.txt");
 		enabled = true;
-		await expect(t.edit("a.txt", "rewritten", "x")).rejects.toThrow(NOT_READ("a.txt"));
+		await t.edit("a.txt", "rewritten", "again");
+		await t.edit("b.txt", "beta", "BETA");
+		expect(readFileSync(file("b.txt"), "utf-8")).toBe("BETA\n");
+		writeFileSync(file("b.txt"), "other\n");
+		await expect(t.edit("b.txt", "other", "x")).rejects.toThrow(CHANGED("b.txt"));
 	});
 
 	it("leaves a tool created alone, without a store, unguarded", async () => {

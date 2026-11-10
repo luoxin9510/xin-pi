@@ -64,8 +64,8 @@ CLI tool options override this setting for one invocation. `--tools` with only `
 
 `edit` and `write` over an existing file compare the file on disk with what the session last saw. The session records the content of every text file `read` returns (a paged read with `offset`/`limit` counts as a read of the whole file; an image read records nothing) and of every file `edit` or `write` leaves behind. The call fails, and the file is not touched, when:
 
-- the file was not read or written in this session: `File <path> has not been read in this session. Read it before editing.`
-- the file changed since then, whoever changed it (bash, a codemode script, a subagent, an editor): `File <path> changed since you last read it. Read it again before editing.`
+- the file was not read or written in this session: `File <path> has not been read in this session. Read it before editing.` (`write` says `before overwriting it`)
+- the file changed since then, whoever changed it (bash, a codemode script, a subagent, an editor): `File <path> changed since you last read it. Read it again before editing.` (`write`: `before overwriting it`)
 
 Trailing spaces, tabs and CR at line ends are ignored when comparing. Creating a new file with `write` needs no read, and edits in a row to the same file need no read in between. Calls from codemode scripts follow the same rules. Nothing is saved with the session: after resume, fork or `/new`, and in a subagent, the first edit of a file needs a read. Set `staleEditGuard` to `false` to turn the check off.
 

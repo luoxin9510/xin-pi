@@ -74,21 +74,28 @@ export class FileStateStore {
 		return this.isEnabled();
 	}
 
-	/** Remember the content of a file as the model now knows it. */
+	/** Remember the content of a file as the model now knows it. Recorded even while the guard is off. */
 	async record(absolutePath: string, fingerprint: string): Promise<void> {
-		if (!this.enabled) return;
 		this.fingerprints.set(await fileKey(absolutePath), fingerprint);
 	}
 
-	/** Throw when the file was not read in this session, or its content differs from the last read or write. */
-	async verify(absolutePath: string, displayPath: string, currentFingerprint: string): Promise<void> {
+	/**
+	 * Throw when the file was not read in this session, or its content differs from the last read or write.
+	 * `action` ends the message: "editing" or "overwriting it". Does nothing while the guard is off.
+	 */
+	async verify(
+		absolutePath: string,
+		displayPath: string,
+		currentFingerprint: string,
+		action: "editing" | "overwriting it",
+	): Promise<void> {
 		if (!this.enabled) return;
 		const known = this.fingerprints.get(await fileKey(absolutePath));
 		if (known === undefined) {
-			throw new Error(`File ${displayPath} has not been read in this session. Read it before editing.`);
+			throw new Error(`File ${displayPath} has not been read in this session. Read it before ${action}.`);
 		}
 		if (known !== currentFingerprint) {
-			throw new Error(`File ${displayPath} changed since you last read it. Read it again before editing.`);
+			throw new Error(`File ${displayPath} changed since you last read it. Read it again before ${action}.`);
 		}
 	}
 }
