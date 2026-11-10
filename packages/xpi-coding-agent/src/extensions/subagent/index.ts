@@ -1,6 +1,8 @@
 // subagent extension entry: register the `Agent` tool for codemode scripts.
 
-import type { ExtensionAPI, ExtensionContext } from "../../core/extensions/types.ts";
+import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "../../core/extensions/types.ts";
+import { isStdoutTakenOver, writeRawStdout } from "../../core/output-guard.ts";
+import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.ts";
 import { createCodemodeExtension } from "../codemode/index.ts";
 import { agentTool, describeAgents, parentContext } from "./agent-tool.ts";
 import { scripts } from "./background.ts";
@@ -11,6 +13,8 @@ import { installPanel } from "./panel.ts";
 import { registry } from "./registry.ts";
 import { registerStructuredOutput } from "./structured-output.ts";
 import { subagentsCommand } from "./subagents-command.ts";
+import { startWorkflow, workflowStartText } from "./workflow-run.ts";
+import { discoverWorkflows, parseArgs } from "./workflows.ts";
 
 export default function subagent(pi: ExtensionAPI) {
 	// Children run with XPI_SUBAGENT_DEPTH=1. Nesting is fixed at one level, so they get no Agent tool. A codemode-only child
@@ -38,6 +42,53 @@ export default function subagent(pi: ExtensionAPI) {
 		!closing &&
 		pi.sendMessage({ customType: "subagent", content, display: true }, { triggerTurn: true, deliverAs: "steer" });
 	let disconnect: (() => void) | undefined;
+
+	// Saved workflows become `/name` commands. A command cannot be unregistered: one registered for an earlier session
+	// stays, and its handler looks the workflow up again when it runs (an edited file runs as edited).
+	const workflowCommands = new Set<string>();
+	const runWorkflowCommand = async (name: string, text: string, ctx: ExtensionCommandContext) => {
+		const workflow = discoverWorkflows(ctx.cwd, ctx.isProjectTrusted()).workflows.get(name);
+		if (!workflow) {
+			const message = `workflow ${name} is not available here (removed, or a project workflow in an untrusted project)`;
+			if (ctx.hasUI) ctx.ui.notify(message, "error");
+			else process.stderr.write(`${message}\n`);
+			return;
+		}
+		const background = config?.backgroundScripts !== false && ctx.hasUI;
+		const start = await startWorkflow(ctx, workflow, parseArgs(text), background);
+		if (start.background) {
+			ctx.ui.notify(workflowStartText(name, start.scriptId), "info");
+			return;
+		}
+		const output = start.result.content.map((c) => (c.type === "text" ? c.text : "")).join("");
+		if (ctx.hasUI) deliver(`Workflow ${name} ${start.result.isError ? "failed" : "completed"}.\n${output}`);
+		// Print mode keeps stdout for the answer and moves other writes to stderr; the workflow's result is the answer.
+		else if (isStdoutTakenOver()) writeRawStdout(`${output}\n`);
+		else process.stdout.write(`${output}\n`);
+	};
+	const registerWorkflows = (ctx: ExtensionContext): string[] => {
+		const { workflows, warnings } = discoverWorkflows(ctx.cwd, ctx.isProjectTrusted());
+		const taken = new Set([
+			...BUILTIN_SLASH_COMMANDS.map((c) => c.name),
+			...pi
+				.getCommands()
+				.map((c) => c.name)
+				.filter((n) => !workflowCommands.has(n)),
+		]);
+		for (const { meta, path } of workflows.values()) {
+			if (taken.has(meta.name)) {
+				warnings.push(`workflow ${path} skipped: /${meta.name} is already a command`);
+				continue;
+			}
+			if (workflowCommands.has(meta.name)) continue;
+			workflowCommands.add(meta.name);
+			pi.registerCommand(meta.name, {
+				description: `${meta.description} (workflow)`,
+				handler: (args, cctx) => runWorkflowCommand(meta.name, args, cctx),
+			});
+		}
+		return warnings;
+	};
 
 	pi.registerCommand("subagents", {
 		description:
@@ -94,7 +145,7 @@ export default function subagent(pi: ExtensionAPI) {
 					current!.isIdle() ? undefined : { deliverAs: "steer" },
 				),
 		});
-		const warnings = registry.rebuild(parentContext(ctx));
+		const warnings = [...registry.rebuild(parentContext(ctx)), ...registerWorkflows(ctx)];
 		const discovery = discoverAgents(ctx.cwd);
 		pi.registerTool(
 			agentTool(() => config!, describeAgents(discovery, config.backgroundScripts, ctx.hasUI), deliver),

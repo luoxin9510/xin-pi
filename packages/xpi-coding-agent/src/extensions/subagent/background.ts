@@ -5,12 +5,14 @@
 import { type CodemodeScriptEnd, codemodeScripts } from "../codemode/scripts.ts";
 import { registry } from "./registry.ts";
 import { capText } from "./sessions.ts";
+import { workflowOf } from "./workflow-run.ts";
 
 export type ScriptState = "foreground" | "background" | "completed" | "failed" | "stopped";
 
 export interface ScriptRecord {
 	id: string; // S1, S2, ... (the controller's script id)
 	callId: string; // the codemode tool call id; the script's Agent calls have ids "<callId>/<n>"
+	workflow?: string; // the saved workflow it runs, when a /name command started it
 	sessionId: string; // the main session the script belongs to
 	state: ScriptState;
 	stopRequested: boolean; // stopped through the registry (the panel x, or the session ending)
@@ -75,6 +77,7 @@ class ScriptRegistry {
 				this.scripts.set(info.id, {
 					id: info.id,
 					callId: info.toolCallId,
+					...(workflowOf(info.toolCallId) ? { workflow: workflowOf(info.toolCallId) } : {}),
 					sessionId: info.sessionId,
 					state: "foreground",
 					stopRequested: false,
@@ -207,7 +210,7 @@ export function endMessage(
 		return r ? `- ${id} ${r.type} ${r.status} $${r.usage.cost.total.toFixed(4)}` : `- ${id}`;
 	});
 	return [
-		`Background script ${script.id} ${state}.`,
+		`Background script ${script.id}${script.workflow ? ` (workflow ${script.workflow})` : ""} ${state}.`,
 		allFailed
 			? `Error: every agent failed\nReturn value:\n${text}`
 			: state === "failed"

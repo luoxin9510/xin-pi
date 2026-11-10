@@ -1022,6 +1022,10 @@ export class ExtensionRunner {
 			this.assertActive();
 			return this.getSystemPromptOptionsFn();
 		};
+		context.createToolContext = (toolCallId, signal) => {
+			this.assertActive();
+			return this.createToolContext(toolCallId, signal);
+		};
 		context.waitForIdle = () => {
 			this.assertActive();
 			return this.waitForIdleFn();
