@@ -94,6 +94,21 @@ function optional<T>(value: unknown, field: string, check: (v: unknown) => boole
 	return value as T;
 }
 
+// Top-level `key: value` lines whose plain value holds ": " (not valid YAML), with the value quoted as a string.
+// Values that start a quoted string, a flow collection, a block scalar, an anchor or a tag are left alone.
+function quotePlainValues(yaml: string): string {
+	return yaml
+		.split("\n")
+		.map((line) => {
+			const match = /^([A-Za-z_][\w-]*):[ \t]+(.+?)[ \t]*$/.exec(line);
+			if (!match) return line;
+			const value = match[2];
+			if (!value.includes(": ") || /^["'[{|>&*!]/.test(value)) return line;
+			return `${match[1]}: ${JSON.stringify(value)}`;
+		})
+		.join("\n");
+}
+
 export function parseDefinition(source: string, text: string): ParseResult {
 	const lines = text.replace(/^﻿/, "").split(/\r?\n/);
 	if (lines[0]?.trim() !== "---") return { ok: false, reason: "file does not start with --- frontmatter" };
@@ -101,10 +116,16 @@ export function parseDefinition(source: string, text: string): ParseResult {
 	if (end === -1) return { ok: false, reason: "frontmatter is not closed with ---" };
 
 	let fm: unknown;
+	const yaml = lines.slice(1, end).join("\n");
 	try {
-		fm = parseYaml(lines.slice(1, end).join("\n"));
+		fm = parseYaml(yaml);
 	} catch (err) {
-		return { ok: false, reason: `invalid YAML: ${(err as Error).message.split("\n")[0]}` };
+		// Claude Code reads `description: Use when: ...` as one string; strict YAML refuses the second colon.
+		try {
+			fm = parseYaml(quotePlainValues(yaml));
+		} catch {
+			return { ok: false, reason: `invalid YAML: ${(err as Error).message.split("\n")[0]}` };
+		}
 	}
 	if (typeof fm !== "object" || fm === null || Array.isArray(fm))
 		return { ok: false, reason: "frontmatter is not a mapping" };
