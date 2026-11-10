@@ -1,6 +1,6 @@
 # 06: Workflows, second part (Claude Code's workflow files, restarting an agent)
 
-Status: draft, NOT approved. Waiting for the owner's answers to Grill 3 (`decisions.md`).
+Status: ready-for-agent (owner approved Grill 3 on 2026-11-10).
 
 ## Problem
 

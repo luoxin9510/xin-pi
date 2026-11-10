@@ -63,7 +63,7 @@ Order
 
 9. Spec 05 first (three small, independent tickets), then spec 04 (the prototypes decide its size).
 
-## Grill 3 (2026-11-10): workflows, second part (`06-workflows-2.md`). PROPOSED, not answered yet
+## Grill 3 (2026-11-10): workflows, second part (`06-workflows-2.md`). All 5 accepted by the owner on 2026-11-10
 
 Each line is worded so "yes" accepts the proposal.
 
