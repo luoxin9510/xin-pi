@@ -15,6 +15,7 @@ import {
 	type SystemMessage,
 	type ToolResultMessage,
 	type ToolStateChanges,
+	type TranscriptContext,
 	toToolDeclaration,
 	validateToolArguments,
 } from "xpi-ai";
@@ -409,14 +410,51 @@ async function streamAssistantResponse(
 	const resolvedApiKey =
 		(config.getApiKey ? await config.getApiKey(config.model.provider) : undefined) || config.apiKey;
 
+	// A request has its own signal, linked to the run's, so one request can be aborted alone.
+	const requestController = new AbortController();
+	const abortRequest = () => requestController.abort();
+	if (signal?.aborted) abortRequest();
+	else signal?.addEventListener("abort", abortRequest, { once: true });
+	try {
+		config.onRequestStart?.(abortRequest);
+		return await streamAssistantRequest(
+			context,
+			config,
+			llmContext,
+			resolvedApiKey,
+			signal,
+			requestController.signal,
+			emit,
+			streamFunction,
+		);
+	} finally {
+		signal?.removeEventListener("abort", abortRequest);
+	}
+}
+
+async function streamAssistantRequest(
+	context: AgentContext,
+	config: AgentLoopConfig,
+	llmContext: TranscriptContext,
+	resolvedApiKey: string | undefined,
+	runSignal: AbortSignal | undefined,
+	requestSignal: AbortSignal,
+	emit: AgentEventSink,
+	streamFunction: StreamFn,
+): Promise<AssistantMessage> {
 	const response = await streamFunction(config.model, llmContext, {
 		...config,
 		apiKey: resolvedApiKey,
 		identity: mergeClientIdentity(DEFAULT_AGENT_IDENTITY, config.identity),
-		signal,
+		signal: requestSignal,
 	});
 	// Record the requested level, whichever stream function answered.
-	const result = async () => Object.assign(await response.result(), { thinkingLevel: config.reasoning ?? "off" });
+	const result = async () => {
+		const final = Object.assign(await response.result(), { thinkingLevel: config.reasoning ?? "off" });
+		// A response that completed although its request was aborted alone must not run its tool calls.
+		if (requestSignal.aborted && !runSignal?.aborted && final.stopReason !== "error") final.stopReason = "aborted";
+		return final;
+	};
 
 	let partialMessage: AssistantMessage | null = null;
 	let addedPartial = false;
