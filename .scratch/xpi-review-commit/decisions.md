@@ -14,7 +14,7 @@ UI, so `/commit` (which needs the owner's confirmation) is an extension command,
 
 Dropped: a package format for workflows and agents (not needed for built-ins).
 
-## Grill 1 (2026-11-10): waiting for the owner
+## Grill 1 (2026-11-10): accepted (owner answered "all yes", 2026-11-11)
 
 Each line is worded so "yes" accepts the proposal.
 

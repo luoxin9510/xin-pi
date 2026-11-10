@@ -1,6 +1,6 @@
 # 02: `/commit` built-in extension
 
-Status: draft, waiting for Grill 1 (`decisions.md`). No code until the owner approves.
+Status: accepted (Grill 1, `decisions.md`). Ticket in `issues/`.
 
 Origin: `omp commit` (agentic pipeline: staged diff, lockfiles hidden, conventional type and scope, past-tense summary
 of at most 72 characters, split plans, changelog; single commits are made without confirmation; hooks are never

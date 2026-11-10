@@ -1,6 +1,6 @@
 # 01: `/review` built-in workflow
 
-Status: draft, waiting for Grill 1 (`decisions.md`). No code until the owner approves.
+Status: accepted (Grill 1, `decisions.md`). Ticket in `issues/`.
 
 Origin: omp's `/review` (a command that builds a prompt; the main agent spawns 1-16 read-only `reviewer` subagents by
 diff size; findings carry priority, confidence and a line range) and Claude Code's code review (parallel reviewers,
