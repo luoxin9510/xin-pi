@@ -29,7 +29,7 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
 - `coding-agent/package.json`: `copy-assets` also copies `src/extensions/subagent/builtin/*.md` to
   `dist/extensions/subagent/builtin`.
 - Running it: `npm install && npm run build`, then `node packages/xpi-coding-agent/dist/bundle/cli.js`, or from sources
-  `./pi-test.sh`. Subagent children run the same build as their parent (`src/extensions/subagent/invocation.ts`).
+  `./xpi-test.sh`. Subagent children run the same build as their parent (`src/extensions/subagent/invocation.ts`).
 - Installing a local build without publishing: `npm run xpi:pack` cleans, builds and writes `dist-pack/xpi-coding-agent-<version>.tgz`
   (gitignored); install it with `npm i -g ./dist-pack/xpi-coding-agent-<version>.tgz`. The tarball is self-contained: the
   bundle inlines `xpi-ai`, `xpi-tui`, `xpi-agent-core`, `xpi-codemode` and `xpi-mcp`, so they are `devDependencies` of
@@ -61,7 +61,7 @@ xin-pi does not merge upstream. The `upstream` remote stays for reading. The for
    For a larger change, cherry-pick, then run the script on the files it touched, or rewrite by hand. Where a changed
    file is one of the xin-pi core changes in this document, rewrite instead of resolving conflicts mechanically.
 3. `node scripts/xpi-rename.mjs --check <paths>` must be clean, then `npm run check`, then the tests of the touched
-   package (see Testing). Add a changelog line if the package keeps one.
+   package (see Testing). No changelog entry: xin-pi keeps none (`AGENTS.md`).
 
 `scripts/xpi-rename.mjs` is table-driven (`PACKAGES`, `NAMES`, `ENV_VARS`, `KEEP_SCOPED`): `node scripts/xpi-rename.mjs`
 rewrites the whole repo, `<path>...` only the given files or directories, `--check` reports leftovers (exit 1),

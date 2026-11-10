@@ -168,7 +168,8 @@ The built-in extensions are named `builtin:mcp`, `builtin:llama.cpp`, `builtin:c
 The built-in `subagent` extension reads its settings from a `subagent` block (`models`, `defaultModel`, `toolMap`,
 `maxConcurrent`, `maxAgentsPerScript`, `childCodemode`, `backgroundScripts`, `fork`, `staggerStart`,
 `shutdownGraceMs`, `panelLingerMs`, `piCommand`). They are listed with their defaults in
-[Subagents: Config](subagent.md#config). The block is not part of the settings schema, so editors do not complete it.
+[Subagents: Config](subagent.md#config). The settings schema describes the block, so editors complete and check it;
+the extension itself validates it at session start and names the wrong key.
 
 ## Updates, telemetry, and warnings
 

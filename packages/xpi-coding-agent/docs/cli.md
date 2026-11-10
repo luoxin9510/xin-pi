@@ -269,36 +269,25 @@ See [Pi Packages](packages.md) for source formats, filtering, installation, and 
 
 Add `--local` or `-l` to `install`, `remove`, `uninstall`, or `config` to use project settings instead of global settings.
 
-### Update Pi or packages
+### Update packages and model catalogs
 
-Running `pi update` without a target updates Pi itself.
+xpi does not update itself. To get a newer xpi, reinstall it the way it was installed: `npm install -g xpi-coding-agent@latest`,
+a newer [release binary](https://github.com/luoxin9510/xin-pi/releases), or a rebuild from source. `pi update` without a
+target says so and exits with status 1.
 
 | Task | Command |
 |---|---|
-| Update Pi | `pi update` |
 | Update all installed packages | `pi update --extensions` |
 | Update one installed package | `pi update <source>` |
 | Refresh model catalogs | `pi update --models` |
-| Update Pi and all installed packages | `pi update --all` |
+| Update all installed packages (and repeat the note about xpi itself) | `pi update --all` |
 
-Add `--force` to reinstall Pi when the selected update includes Pi.
-
-`pi update` cannot update Pi when another package manager provides it, such as Nix. Update Pi with that package manager, for example `nix profile upgrade pi`. Package and model catalog updates still work.
-
-#### Custom update command
-
-xpi does not self-update (reinstall it the way it was installed: `npm install -g xpi-coding-agent@latest`, a newer release binary, or a rebuild from source), so the setting below has no effect in xpi. Upstream pi: if a wrapper or another package manager provides Pi, set `XPI_SELF_UPDATE_COMMAND` so `pi update` runs its update command:
-
-```sh
-export XPI_SELF_UPDATE_COMMAND="mise use -g npm:{packageName}@{version}"
-```
-
-`pi update` runs it only when pi.dev has a newer release, replacing `{packageName}`, `{version}`, and `{installSpec}` (`{packageName}@{version}`) with that release. The value is split on spaces. For arguments with spaces, use the `selfUpdateCommand` setting in `~/.pi/agent/settings.json` instead, an argv array such as `["nix", "profile", "upgrade", "pi"]`.
+The `XPI_SELF_UPDATE_COMMAND` variable and the `selfUpdateCommand` setting of upstream pi have no effect.
 
 ### Aliases and command options
 
 - `pi uninstall <source>` is an alias for `pi remove <source>`.
-- `pi update --self`, `pi update self`, and `pi update pi` are aliases for `pi update`.
+- `pi update --self`, `pi update self`, and `pi update pi` are aliases for `pi update`: they explain how to get a newer xpi.
 - `pi update --extension <source>` is an alias for `pi update <source>`.
 - `-a`, `--approve` trusts project-local files for one command. `-na`, `--no-approve` ignores trust-gated project-local files.
 - Append `-h` or `--help` to a command for its exact usage and option constraints.

@@ -47,7 +47,7 @@ node packages/xpi-coding-agent/dist/bundle/cli.js        # or link it as `xpi`: 
 or run straight from TypeScript sources with the dev launcher, from any directory:
 
 ```bash
-/path/to/xin-pi/pi-test.sh
+/path/to/xin-pi/xpi-test.sh
 ```
 
 Inside xpi, run `/login` to connect a subscription or API key, then give it a task. The upstream installers
@@ -93,7 +93,7 @@ npm run build         # Refresh model data, then build all packages
 npm run build:offline # Rebuild using existing model data without network access
 npm run check         # Lint, format, and type check
 ./test.sh            # Run tests (skips LLM-dependent tests without API keys)
-./pi-test.sh         # Run xpi from sources (can be run from any directory)
+./xpi-test.sh         # Run xpi from sources (can be run from any directory)
 ```
 
 ### Using local packages outside the monorepo
