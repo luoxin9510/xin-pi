@@ -40,6 +40,27 @@ A provider context-overflow error or an early final `stopReason: "length"` can s
 
 You can also trigger manually with `/compact [instructions]`, where optional instructions focus the summary.
 
+### Pruning Old Tool Output First
+
+Before a summary is made, automatic compaction (threshold and overflow recovery, not `/compact`) first replaces the content of old tool results with a short placeholder:
+
+```
+[Tool output removed to save context: about 1200 tokens. Run the tool again if you need it.]
+```
+
+If the re-estimated context is then under the threshold, no summary is made, `session_before_compact` does not fire, and (for overflow recovery) the interrupted turn is retried. Otherwise compaction continues as described below, on the pruned context. Pruning is not a per-turn step, so it never changes a warm prompt cache by itself.
+
+Selection walks the tool results on the current branch from newest to oldest:
+
+- The newest `compaction.prune.protectTokens` (default 40000) of tool output stay whole. Already pruned results count toward this window.
+- Results under 50 estimated tokens are left alone, as are results of reading a skill file (a `read` of a `SKILL.md`), because those carry instructions the model still follows.
+- Entries before the latest compaction are ignored; they are not sent anyway.
+- If the total saving is under `compaction.prune.minSavingsTokens` (default 20000), nothing is pruned.
+
+Each pruned result gets one `context_edit` entry (marked `prune: true`) that replaces its content, images included, with the placeholder. The session file stays append-only, the original output stays in it for `/tree`, fork and export, and the edits follow the branch they were made on. No separate extension event exists; extensions see the `entry_appended` events.
+
+A pruning edit replaces content of an entry that is often below the cut point, but it does not stop a later compaction from cutting past it. The cut point moves into a context-invisible suffix only when no other replacement edit touches earlier input (see Cut Point Rules); pruning edits are exempt from that rule because they only shrink what is summarized.
+
 ### How It Works
 
 1. **Find cut point**: Walk backwards through the finalized session projection, accumulating token estimates until `keepRecentTokens` (default 20k, configurable in `~/.pi/agent/settings.json` or `<project-dir>/.pi/settings.json`) is reached
@@ -296,7 +317,7 @@ Extensions can intercept and customize both compaction and branch summarization.
 
 ### session_before_compact
 
-Fired before auto-compaction or `/compact`. Can cancel or provide custom summary. See `SessionBeforeCompactEvent` and `CompactionPreparation` in the types file.
+Fired before auto-compaction or `/compact`, only when a summary is actually about to be made (not when pruning old tool output was enough). Can cancel or provide custom summary. See `SessionBeforeCompactEvent` and `CompactionPreparation` in the types file.
 
 ```typescript
 pi.on("session_before_compact", async (event, ctx) => {
@@ -423,7 +444,12 @@ Configure compaction in `~/.pi/agent/settings.json` or `<project-dir>/.pi/settin
   "compaction": {
     "enabled": true,
     "reserveTokens": 16384,
-    "keepRecentTokens": 20000
+    "keepRecentTokens": 20000,
+    "prune": {
+      "enabled": true,
+      "protectTokens": 40000,
+      "minSavingsTokens": 20000
+    }
   }
 }
 ```
@@ -433,6 +459,9 @@ Configure compaction in `~/.pi/agent/settings.json` or `<project-dir>/.pi/settin
 | `enabled` | `true` | Enable auto-compaction |
 | `reserveTokens` | `16384` | Free context tokens below which auto-compaction starts |
 | `keepRecentTokens` | `20000` | Recent tokens to keep (not summarized) |
+| `prune.enabled` | `true` | Drop old tool output before summarizing (see above) |
+| `prune.protectTokens` | `40000` | Newest tool output (estimated tokens) kept whole |
+| `prune.minSavingsTokens` | `20000` | Nothing is pruned unless it saves at least this many tokens |
 
 Disable auto-compaction with `"enabled": false`. You can still compact manually with `/compact`.
 
