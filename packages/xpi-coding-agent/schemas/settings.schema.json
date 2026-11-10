@@ -212,6 +212,11 @@
       "type": "boolean",
       "default": false
     },
+    "staleEditGuard": {
+      "type": "boolean",
+      "description": "Make edit and write fail on a file that was not read in this session or changed since it was read.",
+      "default": true
+    },
     "showCacheMissNotices": {
       "type": "boolean",
       "description": "Show cache cost and provider recovery notices.",

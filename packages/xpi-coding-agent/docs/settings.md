@@ -40,6 +40,7 @@ See [Choose a Model](models.md) for model selection and thinking controls.
 | Setting | Type | Default | Description |
 |---|---|---|---|
 | `defaultTools` | `string[]` | `read`, `bash`, `edit`, `write` | Tools enabled at startup. Plain names replace the defaults; `+name` adds a tool and `-name` removes one. An empty array disables all built-in tools but not extension or SDK tools. |
+| `staleEditGuard` | boolean | `true` | Make `edit`, and `write` over an existing file, fail when the file was not read in this session or changed since it was last read or written. See [Edit and write safety](#edit-and-write-safety). |
 | `codemode.mode` | `"on"` \| `"only"` | `"on"` | How the `codemode` tool presents tools while it is active. `on`: declared tools get a note on calling them from scripts appended to their description, and `codemode` lists only tools that are not declared. `only`: `codemode` lists every tool scripts can call, and active built-in and extension tools are hidden from the model, so it reaches them through `codemode`. |
 | `codemode.inlineBudget` | number | `3000` | Estimated tokens (characters / 4) the `codemode` tool's description may spend on tool declarations. Tools that do not fit are left out and found with `searchTools()`. `0` lists only namespaces. |
 
@@ -58,6 +59,15 @@ This replaces `bash` with `powershell` and enables `grep`: `["-bash", "+powershe
 `/reload` enables tools newly added to `defaultTools`. It does not disable tools removed from it or re-enable unchanged tools you turned off. `--tools` with plain names, `--no-tools`, and `--no-builtin-tools` override `defaultTools`, also on reload.
 
 CLI tool options override this setting for one invocation. `--tools` with only `+name` and `-name` entries changes the resolved `defaultTools` selection instead, for example `pi --tools +codemode`. On `/reload`, these entries apply to the reloaded setting too, so a tool removed with `-name` stays removed. See [Command Line](cli.md#tools).
+
+### Edit and write safety
+
+`edit` and `write` over an existing file compare the file on disk with what the session last saw. The session records the content of every text file `read` returns (a paged read with `offset`/`limit` counts as a read of the whole file; an image read records nothing) and of every file `edit` or `write` leaves behind. The call fails, and the file is not touched, when:
+
+- the file was not read or written in this session: `File <path> has not been read in this session. Read it before editing.` (`write` says `before overwriting it`)
+- the file changed since then, whoever changed it (bash, a codemode script, a subagent, an editor): `File <path> changed since you last read it. Read it again before editing.` (`write`: `before overwriting it`)
+
+Trailing spaces, tabs and CR at line ends are ignored when comparing. Creating a new file with `write` needs no read, and edits in a row to the same file need no read in between. Calls from codemode scripts follow the same rules. Nothing is saved with the session: after resume, fork or `/new`, and in a subagent, the first edit of a file needs a read. Set `staleEditGuard` to `false` to turn the check off.
 
 ## Sessions and context
 
