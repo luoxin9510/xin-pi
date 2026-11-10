@@ -164,6 +164,62 @@ The schema belongs to the call: a `resume` may pass one or not, and talking to t
 A `run_in_background: true` agent's end message carries the JSON text. The tool list comes before the system prompt in
 a request, so a child with a schema has its own prompt-cache prefix (see [Prompt caching](#prompt-caching)).
 
+## Workflows
+
+A workflow is a codemode script that orchestrates subagents, saved to be rerun, in Claude Code's dynamic-workflow
+format. Every script that can call `Agent` has these helpers over it, so a script main wrote can be saved unchanged:
+
+| Helper | Meaning |
+|---|---|
+| `agent(prompt, opts?)` | One subagent. `opts`: `label` (the `description`; default: the prompt's first words), `schema`, `type` (`subagent_type`), `model`, `effort`, `isolation`; `stallMs` is accepted and unused. Resolves to the output text, or with `schema` to the value. Rejects when the agent failed; awaited directly, that ends the script with the error. |
+| `parallel(tasks)` | Functions returning promises, or promises; all run at once. Resolves to their results in order, `null` for one that failed. |
+| `pipeline(items, fn)` | `fn(item, index)` for every item at once (`maxConcurrent` queues the agents). Results in order, `null` for a failed item. At most 4096 items. |
+| `phase(title, fn?)` | Names the agents started from here (or inside `fn`) for the panel. Phases are sequential: concurrent `phase()` calls share one current title. |
+| `log(text)` | A progress line on the script's row in the panel. |
+| `args` | The run's input; `undefined` in an ad hoc script. |
+
+`tools.Agent` stays available for the full result. Unlike Claude Code, `Date.now()`, `Math.random()` and `new Date()`
+work (there is no replay of a run). One script run may start at most `subagent.maxAgentsPerScript` agents (default
+1000): the next `Agent` call throws.
+
+### Saved workflows
+
+`<name>.js` in `.pi/workflows/` (from the cwd up to the repository root, closest wins; trusted projects only) or in
+`~/.pi/agent/workflows/`. The first statement is `export const meta = { name, description, phases? }`, a plain literal
+(read, never run; `name` equals the file name, lowercase letters, digits and dashes); the rest is the script body, with
+its line numbers kept in errors. A file with a missing or malformed `meta`, or with `import`, is skipped with a warning.
+
+```js
+export const meta = {
+  name: 'audit-routes',
+  description: 'Audit every route handler for missing auth checks',
+}
+
+const found = await agent('List every .ts file under src/routes/.', {
+  schema: { type: 'object', required: ['files'], properties: { files: { type: 'array', items: { type: 'string' } } } },
+})
+
+const audits = await pipeline(found.files, file =>
+  agent(`Audit ${file} for missing authentication checks.`, { label: file }),
+)
+
+return audits.filter(Boolean)
+```
+
+- `/<name> args` runs it with no model turn: `args` is the text after the name, parsed as JSON when it is JSON. With a
+  UI it starts as a background script at once and its result arrives in main as a message; in print mode
+  (`xpi -p "/audit-routes"`) it runs in the foreground and prints its return value. A name another command already has
+  is skipped with a warning.
+- The model runs one with `tools.Workflow({ name, args })` (offered when at least one workflow can run; its
+  description lists them). It returns the script id at once, and the result arrives as a message.
+- `/workflows` lists the saved workflows and this session's workflow runs. Enter runs a workflow (no args) or lists a
+  run's agents to open one.
+- `s` on a script row in the panel saves that script: it asks for a name, a description and where (project or user),
+  confirms an overwrite, and writes the script with a `meta` statement. The new workflow is a command at once.
+
+The panel shows a workflow's run as `workflow <name> (S<n>)` with its last `log()` line, and its agents under their
+`phase()` titles.
+
 ## Worktree isolation
 
 `isolation: "worktree"` (in the `Agent` call or the agent file; the call wins) runs the agent in its own git worktree
@@ -431,6 +487,7 @@ Optional, in `.pi/settings.json` or `~/.pi/agent/settings.json`:
   "defaultModel": "haiku",                         // default "haiku"; "inherit" follows the session model
   "toolMap": { "WebFetch": "mcp__fetch__fetch" },  // merged over the built-in map
   "maxConcurrent": 20,                             // running children per pi process; extra calls queue. The first session's value wins for the process
+  "maxAgentsPerScript": 1000,                      // agents one script run may start; the next Agent call throws
   "childCodemode": "only",                         // "only" (default): children see only `codemode`; "inherit": v1 behaviour, direct tools
   "backgroundScripts": true,                       // false: a script that starts an Agent waits for it, as in v2 (pi's own codemode)
   "staggerStart": false,                           // true: siblings with the same model, tools and project wait (at most 5 s) for the first one's response to begin, then read its cached prompt. See "Prompt caching"
