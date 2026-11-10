@@ -29,8 +29,8 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
 - `coding-agent/package.json`: `copy-assets` also copies `src/extensions/subagent/builtin/*.md` to
   `dist/extensions/subagent/builtin`.
 - Running it: `npm install && npm run build`, then `node packages/xpi-coding-agent/dist/bundle/cli.js`, or from sources
-  `./pi-test.sh`. Subagent children run the same build as their parent (`src/extensions/subagent/invocation.ts`).
-- Installing without npm publishing: `npm run xpi:pack` cleans, builds and writes `dist-pack/xpi-coding-agent-<version>.tgz`
+  `./xpi-test.sh`. Subagent children run the same build as their parent (`src/extensions/subagent/invocation.ts`).
+- Installing a local build without publishing: `npm run xpi:pack` cleans, builds and writes `dist-pack/xpi-coding-agent-<version>.tgz`
   (gitignored); install it with `npm i -g ./dist-pack/xpi-coding-agent-<version>.tgz`. The tarball is self-contained: the
   bundle inlines `xpi-ai`, `xpi-tui`, `xpi-agent-core`, `xpi-codemode` and `xpi-mcp`, so they are `devDependencies` of
   `xpi-coding-agent` and only third-party packages (29 in all) are installed. `npm run check` fails if the built bundle imports
@@ -39,8 +39,8 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
   after `npm run build`. Verified with a private prefix (`npm i -g --prefix <tmp> <tarball>`, then `<tmp>/bin/xpi --version`,
   `--help`, `--list-models` from another directory with `XPI_CODING_AGENT_DIR` set to a temp dir).
 - `npm run build` removes `packages/xpi-coding-agent/dist` first, so files of deleted sources are never packed.
-- Self-update is disabled: `xpi update --self` (and plain `xpi update`) prints "xpi is installed from source; rebuild and
-  reinstall" and exits 1; `xpi update --extensions|--models|--all` work as before. The latest-version check never runs, so
+- Self-update is disabled: `xpi update --self` (and plain `xpi update`) says to reinstall xpi the way it was installed
+  (npm, a release binary, or a rebuild from source) and exits 1; `xpi update --extensions|--models|--all` work as before. The latest-version check never runs, so
   there is no update notice (`XPI_SKIP_VERSION_CHECK` is moot). `XPI_SELF_UPDATE_COMMAND` / `selfUpdateCommand` are unused.
 - Extensions written for upstream pi import `@earendil-works/*`. There are no compatibility aliases (decision 29): such an
   extension may fail to load until it is translated, see the next section.
@@ -61,7 +61,7 @@ xin-pi does not merge upstream. The `upstream` remote stays for reading. The for
    For a larger change, cherry-pick, then run the script on the files it touched, or rewrite by hand. Where a changed
    file is one of the xin-pi core changes in this document, rewrite instead of resolving conflicts mechanically.
 3. `node scripts/xpi-rename.mjs --check <paths>` must be clean, then `npm run check`, then the tests of the touched
-   package (see Testing). Add a changelog line if the package keeps one.
+   package (see Testing). No changelog entry: xin-pi keeps none (`AGENTS.md`).
 
 `scripts/xpi-rename.mjs` is table-driven (`PACKAGES`, `NAMES`, `ENV_VARS`, `KEEP_SCOPED`): `node scripts/xpi-rename.mjs`
 rewrites the whole repo, `<path>...` only the given files or directories, `--check` reports leftovers (exit 1),

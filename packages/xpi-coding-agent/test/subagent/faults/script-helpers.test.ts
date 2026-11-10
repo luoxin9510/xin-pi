@@ -2,6 +2,7 @@
 // tool of the extension under test and fake children; and the cap on agents per script run.
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { codemodeAddons } from "../../../src/extensions/codemode/addons.ts";
 import { executeCodemode } from "../../../src/extensions/codemode/execute.ts";
 import { scripts } from "../../../src/extensions/subagent/background.ts";
 import { ev, loadTool, sandbox } from "../helpers.ts";
@@ -236,7 +237,6 @@ test("cap: past subagent.maxAgentsPerScript the next Agent call throws (null in 
 });
 
 test("add-ons: a prelude must be one line, so a script's line numbers never move", async () => {
-	const { codemodeAddons } = await import("../../../src/extensions/codemode/addons.ts");
 	assert.throws(
 		() => codemodeAddons.register({ name: "two-lines", applies: () => true, prelude: "a;\nb;" }),
 		/the prelude must be one line/,

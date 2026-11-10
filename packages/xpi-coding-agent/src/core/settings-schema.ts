@@ -203,6 +203,81 @@ const SkillsInputSchema = Type.Union(
 	{ description: "Local skill file paths or directories." },
 );
 
+// The built-in subagent extension's block. The extension validates it itself (src/extensions/subagent/config.ts);
+// this is for the published schema, so editors complete and check it. Defaults are stated in the descriptions because
+// the extension applies them.
+const SubagentSettingsSchema = Type.Object(
+	{
+		models: Type.Optional(
+			Type.Record(Type.String(), Type.String(), {
+				description:
+					'Model aliases for subagents, alias to "provider/model". Merged over the defaults for opus, sonnet, haiku and fable.',
+			}),
+		),
+		defaultModel: Type.Optional(
+			Type.String({
+				description:
+					'Model of an agent that names none: an alias or "provider/model"; "inherit" follows the session model. Default "haiku".',
+			}),
+		),
+		toolMap: Type.Optional(
+			Type.Record(Type.String(), Type.String(), {
+				description: "Claude Code tool name to xpi tool name, merged over the built-in map.",
+			}),
+		),
+		maxConcurrent: Type.Optional(
+			Type.Integer({
+				minimum: 1,
+				description:
+					"Running subagents per xpi process; more calls queue. The first session's value holds for the process. Default 20.",
+			}),
+		),
+		maxAgentsPerScript: Type.Optional(
+			Type.Integer({
+				minimum: 1,
+				description: "Agents one script run may start; the next Agent call throws. Default 1000.",
+			}),
+		),
+		childCodemode: Type.Optional(
+			Type.Union([Type.Literal("only"), Type.Literal("inherit")], {
+				description:
+					'"only" (default): subagents see only the codemode tool and call their tools from scripts. "inherit": direct tools.',
+			}),
+		),
+		backgroundScripts: Type.Optional(
+			Type.Boolean({
+				description:
+					"A script that starts an Agent moves to the background. false: it waits for its agents. Default true.",
+			}),
+		),
+		fork: Type.Optional(Type.Boolean({ description: 'The "fork" agent type and /subtask. Default true.' })),
+		staggerStart: Type.Optional(
+			Type.Boolean({
+				description:
+					"Siblings with the same prompt prefix wait (at most 5 s) for the first one's response to begin, then read its cached prompt. Default false.",
+			}),
+		),
+		shutdownGraceMs: Type.Optional(
+			Type.Number({
+				minimum: 0,
+				description: "How long a stopped subagent may take to shut down before it is killed. Default 10000.",
+			}),
+		),
+		panelLingerMs: Type.Optional(
+			Type.Number({
+				minimum: 0,
+				description: "How long a finished subagent stays in the panel. Default 30000.",
+			}),
+		),
+		piCommand: Type.Optional(
+			Type.String({
+				description: "Command that starts a subagent. Unset: the build this process runs.",
+			}),
+		),
+	},
+	{ additionalProperties: true, description: "Settings of the built-in subagent extension." },
+);
+
 export const SettingsSchema = Type.Object(
 	{
 		$schema: Type.Optional(Type.String({ description: "JSON Schema reference." })),
@@ -461,6 +536,7 @@ export const SettingsSchema = Type.Object(
 		websockets: Type.Optional(
 			Type.Boolean({ description: "Legacy setting migrated to transport.", deprecated: true }),
 		),
+		subagent: Type.Optional(SubagentSettingsSchema),
 	},
 	{ additionalProperties: true },
 );

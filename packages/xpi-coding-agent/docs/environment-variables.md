@@ -82,7 +82,7 @@ These variables are read by Pi itself:
 | `XPI_CODING_AGENT_SESSION_DIR` | Override session storage; overridden by `--session-dir` |
 | `XPI_PACKAGE_DIR` | Override the package directory, useful for Nix/Guix store paths |
 | `XPI_OFFLINE` | Disable automatic network activity, including model catalog refreshes |
-| `XPI_SKIP_VERSION_CHECK` | No effect on xpi: the latest-version check is always off (xpi is installed from source; `xpi update --self` explains how to update) |
+| `XPI_SKIP_VERSION_CHECK` | No effect on xpi: the latest-version check is always off (xpi does not update itself; `xpi update --self` explains how to update) |
 | `XPI_SELF_UPDATE_COMMAND` | Unused in xpi (self-update is disabled). Command `pi update` ran to update Pi itself, split on whitespace, with `{packageName}`, `{version}`, and `{installSpec}` placeholders. Takes precedence over the `selfUpdateCommand` setting. See [Custom update command](cli.md#custom-update-command) |
 | `XPI_TELEMETRY` | Override install/update telemetry and provider attribution headers: `1`/`true`/`yes` or `0`/`false`/`no` |
 | `XPI_CODEMODE_MAX_WORKERS` | Maximum codemode workers alive at once across all sessions in the process; default `2`. Each worker's script may use up to 256 MB. Raise it when one process runs several sessions, such as in-process subagents. Further scripts wait for a free worker. See [Codemode](codemode.md) |

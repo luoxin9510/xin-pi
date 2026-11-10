@@ -23,7 +23,7 @@ export type PackageCommand = "install" | "remove" | "update" | "list";
 type UpdateTarget = { type: "all" } | { type: "self" } | { type: "extensions"; source?: string } | { type: "models" };
 
 /** What `xpi update` says about updating xpi itself. */
-export const SELF_UPDATE_DISABLED = `${APP_NAME} is installed from source; rebuild and reinstall — see docs/xin-pi.md`;
+export const SELF_UPDATE_DISABLED = `${APP_NAME} does not update itself: reinstall it the way it was installed (npm install -g xpi-coding-agent@latest, a newer release binary, or a rebuild from source)`;
 
 const MANAGED_INSTALL_MARKER = "managed-install.json";
 const MANAGED_RELEASE_VERSION_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
@@ -283,7 +283,7 @@ Examples:
 			console.log(`${chalk.bold("Usage:")}
   ${getPackageCommandUsage("update")}
 
-Update installed packages or model catalogs. (xpi itself is installed from source: rebuild and reinstall, see docs/xin-pi.md.)
+Update installed packages or model catalogs. (xpi does not update itself: reinstall it the way it was installed.)
 
 Options:
   --self                  Explain how to update xpi itself (default when no target is given)

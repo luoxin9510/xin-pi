@@ -61,6 +61,13 @@ Invalid files are skipped with a warning.
 | `background` | `true`: a call for this agent without `run_in_background` returns at once with `status: "running"`, and the result arrives as a message. The call's own `run_in_background` wins; print mode waits. |
 | `autoCompactWindow`, `permissionMode`, `hooks`, `initialPrompt`, `experimental` | Accepted, no effect; the warning says why (xpi compacts by reserve tokens, has no permission modes and no hooks, and has no agent-as-main-session for `initialPrompt`). |
 
+### An agent file or a skill
+
+Write an agent file when the work should run in its own context: a separate model, a narrower tool list, parallel
+copies, or output too large to read in the main session. When the main agent only needs to know how to do something
+(a procedure, a checklist, a house style), write a [skill](skills.md) instead: it costs no second process, no second
+prompt and no hand-over of context, and the main agent keeps everything it has already read.
+
 ### Agents on the command line
 
 `xpi --agents '<json>'` defines agents for one run, in Claude Code's shape: an object whose keys are agent names and
@@ -696,7 +703,7 @@ computed) and the saved-workflow case (main must run a fitting saved workflow th
 workflow's end message must reach it). Cases are graded from the structured result and side effects. `defaultModel` is pinned to `haiku` whatever
 your settings say, and every case checks that every result (or, for the parent cases, every assistant message of the
 parent and its children) ran on haiku. A case running over 5 minutes is aborted and its children stopped. Results go
-to `evals/results/`; the runs worth keeping are committed as a record.
+to `evals/results/` (ignored by git; the numbers worth keeping go into this document).
 
 Children are `xpi --mode rpc` and codemode-only by default. Last run (xpi 1.5.1, 2026-11-10, one run): 22/22, $0.009 in all, 32 s wall; the new parent cases (structured result, saved workflow, named agent, fork) each 3/3 at $0.0015 to $0.002 a run. Before that (pi 1.5.0, v3b, `--runs 3`): 51/51 over the 17 cases of the time, $0.037 in all, 94 s wall; the background case 3/3 at $0.001 and about 14 s per run, the isolation case 3/3 at $0.0008 and about 11 s, the memory case 3/3 at $0.0011 and about 12 s. Earlier (v2): 39/39 over 3 runs for the 13 original cases, $0.027 in all; the steer case passed 11/13 over two batches (the miss: haiku batched both steps into one codemode script, so there was nothing left to steer; $0.0005 per run). The first version of the suite found a bug that the fake-pi
 tests had missed (a run could go past `maxTurns` and still be reported `completed`), fixed since. Two checks depend on

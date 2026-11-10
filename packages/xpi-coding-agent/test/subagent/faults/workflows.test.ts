@@ -302,3 +302,19 @@ test("/workflows in print mode lists the saved workflows", async () => {
 	);
 	assert.match(r.out, /\.pi\/workflows\n/);
 });
+
+test("format: the word import in a prompt, in quoted code or in a comment is not an import", () => {
+	const head = "export const meta = { name: 'x', description: 'd' }\n";
+	for (const body of [
+		"return await agent('Find every file that does import React from somewhere')",
+		"return await agent(`Fix this:\nimport os\nprint(1)`)",
+		'return await agent("call import(x) here")',
+		"// we do not import anything\n/* import x from 'y' */\nreturn 1",
+		"return await agent('it\\'s fine to import things')",
+	]) {
+		assert.doesNotThrow(() => parseWorkflow(head + body, "x"), body);
+	}
+	// A real one is still refused, also after a string on the same line.
+	assert.throws(() => parseWorkflow(`${head}const s = 'a'; import fs from 'node:fs'`, "x"), /cannot import/);
+	assert.throws(() => parseWorkflow(`${head}const m = await import('fs')`, "x"), /cannot import/);
+});

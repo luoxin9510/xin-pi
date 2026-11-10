@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { readConfig } from "../../../src/extensions/subagent/config.ts";
 import { runChild } from "../../../src/extensions/subagent/runner.ts";
 import { ev, FAKE_PI } from "../helpers.ts";
 
@@ -100,7 +101,6 @@ test("shutdownGraceMs lets a slow-closing child finish; a short grace cuts it of
 });
 
 test("subagent.shutdownGraceMs is validated; default 10 s", async () => {
-	const { readConfig } = await import("../../../src/extensions/subagent/config.ts");
 	assert.equal(readConfig({}).shutdownGraceMs, 10_000);
 	assert.equal(readConfig({ shutdownGraceMs: 30_000 }).shutdownGraceMs, 30_000);
 	for (const bad of [-1, "5", Number.NaN])

@@ -657,7 +657,7 @@ if (process.platform !== "win32") fs.chmodSync(piPath, 0o755);
 		}
 	});
 
-	it("does not self-update: it says xpi is installed from source and never asks pi.dev", async () => {
+	it("does not self-update: it says how to reinstall xpi and never asks pi.dev", async () => {
 		const fetchMock = vi.fn(async () => Response.json({ version: "9.9.9" }));
 		vi.stubGlobal("fetch", fetchMock);
 		const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -668,8 +668,8 @@ if (process.platform !== "win32") fs.chmodSync(piPath, 0o755);
 
 			expect(fetchMock).not.toHaveBeenCalled();
 			const stderr = errorSpy.mock.calls.map(([message]) => String(message)).join("\n");
-			expect(stderr).toContain("xpi is installed from source; rebuild and reinstall");
-			expect(stderr).toContain("docs/xin-pi.md");
+			expect(stderr).toContain("xpi does not update itself: reinstall it the way it was installed");
+			expect(stderr).toContain("npm install -g xpi-coding-agent@latest");
 			expect(stderr).not.toContain("pi.dev");
 			expect(logSpy.mock.calls.map(([message]) => String(message)).join("\n")).not.toContain("pi.dev");
 			expect(process.exitCode).toBe(1);
@@ -683,7 +683,7 @@ if (process.platform !== "win32") fs.chmodSync(piPath, 0o755);
 		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 		try {
 			await expect(runPackageCommandDirectly(["update", "--all"])).resolves.toBeUndefined();
-			expect(errorSpy.mock.calls.map(([message]) => String(message)).join("\n")).toContain("installed from source");
+			expect(errorSpy.mock.calls.map(([message]) => String(message)).join("\n")).toContain("does not update itself");
 			expect(process.exitCode).toBeUndefined();
 		} finally {
 			logSpy.mockRestore();

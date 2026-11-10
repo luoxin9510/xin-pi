@@ -100,7 +100,7 @@
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/earendil-works/pi.git",
+		"url": "git+https://github.com/luoxin9510/xin-pi.git",
 		"directory": "packages/xpi-ai"
 	},
 	"engines": {

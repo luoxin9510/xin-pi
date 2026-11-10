@@ -23,11 +23,14 @@ coding agent trivially and this cannot be protected against.
 
 ## Reporting a Vulnerability
 
-If you believe you found a security vulnerability in pi or another package in
-this repository, please report it privately by either:
+xin-pi is an independent fork of [pi](https://github.com/earendil-works/pi). If you
+believe you found a security vulnerability in xpi or another package in this
+repository, please report it privately by opening a report through GitHub Security
+Advisories for this repository (`luoxin9510/xin-pi`, Security tab, "Report a
+vulnerability").
 
-- Emailing `security@earendil.com`, or
-- Opening a private report through GitHub Security Advisories for this repository
+A vulnerability that also exists in upstream pi should be reported to upstream as
+well, following the security policy of `earendil-works/pi`.
 
 Please include:
 
@@ -42,8 +45,8 @@ reports and coordinate disclosure as appropriate.
 ## Scope
 
 Security issues in the distributed packages, command-line tools, APIs, and
-repository code are in scope as well as earendil operated infrastructure
-on `pi.dev`.
+repository code are in scope. xin-pi operates no infrastructure of its own;
+`pi.dev` belongs to upstream.
 
 ## Out Of Scope
 

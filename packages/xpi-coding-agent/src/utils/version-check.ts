@@ -95,7 +95,7 @@ export async function getLatestPiVersion(
 }
 
 /**
- * xpi is installed from source and does not follow upstream pi releases, so there is no latest version to announce:
+ * xpi does not update itself and does not follow upstream pi releases, so there is no latest version to announce:
  * this never asks pi.dev. (`getLatestPiRelease` stays for tests and for tools that name their own endpoint.)
  */
 export async function checkForNewPiVersion(_currentVersion: string): Promise<LatestPiRelease | undefined> {
