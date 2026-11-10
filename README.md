@@ -14,7 +14,9 @@ to npm), environment variables are `XPI_*`, and these built-in extensions are ad
   (`Agent`, with structured output, worktree isolation, memory and names), a `fork` that starts with the whole
   conversation (`/subtask`), `SendMessage` to steer or continue one,
   background scripts, saved [workflows](packages/xpi-coding-agent/docs/subagent.md#workflows) run as `/name` or by the
-  model (with relaunch from saved results, and pause), and a panel and full-screen view to watch and talk to subagents.
+  model (with relaunch from saved results, and pause), a built-in `/review` workflow (parallel read-only `reviewer`
+  agents and a verifier return ranked findings for your uncommitted changes, a branch, a commit or a PR), and a panel and
+  full-screen view to watch and talk to subagents.
 - [relay](packages/xpi-coding-agent/docs/relay.md): the model `relay/auto`. A strong model explores, plans and reviews;
   a cheap one builds; the strong model reads a record of the result instead of the cheap one's transcript.
 - `upstream`: `/upstream` reports what upstream pi has that is worth porting.

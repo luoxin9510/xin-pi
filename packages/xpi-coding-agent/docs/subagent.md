@@ -35,7 +35,14 @@ recursively for `*.md`):
 3. `.claude/agents/` (same walk)
 4. `~/.pi/agent/agents/`
 5. `~/.claude/agents/`
-6. Built-in: `Explore`, `Plan`, `general-purpose`
+6. Built-in: `Explore`, `Plan`, `general-purpose`, `reviewer`
+
+`reviewer` is a read-only code reviewer (tools `Read`, `Grep`, `Glob`, `LS`, `Bash`; no `Write` or `Edit`; model
+`sonnet`). It looks for bugs a change introduced that the author would want fixed before merge: each finding needs a
+provable impact, must be actionable and must come from the change itself. It traces new values to where they are used,
+also outside the diff, ignores style, naming and docs, and uses `Bash` only for read-only `git diff`, `git show`,
+`git log`, `git blame` and `gh pr diff`. The built-in [`/review`](#built-in-workflows) workflow runs it; you can also call
+it with `subagent_type: "reviewer"`. An agent file named `reviewer` in a source above hides it.
 
 The project walk never includes your home directory (`~/.pi/agent/agents` and `~/.claude/agents` are user sources only).
 Scans skip dot directories and `node_modules`, go at most 6 levels deep and read at most 5000 entries per source.
@@ -89,7 +96,8 @@ is not such an object stops the start with the reason; an entry that is not a va
 2. `model` in the agent definition
 3. `subagent.defaultModel` in settings, default `"haiku"`
 
-The built-in agents (`Explore`, `Plan`, `general-purpose`) set no model, so they run on haiku too.
+The built-in agents `Explore`, `Plan` and `general-purpose` set no model, so they run on haiku too; `reviewer` sets
+`sonnet` (remap that alias in `subagent.models` to run it on another model).
 
 Values:
 
@@ -278,12 +286,13 @@ work (there is no replay of a run). One script run may start at most `subagent.m
 
 ### Saved workflows
 
-`<name>.js` files, read from four places, highest priority first (the same order as agent files):
+`<name>.js` files, read from five places, highest priority first (the same order as agent files):
 
 1. `.pi/workflows/` in the project (from the cwd up to the repository root, closest wins; trusted projects only)
 2. `.claude/workflows/` in the project (same walk): Claude Code's workflow files run unchanged
 3. `~/.pi/agent/workflows/`
 4. `~/.claude/workflows/`
+5. The built-in workflows that ship with xpi (see [Built-in workflows](#built-in-workflows)); they run in untrusted projects too
 
 A name found earlier hides the same name later. The first statement is `export const meta = { name, description, phases? }`, a plain literal
 (read, never run; `name` equals the file name, lowercase letters, digits and dashes); the rest is the script body, with
@@ -321,6 +330,43 @@ return audits.filter(Boolean)
 
 The panel shows a workflow's run as `workflow <name> (S<n>, R<n>)` with its last `log()` line, and its agents under
 their `phase()` titles.
+
+### Built-in workflows
+
+xpi ships workflows in `src/extensions/subagent/builtin/workflows/` (`dist/extensions/subagent/builtin/workflows/` in a
+build; the standalone binary reads them from `dist/` next to the executable, like the built-in agents). They are listed
+by `/workflows` with source `builtin` and run as `/<name>` like any saved workflow. To change one, save a file with the
+same name in `.pi/workflows/` or `~/.pi/agent/workflows/`: it hides the built-in one. The only one today is `review`.
+
+#### `/review [target]`
+
+Reviews a diff with parallel read-only [`reviewer`](#agent-definitions) agents and returns a ranked list of findings.
+It runs with no model turn and edits nothing. It reads the diff with the session's `bash` tool, so it needs that tool
+(and `gh` for pull requests).
+
+| Target | Reviews |
+|---|---|
+| (none) | The working tree against `HEAD`: staged, unstaged and untracked files (new files as all-added diffs) |
+| `main` (a branch) | The changes on `HEAD` since it left that branch (`git diff main...HEAD`) |
+| `abc1234` (a commit or tag) | That commit (`git show`) |
+| `#12` | GitHub pull request 12 (`gh pr diff 12`) |
+
+How it works:
+
+1. Lockfiles, minified or generated files (`*.min.*`, `*.generated.*`), source maps, snapshots, `dist/`, `build/`,
+   `out/`, `node_modules/`, `vendor/`, images, fonts, archives and binary diffs are skipped and named in the result.
+2. The changed lines set the number of reviewers: under 100 lines or at most two files, one; under 500, two; under
+   2000, four; more, eight (never more than there are files). Files are grouped by directory, a test file goes with the
+   implementation that has the same base name, and the groups have about the same number of changed lines.
+3. One `reviewer` per group runs in parallel and returns findings through a schema: `title`, `body`, `priority`
+   (`P0` to `P3`), `confidence` (0 to 1), `file`, `lineStart`, `lineEnd`. A reviewer that fails is reported, not fatal.
+4. With findings, one more `reviewer` re-checks them against the code, merges duplicates and drops what it cannot
+   confirm. If it fails, the findings are shown marked as unverified.
+5. The result lists the findings ranked by priority, then confidence: `1. [P1] title — file:10-14`, the explanation and
+   the confidence; then how many findings the verifier dropped, the skipped files, and the reviewer count and failures.
+
+A diff over 60000 changed lines is refused: review a narrower target. The reviewers run on the `sonnet` alias; see
+[Model selection](#model-selection).
 
 ### Runs, saved results and relaunch
 

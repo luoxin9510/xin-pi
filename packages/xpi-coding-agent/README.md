@@ -17,7 +17,8 @@ What xin-pi adds to pi:
   `.claude/workflows/` files run unchanged), with the helpers
   `agent`, `parallel`, `pipeline`, `phase` and `log`; run as `/<name> args` with no model turn, or by the model through
   the `Workflow` tool. Runs are recorded: a run that stopped or failed is relaunched without redoing the agents that
-  finished, and a running script can be paused and resumed.
+  finished, and a running script can be paused and resumed. The built-in `/review [branch | commit | #PR]` workflow
+  reviews a diff with read-only `reviewer` agents (no argument: your uncommitted changes).
 - **Native codemode background**: codemode can move a running script to the background; nested calls keep their ids,
   context and usage.
 - **Relay**: the model `relay/auto` runs one conversation on two models. A strong lead explores, plans and reviews; a

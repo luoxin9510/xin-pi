@@ -22,7 +22,9 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
 - Four built-in extensions, registered in `coding-agent/src/extensions/index.ts` and not replaceable:
   - `subagent` (`src/extensions/subagent/`, off with `-builtin:subagent`): the `Agent`, `SendMessage` and `Workflow` tools
     for codemode scripts, the script helpers (`agent`, `parallel`, `pipeline`, `phase`, `log`), saved workflows
-    (`/<name>`, `/workflows`), the `fork` agent type and `/subtask`, the panel, `/subagents`, the `--agents` flag. Settings namespace `subagent.*`, env `XPI_SUBAGENT_*`, branches `subagent/<id>`. It was the separate
+    (`/<name>`, `/workflows`), built-in workflows (`builtin/workflows/*.js`, found last by `discoverWorkflows`, runnable
+    in untrusted projects; today `/review`, which runs the built-in read-only `reviewer` agent in `builtin/reviewer.md`),
+    the `fork` agent type and `/subtask`, the panel, `/subagents`, the `--agents` flag. Settings namespace `subagent.*`, env `XPI_SUBAGENT_*`, branches `subagent/<id>`. It was the separate
     extension pi-pipipi. User docs: [subagent.md](../packages/xpi-coding-agent/docs/subagent.md); porting contracts:
     [subagent-porting.md](../packages/xpi-coding-agent/docs/subagent-porting.md).
   - `relay` (`src/extensions/relay/`, off with `-builtin:relay`): the virtual model `relay/auto` (a lead model plans and
@@ -36,7 +38,12 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
     model of `commit.model` (default `haiku`), opens `ui.editor`, and runs `git commit -F <temp file>`. Extension API
     only; no core change besides the settings entry. Tests: `test/suite/commit.test.ts` (faux provider, temp repo).
 - `coding-agent/package.json`: `copy-assets` also copies `src/extensions/subagent/builtin/*.md` to
-  `dist/extensions/subagent/builtin`.
+  `dist/extensions/subagent/builtin` and `builtin/workflows/*.js` to `dist/extensions/subagent/builtin/workflows`.
+  `scripts/build-binaries.sh` copies `dist/extensions/subagent/builtin` next to the standalone executable (where
+  `BUILTIN_DIR` looks when there is no `src/`).
+- `review.js` keeps its pure helpers between `// BEGIN helpers` and `// END helpers`; a workflow file cannot import, so
+  `test/subagent/faults/review-workflow.test.ts` evaluates that section from the file itself and also runs the whole body
+  with a fake `agent()` against a temp repository. The real-haiku check is `test/subagent/real/23-review.test.ts`.
 - Running it: `npm install && npm run build`, then `node packages/xpi-coding-agent/dist/bundle/cli.js`, or from sources
   `./xpi-test.sh`. Subagent children run the same build as their parent (`src/extensions/subagent/invocation.ts`).
 - Installing a local build without publishing: `npm run xpi:pack` cleans, builds and writes `dist-pack/xpi-coding-agent-<version>.tgz`

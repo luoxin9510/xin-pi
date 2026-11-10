@@ -8,13 +8,22 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { endMessage } from "../../../src/extensions/subagent/background.ts";
 import { workflowOf } from "../../../src/extensions/subagent/workflow-run.ts";
-import { discoverWorkflows, parseArgs, parseWorkflow } from "../../../src/extensions/subagent/workflows.ts";
+import {
+	discoverWorkflows,
+	parseArgs,
+	parseWorkflow,
+	type Workflow,
+} from "../../../src/extensions/subagent/workflows.ts";
 import { ev, FAKE_PI, loadTool, sandbox } from "../helpers.ts";
 
 const CLI = fileURLToPath(new URL("../../../src/cli.ts", import.meta.url));
 
 const file = (name: string, body: string, description = "Demo workflow") =>
 	`export const meta = {\n  name: '${name}',\n  description: '${description}',\n}\n${body}`;
+
+// The built-in workflows (review) are found in every discovery; these tests look at the files they wrote.
+const withoutBuiltin = (found: Map<string, Workflow>) =>
+	new Map([...found].filter(([, workflow]) => workflow.source !== "builtin"));
 
 test("format: Claude Code's documented example parses; the body keeps the file's line numbers", () => {
 	const text = `export const meta = {
@@ -81,7 +90,7 @@ test("discovery: Claude Code's directories are read too, below the .pi ones of t
 	s.write(join(claudeDir, "workflows/theirs.js"), file("theirs", "return 'claude user only'"));
 	s.write(join(s.repo, ".claude/workflows/shadow.js"), file("shadow", "return 'project'"));
 	s.write(join(agentDir, "workflows/shadow.js"), file("shadow", "return 'user'"));
-	const found = discoverWorkflows(sub, true, agentDir, claudeDir).workflows;
+	const found = withoutBuiltin(discoverWorkflows(sub, true, agentDir, claudeDir).workflows);
 	const body = (name: string) => found.get(name)!.body.trim();
 	assert.deepEqual([...found.keys()].sort(), ["both", "far", "mine", "shadow", "theirs"]);
 	assert.equal(body("both"), "return 'pi project'", ".pi comes before .claude, whatever the distance");
@@ -90,7 +99,7 @@ test("discovery: Claude Code's directories are read too, below the .pi ones of t
 	assert.equal(body("theirs"), "return 'claude user only'");
 	assert.equal(found.get("theirs")!.source, "user");
 	assert.equal(body("shadow"), "return 'project'", "a project workflow hides a user one");
-	const untrusted = discoverWorkflows(sub, false, agentDir, claudeDir).workflows;
+	const untrusted = withoutBuiltin(discoverWorkflows(sub, false, agentDir, claudeDir).workflows);
 	assert.deepEqual([...untrusted.keys()].sort(), ["mine", "shadow", "theirs"]);
 	assert.equal(untrusted.get("shadow")!.body.trim(), "return 'user'");
 });
@@ -107,6 +116,7 @@ test("discovery: project workflows (closest wins) before the user's; untrusted p
 	s.write(join(agentDir, "workflows/notes.md"), "not a workflow");
 	s.write(join(agentDir, "workflows/broken.js"), "return 1");
 	const trusted = discoverWorkflows(sub, true, agentDir);
+	trusted.workflows = withoutBuiltin(trusted.workflows);
 	assert.deepEqual([...trusted.workflows.keys()].sort(), ["mine", "root-only", "shared"]);
 	assert.match(trusted.workflows.get("shared")!.body, /'pkg'/);
 	assert.equal(trusted.workflows.get("shared")!.source, "project");
@@ -118,6 +128,7 @@ test("discovery: project workflows (closest wins) before the user's; untrusted p
 		],
 	);
 	const untrusted = discoverWorkflows(sub, false, agentDir);
+	untrusted.workflows = withoutBuiltin(untrusted.workflows);
 	assert.deepEqual(
 		[...untrusted.workflows.keys()].sort(),
 		["broken", "mine", "shared"].filter((n) => n !== "broken"),
@@ -275,7 +286,8 @@ test("run with a UI (rpc mode): the workflow starts in the background at once an
 test("Workflow tool: offered only when a workflow can run, described with them, skipping clashing names", async () => {
 	const s = sandbox();
 	const none = await loadTool({}, { cwd: s.repo });
-	assert.equal(none.tools?.Workflow, undefined, "no workflows, no tool");
+	// The built-in review workflow always exists, so the tool is always there.
+	assert.match(none.tools.Workflow.description, /Saved workflows:\n- review: /);
 	s.write(join(s.repo, ".pi/workflows/audit.js"), file("audit", "return 1", "Audit the routes"));
 	s.write(join(s.repo, ".pi/workflows/review.js"), file("review", "return 1"));
 	const t = await loadTool({}, { cwd: s.repo, otherCommands: ["review"] });
@@ -298,7 +310,11 @@ test("/workflows in print mode lists the saved workflows", async () => {
 			.trim()
 			.split("\n")
 			.map((l) => l.replace(/ · [^·]*$/, (dir) => (dir.endsWith("/workflows") ? " · <dir>" : dir))),
-		["/audit · Audit the routes · project · <dir>", "/mine · My own · user · <dir>"],
+		[
+			"/audit · Audit the routes · project · <dir>",
+			"/mine · My own · user · <dir>",
+			"/review · Review a diff with parallel read-only reviewers and one verifier. /review [branch | commit | #PR]; no argument reviews the uncommitted changes. · builtin · <dir>",
+		],
 	);
 	assert.match(r.out, /\.pi\/workflows\n/);
 });
