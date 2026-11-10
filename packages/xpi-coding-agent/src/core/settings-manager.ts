@@ -1372,6 +1372,11 @@ export class SettingsManager {
 		this.save();
 	}
 
+	/** Shared model aliases (`models`): alias to a model reference. */
+	getModelAliases(): Record<string, string> {
+		return this.settings.models ?? {};
+	}
+
 	getEnabledModels(): string[] | undefined {
 		return this.settings.enabledModels;
 	}

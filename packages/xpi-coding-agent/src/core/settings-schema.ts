@@ -483,6 +483,12 @@ export const SettingsSchema = Type.Object(
 				description: "Model patterns for cycling, in the same format as the --models CLI flag.",
 			}),
 		),
+		models: Type.Optional(
+			Type.Record(Type.String(), Type.String(), {
+				description:
+					'Model aliases shared by extensions (ctx.complete) and subagents, alias to a model reference such as "provider/id". subagent.models wins for subagents.',
+			}),
+		),
 		defaultTools: Type.Optional(
 			Type.Array(Type.String(), {
 				description:

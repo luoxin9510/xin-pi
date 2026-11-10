@@ -109,6 +109,9 @@ describe("ExtensionRunner", () => {
 		getContextUsage: () => undefined,
 		compact: () => {},
 		getSystemPrompt: () => "",
+		complete: async () => {
+			throw new Error("not used");
+		},
 		getScopedModels: () => [],
 	};
 

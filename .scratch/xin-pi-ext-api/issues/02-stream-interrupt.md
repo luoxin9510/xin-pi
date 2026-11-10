@@ -8,7 +8,7 @@ a hidden custom message and requests the same turn again. At most 3 interrupts p
 
 **Blocked by:** None (independent of 01; lands after it by the agreed order)
 
-**Status:** in review
+**Status:** done (PR #35, merged 2026-11-10)
 
 - [x] `message_update` handlers can return a result; the runner aggregates results like `message_end`; the first
       `interrupt` of an attempt wins, later updates of that attempt are ignored
@@ -23,7 +23,7 @@ a hidden custom message and requests the same turn again. At most 3 interrupts p
       the next request; inject is in it; no tool of the attempt ran; cap holds; retry counter unchanged; cost includes
       both attempts; a user abort during the retry still ends the run
 - [x] Docs: `packages/xpi-coding-agent/docs/extensions.md` (`message_update` result, cap, cost), `docs/xin-pi.md`
-- [ ] Real-model Haiku regression after merge (check OAuth expiry first)
+- [x] Real-model Haiku regression after merge (check OAuth expiry first)
 
 ## Comments
 
@@ -40,3 +40,5 @@ a hidden custom message and requests the same turn again. At most 3 interrupts p
 - Count resets at each user `message_start` and at each run start; the cap counts per user prompt.
 - Faux aborted messages carry zero usage, so the cost test sets usage on the aborted message in a `message_end` handler.
 - Tests: `packages/xpi-coding-agent/test/suite/stream-interrupt.test.ts`.
+
+2026-11-10: real-model Haiku regression on main 8901b7eb4: `test:subagent:real` 91/91, `:parent` 12/12, `:tui` 16/16.

@@ -2410,6 +2410,7 @@ export class InteractiveMode {
 				})();
 			},
 			getSystemPrompt: () => this.session.systemPrompt,
+			complete: (options) => this.session.complete(options),
 		});
 
 		// Set up the extension shortcut handler on the default editor

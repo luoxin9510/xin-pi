@@ -328,6 +328,12 @@ export {
 	type SettingsManagerCreateOptions,
 	type TuiMode,
 } from "./core/settings-manager.ts";
+export {
+	CompleteError,
+	type CompleteErrorKind,
+	type CompleteOptions,
+	type CompleteResult,
+} from "./core/side-call.ts";
 // Skills
 export {
 	formatSkillsForPrompt,

@@ -105,6 +105,11 @@ Values:
 To follow your session's model everywhere, set `"defaultModel": "inherit"`. To use another provider for an alias,
 remap it in `subagent.models`; the other aliases keep their defaults.
 
+Alias lookup order: `subagent.models`, then the shared top-level `models` setting (also used by `ctx.complete`, see
+[Settings](settings.md#model-and-thinking)), then the built-in aliases above. A name in none of them is passed on as is.
+So an alias you define once in `models` works for subagents and extensions, and a `subagent.models` entry overrides it
+for subagents only.
+
 Without Anthropic credentials, haiku (and so every agent by default) fails with a provider error in `error`. Set
 `defaultModel` to `inherit` or remap the aliases you use, for example:
 

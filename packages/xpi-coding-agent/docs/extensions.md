@@ -1363,6 +1363,89 @@ pi.on("before_agent_start", (event, ctx) => {
 });
 ```
 
+### ctx.complete(options)
+
+Asks a model something outside the conversation, with the session's providers and credentials. It is on every
+context: commands, event handlers and tools, with or without a run in progress. The call is not part of the
+transcript.
+
+```typescript
+interface CompleteOptions {
+  model: string;           // "inherit", an alias from the `models` setting, or provider/id or a pattern
+  prompt?: string;         // exactly one of prompt and messages
+  messages?: Message[];
+  systemPrompt?: string;
+  schema?: object;         // JSON Schema or TypeBox type: the answer must be JSON that matches it
+  maxTokens?: number;
+  signal?: AbortSignal;
+  purpose: string;         // what the call is for; names the cost line
+}
+
+interface CompleteResult<T> {
+  text: string;            // the answer (with a schema: the JSON text that passed validation)
+  value?: T;               // the validated value, when schema was given
+  usage: Usage;            // tokens and cost of all attempts of this call
+  model: string;           // "provider/id" that answered
+}
+```
+
+```typescript
+import { CompleteError } from "xpi-coding-agent";
+
+pi.on("agent_end", async (_event, ctx) => {
+  try {
+    const { value } = await ctx.complete<{ verdict: "yes" | "no" }>({
+      model: "haiku",
+      purpose: "judge",
+      systemPrompt: "Did the assistant finish the task?",
+      prompt: summarizeRun(),
+      schema: Type.Object({ verdict: Type.Union([Type.Literal("yes"), Type.Literal("no")]) }),
+    });
+    if (value?.verdict === "no") ctx.ui.notify("The task looks unfinished", "warning");
+  } catch (error) {
+    if (!(error instanceof CompleteError)) throw error;
+    // Fall back quietly when the side model is down.
+    if (error.kind !== "aborted") ctx.ui.notify(`judge skipped: ${error.kind}`, "warning");
+  }
+});
+```
+
+**Model.** `"inherit"` is the session's current model. Any other value is looked up in the `models` setting (alias to
+model reference, see [Settings](settings.md#model-and-thinking)), and the result, or the value itself when it is not
+an alias, is resolved like `--model` (`provider/id`, an id, a pattern). Subagents read the same table.
+
+**Request.** Credentials come from the model registry at request time, as compaction does. The request uses no prompt
+cache (`cacheRetention: "none"`) and a fresh session id each call, and no thinking. Nothing is forced: no tool choice,
+no assistant prefill.
+
+**Schema.** The schema is added to the system prompt with the instruction to answer with only JSON. The answer is
+parsed (a `json` code fence is tolerated) and checked with the validator that checks tool arguments, which also
+coerces `"42"` to `42` and similar. If the answer does not parse or validate, the bad answer and the validation error
+are appended to the conversation and the model is asked again, up to 2 more times; then the call throws kind `schema`.
+
+**Errors.** The call throws `CompleteError` with `kind`:
+
+| `kind` | Meaning |
+|---|---|
+| `transient`, `rate_limit` | Provider failure that was retried until the retry budget was spent |
+| `usage_limit`, `context_overflow`, `auth`, `invalid_request`, `unknown` | The provider's error kind (not retried) |
+| `aborted` | The caller's signal, the current run or the session was aborted |
+| `no_model` | `model` matches no model, or `"inherit"` with no session model |
+| `no_auth` | The model has no usable credentials |
+| `schema` | The answer did not match `schema` after the retries |
+
+`error.usage` holds the cost of the attempts that were billed before the failure.
+
+**Retries.** Only `transient` and `rate_limit` errors are retried, with the session's `retry` settings
+(`enabled`, `maxRetries`, `baseDelayMs`, `maxAgentDelayMs`) and the provider's `retry-after` wait, like the main run.
+Schema retries are separate and count only validation failures.
+
+**Cost.** Every billed attempt, failed or not, is recorded in the session as a usage entry with kind
+`ext:<purpose>`, so the footer cost and `/session` totals include it. The entries do not enter the model's context.
+
+**Cancellation.** The call stops (kind `aborted`) when `signal` aborts, when the current run is aborted (Esc) and when
+the session is aborted or disposed.
+
 ## ExtensionCommandContext
 
 Command handlers receive `ExtensionCommandContext`, which extends `ExtensionContext` with session control methods. These are only available in commands because they can deadlock if called from event handlers.
