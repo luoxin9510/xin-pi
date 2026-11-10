@@ -35,9 +35,11 @@ function describePrices(cost: Cost): string {
  * known (a local model, a model outside the catalog).
  */
 export function priceFact(lead: Priced, worker: Priced): string | undefined {
-	const input = ratio(lead?.cost.input, worker?.cost.input);
-	const output = ratio(lead?.cost.output, worker?.cost.output);
-	if (!lead || !worker || !input || !output) return undefined;
+	// A model without a price entry (outside the catalog, or a stub) has no fact to state.
+	if (!lead?.cost || !worker?.cost) return undefined;
+	const input = ratio(lead.cost.input, worker.cost.input);
+	const output = ratio(lead.cost.output, worker.cost.output);
+	if (!input || !output) return undefined;
 	return `API list prices per million tokens. You: ${describePrices(lead.cost)}. The worker: ${describePrices(worker.cost)}. At the base prices one of your input tokens costs ${input} times a worker input token, one of your output tokens ${output} times a worker output token`;
 }
 

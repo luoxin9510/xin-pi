@@ -1,6 +1,6 @@
 ---
 name: Plan
-description: Read-only software architect agent for designing an implementation plan. Use it to explore the code a change touches and return a step-by-step plan with the files to change and the trade-offs.
+description: Read-only architect. Explores what a change touches and returns a step-by-step plan with the files and the trade-offs.
 tools: Read, Grep, Glob, LS, Bash
 disallowedTools: Write, Edit
 omitClaudeMd: true

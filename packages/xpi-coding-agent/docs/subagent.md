@@ -158,6 +158,16 @@ cannot be resumed, and the subagent screen cannot show them: the panel shows a o
 `Agent` tool itself works as before. A resume without `subagent_type` reuses the agent type of the first run; a different
 `subagent_type` is an error. Children inherit the parent's project trust.
 
+### What the tool costs in every prompt
+
+The tool's description, parameters and result type are part of each request of a session that has codemode on,
+whether or not an agent is ever started. They are kept short for that reason: one line per parameter, a result type
+that names the fields a script uses (the full result is the one above), a short line per built-in agent, and a
+`SendMessage` declaration that does not repeat the Agent result. (Leaving `SendMessage` out of the prompt altogether
+was tried: Haiku then started a second agent in place of a message in 2 of 17 runs, against 0 of 17.) In the
+evaluation (`npm run eval:delegation`) neither Haiku nor Opus started a subagent on its own in any task, small or
+long, so this fixed cost is what most sessions pay for the tool.
+
 ## Structured output
 
 `schema` on an `Agent` call, a JSON Schema with `type: "object"` at the top, makes the agent return a value instead of

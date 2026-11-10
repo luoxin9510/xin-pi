@@ -17,7 +17,7 @@ export const FORK_TYPE = "fork";
 const FORK_SOURCE = "builtin:fork";
 
 export const FORK_DESCRIPTION =
-	"A copy of you: it starts with this whole conversation (and your model), does the task in `prompt`, and returns only its result. Use it for a side task that needs what was said here, instead of restating context. It cannot start subagents. `model`, `effort` and `schema` are not accepted.";
+	"A copy of you, with this whole conversation and your model, for a side task that needs what was said here. It returns only its result. It cannot start subagents; `model`, `effort` and `schema` are not accepted.";
 
 // The reserved definition: no file, no system prompt of its own.
 export const FORK_DEFINITION: AgentDefinition = {

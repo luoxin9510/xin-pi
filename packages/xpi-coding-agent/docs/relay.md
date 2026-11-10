@@ -115,9 +115,9 @@ After a hand back every later lead request reads the record, not the conversatio
 
 ### Measured
 
-`npm run eval:delegation -- --long`, 2026-11-10, Opus 5.5 as lead and Haiku 5.5 as worker, on three features of this
-repository built again from their spec (each about 1,200 changed lines over 20 files in the original; done when the
-offline subagent suite passes). One run per cell, so differences of 10 to 20 percent mean nothing.
+`npm run eval:delegation -- --long`, 2026-11-10, Opus 5.5 as lead and Haiku 5.5 as worker, on six features of this
+repository built again from their spec (about 1,200 changed lines over 20 files in the original unless noted; done
+when the offline subagent suite passes). One run per cell, so differences of 10 to 20 percent mean nothing.
 
 | Task | Way of working | Passed | Time | Opus cost | Haiku cost | Handovers |
 |---|---|---|---|---|---|---|
@@ -133,14 +133,31 @@ offline subagent suite passes). One run per cell, so differences of 10 to 20 per
 | | Haiku alone | yes | 540 s | | $0.18 | |
 | | relay, the lead decides | yes | 526 s | $0.24 | $0.33 | 1 |
 | | relay, told to hand over | yes | 778 s | $0.22 | $0.15 | 2 |
+| saved workflows (2,600 lines) | Opus alone | yes | 845 s | $3.70 | | |
+| | Haiku alone (2 runs) | yes | 1,118 s | | $1.63 | |
+| | relay, the lead decides | yes | 833 s | $0.24 | $0.90 | 1 |
+| relaunch and pause | Opus alone | yes | 700 s | $2.74 | | |
+| | Haiku alone (2 runs) | yes | 880 s | | $1.04 | |
+| | relay, the lead decides | yes | 1,000 s | $0.24 | $0.96 | 1 |
+| structured output (1,600 lines) | Opus alone | yes | 293 s | $1.02 | | |
+| | Haiku alone (2 runs) | yes | 322 s | | $0.13 | |
+| | relay, the lead decides | yes | 447 s | $0.21 | $0.23 | 1 |
 
-- With the facts above and no rule, the lead handed over in all three tasks, after 3 to 8 requests of its own. Its
-  cost was 14 to 20 percent of what it spent alone; the time was longer than Opus alone and shorter than Haiku alone.
+- With the facts above and no rule, the lead handed over in all six tasks, after 2 to 8 requests of its own. Its
+  cost stayed between $0.19 and $0.24 whatever the size of the task: 6 to 21 percent of what it spent alone.
+- The time was longer than Opus alone in five of six tasks. It was shorter than Haiku alone in four and longer, by
+  about two minutes, in two: a round is the lead's exploring, the worker's work and the lead's review, and the
+  worker's part alone takes about what the worker needs without a lead.
 - With the earlier prompt, which told the lead when to hand over but gave it neither prices nor an objective, the lead
-  never handed over in the same three tasks (and never started a subagent with the `Agent` tool): relay cost the
-  same as Opus alone.
-- Haiku alone passes all three tasks. They show what a handover costs and saves, not what the lead's judgement is
-  worth on a task the worker cannot do by itself.
+  never handed over in the first three tasks: relay cost the same as Opus alone.
+- Haiku alone passes all six tasks. They show what a handover costs and saves, not what the lead's judgement is
+  worth on a task the worker cannot do by itself. Against Haiku alone, relay buys the lead's plan and review for
+  about twenty cents; against Opus alone, it saves most of the lead's cost for more time.
+- Haiku's cost on the larger tasks is far from one fortieth of Opus's: it makes many more requests, and its price is
+  five times higher above 100,000 prompt tokens.
+- In the same evaluation neither model started a subagent with the `Agent` tool on its own, in ten small tasks and
+  six long ones, with or without prices and an objective in the tool's description. The small tasks meant for
+  delegation (a search over 40 files, a 3,000-line log) were done with one codemode script for a few cents.
 
 ## Commands
 
