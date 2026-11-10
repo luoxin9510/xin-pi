@@ -1,7 +1,7 @@
 # 07: Relaunch with saved results, pause and resume
 
-Status: draft, NOT approved. Waiting for the owner's answers to Grill 4 (`decisions.md`). The owner asked for both
-features on 2026-11-10 and ruled `/deep-research` out.
+Status: ready-for-agent (owner approved Grill 4 on 2026-11-10). The owner asked for both features and ruled
+`/deep-research` out.
 
 ## Problem
 

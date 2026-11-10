@@ -79,7 +79,7 @@ Each line is worded so "yes" accepts the proposal.
    prompt and settings and keeps its id, name and row; the earlier session is kept as a file next to it; the waiting
    `Agent` call gets the last start's result; turns and cost add up; a finished agent cannot be restarted.
 
-## Grill 4 (2026-11-10): relaunch with saved results, pause and resume (`07-relaunch-and-pause.md`). PROPOSED, not answered yet
+## Grill 4 (2026-11-10): relaunch with saved results, pause and resume (`07-relaunch-and-pause.md`). All 8 accepted by the owner on 2026-11-10
 
 The owner asked for both features and ruled `/deep-research` out. Each line is worded so "yes" accepts the proposal.
 
