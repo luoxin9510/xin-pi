@@ -16,6 +16,7 @@ import type {
 	Usage,
 } from "../types.ts";
 import { formatProviderError, normalizeProviderError } from "../utils/error-body.ts";
+import { applyErrorClassification } from "../utils/error-kind.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { headersToRecord } from "../utils/headers.ts";
 import { type ClientIdentity, getIdentityHeaders } from "../utils/identity.ts";
@@ -263,6 +264,9 @@ export const stream: StreamFunction<"openai-responses", OpenAIResponsesOptions> 
 				output.errorMessage = `${errorMessage}\n${CHATGPT_WORKSPACE_LIMIT_HINT}`;
 			} else {
 				output.errorMessage = errorMessage;
+			}
+			if (output.stopReason === "error") {
+				applyErrorClassification(output, error, { provider: model.provider, text: output.errorMessage });
 			}
 			stream.push({ type: "error", reason: output.stopReason, error: output });
 			stream.end();

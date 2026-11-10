@@ -3,6 +3,7 @@ import type { ResponseCreateParamsStreaming } from "openai/resources/responses/r
 import { clampThinkingLevel } from "../models.ts";
 import type { Api, AssistantMessage, Model, SimpleStreamOptions, StreamFunction, TranscriptContext } from "../types.ts";
 import { formatProviderError, normalizeProviderError } from "../utils/error-body.ts";
+import { applyErrorClassification } from "../utils/error-kind.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { headersToRecord } from "../utils/headers.ts";
 import { getIdentityHeaders } from "../utils/identity.ts";
@@ -120,6 +121,9 @@ export const stream: StreamFunction<"azure-openai-responses", AzureOpenAIRespons
 		} catch (error) {
 			output.stopReason = options?.signal?.aborted ? "aborted" : "error";
 			output.errorMessage = formatAzureOpenAIError(error);
+			if (output.stopReason === "error") {
+				applyErrorClassification(output, error, { provider: model.provider, text: output.errorMessage });
+			}
 			stream.push({ type: "error", reason: output.stopReason, error: output });
 			stream.end();
 		}

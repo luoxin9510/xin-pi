@@ -5,7 +5,7 @@ import { Type } from "typebox";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Agent, type AgentEvent, type AgentTool } from "xpi-agent-core";
 import { type AssistantMessage, createAssistantMessageEventStream, getModel } from "xpi-ai/compat";
-import { AgentSession } from "../src/core/agent-session.ts";
+import { AgentSession, type AgentSessionEvent } from "../src/core/agent-session.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
@@ -60,6 +60,8 @@ describe("AgentSession retry", () => {
 		maxRetries?: number;
 		maxAgentDelayMs?: number;
 		delayAssistantMessageEndMs?: number;
+		/** Fields of the failed message, e.g. `errorKind` and `retryAfterMs`. */
+		failWith?: Partial<AssistantMessage>;
 	}) {
 		const failCount = options?.failCount ?? 1;
 		const maxRetries = options?.maxRetries ?? 3;
@@ -79,6 +81,7 @@ describe("AgentSession retry", () => {
 						const msg = createAssistantMessage("", {
 							stopReason: "error",
 							errorMessage: "overloaded_error",
+							...options?.failWith,
 						});
 						stream.push({ type: "start", partial: msg });
 						stream.push({ type: "error", reason: "error", error: msg });
@@ -165,6 +168,71 @@ describe("AgentSession retry", () => {
 		await created.session.prompt("Test");
 
 		expect(delays).toEqual([1, 2, 4, 5]);
+	});
+
+	it("retries rate_limit and transient kinds whatever the error text says", async () => {
+		const created = await createSession({
+			failCount: 1,
+			failWith: { errorMessage: "opaque provider text", errorKind: "rate_limit" },
+		});
+
+		await created.session.prompt("Test");
+
+		expect(created.getCallCount()).toBe(2);
+	});
+
+	it.each(["auth", "usage_limit", "invalid_request", "unknown"] as const)(
+		"does not retry errorKind %s even when the text looks transient",
+		async (errorKind) => {
+			const created = await createSession({
+				failCount: 99,
+				failWith: { errorMessage: "overloaded_error", errorKind },
+			});
+			const starts: number[] = [];
+			created.session.subscribe((event) => {
+				if (event.type === "auto_retry_start") starts.push(event.attempt);
+			});
+
+			await created.session.prompt("Test");
+
+			expect(created.getCallCount()).toBe(1);
+			expect(starts).toEqual([]);
+		},
+	);
+
+	it("waits the provider's retryAfterMs instead of the computed backoff", async () => {
+		const created = await createSession({
+			failCount: 2,
+			failWith: { errorKind: "rate_limit", retryAfterMs: 7 },
+		});
+		const delays: number[] = [];
+		created.session.subscribe((event) => {
+			if (event.type === "auto_retry_start") delays.push(event.delayMs);
+		});
+
+		await created.session.prompt("Test");
+
+		expect(delays).toEqual([7, 7]);
+	});
+
+	it("stops at once, naming the wait, when retryAfterMs exceeds maxAgentDelayMs", async () => {
+		const created = await createSession({
+			failCount: 99,
+			maxAgentDelayMs: 1000,
+			failWith: { errorKind: "rate_limit", retryAfterMs: 120_000 },
+		});
+		const events: AgentSessionEvent[] = [];
+		created.session.subscribe((event) => events.push(event));
+
+		await created.session.prompt("Test");
+
+		expect(created.getCallCount()).toBe(1);
+		expect(events.some((event) => event.type === "auto_retry_start")).toBe(false);
+		const end = events.find((event) => event.type === "auto_retry_end");
+		expect(end).toMatchObject({ type: "auto_retry_end", success: false, attempt: 0 });
+		expect(end?.type === "auto_retry_end" && end.finalError).toContain("wait 120s");
+		const agentEnd = events.find((event) => event.type === "agent_end");
+		expect(agentEnd).toMatchObject({ willRetry: false });
 	});
 
 	it("prompt waits for retry completion even when assistant message_end handling is delayed", async () => {

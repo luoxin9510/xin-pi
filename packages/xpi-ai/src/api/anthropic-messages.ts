@@ -38,6 +38,7 @@ import type {
 } from "../types.ts";
 import { appendAssistantMessageDiagnostic } from "../utils/diagnostics.ts";
 import { withCauseDetail } from "../utils/error-body.ts";
+import { applyErrorClassification } from "../utils/error-kind.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { shortHash } from "../utils/hash.ts";
 import { headersToRecord } from "../utils/headers.ts";
@@ -1165,6 +1166,9 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 		} catch (error) {
 			output.stopReason = options?.signal?.aborted ? "aborted" : "error";
 			output.errorMessage = error instanceof Error ? withCauseDetail(error) : JSON.stringify(error);
+			if (output.stopReason === "error") {
+				applyErrorClassification(output, error, { provider: model.provider, text: output.errorMessage });
+			}
 			stream.push({ type: "error", reason: output.stopReason, error: output });
 			stream.end();
 		}

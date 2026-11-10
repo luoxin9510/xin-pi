@@ -36,6 +36,7 @@ import type {
 	ToolResultMessage,
 } from "../types.ts";
 import { formatProviderError, normalizeProviderError } from "../utils/error-body.ts";
+import { applyErrorClassification } from "../utils/error-kind.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { shortHash } from "../utils/hash.ts";
 import { headersToRecord } from "../utils/headers.ts";
@@ -708,6 +709,9 @@ export const stream: StreamFunction<"openai-completions", OpenAICompletionsOptio
 			const rawMetadata = (error as any)?.error?.metadata?.raw;
 			if (rawMetadata && !output.errorMessage.includes(String(rawMetadata))) {
 				output.errorMessage += `\n${rawMetadata}`;
+			}
+			if (output.stopReason === "error") {
+				applyErrorClassification(output, error, { provider: model.provider, text: output.errorMessage });
 			}
 			stream.push({ type: "error", reason: output.stopReason, error: output });
 			stream.end();
