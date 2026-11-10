@@ -16,7 +16,8 @@ const [x, y] = await Promise.all([
 return "chk:" + [x.status, y.status].join(",");`;
 
 test("coloured rows, model and effort on the screen, and shift+x stops every running agent", async () => {
-	await withPi({ lingerMs: 30000 }, async (pi) => {
+	// 160 columns: with "main: running" the screen's header is longer than 120 and loses the effort at its end.
+	await withPi({ lingerMs: 30000, cols: 160 }, async (pi) => {
 		mkdirSync(join(pi.repo, ".pi", "agents"), { recursive: true });
 		writeFileSync(
 			join(pi.repo, ".pi", "agents", "tinted.md"),

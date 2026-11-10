@@ -56,7 +56,7 @@ test("by default the model is offered only codemode; a tools list is still the s
 	assert.equal(existsSync(join(s.repo, "created.txt")), false, "write is not callable from the script");
 });
 
-test("without tools the child gets the user's defaults plus codemode, minus disallowedTools; the prompt ends with the codemode line", async () => {
+test("without tools the child gets the user's defaults plus codemode, minus disallowedTools; the head ends with the codemode line", async () => {
 	const { setup, offeredTools } = await run("disallowedTools: Write");
 	assert.deepEqual(offeredTools, ["codemode"]);
 	assert.ok(
@@ -64,10 +64,7 @@ test("without tools the child gets the user's defaults plus codemode, minus disa
 		setup.tools.join(),
 	);
 	assert.equal(setup.tools.includes("write"), false);
-	assert.match(
-		setup.prompt.trim().split("\n").at(-1)!,
-		/^Use the `codemode` tool.*independent calls in one script\.$/,
-	);
+	assert.match(setup.head.trim().split("\n").at(-1)!, /^Use the `codemode` tool.*independent calls in one script\.$/);
 });
 
 test('childCodemode "inherit" and `codemode: false` give v1 behaviour: direct tools, no codemode line', async () => {
@@ -78,7 +75,7 @@ test('childCodemode "inherit" and `codemode: false` give v1 behaviour: direct to
 		const { setup, offeredTools } = await run(fields, settings);
 		assert.deepEqual(offeredTools, ["grep", "read"]);
 		assert.deepEqual(setup.tools, ["grep", "read"]);
-		assert.doesNotMatch(setup.prompt, /`codemode` tool/);
+		assert.doesNotMatch(setup.head + setup.prompt, /`codemode` tool/);
 	}
 });
 
