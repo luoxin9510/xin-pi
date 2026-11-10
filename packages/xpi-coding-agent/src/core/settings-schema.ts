@@ -15,10 +15,19 @@ const CompactionModelOverrideSchema = Type.Object({
 	keepRecentTokens: Type.Optional(nonNegativeSafeInteger()),
 });
 
+const CompactionPruneSettingsSchema = Type.Object({
+	enabled: Type.Optional(Type.Boolean({ default: SETTINGS_DEFAULTS.compaction.prune.enabled })),
+	protectTokens: Type.Optional(nonNegativeSafeInteger({ default: SETTINGS_DEFAULTS.compaction.prune.protectTokens })),
+	minSavingsTokens: Type.Optional(
+		nonNegativeSafeInteger({ default: SETTINGS_DEFAULTS.compaction.prune.minSavingsTokens }),
+	),
+});
+
 const CompactionSettingsSchema = Type.Object({
 	enabled: Type.Optional(Type.Boolean({ default: SETTINGS_DEFAULTS.compaction.enabled })),
 	reserveTokens: Type.Optional(nonNegativeSafeInteger({ default: SETTINGS_DEFAULTS.compaction.reserveTokens })),
 	keepRecentTokens: Type.Optional(nonNegativeSafeInteger({ default: SETTINGS_DEFAULTS.compaction.keepRecentTokens })),
+	prune: Type.Optional(CompactionPruneSettingsSchema),
 	modelOverrides: Type.Optional(
 		Type.Record(Type.String(), CompactionModelOverrideSchema, {
 			description: 'Per-model overrides keyed by exact "provider/modelId" strings.',

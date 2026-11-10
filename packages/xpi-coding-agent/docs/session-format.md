@@ -146,6 +146,8 @@ Append-only edit of one earlier context-producing entry. It changes only future 
 
 Targets may be user, assistant, tool-result, or custom-message entries. `replacement: null` omits the target from model context. A non-null `replacement` replaces only the target message content. String replacements for assistant and tool-result entries are normalized to one text block because those roles require content arrays. If several edits target the same entry, the latest edit on the active branch wins. Edits are branch-relative: navigating to a point before the edit reveals the target's original contribution again.
 
+Pre-compaction pruning appends edits with the optional field `"prune": true` (the replacement is a placeholder text block for an old tool result). The field only marks where the edit came from: compaction's cut-point rule ignores prune edits when deciding whether a replacement blocks the cut advance past an omitted recovery attempt. Readers that do not know the field can ignore it.
+
 ### BranchSummaryEntry
 
 Created when switching branches via `/tree` with an LLM generated summary of the left branch up to the common ancestor. Captures context from the abandoned path.

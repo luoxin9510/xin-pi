@@ -828,6 +828,8 @@ function findProjectedCutPoint(
 		(entry) =>
 			entry.sourceEntry.type === "context_edit" &&
 			entry.sourceEntry.replacement !== null &&
+			// Pruned tool output only shrinks what gets summarized; it does not change what the omitted attempt answered.
+			!entry.sourceEntry.prune &&
 			!omittedSuffixIds.has(entry.sourceEntry.targetId),
 	);
 	const isRecoveryOmissionSuffix =

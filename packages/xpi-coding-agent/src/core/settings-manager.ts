@@ -892,6 +892,25 @@ export class SettingsManager {
 		};
 	}
 
+	/** Settings for dropping old tool output before a compaction summary is made. */
+	getCompactionPruneSettings(): { enabled: boolean; protectTokens: number; minSavingsTokens: number } {
+		const prune = this.settings.compaction?.prune;
+		const defaults = SETTINGS_DEFAULTS.compaction.prune;
+		for (const field of ["protectTokens", "minSavingsTokens"] as const) {
+			const value = prune?.[field];
+			if (value !== undefined && (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0)) {
+				throw new Error(
+					`Invalid compaction.prune.${field} setting: ${String(value)}. Expected a non-negative safe integer.`,
+				);
+			}
+		}
+		return {
+			enabled: prune?.enabled ?? defaults.enabled,
+			protectTokens: prune?.protectTokens ?? defaults.protectTokens,
+			minSavingsTokens: prune?.minSavingsTokens ?? defaults.minSavingsTokens,
+		};
+	}
+
 	getBranchSummarySettings(): { reserveTokens: number; skipPrompt: boolean } {
 		return {
 			reserveTokens: this.settings.branchSummary?.reserveTokens ?? SETTINGS_DEFAULTS.branchSummary.reserveTokens,

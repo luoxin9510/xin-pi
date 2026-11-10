@@ -83,6 +83,9 @@ Trailing spaces, tabs and CR at line ends are ignored when comparing. Creating a
 | `compaction.enabled` | boolean | `true` | Enable automatic compaction. |
 | `compaction.reserveTokens` | number | `16384` | Free context tokens below which automatic compaction starts. |
 | `compaction.keepRecentTokens` | number | `20000` | Recent tokens retained without summarization. |
+| `compaction.prune.enabled` | boolean | `true` | Before compacting, replace old tool output with a placeholder; skip the summary if that is enough. |
+| `compaction.prune.protectTokens` | number | `40000` | Newest tool output (estimated tokens) kept whole. |
+| `compaction.prune.minSavingsTokens` | number | `20000` | Nothing is pruned unless it saves at least this many tokens. |
 | `compaction.modelOverrides` | object | None | Per-model token settings keyed by exact `provider/modelId`. |
 
 <a id="per-model-compaction-overrides"></a>

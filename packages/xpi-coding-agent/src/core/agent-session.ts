@@ -60,6 +60,7 @@ import {
 import { getThemeByName, theme } from "../modes/interactive/theme/theme.ts";
 import { stripFrontmatter } from "../utils/frontmatter.ts";
 import { processImage } from "../utils/image-process.ts";
+import { getPathComparisonKey, resolvePath } from "../utils/paths.ts";
 import { sleep } from "../utils/sleep.ts";
 import { normalizeToolResultImages } from "../utils/tool-result-images.ts";
 import { formatNoApiKeyFoundMessage, formatNoModelSelectedMessage } from "./auth-guidance.ts";
@@ -76,7 +77,9 @@ import {
 	estimateProjectedContextTokens,
 	estimateTokens,
 	generateBranchSummary,
+	planToolOutputPruning,
 	prepareCompaction,
+	prunedToolOutputText,
 	shouldCompact,
 } from "./compaction/index.ts";
 import { DEFAULT_THINKING_LEVEL, THINKING_LEVEL_OPTIONS } from "./defaults.ts";
@@ -3301,6 +3304,40 @@ export class AgentSession {
 	}
 
 	/**
+	 * Replace old tool output with a placeholder before a summary is made, one `context_edit`
+	 * per result. Returns true only for a threshold trigger on a non-virtual model whose pruned
+	 * context is back under the threshold, in which case no summary is needed.
+	 */
+	private _pruneToolOutputBeforeCompaction(reason: "overflow" | "threshold", model: Model<any> | undefined): boolean {
+		const prune = this.settingsManager.getCompactionPruneSettings();
+		if (!prune.enabled) return false;
+		const cwd = this._cwd;
+		const skillKeys = new Set(
+			this._resourceLoader.getSkills().skills.map((skill) => getPathComparisonKey(skill.filePath)),
+		);
+		const isSkillFile = (path: string): boolean =>
+			basename(path) === "SKILL.md" || skillKeys.has(getPathComparisonKey(resolvePath(path, cwd)));
+		const plan = planToolOutputPruning(this.sessionManager.buildSessionProjection(), prune, isSkillFile);
+		if (plan.targets.length === 0) return false;
+
+		for (const target of plan.targets) {
+			const editId = this.sessionManager.appendContextEdit(
+				target.entryId,
+				{ content: [{ type: "text", text: prunedToolOutputText(target.tokens) }] },
+				{ prune: true },
+			);
+			const entry = this.sessionManager.getEntry(editId);
+			if (entry) this._emit({ type: "entry_appended", entry });
+		}
+		this._refreshFinalizedContext();
+		// Only a plain threshold trigger may skip the summary. After an overflow the provider has just
+		// rejected the request, so the estimate is not trustworthy and recovery is single-shot. Under a
+		// virtual model the trigger measured the routed model's window, not this one's.
+		if (reason !== "threshold" || model === undefined || isVirtualModel(model)) return false;
+		return !this._exceedsCompactionThreshold(model, this.sessionManager.buildSessionProjection());
+	}
+
+	/**
 	 * Execute threshold or overflow compaction. Manual compaction uses
 	 * `AgentSession.compact()` instead. Both paths call the lower-level `compact()`
 	 * function imported from `./compaction/index.ts` after preparation and extension
@@ -3321,6 +3358,11 @@ export class AgentSession {
 		try {
 			if (!model) {
 				return false;
+			}
+
+			// Dropping old tool output first often makes a summary unnecessary.
+			if (this._pruneToolOutputBeforeCompaction(reason, model)) {
+				return willRetry || this.agent.hasQueuedMessages();
 			}
 
 			const pathEntries = this.sessionManager.getBranch();

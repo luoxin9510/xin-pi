@@ -190,3 +190,25 @@ describe("compaction model overrides", () => {
 		expect(manager.getCompactionSettings(model)).toEqual({ enabled: true, reserveTokens: 0, keepRecentTokens: 0 });
 	});
 });
+
+describe("compaction prune settings", () => {
+	it("defaults to enabled with a 40000 token window and a 20000 token minimum saving", () => {
+		expect(SettingsManager.inMemory().getCompactionPruneSettings()).toEqual({
+			enabled: true,
+			protectTokens: 40000,
+			minSavingsTokens: 20000,
+		});
+	});
+
+	it("resolves each field independently and rejects invalid numbers", () => {
+		const manager = SettingsManager.inMemory({ compaction: { prune: { enabled: false, protectTokens: 100 } } });
+		expect(manager.getCompactionPruneSettings()).toEqual({
+			enabled: false,
+			protectTokens: 100,
+			minSavingsTokens: 20000,
+		});
+
+		manager.applyOverrides({ compaction: { prune: { minSavingsTokens: -1 } } });
+		expect(() => manager.getCompactionPruneSettings()).toThrow("compaction.prune.minSavingsTokens");
+	});
+});
