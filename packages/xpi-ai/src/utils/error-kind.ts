@@ -399,7 +399,7 @@ export function classifyErrorText(text: string, provider?: string): ErrorKind {
 /**
  * Classify a provider failure once. Order:
  * 1. Error class or `code` on the cause chain: connection-level failures are `transient`.
- * 2. HTTP status. 401/403 `auth`, 402 `usage_limit`, 408/409/425/5xx `transient`, 413 `context_overflow`, 429
+ * 2. HTTP status (after overflow and quota codes or text, which win at any status). 401/403 `auth`, 402 `usage_limit`, 408/409/425/5xx `transient`, 413 `context_overflow`, 429
  *    `rate_limit`, other 4xx `invalid_request`; 400/422 go on to steps 3 and 4 because the same status carries
  *    overflow, quota and bad-request errors. A provider code that names a quota or overflow wins over the status
  *    (a 429 with `insufficient_quota` is `usage_limit`), and so does a quota text on 402/403/429.
@@ -438,7 +438,11 @@ export function classifyProviderError(error: unknown, options: ClassifyOptions =
 	}
 
 	// 2. HTTP status.
-	const specific = codeKinds.find((kind) => kind === "usage_limit" || kind === "context_overflow");
+	// Overflow and quota outrank the status whatever its value: servers send them with 400, 429 and 5xx, and the
+	// session must compact (overflow) or stop (quota) instead of retrying.
+	let specific = codeKinds.find((kind) => kind === "usage_limit" || kind === "context_overflow");
+	if (!specific && textIndicatesOverflow(text, options.provider)) specific = "context_overflow";
+	if (!specific && textIndicatesUsageLimit(text)) specific = "usage_limit";
 	if (status !== undefined) {
 		if (specific) return result(specific);
 		if (status === 402 || status === 403 || status === 429) {

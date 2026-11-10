@@ -200,6 +200,36 @@ describe("AgentSession retry", () => {
 		},
 	);
 
+	it("does not retry a 500 that is a context overflow", async () => {
+		const created = await createSession({
+			failCount: 99,
+			failWith: {
+				errorMessage: "500 This model's maximum context length is 8192 tokens",
+				errorKind: "context_overflow",
+				errorStatus: 500,
+				model: "claude-sonnet-4-5", // overflow recovery only acts on the session model
+			},
+		});
+		const starts: number[] = [];
+		// The tiny test history has nothing to compact, so observe the decision instead of the compaction.
+		const compactions: string[] = [];
+		const hooked = created.session as unknown as {
+			_runAutoCompaction: (reason: "overflow" | "threshold", willRetry: boolean) => Promise<boolean>;
+		};
+		hooked._runAutoCompaction = async (reason) => {
+			compactions.push(reason);
+			return false;
+		};
+		created.session.subscribe((event) => {
+			if (event.type === "auto_retry_start") starts.push(event.attempt);
+		});
+
+		await created.session.prompt("Test");
+
+		expect(starts).toEqual([]);
+		expect(compactions).toContain("overflow");
+	});
+
 	it("waits the provider's retryAfterMs instead of the computed backoff", async () => {
 		const created = await createSession({
 			failCount: 2,

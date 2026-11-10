@@ -38,6 +38,16 @@ describe("classifyProviderError", () => {
 		expect(kind(400, "prompt is too long: 213462 tokens > 200000 maximum")).toBe("context_overflow");
 	});
 
+	it("lets overflow and quota text outrank the status", () => {
+		const kind = (status: number, message: string) =>
+			classifyProviderError(Object.assign(new Error(message), { status })).kind;
+		expect(kind(500, "This model's maximum context length is 8192 tokens")).toBe("context_overflow");
+		expect(kind(429, "This model's maximum context length is 8192 tokens")).toBe("context_overflow");
+		expect(kind(503, "You exceeded your current quota, check your plan and billing")).toBe("usage_limit");
+		expect(kind(429, "Too many requests")).toBe("rate_limit");
+		expect(kind(429, "Rate limit reached: too many tokens per minute")).toBe("rate_limit");
+	});
+
 	it("reads quota codes and text on a 429", () => {
 		const quota = Object.assign(new Error("429 quota"), { status: 429, code: "insufficient_quota" });
 		expect(classifyProviderError(quota).kind).toBe("usage_limit");
