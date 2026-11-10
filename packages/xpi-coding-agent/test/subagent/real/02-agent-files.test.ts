@@ -108,23 +108,31 @@ test("unsupported Claude Code fields warn; unknown keys are ignored; same-folder
 	const s = sandbox();
 	s.write(
 		join(s.repo, ".pi/agents/inert.md"),
-		agentFile("name: inert\ndescription: d\nbackground: true\nhooks: {}\ncolor: mauve\nwhatever: 1"),
+		agentFile("name: inert\ndescription: d\npermissionMode: plan\nhooks: {}\ncolor: mauve\nwhatever: 1"),
 	);
 	s.write(join(s.home, ".claude/agents/x1.md"), def("dup", "first"));
 	s.write(join(s.home, ".claude/agents/x2.md"), def("dup", "second"));
 	const t = await loadTool({}, { cwd: s.repo });
-	assert.ok(t.notes.includes('subagent: inert: field "background" has no effect in subagent'));
+	assert.ok(
+		t.notes.includes(
+			'subagent: inert: field "permissionMode" has no effect in subagent: xpi has no permission modes',
+		),
+	);
 	assert.equal(t.notes.filter((n) => n.includes("unknown color")).length, 1, "an unknown colour warns once");
 	assert.ok(!t.notes.some((n) => n.includes('"color" has no effect')));
-	assert.ok(t.notes.includes('subagent: inert: field "hooks" has no effect in subagent'));
+	assert.ok(
+		t.notes.includes(
+			'subagent: inert: field "hooks" has no effect in subagent: xpi has no hooks; extensions do that work',
+		),
+	);
 	assert.ok(!t.notes.some((n) => n.includes("whatever")));
 	assert.ok(t.notes.some((n) => /dup" is defined twice: .*x1\.md wins over .*x2\.md/.test(n)));
 	assert.match(t.tool.description, /- dup: first/);
 	const r = await t.result({ subagent_type: "inert", prompt: REPLY_OK });
 	assert.equal(r.status, "completed", r.error ?? "");
 	assert.deepEqual(r.warnings, [
-		'field "hooks" has no effect in subagent',
-		'field "background" has no effect in subagent',
+		'field "permissionMode" has no effect in subagent: xpi has no permission modes',
+		'field "hooks" has no effect in subagent: xpi has no hooks; extensions do that work',
 	]);
 });
 

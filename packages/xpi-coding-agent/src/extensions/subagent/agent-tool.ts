@@ -325,6 +325,13 @@ export function agentEndMessage(
 	].join("\n");
 }
 
+// Whether the agent this call runs (a resume: the one it continues) has `background: true` in its file.
+function runsInBackground(params: AgentInput, parent: ParentContext): boolean {
+	const resumed = params.resume === undefined ? undefined : registry.find(parent.sessionId, params.resume);
+	const type = params.subagent_type ?? (resumed && registry.get(resumed)?.type) ?? DEFAULT_AGENT;
+	return discoverAgents(parent.cwd).agents.get(type)?.background === true;
+}
+
 export function agentTool(getConfig: () => Config, description: string, deliver: (content: string) => void) {
 	return {
 		name: "Agent",
@@ -342,9 +349,13 @@ export function agentTool(getConfig: () => Config, description: string, deliver:
 				| undefined,
 			ctx: ExtensionContext,
 		) {
+			const parent = parentContext(ctx);
+			// An agent file's `background: true` stands in for an omitted run_in_background; the call's own value wins.
+			if (params.run_in_background === undefined && runsInBackground(params, parent)) {
+				params = { ...params, run_in_background: true };
+			}
 			scripts.agentStarting(toolCallId, params.run_in_background); // the first plain Agent call moves its script to the background
 			countScriptAgent(toolCallId, getConfig().maxAgentsPerScript);
-			const parent = parentContext(ctx);
 			if (params.run_in_background === true && ctx.hasUI) {
 				// The agent runs on its own, not tied to this call's signal; main hears of its end by message.
 				let run!: Promise<AgentResult>;

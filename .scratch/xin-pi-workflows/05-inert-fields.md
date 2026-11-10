@@ -1,6 +1,6 @@
 # 05: Agent-file fields that have no effect today, and `--agents`
 
-Status: ready-for-agent (owner approved Grill 2 on 2026-11-10). Three fields are built, the rest stay inert.
+Status: done (2026-11-10, `issues/05-inert-fields.md`). Three fields are built, the rest stay inert.
 
 ## Problem
 

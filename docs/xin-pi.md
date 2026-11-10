@@ -22,7 +22,7 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
 - Two built-in extensions, registered in `coding-agent/src/extensions/index.ts` and not replaceable:
   - `subagent` (`src/extensions/subagent/`, off with `-builtin:subagent`): the `Agent`, `SendMessage` and `Workflow` tools
     for codemode scripts, the script helpers (`agent`, `parallel`, `pipeline`, `phase`, `log`), saved workflows
-    (`/<name>`, `/workflows`), the panel, `/subagents`. Settings namespace `subagent.*`, env `XPI_SUBAGENT_*`, branches `subagent/<id>`. It was the separate
+    (`/<name>`, `/workflows`), the panel, `/subagents`, the `--agents` flag. Settings namespace `subagent.*`, env `XPI_SUBAGENT_*`, branches `subagent/<id>`. It was the separate
     extension pi-pipipi. User docs: [subagent.md](../packages/xpi-coding-agent/docs/subagent.md); porting contracts:
     [subagent-porting.md](../packages/xpi-coding-agent/docs/subagent-porting.md).
   - `upstream` (`src/extensions/upstream/`, off with `-builtin:upstream`): `/upstream`, see below.

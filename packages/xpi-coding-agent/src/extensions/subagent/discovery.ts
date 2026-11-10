@@ -4,7 +4,7 @@ import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "n
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { getPackageDir } from "../../config.ts";
-import { type AgentDefinition, inertNotice, parseDefinition } from "./definition.ts";
+import { type AgentDefinition, definitionFromFields, inertNotice, parseDefinition } from "./definition.ts";
 
 // The built-in agent definitions ship as assets next to the extension's source (or its build output).
 const packageDir = getPackageDir();
@@ -93,9 +93,64 @@ export function agentSources(cwd: string): string[] {
 	];
 }
 
+// Agents given on the command line (`--agents`): they rank above every file and live for the process.
+let cliAgents: AgentDefinition[] = [];
+export const CLI_SOURCE = "--agents";
+
+// Parse the value of `--agents`: a JSON object (or the path of a file holding one) whose keys are agent names and whose
+// values are definitions, Claude Code's shape: `prompt` is the system prompt, the other keys are the agent-file fields.
+// Throws when it is not such an object; an entry that is not a valid agent is skipped with a warning.
+export function setCliAgents(value: string | undefined, cwd: string): string[] {
+	cliAgents = [];
+	if (value === undefined || value.trim() === "") return [];
+	let text = value.trim();
+	if (!text.startsWith("{")) {
+		const path = resolve(cwd, text);
+		try {
+			text = readFileSync(path, "utf8");
+		} catch (err) {
+			throw new Error(
+				`--agents: cannot read ${path}: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}`,
+			);
+		}
+	}
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(text);
+	} catch (err) {
+		throw new Error(`--agents: invalid JSON: ${(err as Error).message}`);
+	}
+	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+		throw new Error("--agents: expected a JSON object whose keys are agent names");
+	}
+	const warnings: string[] = [];
+	for (const [name, raw] of Object.entries(parsed)) {
+		if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+			warnings.push(`skipped --agents entry "${name}": its value must be an object`);
+			continue;
+		}
+		const { prompt, ...fields } = raw as Record<string, unknown>;
+		if (prompt !== undefined && typeof prompt !== "string") {
+			warnings.push(`skipped --agents entry "${name}": "prompt" must be a string`);
+			continue;
+		}
+		const result = definitionFromFields(CLI_SOURCE, { ...fields, name }, (prompt ?? "").trim());
+		if (result.ok) cliAgents.push(result.def);
+		else warnings.push(`skipped --agents entry "${name}": ${result.reason}`);
+	}
+	return warnings;
+}
+
 export function discoverAgents(cwd: string): Discovery {
 	const agents = new Map<string, AgentDefinition>();
 	const warnings: string[] = [];
+	const fromCli = new Set<string>();
+	for (const def of cliAgents) {
+		agents.set(def.name, def);
+		fromCli.add(def.name);
+		for (const w of def.warnings) warnings.push(`${def.name}: ${w}`);
+		for (const field of def.inert) warnings.push(`${def.name}: ${inertNotice(field)}`);
+	}
 
 	const projectSources = new Set(agentSources(cwd).slice(0, 2 * projectDirs(cwd).length));
 	const winners = new Map<string, { dir: string; path: string }>();
@@ -114,6 +169,7 @@ export function discoverAgents(cwd: string): Discovery {
 				continue;
 			}
 			seen.set(def.name, path);
+			if (fromCli.has(def.name)) continue; // --agents ranks above every file
 			const winner = winners.get(def.name);
 			if (winner) {
 				// a higher-priority source already defined it

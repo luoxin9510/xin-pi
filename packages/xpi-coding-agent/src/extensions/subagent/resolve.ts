@@ -3,7 +3,9 @@
 import { mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { getAgentDir } from "../../config.ts";
 import { findGitPaths } from "../../core/footer-data-provider.ts";
+import { loadMcpConfig } from "../mcp/config.ts";
 import type { Config } from "./config.ts";
 import type { AgentDefinition } from "./definition.ts";
 import { childInvocation } from "./invocation.ts";
@@ -58,6 +60,7 @@ export interface ResolveOptions {
 	worktree?: WorktreeRef;
 	memoryRoot?: string; // project/local memory base: the main checkout (git root of the parent's cwd); default the parent's cwd
 	claudeDir?: string; // user memory base, default ~/.claude (tests pass a temp dir)
+	mcpServers?: string[]; // names of the configured MCP servers; default: read from mcp.json (tests pass a list)
 }
 
 // The shared head must not name the agent, its directory or the date: those belong to the tail.
@@ -161,11 +164,22 @@ function memorySection(dir: string, readOnly: boolean, warnings: string[]): stri
 	].join("\n");
 }
 
+// The MCP servers of the agent dir's mcp.json and, in a trusted project, the project's.
+function configuredMcpServers(parent: ParentContext): string[] {
+	return loadMcpConfig({ agentDir: getAgentDir(), cwd: parent.cwd, projectTrusted: parent.trusted }).servers.map(
+		(s) => s.name,
+	);
+}
+
+// Every tool of a server, as the MCP extension names them (mcp__<server>__<tool>, other characters become "_").
+const serverTools = (server: string) => `mcp__${server.replace(/[^A-Za-z0-9_]/g, "_")}__*`;
+
 function resolveTools(
 	def: AgentDefinition,
 	config: Config,
 	codemode: boolean,
 	structured: boolean,
+	configured: () => string[], // the configured MCP server names, read only for an agent with `mcpServers`
 ): { args: string[]; warnings: string[]; memoryReadOnly: boolean } {
 	const toolMap = { ...BUILTIN_TOOL_MAP, ...config.toolMap };
 	const warnings: string[] = [];
@@ -199,8 +213,19 @@ function resolveTools(
 		);
 		for (const t of memoryTools.slice(1)) if (!deny.includes(t)) deny.push(t); // Write and Edit go together
 	}
+	// `mcpServers`: the agent gets the tools of the servers it names, and no other server's.
+	let servers: string[] | undefined;
+	let otherServers: string[] = [];
+	if (def.mcpServers !== undefined) {
+		const known = configured();
+		servers = def.mcpServers.filter((name) => known.includes(name));
+		otherServers = known.filter((name) => !servers!.includes(name));
+		for (const name of def.mcpServers) {
+			if (!known.includes(name)) warnings.push(`mcpServers: server "${name}" is not configured in mcp.json`);
+		}
+	}
 	if (def.tools !== undefined) {
-		const listed = map(def.tools);
+		const listed = [...map(def.tools), ...(servers ?? []).map(serverTools)];
 		const extra = (memoryReadOnly ? memoryTools.slice(0, 1) : memoryTools).filter((t) => !listed.includes(t));
 		const allow = [...listed, ...extra].filter((t) => !deny.includes(t));
 		if (allow.length === 0) throw new Error(`agent "${def.name}" has no usable tools`);
@@ -208,9 +233,13 @@ function resolveTools(
 		args.push("--tools", [...selected, ...(structured ? [STRUCTURED_OUTPUT_TOOL] : [])].join(","));
 		// A --tools list does not drop MCP tools unless an entry starts with mcp__; an agent must not get unlisted ones.
 		if (!allow.some((t) => t.startsWith("mcp__"))) deny.push("mcp__*");
-	} else if (codemode || structured) {
-		const added = [...(codemode ? ["codemode"] : []), ...(structured ? [STRUCTURED_OUTPUT_TOOL] : [])];
-		args.push("--tools", added.map((t) => `+${t}`).join(","));
+	} else {
+		if (codemode || structured) {
+			const added = [...(codemode ? ["codemode"] : []), ...(structured ? [STRUCTURED_OUTPUT_TOOL] : [])];
+			args.push("--tools", added.map((t) => `+${t}`).join(","));
+		}
+		// No tool list to add to: the servers it does not name are taken away instead (all of MCP when it names none).
+		if (servers !== undefined) deny.push(...(servers.length === 0 ? ["mcp__*"] : otherServers.map(serverTools)));
 	}
 	if (deny.length > 0) args.push("--exclude-tools", deny.join(","));
 	return { args, warnings, memoryReadOnly };
@@ -258,7 +287,13 @@ export function resolveChild(
 	const thinking = input.effort ?? def.effort ?? parent.thinking;
 	const codemode = config.childCodemode === "only" && def.codemode !== false;
 	const structured = input.schema !== undefined;
-	const tools = resolveTools(def, config, codemode, structured);
+	const tools = resolveTools(
+		def,
+		config,
+		codemode,
+		structured,
+		() => options.mcpServers ?? configuredMcpServers(parent),
+	);
 	const cwd = options.worktree ? join(options.worktree.path, options.worktree.subdir ?? "") : parent.cwd;
 	const memory = def.memory
 		? memorySection(memoryDir(def, parent, options), tools.memoryReadOnly, tools.warnings)
