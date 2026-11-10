@@ -16,6 +16,7 @@ import { scriptHelpers } from "./script-helpers.ts";
 import { registerStructuredOutput } from "./structured-output.ts";
 import { subagentsCommand } from "./subagents-command.ts";
 import { startWorkflowCommand, workflowStartText } from "./workflow-run.ts";
+import { saveScriptAsWorkflow } from "./workflow-save.ts";
 import { describeWorkflows, workflowTool } from "./workflow-tool.ts";
 import { discoverWorkflows, parseArgs, type Workflow } from "./workflows.ts";
 import { workflowsCommand } from "./workflows-command.ts";
@@ -188,7 +189,17 @@ export default function subagent(pi: ExtensionAPI) {
 			agentTool(() => config!, describeAgents(discovery, config.backgroundScripts, ctx.hasUI), deliver),
 		);
 		if (ctx.hasUI) {
-			installPanel(() => current!, config);
+			installPanel(
+				() => current!,
+				config,
+				(script) => {
+					void saveScriptAsWorkflow(current!, script).then((path) => {
+						// A new workflow is a command and in the Workflow tool's list at once.
+						if (path)
+							for (const w of registerWorkflows(current!)) current!.ui.notify(`subagent: ${w}`, "warning");
+					});
+				},
+			);
 			for (const warning of [...warnings, ...discovery.warnings]) ctx.ui.notify(`subagent: ${warning}`, "warning");
 		}
 	});
