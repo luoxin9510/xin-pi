@@ -34,3 +34,31 @@ Names and messages (`03-names-and-messages.md`)
 Order
 
 11. Specs for fork and for the inert agent-file fields are written after 1-3 have landed.
+
+## Grill 2 (2026-11-10): fork and the inert fields. PROPOSED, not answered yet
+
+Each line is worded so "yes" accepts the proposal.
+
+Fork (`04-fork.md`)
+
+1. A fork is `Agent({ subagent_type: "fork", ... })`, a reserved type with no agent file, plus `/subtask <task>` for
+   the user. It has main's model, thinking level, system prompt and tools; `model`, `effort` and `schema` are refused.
+2. A fork starts from a copy of main's session file taken at the call, with a tool result injected for the unfinished
+   `codemode` call that says "you are a fork, do the next message's task". No fork with `--no-session`.
+3. A fork may not start any subagent (not only "no fork of a fork"): nesting stays one level, as today. The tools stay
+   declared for the cache, and the calls throw.
+4. Default: omitted `run_in_background` follows the same rules as any agent (not "always background" as in Claude
+   Code); `/subtask` is always background.
+5. On by default; `subagent.fork: false` turns it off.
+6. Before any ticket: the two prototypes in the spec (the provider accepts the copied session; the first request reads
+   main's cache). If the cache cannot be read without large core changes, stop and come back with the numbers.
+
+Inert fields (`05-inert-fields.md`)
+
+7. Build `mcpServers` (names of configured servers only, no inline definitions), `background: true`, and `--agents`.
+8. Leave `permissionMode`, `hooks`, `initialPrompt`, `autoCompactWindow` and `experimental` inert, with a warning that
+   says why.
+
+Order
+
+9. Spec 05 first (three small, independent tickets), then spec 04 (the prototypes decide its size).
