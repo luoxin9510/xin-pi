@@ -15,8 +15,10 @@ import { registry } from "./registry.ts";
 import { scriptHelpers } from "./script-helpers.ts";
 import { registerStructuredOutput } from "./structured-output.ts";
 import { subagentsCommand } from "./subagents-command.ts";
-import { startWorkflow, workflowStartText } from "./workflow-run.ts";
-import { discoverWorkflows, parseArgs } from "./workflows.ts";
+import { startWorkflowCommand, workflowStartText } from "./workflow-run.ts";
+import { describeWorkflows, workflowTool } from "./workflow-tool.ts";
+import { discoverWorkflows, parseArgs, type Workflow } from "./workflows.ts";
+import { workflowsCommand } from "./workflows-command.ts";
 
 export default function subagent(pi: ExtensionAPI) {
 	// Children run with XPI_SUBAGENT_DEPTH=1. Nesting is fixed at one level, so they get no Agent tool. A codemode-only child
@@ -51,16 +53,32 @@ export default function subagent(pi: ExtensionAPI) {
 	// Saved workflows become `/name` commands. A command cannot be unregistered: one registered for an earlier session
 	// stays, and its handler looks the workflow up again when it runs (an edited file runs as edited).
 	const workflowCommands = new Set<string>();
+	// Names another command has (built-in, or another extension's): a workflow with one is skipped.
+	const takenNames = () =>
+		new Set([
+			...BUILTIN_SLASH_COMMANDS.map((c) => c.name),
+			...pi
+				.getCommands()
+				.map((c) => c.name)
+				.filter((n) => !workflowCommands.has(n)),
+		]);
+	// The workflows runnable here now, looked up again at each run (an edited file runs as edited).
+	const runnableWorkflows = (ctx: ExtensionContext) => {
+		const found = discoverWorkflows(ctx.cwd, ctx.isProjectTrusted());
+		const taken = takenNames();
+		for (const name of [...found.workflows.keys()]) if (taken.has(name)) found.workflows.delete(name);
+		return found.workflows;
+	};
+	const runsInBackground = (ctx: ExtensionContext) => config?.backgroundScripts !== false && ctx.hasUI;
 	const runWorkflowCommand = async (name: string, text: string, ctx: ExtensionCommandContext) => {
-		const workflow = discoverWorkflows(ctx.cwd, ctx.isProjectTrusted()).workflows.get(name);
+		const workflow = runnableWorkflows(ctx).get(name);
 		if (!workflow) {
 			const message = `workflow ${name} is not available here (removed, or a project workflow in an untrusted project)`;
 			if (ctx.hasUI) ctx.ui.notify(message, "error");
 			else process.stderr.write(`${message}\n`);
 			return;
 		}
-		const background = config?.backgroundScripts !== false && ctx.hasUI;
-		const start = await startWorkflow(ctx, workflow, parseArgs(text), background);
+		const start = await startWorkflowCommand(ctx, workflow, parseArgs(text), runsInBackground(ctx));
 		if (start.background) {
 			ctx.ui.notify(workflowStartText(name, start.scriptId), "info");
 			return;
@@ -71,20 +89,18 @@ export default function subagent(pi: ExtensionAPI) {
 		else if (isStdoutTakenOver()) writeRawStdout(`${output}\n`);
 		else process.stdout.write(`${output}\n`);
 	};
+	// Each runnable workflow becomes a `/name` command; the Workflow tool lists them. Returns the warnings.
 	const registerWorkflows = (ctx: ExtensionContext): string[] => {
 		const { workflows, warnings } = discoverWorkflows(ctx.cwd, ctx.isProjectTrusted());
-		const taken = new Set([
-			...BUILTIN_SLASH_COMMANDS.map((c) => c.name),
-			...pi
-				.getCommands()
-				.map((c) => c.name)
-				.filter((n) => !workflowCommands.has(n)),
-		]);
-		for (const { meta, path } of workflows.values()) {
+		const taken = takenNames();
+		const runnable: Workflow[] = [];
+		for (const workflow of workflows.values()) {
+			const { meta, path } = workflow;
 			if (taken.has(meta.name)) {
 				warnings.push(`workflow ${path} skipped: /${meta.name} is already a command`);
 				continue;
 			}
+			runnable.push(workflow);
 			if (workflowCommands.has(meta.name)) continue;
 			workflowCommands.add(meta.name);
 			pi.registerCommand(meta.name, {
@@ -92,9 +108,25 @@ export default function subagent(pi: ExtensionAPI) {
 				handler: (args, cctx) => runWorkflowCommand(meta.name, args, cctx),
 			});
 		}
+		// Only offered when there is one to run (the description lists them; a workflow saved later is offered after a
+		// reload). A tool cannot be unregistered: one from an earlier session stays, and finds nothing to run.
+		if (runnable.length > 0) {
+			pi.registerTool(
+				workflowTool(
+					describeWorkflows(runnable),
+					(name, tctx) => runnableWorkflows(tctx).get(name),
+					runsInBackground,
+				),
+			);
+		}
 		return warnings;
 	};
 
+	pi.registerCommand("workflows", {
+		description: "List saved workflows and this session's workflow runs; Enter runs one or opens a run's agents",
+		handler: (_args, ctx) =>
+			workflowsCommand(ctx, runnableWorkflows(ctx), (name) => runWorkflowCommand(name, "", ctx)),
+	});
 	pi.registerCommand("subagents", {
 		description:
 			"List this session's subagents; `stop` stops everything running; `worktrees` lists and removes kept worktrees",

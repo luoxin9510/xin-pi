@@ -174,6 +174,7 @@ export async function loadTool(settings: Record<string, unknown>, c: FakeCtx) {
 	const updates: string[] = [];
 	return {
 		tool,
+		tools,
 		ctx,
 		emit: async (event: string, payload: object) => {
 			for (const h of handlers[event] ?? []) await h(payload, ctx);

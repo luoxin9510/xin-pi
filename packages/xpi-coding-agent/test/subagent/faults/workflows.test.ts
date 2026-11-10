@@ -243,3 +243,27 @@ test("run with a UI (rpc mode): the workflow starts in the background at once an
 		child.kill();
 	}
 });
+
+test("Workflow tool: offered only when a workflow can run, described with them, skipping clashing names", async () => {
+	const s = sandbox();
+	const none = await loadTool({}, { cwd: s.repo });
+	assert.equal(none.tools?.Workflow, undefined, "no workflows, no tool");
+	s.write(join(s.repo, ".pi/workflows/audit.js"), file("audit", "return 1", "Audit the routes"));
+	s.write(join(s.repo, ".pi/workflows/review.js"), file("review", "return 1"));
+	const t = await loadTool({}, { cwd: s.repo, otherCommands: ["review"] });
+	assert.match(t.tools.Workflow.description, /- audit: Audit the routes/);
+	assert.doesNotMatch(t.tools.Workflow.description, /review/);
+	assert.ok(t.commands.workflows, "/workflows is a command");
+});
+
+test("/workflows in print mode lists the saved workflows", async () => {
+	const s = sandbox();
+	const agentDir = join(s.root, "agent");
+	mkdirSync(agentDir, { recursive: true });
+	writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ subagent: { piCommand: FAKE_PI } }));
+	s.write(join(s.repo, ".pi/workflows/audit.js"), file("audit", "return 1", "Audit the routes"));
+	s.write(join(agentDir, "workflows/mine.js"), file("mine", "return 1", "My own"));
+	const r = await xpi(s.repo, agentDir, s.home, "/workflows");
+	assert.equal(r.code, 0, r.err);
+	assert.equal(r.out.trim(), "/audit · Audit the routes · project\n/mine · My own · user");
+});
