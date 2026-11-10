@@ -135,6 +135,8 @@ export async function loadTool(settings: Record<string, unknown>, c: Ctx) {
 	const updates: string[] = [];
 	const self = {
 		tool,
+		tools,
+		ctx,
 		notes,
 		updates,
 		menus,

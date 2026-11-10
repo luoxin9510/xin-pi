@@ -88,10 +88,10 @@ Without Anthropic credentials, haiku (and so every agent by default) fails with 
 
 ## The Agent tool
 
-Input (compatible with Claude Code's Agent tool): `{ description, prompt, subagent_type?, model?, effort?, resume?, run_in_background?, isolation?, schema? }`.
+Input (compatible with Claude Code's Agent tool): `{ description, prompt, subagent_type?, model?, effort?, resume?, run_in_background?, isolation?, schema?, name? }`.
 `subagent_type` defaults to `general-purpose`. `isolation` is `"worktree"` or omitted (see [Worktree isolation](#worktree-isolation)); `schema` makes the
 result a value (see [Structured output](#structured-output));
-`name` is accepted and ignored with a warning. Children run as `xpi --mode rpc` and get the prompt as a protocol message on stdin, not as a command
+`name` names the agent (see [Names and SendMessage](#names-and-sendmessage)). Children run as `xpi --mode rpc` and get the prompt as a protocol message on stdin, not as a command
 line argument, so prompts of any size work.
 
 `run_in_background`: omitted, the first `Agent` call moves its codemode script to the background; `false` keeps the script in the foreground; `true` returns `status: "running"` at once and main gets a message when the agent ends (output cut at 8 KB), without moving the script.
@@ -163,6 +163,32 @@ schema, since it takes MCP servers' too); a nested mistake shows up as failed at
 The schema belongs to the call: a `resume` may pass one or not, and talking to the agent on its screen never uses one.
 A `run_in_background: true` agent's end message carries the JSON text. The tool list comes before the system prompt in
 a request, so a child with a schema has its own prompt-cache prefix (see [Prompt caching](#prompt-caching)).
+
+## Names and SendMessage
+
+`name` on an `Agent` call (letters, digits, `_` and `-`, at most 64) names the agent. The name is stored with it,
+shown in the panel and on the screen header as `type(name) description`, and is unique in the parent session: a second
+agent with the name throws, naming the first one's id. `resume` takes a name as well as an id. A resume keeps the
+name; passing another one (or a name for an agent that has none) throws.
+
+`SendMessage({ to, message, summary? })` reaches an agent this session started, `to` being its name or id:
+
+| The agent is | Effect | Returns |
+|---|---|---|
+| running | `message` is delivered as a steer; the agent takes it after its current step | at once: `{ status: "running", agentId, delivered: "steer" }` |
+| completed, partial, failed or stopped | continued from its session with `message`, exactly like `Agent({ resume, prompt: message })`, under the same background rules | the `Agent` result |
+| unknown | throws, listing the session's agents by name and id | |
+
+```js
+await tools.Agent({ name: "reviewer", description: "review the diff", prompt: "Review the staged diff.", run_in_background: true });
+// later, from another script
+await tools.SendMessage({ to: "reviewer", message: "Also check the migration file." });
+```
+
+`summary` is accepted and unused. A steer main sends is not noted back to main (the note exists for what the user said
+on the agent's screen). `SendMessage` carries no `schema`: use `Agent` with `resume` for a structured answer. Children
+get neither `Agent` nor `SendMessage`: agents do not message each other. With an in-memory parent session
+(`--no-session`) names and steers work while the process lives, and nothing can be continued, as with `resume`.
 
 ## Workflows
 

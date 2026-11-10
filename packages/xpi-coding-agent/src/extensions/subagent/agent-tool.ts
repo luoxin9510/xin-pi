@@ -5,10 +5,10 @@ import { type JsonValue, StringEnum } from "xpi-ai";
 import type { ExtensionContext } from "../../core/extensions/types.ts";
 import { scripts } from "./background.ts";
 import type { Config } from "./config.ts";
-import { EFFORTS, inertNotice } from "./definition.ts";
+import { type AgentDefinition, EFFORTS, inertNotice } from "./definition.ts";
 import { type Discovery, discoverAgents } from "./discovery.ts";
 import { exchange } from "./exchange.ts";
-import { registry } from "./registry.ts";
+import { AGENT_NAME, registry } from "./registry.ts";
 import { type CallInput, type ChildSpec, type ParentContext, resolveChild } from "./resolve.ts";
 import { emptyUsage, STATUSES, type Status, usageSchema } from "./runner.ts";
 import { agentPhase, countScriptAgent } from "./script-helpers.ts";
@@ -38,7 +38,8 @@ const parameters = Type.Object({
 	effort: Type.Optional(StringEnum(EFFORTS, { description: "Thinking level override" })),
 	resume: Type.Optional(
 		Type.String({
-			description: "agentId from an earlier result, to continue that agent's session. subagent_type may be omitted.",
+			description:
+				"agentId from an earlier result, or the agent's name, to continue that agent's session. subagent_type may be omitted.",
 		}),
 	),
 	run_in_background: Type.Optional(
@@ -59,7 +60,12 @@ const parameters = Type.Object({
 				'JSON Schema (type "object" at the top) for the result. The agent returns a value matching it: the result\'s `structured` holds the value and `output` its JSON text. After 5 invalid attempts, or when the agent ends without one, the status is "failed".',
 		}),
 	),
-	name: Type.Optional(Type.String({ description: "Not supported; ignored" })),
+	name: Type.Optional(
+		Type.String({
+			description:
+				"A name for the agent (letters, digits, _ and -), unique in this session. Use it as `resume` and as `to` in SendMessage.",
+		}),
+	),
 });
 export type AgentInput = Static<typeof parameters>;
 
@@ -131,6 +137,7 @@ export function describeAgents({ agents }: Discovery, backgroundScripts: boolean
 		"write a complete task. The result's `output` is the agent's final message; filter it before returning it.",
 		"Run independent agents in parallel with Promise.all.",
 		'Pass `schema` (a JSON Schema with type "object") to get the result as a value in `structured` instead of prose.',
+		"Pass `name` to reach the agent later by that name: `resume: name`, or SendMessage({ to: name, message }).",
 		"Script helpers over this tool: `agent(prompt, { label?, schema?, type?, model?, effort?, isolation? })` resolves to",
 		"the output text (with `schema`, the value) and rejects when the agent failed; `parallel([fn or promise...])` and",
 		"`pipeline(items, (item, i) => ...)` run all at once and resolve to results in order, null for a failed one;",
@@ -188,10 +195,24 @@ async function executeAgent(
 		throw new Error(`invalid isolation "${input.isolation}": only "worktree" is supported`);
 	}
 	if (input.schema !== undefined) checkSchema(input.schema);
+	if (input.name !== undefined && !AGENT_NAME.test(input.name)) {
+		throw new Error(`invalid name "${input.name}": use 1 to 64 letters, digits, "_" or "-"`);
+	}
 	let agentType = input.subagent_type;
 	let stored: ReturnType<typeof storedAgent> | undefined;
 	if (input.resume !== undefined) {
-		stored = storedAgent(parent, input.resume);
+		// An id or a name. An unknown one goes on as it is: storedAgent says what is wrong with it.
+		const known = registry.find(parent.sessionId, input.resume);
+		if (known !== undefined) input = { ...input, resume: known };
+		const had = known === undefined ? undefined : registry.get(known)?.name;
+		if (input.name !== undefined && known !== undefined && input.name !== had) {
+			throw new Error(
+				had === undefined
+					? `agent "${known}" has no name: a name is given when an agent starts`
+					: `agent "${known}" is named "${had}", not "${input.name}"`,
+			);
+		}
+		stored = storedAgent(parent, input.resume!);
 		if (agentType !== undefined && agentType !== stored.agentType) {
 			throw new Error(
 				`agent "${input.resume}" is a "${stored.agentType}" agent; resume it with that subagent_type or none`,
@@ -206,6 +227,41 @@ async function executeAgent(
 
 	// Isolation: a resume uses the stored worktree (or none) whatever is asked now; a new agent, the call's value else the file's.
 	const agentId = input.resume ?? newAgentId();
+	const release =
+		input.name !== undefined && !stored ? registry.claim(parent.sessionId, input.name, agentId) : undefined;
+	try {
+		return await startAgent(input, signal, onUpdate, config, parent, toolCallId, started, {
+			agentId,
+			agentType,
+			def,
+			stored,
+		});
+	} finally {
+		release?.(); // a no-op once the agent is in the registry
+	}
+}
+
+// The rest of an Agent call, once its id (and name) are settled.
+async function startAgent(
+	input: AgentInput,
+	signal: AbortSignal | undefined,
+	onUpdate: ((text: string) => void) | undefined,
+	config: Config,
+	parent: ParentContext,
+	toolCallId: string,
+	started: ((spec: ChildSpec) => void) | undefined,
+	{
+		agentId,
+		agentType,
+		def,
+		stored,
+	}: {
+		agentId: string;
+		agentType: string;
+		def: AgentDefinition;
+		stored: ReturnType<typeof storedAgent> | undefined;
+	},
+): Promise<AgentResult> {
 	let worktree: WorktreeRef | undefined;
 	if (stored) worktree = stored.worktree;
 	let worktreeWarning: string | undefined;
@@ -227,7 +283,6 @@ async function executeAgent(
 			`"isolation" was ignored on a resume: the agent keeps how it was started (${worktree ? "in a worktree" : "without isolation"})`,
 		);
 	}
-	if (input.name !== undefined) spec.warnings.push('"name" is not supported and was ignored');
 	for (const field of def.inert) spec.warnings.push(inertNotice(field));
 	started?.(spec);
 
@@ -235,7 +290,12 @@ async function executeAgent(
 	const { aborted: _aborted, ...run } = await exchange(
 		parent,
 		spec,
-		{ type: agentType, description: input.description, color: def.color },
+		{
+			type: agentType,
+			...(input.name !== undefined && !stored ? { name: input.name } : {}),
+			description: input.description,
+			color: def.color,
+		},
 		signal,
 		(p) => {
 			const text = `${input.description}: turn ${p.turns}${p.lastTool ? `, ${p.lastTool}` : ""}`;

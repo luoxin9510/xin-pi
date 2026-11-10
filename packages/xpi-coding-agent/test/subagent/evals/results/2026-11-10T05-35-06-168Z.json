@@ -1,0 +1,96 @@
+{
+  "runs": 3,
+  "only": "named agent",
+  "rows": [
+    {
+      "case": "parent asks a named agent one more thing",
+      "kind": "parent",
+      "run": 0,
+      "pass": true,
+      "checks": [
+        {
+          "name": "parent finished",
+          "pass": true
+        },
+        {
+          "name": "started one agent",
+          "pass": true
+        },
+        {
+          "name": "used SendMessage",
+          "pass": true
+        },
+        {
+          "name": "answers both values",
+          "pass": true
+        },
+        {
+          "name": "parent and children on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.00152002,
+      "ms": 7693
+    },
+    {
+      "case": "parent asks a named agent one more thing",
+      "kind": "parent",
+      "run": 2,
+      "pass": true,
+      "checks": [
+        {
+          "name": "parent finished",
+          "pass": true
+        },
+        {
+          "name": "started one agent",
+          "pass": true
+        },
+        {
+          "name": "used SendMessage",
+          "pass": true
+        },
+        {
+          "name": "answers both values",
+          "pass": true
+        },
+        {
+          "name": "parent and children on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.0015171949999999998,
+      "ms": 8236
+    },
+    {
+      "case": "parent asks a named agent one more thing",
+      "kind": "parent",
+      "run": 1,
+      "pass": true,
+      "checks": [
+        {
+          "name": "parent finished",
+          "pass": true
+        },
+        {
+          "name": "started one agent",
+          "pass": true
+        },
+        {
+          "name": "used SendMessage",
+          "pass": true
+        },
+        {
+          "name": "answers both values",
+          "pass": true
+        },
+        {
+          "name": "parent and children on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.0015675950000000002,
+      "ms": 8514
+    }
+  ]
+}
