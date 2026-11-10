@@ -78,3 +78,22 @@ Each line is worded so "yes" accepts the proposal.
 5. Restart: `r` on a running agent's panel row and `/restart` on its screen. The agent starts over with the same
    prompt and settings and keeps its id, name and row; the earlier session is kept as a file next to it; the waiting
    `Agent` call gets the last start's result; turns and cost add up; a finished agent cannot be restarted.
+
+## Grill 4 (2026-11-10): relaunch with saved results, pause and resume (`07-relaunch-and-pause.md`). PROPOSED, not answered yet
+
+The owner asked for both features and ruled `/deep-research` out. Each line is worded so "yes" accepts the proposal.
+
+1. Saved results are kept for runs of saved workflows only, in a run file under the session's `subagents/` directory.
+   An ad hoc script is not recorded; save it first (`s`).
+2. Relaunch is started by the user from `/workflows` (Enter on a stopped or failed run) and by the model with
+   `Workflow({ name, relaunch: "R2" })`. It uses the workflow file as it is now and the same args.
+3. Matching follows Claude Code: calls are compared in order; a call is answered from saved results only while every
+   earlier call was, and it asked the same thing and completed. From the first call that differs, failed or was still
+   running, everything runs again.
+4. An answered call returns the old agent (same id and session, no cost), so it can still be continued.
+5. `Date.now()`, `Math.random()` and `new Date()` keep working: a script that depends on them reruns from the first
+   prompt that differs. (Claude Code makes them throw.)
+6. A rerun call takes over a `name` that an agent of the relaunched run holds, so a relaunch never fails on a name.
+7. Pause (`p` on the script row, and in `/workflows`): the script starts no new agent and its `Agent` calls wait;
+   agents already running finish. `p` again resumes. Any script can be paused, saved or not.
+8. Not now: pausing by itself on a usage limit; relaunching ad hoc scripts.
