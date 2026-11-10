@@ -1,0 +1,132 @@
+{
+  "runs": 3,
+  "only": "forks a side task",
+  "rows": [
+    {
+      "case": "parent forks a side task that needs the conversation",
+      "kind": "parent",
+      "run": 0,
+      "pass": true,
+      "checks": [
+        {
+          "name": "parent finished",
+          "pass": true
+        },
+        {
+          "name": "used Agent once",
+          "pass": true
+        },
+        {
+          "name": "one fork session",
+          "pass": true
+        },
+        {
+          "name": "the task did not carry the code word",
+          "pass": true
+        },
+        {
+          "name": "the fork answered from the conversation",
+          "pass": true
+        },
+        {
+          "name": "the fork's first request read main's prompt cache",
+          "pass": true
+        },
+        {
+          "name": "main answers with it",
+          "pass": true
+        },
+        {
+          "name": "parent and children on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.0019238249999999999,
+      "ms": 5979
+    },
+    {
+      "case": "parent forks a side task that needs the conversation",
+      "kind": "parent",
+      "run": 1,
+      "pass": true,
+      "checks": [
+        {
+          "name": "parent finished",
+          "pass": true
+        },
+        {
+          "name": "used Agent once",
+          "pass": true
+        },
+        {
+          "name": "one fork session",
+          "pass": true
+        },
+        {
+          "name": "the task did not carry the code word",
+          "pass": true
+        },
+        {
+          "name": "the fork answered from the conversation",
+          "pass": true
+        },
+        {
+          "name": "the fork's first request read main's prompt cache",
+          "pass": true
+        },
+        {
+          "name": "main answers with it",
+          "pass": true
+        },
+        {
+          "name": "parent and children on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.001924805,
+      "ms": 6115
+    },
+    {
+      "case": "parent forks a side task that needs the conversation",
+      "kind": "parent",
+      "run": 2,
+      "pass": true,
+      "checks": [
+        {
+          "name": "parent finished",
+          "pass": true
+        },
+        {
+          "name": "used Agent once",
+          "pass": true
+        },
+        {
+          "name": "one fork session",
+          "pass": true
+        },
+        {
+          "name": "the task did not carry the code word",
+          "pass": true
+        },
+        {
+          "name": "the fork answered from the conversation",
+          "pass": true
+        },
+        {
+          "name": "the fork's first request read main's prompt cache",
+          "pass": true
+        },
+        {
+          "name": "main answers with it",
+          "pass": true
+        },
+        {
+          "name": "parent and children on haiku",
+          "pass": true
+        }
+      ],
+      "cost": 0.002123805,
+      "ms": 12045
+    }
+  ]
+}

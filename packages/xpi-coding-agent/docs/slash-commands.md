@@ -61,6 +61,7 @@ Added by the built-in `subagent` extension (see [Subagents](subagent.md)); absen
 | `/subagents` | Pick one of the session's subagents and open its screen |
 | `/subagents stop` | Stop every running subagent and script of the session |
 | `/subagents worktrees` | List the kept subagent worktrees of the checkout and remove the ones you pick |
+| `/subtask <task>` | Start a fork: a copy of this conversation that does a side task in the background and reports back |
 | `/workflows` | List saved workflows and this session's workflow runs; Enter runs one or opens a run's agents |
 | `/<workflow name> [args]` | Run a saved workflow with no model turn; `args` is JSON or text |
 

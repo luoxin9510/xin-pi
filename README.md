@@ -11,7 +11,8 @@ What differs from pi: the command is `xpi`, packages are named `xpi-*` (only the
 to npm), environment variables are `XPI_*`, and two built-in extensions are added:
 
 - [subagent](packages/xpi-coding-agent/docs/subagent.md): Claude Code-compatible agents called from codemode scripts
-  (`Agent`, with structured output, worktree isolation, memory and names), `SendMessage` to steer or continue one,
+  (`Agent`, with structured output, worktree isolation, memory and names), a `fork` that starts with the whole
+  conversation (`/subtask`), `SendMessage` to steer or continue one,
   background scripts, saved [workflows](packages/xpi-coding-agent/docs/subagent.md#workflows) run as `/name` or by the
   model, and a panel and full-screen view to watch and talk to subagents.
 - `upstream`: `/upstream` reports what upstream pi has that is worth porting.

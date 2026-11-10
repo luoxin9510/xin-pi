@@ -16,6 +16,9 @@ export const BUILTIN_DIR = join(
 	"builtin",
 );
 
+// The agent type of a fork (fork.ts): no agent file may take the name.
+const RESERVED_TYPE = "fork";
+
 export interface Discovery {
 	agents: Map<string, AgentDefinition>;
 	warnings: string[];
@@ -134,6 +137,10 @@ export function setCliAgents(value: string | undefined, cwd: string): string[] {
 			warnings.push(`skipped --agents entry "${name}": "prompt" must be a string`);
 			continue;
 		}
+		if (name === RESERVED_TYPE) {
+			warnings.push(`skipped --agents entry "${name}": it is a reserved agent type`);
+			continue;
+		}
 		const result = definitionFromFields(CLI_SOURCE, { ...fields, name }, (prompt ?? "").trim());
 		if (result.ok) cliAgents.push(result.def);
 		else warnings.push(`skipped --agents entry "${name}": ${result.reason}`);
@@ -163,6 +170,10 @@ export function discoverAgents(cwd: string): Discovery {
 				continue;
 			}
 			const def = result.def;
+			if (def.name === RESERVED_TYPE) {
+				warnings.push(`skipped agent file ${path}: "${RESERVED_TYPE}" is a reserved agent type`);
+				continue;
+			}
 			const first = seen.get(def.name);
 			if (first) {
 				warnings.push(`agent "${def.name}" is defined twice: ${first} wins over ${path}`);

@@ -1,7 +1,6 @@
 # 04: Fork (a child that inherits main's conversation)
 
-Status: approved by the owner on 2026-11-10 (Grill 2, `decisions.md`); the two facts under "To verify before tickets"
-come first.
+Status: done (2026-11-10, `issues/04-fork.md`).
 
 ## Problem
 
@@ -47,9 +46,8 @@ verbatim):
 - The copy ends in the middle of main's turn (the `codemode` call that runs the script has no result yet). The child
   gets a result for that call saying it is the fork: "You are a fork of this conversation. Do the task in the next
   message and reply with the result; do not continue the script." (Claude Code does the same in substance.)
-- A fork has main's tool list, so it sees `codemode` with `Agent`, `SendMessage` and `Workflow` in its description. To
-  keep the cache prefix, those stay declared; calling `Agent` with `subagent_type: "fork"` from a fork throws, and
-  other agents are allowed or not by decision 3 of Grill 2.
+- A fork runs as a normal child, so it has no `Agent`, `SendMessage` or `Workflow`: it cannot start a subagent (see
+  Verified: the cache prefix is kept anyway).
 - Not available with an in-memory session (`--no-session`): there is no file to copy. The call throws and says so.
 - Setting `subagent.fork` (default true): false removes `/subtask` and makes the type throw.
 
@@ -60,6 +58,28 @@ verbatim):
 2. The child's first request reads main's cache: `cacheRead` covers main's prefix (measured with
    `npm run test:subagent:cache`-style probes). If the child's tool list or prompt differs by one byte it does not;
    find what differs (for example `XPI_SUBAGENT_DEPTH` changing the tool list) and what it costs to make it equal.
+
+## Verified (2026-11-10, haiku, throwaway runs in a temp agent dir)
+
+Main session: one user message (a code word, then "call codemode with `return 6*7`"), `--tools +codemode`, the
+subagent extension on. Its first request wrote 5929 tokens to the cache.
+
+1. **The provider accepts the copy.** The session file was cut after the assistant message holding the `codemode` call,
+   and a tool result with the fork text was appended for it. `xpi --fork <that file> -p "What is the code word?"`
+   answered `KIWI-9`: the fork knew the conversation without being told.
+2. **The fork reads main's cache.** Its first request: `cacheRead 5929`, `cacheWrite 115`, `input 4`.
+3. **Also with today's child environment** (`XPI_SUBAGENT_DEPTH=1`, so no `Agent`, `SendMessage` or `Workflow`):
+   `cacheRead 6044`, `cacheWrite 640`. The system prompt and tool declarations are stored in the session file and travel
+   with the copy; what the child lacks is told to the model in a later patch, which costs about 640 tokens once.
+
+Consequences for the solution:
+
+- Decision 3 (a fork starts no subagent) is met by running the fork as a normal child (`XPI_SUBAGENT_DEPTH=1`): the
+  tools are simply absent. "Declared but throwing" is not needed, and the cache prefix is kept either way.
+- The copy is made by `SessionManager.forkFrom(mainFile, cwd, subagentsDir, { id: agentId })` at the call, then one
+  tool result is appended for every tool call of the last assistant message that has none. The child then starts like
+  a resume (`--session-dir`, `--session-id`), so no new CLI flag is needed.
+- No core change is needed.
 
 ## Out of scope
 

@@ -8,8 +8,9 @@ import type { Config } from "./config.ts";
 import { type AgentDefinition, EFFORTS, inertNotice } from "./definition.ts";
 import { type Discovery, discoverAgents } from "./discovery.ts";
 import { exchange } from "./exchange.ts";
+import { checkForkCall, FORK_DEFINITION, FORK_DESCRIPTION, FORK_TYPE, resolveAgent, seedForkSession } from "./fork.ts";
 import { AGENT_NAME, registry } from "./registry.ts";
-import { type CallInput, type ChildSpec, type ParentContext, resolveChild } from "./resolve.ts";
+import type { CallInput, ChildSpec, ParentContext } from "./resolve.ts";
 import { emptyUsage, STATUSES, type Status, usageSchema } from "./runner.ts";
 import { agentPhase, countScriptAgent } from "./script-helpers.ts";
 import { capText, newAgentId, storedAgent } from "./sessions.ts";
@@ -130,8 +131,16 @@ const DETACHED_RULES = [
 // Print mode (no UI): pi exits when the turn ends, so nothing runs in the background and the model is not told of it.
 const PRINT_RULES = ["Every call waits for its agent and returns its result."];
 
-export function describeAgents({ agents }: Discovery, backgroundScripts: boolean, hasUI: boolean): string {
-	const list = [...agents.values()].map((a) => `- ${a.name}: ${a.description}`).join("\n");
+export function describeAgents(
+	{ agents }: Discovery,
+	backgroundScripts: boolean,
+	hasUI: boolean,
+	fork = false, // list the fork type (a saved session and subagent.fork)
+): string {
+	const list = [
+		...[...agents.values()].map((a) => `- ${a.name}: ${a.description}`),
+		...(fork ? [`- ${FORK_TYPE}: ${FORK_DESCRIPTION}`] : []),
+	].join("\n");
 	return [
 		"Run a subagent: a separate pi session with its own system prompt, tools and model. It sees only `prompt`, so",
 		"write a complete task. The result's `output` is the agent's final message; filter it before returning it.",
@@ -222,8 +231,12 @@ async function executeAgent(
 	}
 	agentType ??= DEFAULT_AGENT;
 	const { agents } = discoverAgents(parent.cwd);
-	const def = agents.get(agentType);
-	if (!def) throw new Error(`unknown subagent_type "${agentType}". Available: ${[...agents.keys()].join(", ")}`);
+	if (agentType === FORK_TYPE) checkForkCall(input as CallInput, config, parent);
+	const def = agentType === FORK_TYPE ? FORK_DEFINITION : agents.get(agentType);
+	if (!def) {
+		const known = [...agents.keys(), ...(config.fork ? [FORK_TYPE] : [])];
+		throw new Error(`unknown subagent_type "${agentType}". Available: ${known.join(", ")}`);
+	}
 
 	// Isolation: a resume uses the stored worktree (or none) whatever is asked now; a new agent, the call's value else the file's.
 	const agentId = input.resume ?? newAgentId();
@@ -275,7 +288,9 @@ async function startAgent(
 	// Memory: project and local live under the main checkout (never the agent's worktree); outside a repo, the parent's cwd.
 	const memoryRoot = await memoryRootFor(def.memory, def.name, parent.cwd);
 
-	const spec = resolveChild(def, input as CallInput, config, parent, { agentId, worktree, memoryRoot });
+	const spec = resolveAgent(def, input as CallInput, config, parent, { agentId, worktree, memoryRoot });
+	// A new fork starts from main's conversation as it is now, before anything else is said in it.
+	if (agentType === FORK_TYPE && !stored) seedForkSession(parent, agentId, spec.cwd);
 	scripts.addAgent(toolCallId, spec.agentId, agentPhase.getStore());
 	if (worktreeWarning) spec.warnings.push(worktreeWarning);
 	if (stored && input.isolation !== undefined) {

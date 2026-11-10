@@ -130,6 +130,44 @@ export default function subagent(pi: ExtensionAPI) {
 		return warnings;
 	};
 
+	// `/subtask <task>`: the user starts a fork (fork.ts) with no model turn. With a UI it runs in the background and its
+	// result arrives in main as a message; in print mode the command waits and prints it.
+	let subtask: ((task: string, ctx: ExtensionCommandContext) => Promise<void>) | undefined;
+	let subtasks = 0;
+	const runSubtask = async (agent: ReturnType<typeof agentTool>, task: string, ctx: ExtensionCommandContext) => {
+		const say = (message: string, level: "info" | "error") =>
+			ctx.hasUI ? ctx.ui.notify(message, level) : process.stderr.write(`${message}\n`);
+		if (task.trim() === "") return void say("subagent: /subtask needs a task: /subtask <what to do>", "error");
+		try {
+			const result = await agent.execute(
+				`subtask:${Date.now().toString(36)}-${++subtasks}`,
+				{
+					subagent_type: "fork",
+					description: task.trim().split(/\s+/).slice(0, 5).join(" ").slice(0, 60),
+					prompt: task.trim(),
+					run_in_background: true,
+				} as Parameters<typeof agent.execute>[1],
+				undefined,
+				undefined,
+				ctx,
+			);
+			const r = result.details;
+			if (r?.status === "running")
+				return void say(`subagent: fork ${r.agentId} started; its result arrives as a message`, "info");
+			const output = r?.status === "failed" ? `fork failed: ${r.error}` : (r?.output ?? "");
+			if (isStdoutTakenOver()) writeRawStdout(`${output}\n`);
+			else process.stdout.write(`${output}\n`);
+		} catch (err) {
+			say(`subagent: ${(err as Error).message}`, "error");
+		}
+	};
+	pi.registerCommand("subtask", {
+		description: "Start a fork: a copy of this conversation that does a side task and reports back",
+		handler: async (args, ctx) => {
+			if (!subtask) return ctx.ui.notify("subagent: the session has not started yet", "error");
+			await subtask(args, ctx);
+		},
+	});
 	pi.registerCommand("workflows", {
 		description: "List saved workflows and this session's workflow runs; Enter runs one or opens a run's agents",
 		handler: (_args, ctx) =>
@@ -200,7 +238,13 @@ export default function subagent(pi: ExtensionAPI) {
 		});
 		const warnings = [...cliWarnings, ...registry.rebuild(parentContext(ctx)), ...registerWorkflows(ctx)];
 		const discovery = discoverAgents(ctx.cwd);
-		const agent = agentTool(() => config!, describeAgents(discovery, config.backgroundScripts, ctx.hasUI), deliver);
+		const forkable = config.fork && ctx.sessionManager.getSessionFile() !== undefined;
+		const agent = agentTool(
+			() => config!,
+			describeAgents(discovery, config.backgroundScripts, ctx.hasUI, forkable),
+			deliver,
+		);
+		subtask = (task, cctx) => runSubtask(agent, task, cctx);
 		pi.registerTool(agent);
 		pi.registerTool(sendMessageTool(agent));
 		if (ctx.hasUI) {

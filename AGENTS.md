@@ -46,7 +46,7 @@
 
 ## Subagent and upstream extensions
 
-Built-in extensions under `packages/xpi-coding-agent/src/extensions/`: `subagent/` (the `Agent`, `SendMessage` and `Workflow` tools, saved workflows, panel, `/subagents`; user docs `packages/xpi-coding-agent/docs/subagent.md`) and `upstream/` (`/upstream`). Details and the core files they touch: `docs/xin-pi.md`.
+Built-in extensions under `packages/xpi-coding-agent/src/extensions/`: `subagent/` (the `Agent`, `SendMessage` and `Workflow` tools, fork and `/subtask`, saved workflows, panel, `/subagents`, `--agents`; user docs `packages/xpi-coding-agent/docs/subagent.md`) and `upstream/` (`/upstream`). Details and the core files they touch: `docs/xin-pi.md`.
 
 - Run from `packages/xpi-coding-agent/`. Offline and free (part of `npm test`): `npm run test:subagent`, `npm run test:upstream`. Both need no auth, no network.
 - Real-model suites run by hand, never in CI or `./test.sh`, and only on Claude Haiku 5.5: `test:subagent:real`, `:parent`, `:tui`, `:evals`, `:stress`, `:cache`, `test:upstream:real`. They need `npm run build` and credentials.

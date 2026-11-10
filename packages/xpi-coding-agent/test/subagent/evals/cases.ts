@@ -650,6 +650,58 @@ return "TOK-" + (6 * 7) + " " + r.status;`;
 		},
 	},
 	{
+		name: "parent forks a side task that needs the conversation",
+		kind: "parent",
+		async run(signal) {
+			const cwd = fixture();
+			const r = await runParent(
+				cwd,
+				'The code word for this conversation is KIWI-9. Now delegate a side task to a fork of this conversation: in a codemode script call tools.Agent with subagent_type "fork", run_in_background: false (this run is non-interactive) and the prompt "Reply with the code word of this conversation, nothing else." Do not put the code word into the prompt: the fork has this conversation. Reply with the fork\'s output, nothing else.',
+				signal,
+			);
+			// The fork's session: a copy of main's conversation, then the task, then its answer.
+			const root = join(r.sessionDir, "subagents");
+			const files = existsSync(root)
+				? readdirSync(root).flatMap((d) =>
+						readdirSync(join(root, d))
+							.filter((f) => f.endsWith(".jsonl"))
+							.map((f) => join(root, d, f)),
+					)
+				: [];
+			const entries = files.flatMap((f) =>
+				readFileSync(f, "utf8")
+					.trim()
+					.split("\n")
+					.map((l) => JSON.parse(l)),
+			);
+			const messages = entries.filter((e) => e.type === "message").map((e) => e.message);
+			const task = messages.findLast((m) => m.role === "user");
+			const taskText = task ? messageText(task) : "";
+			const answers = messages.slice(messages.indexOf(task) + 1).filter((m) => m.role === "assistant");
+			return {
+				cost: r.cost,
+				checks: [
+					check("parent finished", !r.timedOut && r.code === 0, { timedOut: r.timedOut, code: r.code }),
+					check("used Agent once", r.tools.filter((t) => t === "Agent").length === 1, r.tools),
+					check("one fork session", files.length === 1 && entries[0]?.parentSession !== undefined, files),
+					check("the task did not carry the code word", taskText !== "" && !taskText.includes("KIWI"), taskText),
+					check(
+						"the fork answered from the conversation",
+						answers.some((m) => messageText(m).includes("KIWI-9")),
+						answers.map(messageText),
+					),
+					check(
+						"the fork's first request read main's prompt cache",
+						(answers[0]?.usage?.cacheRead ?? 0) > 1000,
+						answers[0]?.usage,
+					),
+					check("main answers with it", r.text.includes("KIWI-9"), r.text),
+					parentOnHaiku(r.models),
+				],
+			};
+		},
+	},
+	{
 		name: "isolated agent keeps a worktree only when it changes files",
 		kind: "direct",
 		async run(signal) {
