@@ -9,6 +9,11 @@ What xin-pi adds to pi:
 - **Built-in subagents**: a Claude Code-compatible `Agent` tool for codemode scripts, a panel and a full-screen view of
   running subagents, `/subagents`, background scripts (a script that starts a subagent moves to the background and main
   keeps going), worktree isolation and agent memory.
+- **Structured output, names and messages**: `schema` on an `Agent` call returns a validated value instead of prose;
+  `name` an agent and reach it later with `resume` or `SendMessage` (a steer while it runs, a continue once it ended).
+- **Workflows**: orchestration scripts saved as `.pi/workflows/<name>.js` in Claude Code's format, with the helpers
+  `agent`, `parallel`, `pipeline`, `phase` and `log`; run as `/<name> args` with no model turn, or by the model through
+  the `Workflow` tool.
 - **Native codemode background**: codemode can move a running script to the background; nested calls keep their ids,
   context and usage.
 - **`/upstream`**: compares upstream pi with xin-pi and asks the model what is worth porting.
@@ -20,7 +25,8 @@ npm install -g xpi-coding-agent
 xpi
 ```
 
-Node.js 22.19 or newer. `xpi` reads its settings, auth and sessions from `~/.pi/agent` (shared with pi). Environment
+Node.js 22.19 or newer. Standalone binaries are attached to each
+[GitHub Release](https://github.com/luoxin9510/xin-pi/releases). `xpi` reads its settings, auth and sessions from `~/.pi/agent` (shared with pi). Environment
 variables use the `XPI_` prefix (for example `XPI_CODING_AGENT_DIR`).
 
 ## Documentation

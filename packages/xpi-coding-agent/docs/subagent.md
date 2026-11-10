@@ -1,8 +1,10 @@
 # Subagents
 
-The `subagent` built-in extension of xpi gives codemode scripts one tool, `Agent`, Claude Code-compatible. Each call runs
+The `subagent` built-in extension of xpi gives codemode scripts a Claude Code-compatible `Agent` tool. Each call runs
 an agent definition in its own `xpi` subprocess and returns a structured result, so a script can run agents in parallel
-and filter what reaches the model. In interactive xpi you can watch the subagents in a panel below the editor, open one in
+and filter what reaches the model. Next to it: `SendMessage` to steer or continue an agent
+([Names and SendMessage](#names-and-sendmessage)), and saved, rerunnable scripts with fan-out helpers, run as `/name` or
+through the `Workflow` tool ([Workflows](#workflows)). In interactive xpi you can watch the subagents in a panel below the editor, open one in
 a full-screen view, and talk to it (see [Watching and talking](#watching-and-talking-to-subagents)).
 
 It started as the separate extension pi-pipipi and was merged into xin-pi; see [xin-pi.md](../../../docs/xin-pi.md) for
@@ -572,19 +574,21 @@ npm run test:subagent:evals -- --runs 3           # repeat, for pass rates
 npm run test:subagent:evals -- --only resume      # cases whose name contains "resume"
 ```
 
-`evals/cases.ts` holds 17 cases. Fourteen call the tool in-process with real `pi` children (listing, read-only agents
+`evals/cases.ts` holds 21 cases. Fifteen call the tool in-process with real `pi` children (listing, read-only agents
 cannot write, custom agent tools, resume, `maxTurns`, skills, context files vs `omitClaudeMd`, model aliases, a bad
-model, no nesting, parallel runs, a steer that changes a running subagent's course, sent through the registry handle and graded by an exact token and a file that must not appear, worktree isolation, and agent memory). The isolation case runs on a temp git repository: an isolated agent that writes a file keeps its worktree (the result has path, branch and the changed file, the file is in the worktree, the main checkout is clean), and an isolated read-only agent leaves no worktree or branch. The memory case uses `memory: project` in a temp repository (never `~/.claude`): run 1 saves a fact to `MEMORY.md`, and a fresh run 2 (no `resume`) answers from it. Three start a real parent `pi` on haiku with codemode and this checkout
-(`--no-extensions -e builtin:codemode -e ./src/index.ts`): one with a given script and one where the model decides to
-delegate (both pass `run_in_background: false`, since print mode would exit before a background result arrived), and one
-background case that runs a long-lived `xpi --mode rpc` parent: the script's `codemode` call must return "moved to the
-background", main's turn must end while the agent still runs, the result message must start a new turn, and main's final
-answer must contain the token the script computed. Cases are graded from the structured result and side effects. `defaultModel` is pinned to `haiku` whatever
+model, no nesting, parallel runs, a steer that changes a running subagent's course, sent through the registry handle and graded by an exact token and a file that must not appear, a `schema` that returns a value, worktree isolation, and agent memory). The isolation case runs on a temp git repository: an isolated agent that writes a file keeps its worktree (the result has path, branch and the changed file, the file is in the worktree, the main checkout is clean), and an isolated read-only agent leaves no worktree or branch. The memory case uses `memory: project` in a temp repository (never `~/.claude`): run 1 saves a fact to `MEMORY.md`, and a fresh run 2 (no `resume`) answers from it. Six start a real parent `xpi` on haiku (the built CLI, `--tools +codemode`). Four run in print mode and pass
+`run_in_background: false`, since print mode would exit before a background result arrived: a given script, the model
+deciding to delegate, the model asking for a structured result with `schema`, and the model asking a named agent one
+more thing (it must use `SendMessage` with the name, not a second agent). Two run a long-lived `xpi --mode rpc` parent:
+the background case (the script's `codemode` call must return "moved to the background", main's turn must end while the
+agent still runs, the result message must start a new turn, and main's final answer must contain the token the script
+computed) and the saved-workflow case (main must run a fitting saved workflow through the `Workflow` tool, and the
+workflow's end message must reach it). Cases are graded from the structured result and side effects. `defaultModel` is pinned to `haiku` whatever
 your settings say, and every case checks that every result (or, for the parent cases, every assistant message of the
 parent and its children) ran on haiku. A case running over 5 minutes is aborted and its children stopped. Results go
-to `evals/results/` (ignored by git).
+to `evals/results/`; the runs worth keeping are committed as a record.
 
-Children are `xpi --mode rpc` and codemode-only by default. Last run (pi 1.5.0, v3b, `--runs 3`): 51/51 over all 17 cases, $0.037 in all, 94 s wall; the background case 3/3 at $0.001 and about 14 s per run, the isolation case 3/3 at $0.0008 and about 11 s, the memory case 3/3 at $0.0011 and about 12 s. Earlier (v2): 39/39 over 3 runs for the 13 original cases, $0.027 in all; the steer case passed 11/13 over two batches (the miss: haiku batched both steps into one codemode script, so there was nothing left to steer; $0.0005 per run). The first version of the suite found a bug that the fake-pi
+Children are `xpi --mode rpc` and codemode-only by default. Last run (xpi 1.5.1, 2026-11-10, one run): 21/21, $0.009 in all, 31 s wall; the new parent cases (structured result, saved workflow, named agent) each 3/3 at about $0.0015 a run. Before that (pi 1.5.0, v3b, `--runs 3`): 51/51 over the 17 cases of the time, $0.037 in all, 94 s wall; the background case 3/3 at $0.001 and about 14 s per run, the isolation case 3/3 at $0.0008 and about 11 s, the memory case 3/3 at $0.0011 and about 12 s. Earlier (v2): 39/39 over 3 runs for the 13 original cases, $0.027 in all; the steer case passed 11/13 over two batches (the miss: haiku batched both steps into one codemode script, so there was nothing left to steer; $0.0005 per run). The first version of the suite found a bug that the fake-pi
 tests had missed (a run could go past `maxTurns` and still be reported `completed`), fixed since. Two checks depend on
 the model or on timing and could fail without a bug: `maxTurns` needs haiku to call a tool on its first turn, and the
 parallel case needs wall time under 0.7 × the summed run times.
