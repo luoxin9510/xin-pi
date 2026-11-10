@@ -13,7 +13,8 @@ What xin-pi adds to pi:
   `name` an agent and reach it later with `resume` or `SendMessage` (a steer while it runs, a continue once it ended).
 - **Fork**: `subagent_type: "fork"` or `/subtask <task>` starts a subagent as a copy of the conversation; its first
   request reads the main session's prompt cache.
-- **Workflows**: orchestration scripts saved as `.pi/workflows/<name>.js` in Claude Code's format, with the helpers
+- **Workflows**: orchestration scripts saved as `.pi/workflows/<name>.js` in Claude Code's format (its own
+  `.claude/workflows/` files run unchanged), with the helpers
   `agent`, `parallel`, `pipeline`, `phase` and `log`; run as `/<name> args` with no model turn, or by the model through
   the `Workflow` tool.
 - **Native codemode background**: codemode can move a running script to the background; nested calls keep their ids,

@@ -152,6 +152,12 @@ export class Panel {
 			const row = rows[this.selected] as Row & { kind: "script" };
 			this.focused = false; // the dialogs take the keyboard
 			this.options.save(row.script);
+		} else if (
+			matchesKey(data, "r") &&
+			rows[this.selected]?.kind === "agent" &&
+			registry.restartRefusal((rows[this.selected] as Row & { kind: "agent" }).record.id) === undefined
+		) {
+			registry.restart((rows[this.selected] as Row & { kind: "agent" }).record.id); // it starts over; its call keeps waiting
 		} else if (data === "X" || matchesKey(data, "shift+x")) {
 			void stopEverything(this.sessionId); // every script and subagent of the session; the rows show the result
 		} else if (matchesKey(data, "x")) {
@@ -224,10 +230,12 @@ export class Panel {
 		});
 		if (this.focused) {
 			const onScript = rows[this.selected]?.kind === "script" && this.options.save;
+			const row = rows[this.selected];
+			const restartable = row?.kind === "agent" && registry.restartRefusal(row.record.id) === undefined;
 			lines.push(
 				t.fg(
 					"dim",
-					`↑↓ select · enter open · x stop · X stop all${onScript ? " · s save as workflow" : ""} · esc back to editor`,
+					`↑↓ select · enter open · x stop${restartable ? " · r restart" : ""} · X stop all${onScript ? " · s save as workflow" : ""} · esc back to editor`,
 				),
 			);
 		}

@@ -3,10 +3,13 @@
 // subagent screen both come through here, so a subagent never has two processes. Also kept here, because only an
 // exchange uses them: the process-wide concurrency limit, the user's steers and the note to main.
 
+import { existsSync, readdirSync, renameSync } from "node:fs";
+import { join } from "node:path";
 import type { Config } from "./config.ts";
 import { registry } from "./registry.ts";
 import type { ChildSpec, ParentContext } from "./resolve.ts";
-import { type Progress, type RunResult, runChild } from "./runner.ts";
+import { addUsage, type Progress, type RunResult, runChild } from "./runner.ts";
+import { subagentSessionDir } from "./sessions.ts";
 import { responded, stagger } from "./stagger.ts";
 import { ensureWorktree, settleWorktree, type WorktreeOutcome } from "./worktree.ts";
 
@@ -107,6 +110,18 @@ async function settle(spec: ChildSpec): Promise<{ worktree?: WorktreeOutcome }> 
 	}
 }
 
+// A restart keeps what the agent did so far out of its way: its session file is renamed, so the next start (same id)
+// begins a new conversation. `<id>.restart-<n>.jsonl.bak` stays next to it for anyone who wants to read it. Not a
+// `.jsonl` name: a child finds its session by id among the `.jsonl` files and would continue the shelved one.
+function shelveSession(parent: ParentContext, id: string, n: number): void {
+	if (!parent.sessionFile) return;
+	const dir = subagentSessionDir(parent);
+	if (!existsSync(dir)) return;
+	for (const file of readdirSync(dir)) {
+		if (file.endsWith(`_${id}.jsonl`)) renameSync(join(dir, file), join(dir, `${id}.restart-${n}.jsonl.bak`));
+	}
+}
+
 export async function exchange(
 	parent: ParentContext,
 	spec: ChildSpec,
@@ -140,25 +155,35 @@ export async function exchange(
 				throw err;
 			}
 			let run: RunResult;
+			const restarted: RunResult[] = []; // the runs a restart ended, oldest first
 			try {
-				run = await runChild(
-					spec,
-					signal,
-					(p) => {
-						registry.progress(id, p);
-						onProgress(p);
-					},
-					(handle) => registry.attach(id, handle),
-					(event) => {
-						// The provider has started to answer, so it has stored the prompt prefix. A request that failed before
-						// any answer also starts an assistant message, the one that carries the error: nothing was stored.
-						const message = event.message as { role?: string; stopReason?: string } | undefined;
-						const failed = message?.stopReason === "error" || message?.stopReason === "aborted";
-						if (staggered && event.type === "message_start" && message?.role === "assistant" && !failed)
-							responded(spec.prefixKey);
-						registry.event(id, event);
-					},
-				);
+				for (;;) {
+					const turnsBefore = restarted.reduce((sum, r) => sum + r.turns, 0);
+					run = await runChild(
+						spec,
+						signal,
+						(p) => {
+							registry.progress(id, p);
+							onProgress({ ...p, turns: turnsBefore + p.turns });
+						},
+						(handle) => registry.attach(id, handle),
+						(event) => {
+							// The provider has started to answer, so it has stored the prompt prefix. A request that failed
+							// before any answer also starts an assistant message, the one that carries the error: nothing was
+							// stored.
+							const message = event.message as { role?: string; stopReason?: string } | undefined;
+							const failed = message?.stopReason === "error" || message?.stopReason === "aborted";
+							if (staggered && event.type === "message_start" && message?.role === "assistant" && !failed)
+								responded(spec.prefixKey);
+							registry.event(id, event);
+						},
+					);
+					// A restart request that lands after the run finished by itself leaves the run as it was.
+					if (!(registry.restartRequested(id) && run.aborted)) break;
+					registry.carry(id, run);
+					restarted.push(run);
+					shelveSession(parent, id, restarted.length);
+				}
 			} catch (err) {
 				// runChild rejects only when its caller aborted
 				const left = await settle(spec);
@@ -178,6 +203,12 @@ export async function exchange(
 			const said = [...(info.said === undefined ? [] : [info.said]), ...(userSteers.get(id) ?? [])];
 			userSteers.delete(id);
 			if (said.length > 0) host!.note(noteText(info.type, id, said, run));
+			// The caller gets the last start's result, with the turns, time and cost of the restarted runs added.
+			for (const earlier of restarted) {
+				const usage = structuredClone(earlier.usage);
+				addUsage(usage, run.usage);
+				run = { ...run, usage, turns: earlier.turns + run.turns, durationMs: earlier.durationMs + run.durationMs };
+			}
 			return { ...run, ...kept };
 		} finally {
 			openGate?.();

@@ -9,7 +9,10 @@ import type { CodemodeAddon } from "../codemode/addons.ts";
 import { codemodeScripts } from "../codemode/scripts.ts";
 import { scripts } from "./background.ts";
 
-export const PIPELINE_MAX_ITEMS = 4096;
+export const PIPELINE_MAX_ITEMS = 4096; // per pipeline() and per parallel() call
+
+// The two errors of a call with `schema` whose agent never returned a matching value (runner.ts).
+const SCHEMA_UNMET = /^(structured output did not match the schema|the agent ended without structured output$)/;
 
 // The phase an `agent()` call was made in, from the host global to the Agent call it makes (agent-tool.ts reads it).
 export const agentPhase = new AsyncLocalStorage<string | undefined>();
@@ -34,13 +37,14 @@ const PRELUDE = [
 	"if (o.isolation !== undefined) a.isolation = o.isolation;",
 	"const r = await run(a, current);",
 	"const name = JSON.stringify(a.description);",
-	'if (r.status === "failed") throw new Error("agent " + name + " failed: " + (r.error ?? "no error given"));',
+	'if (r.status === "failed") { if (!r.schemaUnmet) return null; throw new Error("agent " + name + " failed: " + r.error); }',
 	"if (o.schema === undefined) return r.output;",
 	'if (r.structured === undefined) throw new Error("agent " + name + " ended " + r.status + " without structured output");',
 	"return r.structured;",
 	"};",
 	"g.parallel = (tasks) => {",
 	'if (!Array.isArray(tasks)) throw new Error("parallel() expects an array of functions or promises");',
+	`if (tasks.length > ${PIPELINE_MAX_ITEMS}) throw new Error("parallel() takes at most ${PIPELINE_MAX_ITEMS} tasks, got " + tasks.length);`,
 	'return Promise.all(tasks.map((t) => orNull(() => (typeof t === "function" ? t() : t))));',
 	"};",
 	"g.pipeline = (items, fn) => {",
@@ -73,9 +77,16 @@ export const scriptHelpers: CodemodeAddon = {
 		{
 			name: "__subagentAgent",
 			spread: true,
-			execute: (callArgs, { signal }) => {
+			execute: async (callArgs, { signal }) => {
 				const [args, phase] = callArgs as [unknown, string | null];
-				return agentPhase.run(phase ?? undefined, () => script.callTool("Agent", args, signal));
+				const result = (await agentPhase.run(phase ?? undefined, () => script.callTool("Agent", args, signal))) as {
+					status?: string;
+					error?: string;
+				};
+				// agent() resolves to null for a failed agent, but a schema that was never met fails the call.
+				return result?.status === "failed" && SCHEMA_UNMET.test(result.error ?? "")
+					? { ...result, schemaUnmet: true }
+					: result;
 			},
 		},
 		{

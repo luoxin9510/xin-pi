@@ -60,6 +60,7 @@ Commands the subagent extension sends:
 | Command | When |
 |---|---|
 | `{"id":"subagent-prompt","type":"prompt","message":...}` | start of every exchange |
+| `{"type":"abort"}` answered by `agent_settled` with `aborted: true`; a child that starts a new conversation when no session file `*_<id>.jsonl` exists for its `--session-id` | stop, and restart (`r`, `/restart`: the session file is renamed to `<id>.restart-<n>.jsonl.bak` and the child is started again) |
 | `{"type":"steer","message":...}` (no id; pi's `response` to it is ignored) | the user types to a running subagent, or main calls `SendMessage` to one |
 | `{"type":"abort"}` (no id; response ignored) | maxTurns reached on a tool turn, the caller aborted, the user pressed `x` / `/stop` |
 | `{"id":...,"type":"set_model","provider":...,"modelId":...}` | `/model` on a running subagent |

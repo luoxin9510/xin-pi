@@ -100,12 +100,34 @@ return JSON.stringify(v);`,
 	assert.deepEqual(seen[0].schema.required, ["files"]);
 });
 
-test("agent(): a failed agent rejects; awaited directly it ends the script with the error", async () => {
+test("agent(): a failed agent resolves to null, as in Claude Code; the script goes on", async () => {
 	const { t } = await foreground({ lines: failing });
-	const { r, text } = await script(t, "\nawait agent('do it', { label: 'worker' });\nreturn 'not reached';");
-	assert.equal(r.isError, true);
-	assert.match(text, /agent "worker" failed: 529 overloaded/);
-	assert.doesNotMatch(text, /not reached/);
+	const { r, text } = await script(
+		t,
+		"const a = await agent('do it', { label: 'worker' });\nreturn 'value=' + JSON.stringify(a) + ' reached';",
+	);
+	assert.notEqual(r.isError, true);
+	assert.match(text, /value=null reached/);
+});
+
+test("agent(): a schema that is never met fails the call; a failure for another reason is still null", async () => {
+	const SCHEMA = "{ type: 'object', properties: { files: { type: 'array' } }, required: ['files'] }";
+	// The child ends twice without calling StructuredOutput.
+	const prose = [ev.session(), ev.assistant("prose"), ev.turnEnd(), ev.settled()];
+	const unmet = await foreground({ lines: prose, reply: [ev.assistant("still prose"), ev.turnEnd(), ev.settled()] });
+	const thrown = await script(
+		unmet.t,
+		`await agent('list', { label: 'lister', schema: ${SCHEMA} });\nreturn 'not reached';`,
+	);
+	assert.equal(thrown.r.isError, true);
+	assert.match(thrown.text, /agent "lister" failed: the agent ended without structured output/);
+	assert.doesNotMatch(thrown.text, /not reached/);
+	const broke = await foreground({ lines: failing });
+	const nulled = await script(
+		broke.t,
+		`return 'value=' + JSON.stringify(await agent('list', { schema: ${SCHEMA} }));`,
+	);
+	assert.match(nulled.text, /value=null/);
 });
 
 test("parallel() and pipeline(): results in order, null for a failed one; the script goes on", async () => {
@@ -115,7 +137,7 @@ test("parallel() and pipeline(): results in order, null for a failed one; the sc
 	});
 	const { text } = await script(
 		t,
-		`const p = await pipeline(['a', 'b', 'c'], (x, i) => agent('item ' + x).then((o) => o + i));
+		`const p = await pipeline(['a', 'b', 'c'], (x, i) => agent('item ' + x).then((o) => (o === null ? null : o + i)));
 const q = await parallel([() => agent('task 1'), agent('task 2'), Promise.resolve(7), () => { throw new Error('sync') }]);
 return JSON.stringify({ p, q });`,
 	);
@@ -129,6 +151,7 @@ test("pipeline(): at most 4096 items; wrong arguments throw", async () => {
 		["return await pipeline('abc', (x) => x)", /expects an array of items/],
 		["return await pipeline([1], 'f')", /expects a function/],
 		["return await parallel(5)", /expects an array of functions or promises/],
+		["return await parallel(new Array(4097).fill(1))", /parallel\(\) takes at most 4096 tasks, got 4097/],
 		["return await agent('')", /expects a prompt string/],
 		["return await phase('')", /expects a title/],
 	];
