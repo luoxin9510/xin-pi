@@ -37,3 +37,9 @@ which is the workflow's. Verified on a faux-model session (`test/suite/subagent-
 
 **A slip during T1:** an rpc-mode experiment inherited `DEEPSEEK_API_KEY` from the shell, and the end message's turn ran
 two small requests on DeepSeek. Tests that start a real xpi now drop every `*_API_KEY` / `*_AUTH_TOKEN` variable.
+
+2026-11-10 (after the release PR was opened): **`phase()` also names agents a script starts with `tools.Agent`.** The
+pty test added for the panel (`test/subagent/tui/12-workflows.test.ts`) found that only `agent()` carried the phase; a
+plain `tools.Agent` call after `phase("x")` had none. `scripts.addAgent` now falls back to the script's current phase.
+The same pty test covers what was owed: the name label, the phase title, the log line, `s` saving a script, and `/name`
+running the saved file.
