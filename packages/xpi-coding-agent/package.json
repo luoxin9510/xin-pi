@@ -47,6 +47,7 @@
 		"test:subagent:evals": "node --experimental-strip-types test/subagent/evals/run.ts",
 		"test:subagent:stress": "node --experimental-strip-types test/subagent/stress/stress.ts",
 		"test:subagent:cache": "node --experimental-strip-types test/subagent/cache/cache.ts",
+		"test:relay:real": "node --test --experimental-strip-types test/relay/real.test.ts",
 		"generate:schemas": "node --import ./src/experimental/source-resolver.ts scripts/generate-schemas.ts",
 		"generate:references": "node --import ./src/experimental/source-resolver.ts scripts/generate-references.ts",
 		"prepublishOnly": "npm run clean && npm run build"
