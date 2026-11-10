@@ -1,5 +1,7 @@
 // The `subagent` settings block (spec 3). This is a boundary: wrong types throw, naming the key.
 
+import { DEFAULT_MODEL_ALIASES } from "../../core/model-aliases.ts";
+
 export interface Config {
 	models: Record<string, string>;
 	defaultModel: string;
@@ -14,14 +16,6 @@ export interface Config {
 	shutdownGraceMs: number; // how long a stopped child may take to shut down (SIGTERM) before SIGKILL
 	panelLingerMs: number; // how long a finished subagent stays in the panel
 }
-
-// Claude Code model aliases -> the same-name Anthropic models. Settings override per alias.
-export const DEFAULT_MODELS: Record<string, string> = {
-	opus: "anthropic/claude-opus-5-5",
-	sonnet: "anthropic/claude-sonnet-5-5",
-	haiku: "anthropic/claude-haiku-5-5",
-	fable: "anthropic/claude-fable-5-1",
-};
 
 function stringMap(value: unknown, key: string, prefix = "subagent."): Record<string, string> {
 	if (value === undefined) return {};
@@ -88,7 +82,7 @@ export function readConfig(raw: unknown, sharedModels?: unknown): Config {
 		backgroundScripts,
 		staggerStart,
 		fork,
-		models: { ...DEFAULT_MODELS, ...stringMap(sharedModels, "models", ""), ...stringMap(r.models, "models") },
+		models: { ...DEFAULT_MODEL_ALIASES, ...stringMap(sharedModels, "models", ""), ...stringMap(r.models, "models") },
 		defaultModel: optionalString(r.defaultModel, "defaultModel") ?? "haiku",
 		toolMap: stringMap(r.toolMap, "toolMap"),
 		maxConcurrent: maxConcurrent as number,

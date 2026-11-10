@@ -163,18 +163,26 @@ export async function runSideCall<T>(
 	// One request, retried on transient errors and rate limits. Every billed attempt is journalled, failed or not.
 	const ask = async (): Promise<AssistantMessage> => {
 		const context = normalizeContext({ systemPrompt: systemPrompt || undefined, messages });
-		const response = await retryAssistantCall(
-			async () => {
-				const produced = await (await host.streamFn(request.model, context, requestOptions)).result();
-				if (produced.usage.totalTokens > 0 || produced.usage.cost.total > 0) {
-					host.recordUsage(`ext:${options.purpose}`, produced);
-					usage = usage ? combineUsage(usage, produced.usage) : produced.usage;
-				}
-				return produced;
-			},
-			host.retry,
-			signal,
-		);
+		let response: AssistantMessage;
+		try {
+			response = await retryAssistantCall(
+				async () => {
+					const produced = await (await host.streamFn(request.model, context, requestOptions)).result();
+					if (produced.usage.totalTokens > 0 || produced.usage.cost.total > 0) {
+						host.recordUsage(`ext:${options.purpose}`, produced);
+						usage = usage ? combineUsage(usage, produced.usage) : produced.usage;
+					}
+					return produced;
+				},
+				host.retry,
+				signal,
+			);
+		} catch (error) {
+			// A stream function that throws instead of returning an error message.
+			if (signal.aborted) throw aborted();
+			const message = describeError(error);
+			throw new CompleteError(classifyErrorText(message, request.model.provider), message, { usage, cause: error });
+		}
 		if (response.stopReason === "aborted" || signal.aborted) throw aborted();
 		if (response.stopReason === "error") {
 			throw new CompleteError(errorKindOf(response), response.errorMessage || "The model request failed", { usage });

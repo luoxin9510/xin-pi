@@ -280,6 +280,19 @@ describe("ctx.complete", () => {
 		expect((await complete({ model: "mine" })).model).toBe(`faux/${sessionModel}`);
 	});
 
+	it("resolves the built-in aliases, and the models setting overrides them", async () => {
+		const { harness, complete } = await setup({
+			models: [{ id: "big" }, { id: "small" }],
+			settings: { ...RETRY, models: { sonnet: "faux/small" } },
+		});
+		harness.setResponses([fauxAssistantMessage("a")]);
+
+		// The built-in "haiku" names an Anthropic model: it resolves, so the call fails on credentials, not the name.
+		const haiku = await failure(complete({ model: "haiku" }));
+		expect(haiku.kind).toBe("no_auth");
+		expect((await complete({ model: "sonnet" })).model).toBe("faux/small");
+	});
+
 	it("records usage entries ext:<purpose> that count in the session totals", async () => {
 		const { harness, complete } = await setup();
 		harness.setResponses([fauxAssistantMessage("some answer text")]);

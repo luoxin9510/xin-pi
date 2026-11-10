@@ -1371,7 +1371,7 @@ transcript.
 
 ```typescript
 interface CompleteOptions {
-  model: string;           // "inherit", an alias from the `models` setting, or provider/id or a pattern
+  model: string;           // "inherit", an alias ("haiku", or one from the `models` setting), provider/id or a pattern
   prompt?: string;         // exactly one of prompt and messages
   messages?: Message[];
   systemPrompt?: string;
@@ -1410,9 +1410,10 @@ pi.on("agent_end", async (_event, ctx) => {
 });
 ```
 
-**Model.** `"inherit"` is the session's current model. Any other value is looked up in the `models` setting (alias to
-model reference, see [Settings](settings.md#model-and-thinking)), and the result, or the value itself when it is not
-an alias, is resolved like `--model` (`provider/id`, an id, a pattern). Subagents read the same table.
+**Model.** `"inherit"` is the session's current model. Any other value is looked up as an alias: the built-in ones
+(`opus`, `sonnet`, `haiku`, `fable`, the same-name Anthropic models), overridden by the `models` setting (alias to model
+reference, see [Settings](settings.md#model-and-thinking)). The result, or the value itself when it is not an alias, is
+resolved like `--model` (`provider/id`, an id, a pattern). Subagents read the same aliases.
 
 **Request.** Credentials come from the model registry at request time, as compaction does. The request uses no prompt
 cache (`cacheRetention: "none"`) and a fresh session id each call, and no thinking. Nothing is forced: no tool choice,

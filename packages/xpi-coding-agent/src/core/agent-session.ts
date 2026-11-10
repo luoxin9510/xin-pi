@@ -121,6 +121,7 @@ import { type BeforeAgentStartTrigger, emitSessionShutdownEvent } from "./extens
 import { findGitPaths } from "./footer-data-provider.ts";
 import { createToolNameMatcher, isMcpToolName } from "./mcp-servers.ts";
 import { type BashExecutionMessage, type CustomMessage, convertToLlm } from "./messages.ts";
+import { DEFAULT_MODEL_ALIASES } from "./model-aliases.ts";
 import { ModelRegistry } from "./model-registry.ts";
 import { resolveCliModel } from "./model-resolver.ts";
 import type { ModelRuntime } from "./model-runtime.ts";
@@ -3240,8 +3241,9 @@ export class AgentSession {
 			return await runSideCall<T>(
 				{
 					resolveModel: (reference) => {
-						// An alias of the shared `models` setting, else a model reference as --model takes it.
-						const target = this.settingsManager.getModelAliases()[reference] ?? reference;
+						// An alias (built-in, overridden by the `models` setting), else a model reference as --model takes it.
+						const aliases = { ...DEFAULT_MODEL_ALIASES, ...this.settingsManager.getModelAliases() };
+						const target = aliases[reference] ?? reference;
 						if (reference === "inherit" || target === "inherit") return this.model;
 						return resolveCliModel({ cliModel: target, modelRuntime: this._modelRuntime }).model;
 					},

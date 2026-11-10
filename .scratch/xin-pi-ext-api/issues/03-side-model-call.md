@@ -35,3 +35,8 @@ usage entry `ext:<purpose>`, and throws errors with a kind.
 - Usage entries show in footer and `/session` totals under the call model (provider/model), not under the purpose; the purpose is the entry `kind` (`ext:<purpose>`).
 - Retry reuses `retryAssistantCall` (same policy and `retryAfterMs` rules as compaction); a stream function that throws instead of returning an error message is not caught (rethrown as is).
 - `ExtensionContext.complete` is required (hand-built contexts in two tests needed it). Implementation: `src/core/side-call.ts`, `AgentSession.complete`. Tests: `test/suite/ctx-complete.test.ts` (20), `test/subagent/faults/model-aliases.test.ts` (4).
+
+Review (2026-11-10): the built-in aliases (`opus`, `sonnet`, `haiku`, `fable`) moved from the subagent config to
+`src/core/model-aliases.ts`, so `ctx.complete({ model: "haiku" })` works as story 2 says; the `models` setting overrides
+them. A stream function that throws is wrapped in a `CompleteError` (kind from the message text, `aborted` when the
+signal fired). Left for later: the usage breakdown groups side calls by provider/model, not by `ext:<purpose>`.
