@@ -3303,10 +3303,10 @@ export class AgentSession {
 
 	/**
 	 * Replace old tool output with a placeholder before a summary is made, one `context_edit`
-	 * per result. Returns whether the pruned context is back under the threshold of `model`,
-	 * in which case no summary is needed.
+	 * per result. Returns true only for a threshold trigger on a non-virtual model whose pruned
+	 * context is back under the threshold, in which case no summary is needed.
 	 */
-	private _pruneToolOutputBeforeCompaction(model: Model<any> | undefined): boolean {
+	private _pruneToolOutputBeforeCompaction(reason: "overflow" | "threshold", model: Model<any> | undefined): boolean {
 		const prune = this.settingsManager.getCompactionPruneSettings();
 		if (!prune.enabled) return false;
 		const cwd = this._cwd;
@@ -3328,9 +3328,11 @@ export class AgentSession {
 			if (entry) this._emit({ type: "entry_appended", entry });
 		}
 		this._refreshFinalizedContext();
-		return (
-			model !== undefined && !this._exceedsCompactionThreshold(model, this.sessionManager.buildSessionProjection())
-		);
+		// Only a plain threshold trigger may skip the summary. After an overflow the provider has just
+		// rejected the request, so the estimate is not trustworthy and recovery is single-shot. Under a
+		// virtual model the trigger measured the routed model's window, not this one's.
+		if (reason !== "threshold" || model === undefined || isVirtualModel(model)) return false;
+		return !this._exceedsCompactionThreshold(model, this.sessionManager.buildSessionProjection());
 	}
 
 	/**
@@ -3357,7 +3359,7 @@ export class AgentSession {
 			}
 
 			// Dropping old tool output first often makes a summary unnecessary.
-			if (this._pruneToolOutputBeforeCompaction(model)) {
+			if (this._pruneToolOutputBeforeCompaction(reason, model)) {
 				return willRetry || this.agent.hasQueuedMessages();
 			}
 

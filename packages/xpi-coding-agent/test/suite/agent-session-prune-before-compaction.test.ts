@@ -204,19 +204,17 @@ describe("pruning old tool output before compaction", () => {
 		expect(text.split(BIG)).toHaveLength(3);
 	});
 
-	it("prunes first on the overflow path and still retries", async () => {
+	it("prunes first on the overflow path and still summarises", async () => {
+		// By estimate, pruning alone would be under the 5000 token window.
 		const harness = await setup({ contextWindow: 5000 });
 		const stream = useSummaryStream(harness);
 
-		const retry = await (harness.session as unknown as SessionWithCompactionInternals)._runAutoCompaction(
-			"overflow",
-			true,
-		);
+		await (harness.session as unknown as SessionWithCompactionInternals)._runAutoCompaction("overflow", true);
 
-		expect(retry).toBe(true);
 		expect(pruneEdits(harness)).toHaveLength(5);
-		expect(stream.calls()).toBe(0);
-		expect(compactions(harness)).toHaveLength(0);
+		expect(stream.calls()).toBeGreaterThan(0);
+		expect(compactions(harness)).toHaveLength(1);
+		expect(JSON.stringify(stream.contexts)).not.toContain(BIG);
 	});
 
 	it("lets a later compaction cut past the pruned entries", async () => {

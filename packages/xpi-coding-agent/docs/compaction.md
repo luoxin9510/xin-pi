@@ -48,7 +48,7 @@ Before a summary is made, automatic compaction (threshold and overflow recovery,
 [Tool output removed to save context: about 1200 tokens. Run the tool again if you need it.]
 ```
 
-If the re-estimated context is then under the threshold, no summary is made, `session_before_compact` does not fire, and (for overflow recovery) the interrupted turn is retried. Otherwise compaction continues as described below, on the pruned context. Pruning is not a per-turn step, so it never changes a warm prompt cache by itself.
+For a threshold trigger on a non-virtual model, if the re-estimated context is then under the threshold, no summary is made and `session_before_compact` does not fire. This shortcut is threshold-only: after a provider overflow (the estimate is not trustworthy and recovery is single-shot) and under a virtual model (the trigger measured the routed model's window), Pi prunes and then always continues into the summary. Otherwise compaction continues as described below, on the pruned context. Pruning is not a per-turn step, so it never changes a warm prompt cache by itself.
 
 Selection walks the tool results on the current branch from newest to oldest:
 
