@@ -1,14 +1,12 @@
-# Contributing to pi
+# Contributing to xin-pi
 
-This guide exists to save both sides time.
+xin-pi is a personal distribution of [pi](https://github.com/earendil-works/pi) with built-in extensions, shipped as the `xpi` CLI. It is maintained by one person, so this guide exists to save both sides time.
+
+Bugs that also happen in upstream pi belong in [upstream's tracker](https://github.com/earendil-works/pi/issues).
 
 ## Philosophy
 
-First things first: **pi's core is minimal**.
-
-If your feature does not belong in the core, it should be an extension. PRs that bloat the core will likely be rejected.
-
-Pi's core exists to be minimal and to be extensible so that it can be influenced and manipulated by extensions.  Even hook points for extensions however should be well considered and discussed to avoid adding unmaintainable bloat and complex interactions.
+The core stays minimal, as in pi. What xin-pi adds lives in built-in extensions (`packages/xpi-coding-agent/src/extensions/`). PRs that bloat the core will likely be rejected.
 
 ## The One Rule
 
@@ -16,7 +14,7 @@ Pi's core exists to be minimal and to be extensible so that it can be influenced
 
 Using AI to write code is fine. Submitting AI-generated slop without understanding it is not.
 
-If you use an agent, run it from the `pi` root directory so it picks up `AGENTS.md` automatically. Your agent must follow the rules and guidelines in that file.
+If you use an agent, run it from the repository root so it picks up `AGENTS.md` automatically. Your agent must follow the rules and guidelines in that file.
 
 ## Quality Bar For Issues
 
@@ -34,9 +32,7 @@ Issues that do not meet this bar may be closed without a reply.
 
 ## Blocking
 
-If you ignore this document twice, or if you spam the tracker with agent-generated issues, your GitHub account will be permanently blocked.
-
-If you send a large volume of issues through automation, your GitHub account will be permanently blocked. No taksies backsies.
+Accounts that spam the tracker, for example with large volumes of agent-generated issues, are blocked.
 
 ## Before Submitting a PR
 
@@ -55,13 +51,9 @@ If you are adding a new provider to `packages/xpi-ai`, see `AGENTS.md` for requi
 
 ## Questions?
 
-Ask on [Discord](https://discord.com/invite/nKXTsAcmbT).
+Open an issue with the contribution template.
 
 ## FAQ
-
-### Why are weekend issues lower priority?
-
-We triage the tracker during working hours. That means more issues can accumulate over the weekend. Anything submitted Friday through Sunday may be missed or given lower priority in the Monday review queue. If a problem is urgent, ask on Discord and include the short version, a repro, and the relevant logs.
 
 ### Why do some issues get no reply?
 
@@ -70,8 +62,3 @@ A reply is maintenance work too. Low-signal issues, unclear reports, duplicates,
 ### Why not let AI triage everything?
 
 AI can help group duplicates, summarize reports, and spot missing information. It is not trusted to make final maintainer decisions. Polished AI-generated issues can still be wrong, misleading, or expensive to investigate. Human review remains the final gate.
-
-## Where can I learn about plans?
-
-Earendil uses RFCs to discuss larger changes.  Not all of them are public, but
-quite a few are.  They can be found at [rfc.earendil.com](https://rfc.earendil.com/keyword/pi/).
