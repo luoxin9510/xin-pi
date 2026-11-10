@@ -1,6 +1,6 @@
 # Subagents v4: closing the gap to Claude Code's subagents and dynamic workflows
 
-Status: specs 1-3 approved by the owner on 2026-11-10 (Grill 1, `decisions.md`); 1, 2 and 3 done (`issues/`); 4 (`04-fork.md`) and 5 (`05-inert-fields.md`) approved on 2026-11-10 (Grill 2); 4 and 5 done (`issues/`): the roadmap is complete
+Status: specs 1-3 approved by the owner on 2026-11-10 (Grill 1, `decisions.md`); 1, 2 and 3 done (`issues/`); 4 (`04-fork.md`) and 5 (`05-inert-fields.md`) approved on 2026-11-10 (Grill 2); 4 and 5 done (`issues/`): the roadmap is complete; `06-workflows-2.md` (Claude Code workflow files, restart an agent) approved on 2026-11-10 (Grill 3)
 
 Compared on 2026-11-10 against Claude Code's docs (`code.claude.com/docs/en/sub-agents`, `.../workflows`) and
 `packages/xpi-coding-agent/docs/subagent.md`.

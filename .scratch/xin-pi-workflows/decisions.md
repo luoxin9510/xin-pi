@@ -62,3 +62,19 @@ Inert fields (`05-inert-fields.md`)
 Order
 
 9. Spec 05 first (three small, independent tickets), then spec 04 (the prototypes decide its size).
+
+## Grill 3 (2026-11-10): workflows, second part (`06-workflows-2.md`). All 5 accepted by the owner on 2026-11-10
+
+Each line is worded so "yes" accepts the proposal.
+
+1. Scope: this spec does two things, reading Claude Code's workflow files and restarting a running agent. Relaunch
+   with saved results, pause and resume, `/deep-research` and the size warning stay for later specs.
+2. Workflow sources, highest first: `.pi/workflows/`, `.claude/workflows/` (both project, trusted only, closest wins),
+   `~/.pi/agent/workflows/`, `~/.claude/workflows/`. Saving from the panel never writes into `.claude/`.
+3. `agent()` changes to Claude Code's behaviour: it resolves to `null` when the agent failed or was stopped, and
+   rejects only when a `schema` was never met. This changes what shipped in 1.6.0 (today it rejects); scripts that
+   `try`/`catch` around `agent()` for failures must check for `null` instead. `tools.Agent` does not change.
+4. `parallel()` gets the 4,096 item cap. `Date.now()`, `Math.random()` and `new Date()` keep working.
+5. Restart: `r` on a running agent's panel row and `/restart` on its screen. The agent starts over with the same
+   prompt and settings and keeps its id, name and row; the earlier session is kept as a file next to it; the waiting
+   `Agent` call gets the last start's result; turns and cost add up; a finished agent cannot be restarted.
