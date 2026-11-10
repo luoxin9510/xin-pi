@@ -1174,6 +1174,8 @@ if (message.stopReason === 'error' || message.stopReason === 'aborted') {
 }
 ```
 
+A failed message can also carry `errorKind` (`transient`, `rate_limit`, `usage_limit`, `context_overflow`, `auth`, `invalid_request`, `unknown`), `errorStatus` (HTTP status) and `retryAfterMs` (wait the provider asked for). The Anthropic and OpenAI-family providers set them through `classifyProviderError`/`applyErrorClassification` (`src/utils/error-kind.ts`); a provider that does not leaves them unset, and `isRetryableAssistantError` and `isContextOverflow` then match the error text. Only `transient` and `rate_limit` are worth retrying.
+
 When using a provider collection, auth failures (OAuth refresh failed, unknown provider) surface as a stream error with `stopReason: "error"`. Direct API `streamSimple()` calls instead throw synchronously when their required auth is absent.
 
 ### Aborting Requests
@@ -1967,6 +1969,7 @@ Create or update test files to cover the new provider:
 - `abort.test.ts` - Request cancellation
 - `empty.test.ts` - Empty message handling
 - `context-overflow.test.ts` - Context limit errors
+- `error-kind.test.ts` - Error classification (`errorKind`, `errorStatus`, `retryAfterMs`)
 - `unicode-surrogate.test.ts` - Unicode handling
 - `tool-call-without-result.test.ts` - Orphaned tool calls
 - `image-tool-result.test.ts` - Images in tool results

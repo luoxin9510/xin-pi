@@ -32,7 +32,7 @@ import {
 	type StreamFn,
 	type ThinkingLevel,
 } from "xpi-agent-core";
-import { contentText, getCurrentSystemMessage, getCurrentTools, retryDelayMs } from "xpi-ai";
+import { contentText, getCurrentSystemMessage, getCurrentTools, retryWait, retryWaitTooLongMessage } from "xpi-ai";
 import type {
 	AssistantMessage,
 	AuthResult,
@@ -2129,12 +2129,13 @@ export class AgentSession {
 			return false;
 		}
 
-		if (message.stopReason === "error" && this._retryAttempt > 0) {
+		const waitTooLongError = message.stopReason === "error" ? this._retryWaitTooLongError(message) : undefined;
+		if (message.stopReason === "error" && (this._retryAttempt > 0 || waitTooLongError !== undefined)) {
 			this._emit({
 				type: "auto_retry_end",
 				success: false,
 				attempt: this._retryAttempt,
-				finalError: message.errorMessage,
+				finalError: waitTooLongError ?? message.errorMessage,
 			});
 			this._retryAttempt = 0;
 		}
@@ -3972,13 +3973,29 @@ export class AgentSession {
 	// =========================================================================
 
 	/**
-	 * Check if an error is retryable (overloaded, rate limit, server errors).
-	 * Context overflow errors are NOT retryable (handled by compaction instead).
+	 * Check if an error is retryable: `errorKind` `transient` or `rate_limit` (error text for messages without a
+	 * kind). Context overflow is NOT retryable (handled by compaction instead), and neither is a failure whose
+	 * provider-requested wait exceeds `retry.maxAgentDelayMs`.
 	 */
 	private _isRetryableError(message: AssistantMessage): boolean {
 		// Context overflow is handled by compaction, not retry.
 		if (isContextOverflow(message, (this._modelForMessage(message) ?? this.model)?.contextWindow ?? 0)) return false;
-		return isRetryableAssistantError(message);
+		if (!isRetryableAssistantError(message)) return false;
+		return !retryWait(message, this.settingsManager.getRetrySettings(), this._retryAttempt + 1).tooLong;
+	}
+
+	/**
+	 * Error text for a retryable failure that is final because the provider asked for a wait longer than
+	 * `retry.maxAgentDelayMs`; undefined when the failure is retried or not retryable at all.
+	 */
+	private _retryWaitTooLongError(message: AssistantMessage): string | undefined {
+		const settings = this.settingsManager.getRetrySettings();
+		if (!settings.enabled || this._retryAttempt >= settings.maxRetries) return undefined;
+		if (isContextOverflow(message, (this._modelForMessage(message) ?? this.model)?.contextWindow ?? 0))
+			return undefined;
+		if (!isRetryableAssistantError(message)) return undefined;
+		if (!retryWait(message, settings, this._retryAttempt + 1).tooLong) return undefined;
+		return retryWaitTooLongMessage(message, settings);
 	}
 
 	/**
@@ -4042,7 +4059,8 @@ export class AgentSession {
 			return false;
 		}
 
-		const delayMs = retryDelayMs(settings, this._retryAttempt);
+		// A provider-requested wait (`retryAfterMs`) replaces the computed backoff.
+		const { delayMs } = retryWait(message, settings, this._retryAttempt);
 
 		this._emit({
 			type: "auto_retry_start",

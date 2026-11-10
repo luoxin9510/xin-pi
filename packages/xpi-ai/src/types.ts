@@ -599,6 +599,19 @@ export interface UserMessage {
 	timestamp: number; // Unix timestamp in milliseconds
 }
 
+/**
+ * Why a request failed, decided once by the provider layer (`classifyProviderError`). Only `transient` and
+ * `rate_limit` are retried by the session.
+ */
+export type ErrorKind =
+	| "transient" // 5xx, timeouts, network failures, dropped streams
+	| "rate_limit" // 429 and equivalents; a wait of `retryAfterMs` may be requested
+	| "usage_limit" // quota, billing or plan limit spent; retrying does not help
+	| "context_overflow" // input exceeds the context window or request size limit
+	| "auth" // missing, invalid or unauthorized credentials
+	| "invalid_request" // other 4xx
+	| "unknown";
+
 export interface AssistantMessage {
 	role: "assistant";
 	content: (TextContent | ThinkingContent | ToolCall)[];
@@ -616,6 +629,12 @@ export interface AssistantMessage {
 	stopReason: StopReason;
 	deferred?: DeferredHandle;
 	errorMessage?: string;
+	/** Kind of failure when `stopReason` is `"error"`. Absent for providers not yet classifying and for old sessions. */
+	errorKind?: ErrorKind;
+	/** HTTP status of the failed request, when the failure had one. */
+	errorStatus?: number;
+	/** Wait in milliseconds the provider asked for (`retry-after-ms` / `retry-after`), when it sent one. */
+	retryAfterMs?: number;
 	rawStopReason?: string;
 	/**
 	 * Provider indication of whether the model explicitly ended its turn.

@@ -167,7 +167,7 @@ Assistant-turn retry emits:
 {"type":"auto_retry_end","success":true,"attempt":2}
 ```
 
-On final failure, `auto_retry_end` has `success: false` and a `finalError` string.
+On final failure, `auto_retry_end` has `success: false` and a `finalError` string. When the provider asked for a wait longer than `retry.maxAgentDelayMs`, no retry starts: `auto_retry_end` has `attempt: 0` and a `finalError` that names the wait. The failed assistant message carries `errorKind`, `errorStatus` and `retryAfterMs` when the provider set them.
 
 Compaction and branch-summary retry emit:
 

@@ -134,6 +134,9 @@ interface AssistantMessage {
   stopReason: "pending" | "stop" | "length" | "toolUse" | "error" | "aborted" | "deferred";
   deferred?: DeferredHandle;
   errorMessage?: string;
+  errorKind?: "transient" | "rate_limit" | "usage_limit" | "context_overflow" | "auth" | "invalid_request" | "unknown";
+  errorStatus?: number;
+  retryAfterMs?: number;
   rawStopReason?: string;
   endTurn?: boolean;
   timestamp: number;
@@ -141,6 +144,20 @@ interface AssistantMessage {
 ```
 
 `responseModel` records the concrete model reported by the provider, when the provider reports one. It may equal the requested model. `responseId`, `providerThinkingLevel`, `thinkingLevel`, `diagnostics`, and `rawStopReason` preserve provider or runtime details.
+
+A failed message (`stopReason: "error"`) can carry structured error fields next to `errorMessage`. `errorKind` says what kind of failure it was, `errorStatus` is the HTTP status when the failure had one, and `retryAfterMs` is the wait the provider asked for (`retry-after-ms` or `retry-after`). The Anthropic and OpenAI-family providers set them; messages from other providers and from older sessions do not have them, and Pi then reads `errorMessage` instead.
+
+| `errorKind` | Meaning | Retried by Pi |
+|---|---|---|
+| `transient` | 5xx, timeouts, network failures, dropped streams | yes |
+| `rate_limit` | 429 and equivalents | yes |
+| `usage_limit` | quota, billing or plan limit spent | no |
+| `context_overflow` | input exceeds the context window or request size limit | no (compaction handles it) |
+| `auth` | missing, invalid or unauthorized credentials | no |
+| `invalid_request` | other 4xx | no |
+| `unknown` | nothing matched | no |
+
+The kind comes from the error class or code of the failure, then the HTTP status, then the provider's error code in the body, and only last from the error text. Extensions can read `errorKind` in `message_end` instead of parsing `errorMessage`.
 
 `"pending"` is used for a partial assistant message while it streams. The completed message in `message_end` has a terminal stop reason, and Pi does not persist `"pending"` assistant messages in session JSONL.
 
