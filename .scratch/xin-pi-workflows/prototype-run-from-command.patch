@@ -1,0 +1,89 @@
+diff --git a/packages/xpi-coding-agent/src/core/agent-session.ts b/packages/xpi-coding-agent/src/core/agent-session.ts
+index 9d51a8f80..ac12a33eb 100644
+--- a/packages/xpi-coding-agent/src/core/agent-session.ts
++++ b/packages/xpi-coding-agent/src/core/agent-session.ts
+@@ -831,7 +831,29 @@ export class AgentSession {
+ 			},
+ 			runToolCall: (toolCall, parentId, signal, onUpdate, origin) => {
+ 				const captured = origin as { assistantMessage: AssistantMessage; messages: AgentMessage[] } | undefined;
+-				const assistantMessage = captured?.assistantMessage ?? this._findLastAssistantMessage();
++				// PROTOTYPE: a call no model turn issued (a workflow started by a command) gets an empty assistant message.
++				const assistantMessage =
++					captured?.assistantMessage ??
++					this._findLastAssistantMessage() ??
++					(process.env.XPI_WFPROTO
++						? ({
++								role: "assistant",
++								content: [],
++								api: this.model?.api ?? "anthropic-messages",
++								provider: this.model?.provider ?? "none",
++								model: this.model?.id ?? "none",
++								usage: {
++									input: 0,
++									output: 0,
++									cacheRead: 0,
++									cacheWrite: 0,
++									totalTokens: 0,
++									cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
++								},
++								stopReason: "stop",
++								timestamp: Date.now(),
++							} as unknown as AssistantMessage)
++						: undefined);
+ 				if (!assistantMessage) {
+ 					return Promise.resolve({
+ 						toolCall,
+diff --git a/packages/xpi-coding-agent/src/core/extensions/runner.ts b/packages/xpi-coding-agent/src/core/extensions/runner.ts
+index af6caae65..02120a010 100644
+--- a/packages/xpi-coding-agent/src/core/extensions/runner.ts
++++ b/packages/xpi-coding-agent/src/core/extensions/runner.ts
+@@ -1026,6 +1026,8 @@ export class ExtensionRunner {
+ 			this.assertActive();
+ 			return this.waitForIdleFn();
+ 		};
++		// PROTOTYPE: a tool context for work a command starts (a workflow script), not tied to a model tool call.
++		(context as any).createToolContext = (id: string, signal?: AbortSignal) => this.createToolContext(id, signal);
+ 		context.newSession = (options) => {
+ 			this.assertActive();
+ 			return this.newSessionHandler(options);
+diff --git a/packages/xpi-coding-agent/src/extensions/subagent/index.ts b/packages/xpi-coding-agent/src/extensions/subagent/index.ts
+index 436b74027..a2d213498 100644
+--- a/packages/xpi-coding-agent/src/extensions/subagent/index.ts
++++ b/packages/xpi-coding-agent/src/extensions/subagent/index.ts
+@@ -42,6 +42,36 @@ export default function subagent(pi: ExtensionAPI) {
+ 			"List this session's subagents; `stop` stops everything running; `worktrees` lists and removes kept worktrees",
+ 		handler: (args, ctx) => subagentsCommand(ctx, args),
+ 	});
++	// PROTOTYPE: /wfproto <file> runs a script file as a codemode script with no model tool call.
++	pi.registerCommand("wfproto", {
++		description: "prototype",
++		handler: async (args, ctx) => {
++			const { readFileSync, appendFileSync } = await import("node:fs");
++			const { executeCodemode } = await import("../codemode/execute.ts");
++			const { codemodeScripts } = await import("../codemode/scripts.ts");
++			const out = (line: string) => appendFileSync(process.env.XPI_WFPROTO_OUT!, `${line}\n`);
++			const id = `workflow-${Date.now()}`;
++			const toolCtx = (ctx as any).createToolContext(id, undefined);
++			const off = codemodeScripts.subscribe({
++				onStart: (s) => out(`onStart ${s.id} ${s.toolCallId} ${s.state}`),
++				onBackground: (s) => out(`onBackground ${s.id}`),
++				onEnd: (s, o) => out(`onEnd ${s.id} background=${o.background} stopped=${o.stopped} error=${o.error?.message} result=${JSON.stringify(o.result?.content)}`),
++			});
++			try {
++				toolCtx.detachNestedCalls?.();
++				const run = executeCodemode(id, { code: readFileSync(args.trim(), "utf8") }, undefined, undefined, toolCtx, {});
++				setTimeout(() => out(`moved=${codemodeScripts.backgroundAll(ctx.sessionManager.getSessionId())}`), 300);
++				const early = await run;
++				out(`early ${JSON.stringify(early.content).slice(0, 300)} details.background=${(early.details as any)?.background}`);
++				await new Promise((r) => setTimeout(r, 2500));
++				toolCtx.releaseNestedCalls?.();
++			} catch (e) {
++				out(`threw ${(e as Error).stack}`);
++			} finally {
++				off();
++			}
++		},
++	});
+ 	pi.on("agent_start", track);
+ 	pi.on("agent_end", track);
+ 

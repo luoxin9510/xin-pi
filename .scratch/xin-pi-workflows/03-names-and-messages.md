@@ -1,6 +1,6 @@
 # 03: Agent names and `SendMessage`
 
-Status: draft, waiting for Grill 1 (decisions 9-10)
+Status: ready-for-agent (owner approved Grill 1 on 2026-11-10)
 
 ## Problem
 

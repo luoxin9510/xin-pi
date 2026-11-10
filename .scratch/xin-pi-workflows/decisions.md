@@ -1,8 +1,10 @@
 # Decisions
 
-## Grill 1 (2026-11-10): proposed, waiting for the owner
+## Grill 1 (2026-11-10): all 11 accepted by the owner on 2026-11-10
 
-Each line is the recommended answer; "yes" accepts it.
+The owner asked for the two unverified facts of `02-workflows.md` to be checked first; both were (see its Verified
+facts). One consequence, within decision 5 (Claude Code's names and semantics): a saved workflow starts with
+`export const meta = { name, description }`, Claude Code's format, not a description comment.
 
 Structured output (`01-structured-output.md`)
 

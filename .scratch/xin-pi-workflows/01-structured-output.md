@@ -1,6 +1,6 @@
 # 01: Structured output (`schema` on an `Agent` call)
 
-Status: draft, waiting for Grill 1 (decisions 1-3)
+Status: ready-for-agent (owner approved Grill 1 on 2026-11-10)
 
 ## Problem
 
