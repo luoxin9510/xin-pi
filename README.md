@@ -8,7 +8,7 @@ in [print or JSON mode](packages/xpi-coding-agent/docs/cli.md), over [RPC](packa
 the [TypeScript SDK](packages/xpi-coding-agent/docs/sdk.md).
 
 What differs from pi: the command is `xpi`, packages are named `xpi-*` (only the CLI, `xpi-coding-agent`, is published
-to npm), environment variables are `XPI_*`, and two built-in extensions are added:
+to npm), environment variables are `XPI_*`, and these built-in extensions are added:
 
 - [subagent](packages/xpi-coding-agent/docs/subagent.md): Claude Code-compatible agents called from codemode scripts
   (`Agent`, with structured output, worktree isolation, memory and names), a `fork` that starts with the whole
@@ -18,6 +18,8 @@ to npm), environment variables are `XPI_*`, and two built-in extensions are adde
 - [relay](packages/xpi-coding-agent/docs/relay.md): the model `relay/auto`. A strong model explores, plans and reviews;
   a cheap one builds; the strong model reads a record of the result instead of the cheap one's transcript.
 - `upstream`: `/upstream` reports what upstream pi has that is worth porting.
+- `commit`: `/commit` drafts a commit message for the staged changes with a small model (setting `commit.model`,
+  default `haiku`), opens it in an editor, and commits; hooks run and nothing is pushed or amended.
 
 xin-pi does not merge upstream; changes are ported by hand. The full list is in [docs/xin-pi.md](docs/xin-pi.md).
 

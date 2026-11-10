@@ -1,5 +1,6 @@
 import type { InlineExtension } from "../core/extensions/types.ts";
 import codemodeExtension from "./codemode/index.ts";
+import commitExtension from "./commit/index.ts";
 import llamaExtension from "./llama/index.ts";
 import mcpExtension from "./mcp/index.ts";
 import relayExtension from "./relay/index.ts";
@@ -20,4 +21,6 @@ export const builtInExtensions: InlineExtension[] = [
 	{ name: "relay", factory: relayExtension, builtin: true },
 	// Not replaceable. Disable it with `-builtin:upstream`.
 	{ name: "upstream", factory: upstreamExtension, builtin: true },
+	// Not replaceable. Disable it with `-builtin:commit`.
+	{ name: "commit", factory: commitExtension, builtin: true },
 ];

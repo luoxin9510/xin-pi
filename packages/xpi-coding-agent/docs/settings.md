@@ -177,7 +177,7 @@ Resource paths in user settings resolve from the agent directory. Paths in proje
 
 Resource arrays support glob exclusions with `!pattern`, exact inclusion with `+path`, and exact exclusion with `-path`. Pi loads resources listed in both user-level and project settings.
 
-The built-in extensions are named `builtin:mcp`, `builtin:llama.cpp`, `builtin:codemode`, `builtin:tool-search`, `builtin:subagent`, `builtin:relay`, and `builtin:upstream` in `extensions`. They load by default; `-builtin:mcp` disables one. A `+builtin:<name>` or `-builtin:<name>` entry in project settings overrides the user setting. `pi config` lists them under Built-in. `--no-extensions` disables them too, and `-e builtin:<name>` loads one explicitly.
+The built-in extensions are named `builtin:mcp`, `builtin:llama.cpp`, `builtin:codemode`, `builtin:tool-search`, `builtin:subagent`, `builtin:relay`, `builtin:upstream`, and `builtin:commit` in `extensions`. They load by default; `-builtin:mcp` disables one. A `+builtin:<name>` or `-builtin:<name>` entry in project settings overrides the user setting. `pi config` lists them under Built-in. `--no-extensions` disables them too, and `-e builtin:<name>` loads one explicitly.
 
 ## Subagents
 
@@ -192,6 +192,14 @@ the extension itself validates it at session start and names the wrong key.
 The built-in `relay` extension reads a `relay` block (`lead`, `worker`, `leadThinking`, `workerThinking`, `maxRounds`,
 `acceptanceTimeoutMs`, `diffChars`, `objective`, `workerRecord`, `minuteCost`), listed with defaults in [Relay: Settings](relay.md#settings). The settings schema
 describes the block.
+
+## Commit
+
+The built-in `commit` extension (`/commit`) reads a `commit` block:
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `commit.model` | string | `"haiku"` | Model that drafts the commit message: an alias from the `models` setting, `"provider/model"`, or `"inherit"` for the session model. |
 
 ## Updates, telemetry, and warnings
 

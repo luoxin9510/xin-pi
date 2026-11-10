@@ -19,7 +19,7 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
 - Removed from the monorepo: `packages/chord`, `packages/durable`, `packages/env`, `apps/p2`, `apps/p3` (coding-agent, ai,
   agent-core and tui did not depend on them), together with their build, workspace, tsconfig and CI wiring. The
   version check is skipped by default (`XPI_SKIP_VERSION_CHECK ??= "1"` in `coding-agent/src/cli/setup.ts`).
-- Two built-in extensions, registered in `coding-agent/src/extensions/index.ts` and not replaceable:
+- Four built-in extensions, registered in `coding-agent/src/extensions/index.ts` and not replaceable:
   - `subagent` (`src/extensions/subagent/`, off with `-builtin:subagent`): the `Agent`, `SendMessage` and `Workflow` tools
     for codemode scripts, the script helpers (`agent`, `parallel`, `pipeline`, `phase`, `log`), saved workflows
     (`/<name>`, `/workflows`), the `fork` agent type and `/subtask`, the panel, `/subagents`, the `--agents` flag. Settings namespace `subagent.*`, env `XPI_SUBAGENT_*`, branches `subagent/<id>`. It was the separate
@@ -30,6 +30,11 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
     namespace `relay.*`. It uses the extension API only (a virtual model, the `agent_before_settle` boundary with a
     compaction draft); no core change. User docs: [relay.md](../packages/xpi-coding-agent/docs/relay.md).
   - `upstream` (`src/extensions/upstream/`, off with `-builtin:upstream`): `/upstream`, see below.
+  - `commit` (`src/extensions/commit/`, off with `-builtin:commit`): `/commit [hint] [--yes]`. It builds a prompt from
+    the staged diff (`context.ts`: lockfiles stat-only, diff capped at 60k characters, the commit section of
+    `AGENTS.md`/`CLAUDE.md`, the last 20 subjects), asks `ctx.complete` for `{ type, scope?, summary, body? }` with the
+    model of `commit.model` (default `haiku`), opens `ui.editor`, and runs `git commit -F <temp file>`. Extension API
+    only; no core change besides the settings entry. Tests: `test/suite/commit.test.ts` (faux provider, temp repo).
 - `coding-agent/package.json`: `copy-assets` also copies `src/extensions/subagent/builtin/*.md` to
   `dist/extensions/subagent/builtin`.
 - Running it: `npm install && npm run build`, then `node packages/xpi-coding-agent/dist/bundle/cli.js`, or from sources
