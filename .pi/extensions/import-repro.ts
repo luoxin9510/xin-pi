@@ -1,7 +1,6 @@
 /**
- * Import a pi session shared as a gist by the issue-analysis CI workflow
- * (.github/workflows/issue-analysis.yml), or a .jsonl session file served at a URL,
- * and switch to it.
+ * Import a pi session shared as a gist (upstream pi's issue-analysis CI shares its sessions this way), or a .jsonl
+ * session file served at a URL, and switch to it.
  *
  * The session ran in another checkout (the CI job's high-entropy directory, or a
  * research VM); this command rewrites the recorded cwd to the local checkout,
