@@ -31,7 +31,7 @@ test("isolated: the child runs in the worktree, the prompt says so, the meta fil
 	assert.equal(r.status, "completed");
 	assert.deepEqual(r.worktree, { changed: false });
 	assert.equal(s.record().cwd, path); // the fake records process.cwd(), already a real path
-	assert.ok(s.record().systemPrompt!.includes(`Working directory: ${path}`));
+	assert.ok(s.record().systemPromptTail!.includes(`Working directory: ${path}`));
 	assert.deepEqual(metaOf(r.agentId).worktree, {
 		root: repo,
 		path,

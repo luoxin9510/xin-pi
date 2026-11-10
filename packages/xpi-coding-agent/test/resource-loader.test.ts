@@ -5,11 +5,13 @@ import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { ExtensionRunner } from "../src/core/extensions/runner.ts";
+import { findGitPaths } from "../src/core/footer-data-provider.ts";
 import { DefaultResourceLoader, loadProjectContextFiles } from "../src/core/resource-loader.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
 import type { Skill } from "../src/core/skills.ts";
 import { createSyntheticSourceInfo } from "../src/core/source-info.ts";
+import { buildSystemPromptSections } from "../src/core/system-prompt.ts";
 
 import { createModelRegistry } from "./model-runtime-test-utils.ts";
 
@@ -680,6 +682,23 @@ Project skill content`,
 			expect(loader.getSystemPromptSource()).toEqual({ path: systemPromptPath });
 		});
 
+		it("reads the system prompt tail as text or from a file, and has none by default", async () => {
+			const tailPath = join(tempDir, "tail.md");
+			writeFileSync(tailPath, "Tail from a file.");
+
+			const fromFile = new DefaultResourceLoader({ cwd, agentDir, systemPromptTail: tailPath });
+			await fromFile.reload();
+			expect(fromFile.getSystemPromptTail()).toBe("Tail from a file.");
+
+			const literal = new DefaultResourceLoader({ cwd, agentDir, systemPromptTail: "Literal tail." });
+			await literal.reload();
+			expect(literal.getSystemPromptTail()).toBe("Literal tail.");
+
+			const none = new DefaultResourceLoader({ cwd, agentDir });
+			await none.reload();
+			expect(none.getSystemPromptTail()).toBeUndefined();
+		});
+
 		it("exposes discovered APPEND_SYSTEM.md as an append system prompt source", async () => {
 			const piDir = join(cwd, ".pi");
 			const appendSystemPromptPath = join(piDir, "APPEND_SYSTEM.md");
@@ -1345,6 +1364,23 @@ export default function(pi: ExtensionAPI) {
 			const files = loadProjectContextFiles({ cwd: worktreeSrc, agentDir });
 
 			expect(files.map((f) => f.path)).toEqual([join(worktree, "AGENTS.md")]);
+		});
+
+		// What a subagent child builds: the same prompt head in the main checkout and in a worktree of it.
+		it("renders the same project context for the main checkout and a nested worktree", () => {
+			const { main, worktree } = setupNestedWorktree();
+			writeFileSync(join(main, "AGENTS.md"), "shared instructions");
+			writeFileSync(join(worktree, "AGENTS.md"), "shared instructions");
+			const render = (cwd: string) => {
+				const projectRoot = findGitPaths(cwd)?.repoDir;
+				const contextFiles = loadProjectContextFiles({ cwd, agentDir });
+				return buildSystemPromptSections({ cwd, projectRoot, contextFiles, selectedTools: [], tail: "t" })
+					.project_context;
+			};
+
+			expect(render(worktree)).toBe(render(main));
+			expect(render(main)).toContain('<project_instructions path="AGENTS.md">');
+			expect(render(join(worktree, "src"))).toContain('<project_instructions path="../AGENTS.md">');
 		});
 
 		it("should still inherit the main repo's context when the worktree root has none", () => {

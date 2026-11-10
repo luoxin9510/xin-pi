@@ -7,6 +7,7 @@ import type { Config } from "./config.ts";
 import { registry } from "./registry.ts";
 import type { ChildSpec, ParentContext } from "./resolve.ts";
 import { type Progress, type RunResult, runChild } from "./runner.ts";
+import { responded, stagger } from "./stagger.ts";
 import { ensureWorktree, settleWorktree, type WorktreeOutcome } from "./worktree.ts";
 
 // Process-wide: every session in this pi process shares the limit, which the first session's config fixes.
@@ -115,7 +116,11 @@ export async function exchange(
 	const id = spec.agentId;
 	return registry.turn(id, signal, async () => {
 		await slots.acquire(signal);
+		const staggered = host!.config().staggerStart;
+		let openGate: (() => void) | undefined; // ours to call when this child is the one its siblings wait for
 		try {
+			// Before anything exists: a sibling stopped while it waits here leaves no worktree, no record and no child.
+			if (staggered) openGate = await stagger(spec.prefixKey, signal);
 			// Created once the slot is ours and before anything is recorded: a git failure leaves no subagent and no child.
 			if (spec.worktree) spec.warnings.push(...(await ensureWorktree(spec.worktree)));
 			try {
@@ -142,7 +147,15 @@ export async function exchange(
 						onProgress(p);
 					},
 					(handle) => registry.attach(id, handle),
-					(event) => registry.event(id, event),
+					(event) => {
+						// The provider has started to answer, so it has stored the prompt prefix. A request that failed before
+						// any answer also starts an assistant message, the one that carries the error: nothing was stored.
+						const message = event.message as { role?: string; stopReason?: string } | undefined;
+						const failed = message?.stopReason === "error" || message?.stopReason === "aborted";
+						if (staggered && event.type === "message_start" && message?.role === "assistant" && !failed)
+							responded(spec.prefixKey);
+						registry.event(id, event);
+					},
 				);
 			} catch (err) {
 				// runChild rejects only when its caller aborted
@@ -165,6 +178,7 @@ export async function exchange(
 			if (said.length > 0) host!.note(noteText(info.type, id, said, run));
 			return { ...run, ...kept };
 		} finally {
+			openGate?.();
 			slots.release();
 		}
 	});

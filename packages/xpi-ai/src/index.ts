@@ -41,7 +41,7 @@ export * from "./utils/overflow.ts";
 export * from "./utils/retry.ts";
 export * from "./utils/streaming-json.ts";
 export * from "./utils/string-enum.ts";
-export { contentText, getSystemMessageText, renderSystemMessageUpdate } from "./utils/text.ts";
+export { contentText, getSystemMessageRegions, getSystemMessageText, renderSystemMessageUpdate } from "./utils/text.ts";
 export * from "./utils/transcript.ts";
 export { uuidv7 } from "./utils/uuid.ts";
 export * from "./utils/validation.ts";

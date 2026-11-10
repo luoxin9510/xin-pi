@@ -15,6 +15,7 @@ export interface Args {
 	model?: string;
 	apiKey?: string;
 	systemPrompt?: string;
+	systemPromptTail?: string;
 	appendSystemPrompt?: string[];
 	thinking?: ThinkingLevel;
 	continue?: boolean;
@@ -120,6 +121,8 @@ export function parseArgs(args: string[]): Args {
 			result.apiKey = args[++i];
 		} else if (arg === "--system-prompt" && i + 1 < args.length) {
 			result.systemPrompt = args[++i];
+		} else if (arg === "--system-prompt-tail" && i + 1 < args.length) {
+			result.systemPromptTail = args[++i];
 		} else if (arg === "--append-system-prompt" && i + 1 < args.length) {
 			result.appendSystemPrompt = result.appendSystemPrompt ?? [];
 			result.appendSystemPrompt.push(args[++i]);
@@ -302,6 +305,7 @@ ${chalk.bold("Options:")}
   --model <pattern>              Model pattern or ID (supports "provider/id" and optional ":<thinking>")
   --api-key <key>                API key (defaults to env vars)
   --system-prompt <text>         System prompt (default: coding assistant prompt)
+  --system-prompt-tail <text>    Text or file contents placed last in the system prompt, as its own cache region
   --append-system-prompt <text>  Append text or file contents to the system prompt (can be used multiple times)
   --mode <mode>                  Output mode: text (default), json, or rpc
   --print, -p                    Non-interactive mode: process prompt and exit

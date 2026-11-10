@@ -23,6 +23,7 @@ import {
 } from "../src/core/system-prompt.ts";
 import type { ExtensionFactory } from "../src/index.ts";
 import { createHarness } from "./suite/harness.ts";
+import { createTestResourceLoader } from "./utilities.ts";
 
 describe("system prompt updates", () => {
 	test("declares the prompt and tools once and reuses them across resume", async () => {
@@ -48,6 +49,53 @@ describe("system prompt updates", () => {
 			expect(Object.keys(head.sections ?? {})).toEqual(["preamble", "tools", "rules", "docs", "cwd"]);
 			expect(head.toolsAdded?.map((tool) => tool.name)).toEqual(["read", "bash", "edit", "write"]);
 			expect(getSystemMessageText(head)).toBe(harness.session.systemPrompt);
+		} finally {
+			harness.cleanup();
+		}
+	});
+
+	test("a prompt tail puts cache hints on the leading system message only; a changed tail is a plain patch", async () => {
+		let tail = "You are agent A.";
+		const resourceLoader = {
+			...createTestResourceLoader(),
+			getSystemPrompt: () => "Shared head.",
+			getSystemPromptTail: () => tail,
+		};
+		const harness = await createHarness({ resourceLoader });
+		try {
+			harness.setResponses([fauxAssistantMessage("first"), fauxAssistantMessage("second")]);
+			await harness.session.prompt("one");
+			const head = harness.session.messages[0];
+			if (head?.role !== "system") throw new Error("expected system message");
+			expect(Object.keys(head.sections ?? {})).toEqual(["preamble", "cwd", "instructions"]);
+			expect(head.cacheBreakpoints).toEqual(["preamble", "instructions"]);
+
+			// What a resumed child does: the tail changed (memory, date), the head did not.
+			tail = "You are agent A. Memory: one fact.";
+			harness.session.setActiveToolsByName(harness.session.getActiveToolNames());
+			await harness.session.prompt("two");
+			const systemMessages = harness.session.messages.filter((message) => message.role === "system");
+			expect(systemMessages).toHaveLength(2);
+			expect(systemMessages[1].sections).toEqual({
+				instructions: "<instructions>\nYou are agent A. Memory: one fact.\n</instructions>",
+			});
+			expect(systemMessages[1].cacheBreakpoints).toBeUndefined();
+			const current = getCurrentSystemMessage(harness.session.messages);
+			expect(current?.cacheBreakpoints).toEqual(["preamble", "instructions"]);
+			expect(Object.keys(current?.sections ?? {})).toEqual(["preamble", "cwd", "instructions"]);
+		} finally {
+			harness.cleanup();
+		}
+	});
+
+	test("without a prompt tail the leading system message carries no cache hints", async () => {
+		const harness = await createHarness();
+		try {
+			harness.setResponses([fauxAssistantMessage("first")]);
+			await harness.session.prompt("one");
+			const head = harness.session.messages[0];
+			if (head?.role !== "system") throw new Error("expected system message");
+			expect("cacheBreakpoints" in head).toBe(false);
 		} finally {
 			harness.cleanup();
 		}

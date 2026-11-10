@@ -105,8 +105,10 @@ export function runChild(
 	const started = Date.now();
 	const tmp = mkdtempSync(join(tmpdir(), "subagent-"));
 	const systemPromptFile = join(tmp, "system-prompt.md");
-	writeFileSync(systemPromptFile, spec.systemPrompt);
-	const argv = [...spec.args, "--system-prompt", systemPromptFile];
+	const systemPromptTailFile = join(tmp, "system-prompt-tail.md");
+	writeFileSync(systemPromptFile, spec.systemPrompt.head);
+	writeFileSync(systemPromptTailFile, spec.systemPrompt.tail);
+	const argv = [...spec.args, "--system-prompt", systemPromptFile, "--system-prompt-tail", systemPromptTailFile];
 
 	return new Promise((resolve, reject) => {
 		let child: ChildProcessByStdio<Writable, Readable, Readable>;

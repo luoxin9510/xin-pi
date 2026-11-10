@@ -34,7 +34,7 @@ test("M1: a MEMORY.md that cannot be read (a directory) is treated as empty with
 	const t = setup();
 	mkdirSync(join(t.memDir, "MEMORY.md"), { recursive: true });
 	const spec = t.resolve();
-	assert.ok(spec.systemPrompt.includes("MEMORY.md does not exist yet."));
+	assert.ok(spec.systemPrompt.tail.includes("MEMORY.md does not exist yet."));
 	assert.ok(spec.warnings.some((w) => w.includes("could not read") && w.includes("MEMORY.md")));
 });
 
@@ -71,5 +71,5 @@ test("W4: the child's cwd is the same subdirectory inside the worktree", () => {
 	};
 	const spec = t.resolve(parent, worktree);
 	assert.equal(spec.cwd, join(t.root, ".pi/worktrees/a1/pkg/sub"));
-	assert.ok(spec.systemPrompt.includes(`Working directory: ${spec.cwd}`));
+	assert.ok(spec.systemPrompt.tail.includes(`Working directory: ${spec.cwd}`));
 });

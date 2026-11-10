@@ -1,21 +1,13 @@
 // Harness for the real suite: the extension loaded in-process, children are the repo's pinned pi on real haiku.
 // Each sandbox has its own repo, HOME and pi agent dir, so the user's setup (packages, settings, agents) never leaks in.
-import {
-	appendFileSync,
-	copyFileSync,
-	existsSync,
-	mkdirSync,
-	mkdtempSync,
-	readdirSync,
-	readFileSync,
-	writeFileSync,
-} from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AgentResult } from "../../../src/extensions/subagent/agent-tool.ts";
 import subagent from "../../../src/extensions/subagent/index.ts";
 import { initTheme } from "../../../src/modes/interactive/theme/theme.ts";
+import { copyUserAuth } from "../user-auth.ts";
 
 initTheme("dark"); // the stub ui builds the subagent screen, whose components need pi's theme
 
@@ -36,7 +28,6 @@ if (process.env.XPI_SUBAGENT_COST_LOG)
 	process.on("exit", () => appendFileSync(process.env.XPI_SUBAGENT_COST_LOG!, `${total}\n`));
 
 export function sandbox() {
-	if (!existsSync(USER_AUTH)) throw new Error(`real tests need pi credentials at ${USER_AUTH}`);
 	const root = mkdtempSync(join(tmpdir(), "subagent-real-"));
 	const repo = join(root, "repo");
 	const home = join(root, "home");
@@ -44,7 +35,7 @@ export function sandbox() {
 	mkdirSync(join(repo, ".git"), { recursive: true });
 	mkdirSync(home, { recursive: true });
 	mkdirSync(agentDir, { recursive: true });
-	copyFileSync(USER_AUTH, join(agentDir, "auth.json")); // a copy: nothing in the user agent dir is touched
+	copyUserAuth(USER_AUTH, join(agentDir, "auth.json")); // a copy: nothing in the user agent dir is touched
 	writeFileSync(
 		join(agentDir, "settings.json"),
 		JSON.stringify({

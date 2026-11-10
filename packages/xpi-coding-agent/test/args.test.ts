@@ -105,6 +105,12 @@ describe("parseArgs", () => {
 			expect(result.systemPrompt).toBe("You are a helpful assistant");
 		});
 
+		test("parses --system-prompt-tail", () => {
+			const result = parseArgs(["--system-prompt", "Head", "--system-prompt-tail", "Tail"]);
+			expect(result.systemPrompt).toBe("Head");
+			expect(result.systemPromptTail).toBe("Tail");
+		});
+
 		test("parses --append-system-prompt", () => {
 			const result = parseArgs(["--append-system-prompt", "Additional context"]);
 			expect(result.appendSystemPrompt).toEqual(["Additional context"]);

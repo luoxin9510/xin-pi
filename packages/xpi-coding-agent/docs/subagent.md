@@ -42,7 +42,7 @@ Invalid files are skipped with a warning.
 
 | Field | Handling |
 |---|---|
-| `name`, `description`, body | Same as Claude Code. The body replaces pi's default system prompt. |
+| `name`, `description`, body | Same as Claude Code. The body replaces pi's default system prompt: the child gets a one-line preamble, the project context, then the body in an `<instructions>` section at the end. |
 | `tools`, `disallowedTools` | Without `tools` the agent gets your normal pi tools (`defaultTools`) and every installed extension. Otherwise mapped to `--tools` / `--exclude-tools`. `Read→read`, `Write→write`, `Edit→edit`, `Bash→bash`, `Grep→grep`, `Glob→find`, `LS→ls`, `mcp__*` unchanged. A `tools` list without `mcp__` entries also excludes all MCP tools. A `Bash(...)` deny rule removes the whole tool. Tools with no pi equivalent are dropped with a warning. |
 | `codemode` | `false` keeps this agent on direct tools. Default: children see only the `codemode` tool and call their allowed tools from scripts. See [Codemode-only children](#codemode-only-children). |
 | `model` | See [Model selection](#model-selection). |
@@ -297,8 +297,8 @@ turn ends and a background result would be lost; there `run_in_background: true`
 
 By default a child sees only the `codemode` tool (pi's `codemode` extension in `only` mode, added with `-e`) and calls
 its allowed tools from scripts. The `tools` / `disallowedTools` of the agent still bind inside those scripts, and a
-`tools` list without `mcp__` entries still removes every MCP tool. The child's system prompt gets one extra line:
-"Use the `codemode` tool for all tool calls, and put independent calls in one script."
+`tools` list without `mcp__` entries still removes every MCP tool. The child's system prompt gets one extra line after
+its preamble: "Use the `codemode` tool for all tool calls, and put independent calls in one script."
 
 Why: fewer turns and less wall time. In the [comparison](#codemode-only-vs-direct-tools) below, codemode-only needed
 2 to 3 turns where direct tools needed 2.6 to 4.4, at about the same cost.
@@ -331,6 +331,57 @@ still ignored (a warning).
 - Each child is a full `pi`, about 220 MB (see [Stress test](#stress-test)).
 - An in-memory parent session keeps nothing on disk: no meta files, no viewing, no resume.
 
+## Prompt caching
+
+Anthropic caches the start of a request (tools, then the system prompt, then the messages) and bills a later request
+that begins with the same bytes at a tenth of the input price for that part. A child's system prompt is laid out so
+that most of it is the same for every child of a project:
+
+- **Head**, the same for every agent type and every checkout: a fixed preamble, then the project context (`AGENTS.md`
+  and the other context files, the list of user-level skills).
+- **Tail**, the child's own: working directory, the agent file's body, preloaded skills, agent memory, date.
+
+Each part ends with a cache breakpoint. So the first child of a project writes tools, head and tail; a later child with
+another agent type, in a worktree, or with a changed `MEMORY.md` reads tools and head and writes only its tail.
+Measured on Haiku 5.5 with a 6.8k token prompt: the later child reads 96% of what the first one sent (89% after a
+memory edit), and costs a sixth of what it did before this layout.
+
+What sharing depends on:
+
+- **Same tools.** Tools come first in a request, so a child with another tool set shares nothing with the others, not
+  even the head. Agent types without `tools` / `disallowedTools` in their files share with each other; each distinct
+  tool list is its own group.
+- **Same model.** The cache is per model.
+- **Paths.** A context file inside the project is shown relative to the working directory (`AGENTS.md`,
+  `../AGENTS.md`), one under your home as `~/...`. An absolute path would differ in every worktree and break the
+  shared head. For the same reason the skills list moves into the tail when a skill lives inside the project.
+- **Time.** An entry lasts 5 minutes after its last use.
+
+Anthropic allows four cache breakpoints per request. A child uses all four: last message, last tool, tail, head. An
+extension that adds `cache_control` of its own to a child's request would go over the limit.
+
+### Siblings started at the same moment
+
+A cache entry can be read only once the response of the request that writes it has begun. Three children started
+together therefore write the same head three times. `subagent.staggerStart: true` avoids that: the first child of a
+group (same model, same tools, same project) starts alone, and the others start when its first response begins. They
+never wait more than 5 s, and not at all if a child of the group got a response in the last 4 minutes: a second batch
+right after the first reads everything and starts at once.
+
+Measured on Haiku 5.5, three agent types with the same tools, tools already cached:
+
+| prompt | at once | staggered | cost | first batch takes |
+|---|---|---|---|---|
+| 4.3k tokens | 3 write 2.3k each | 1 writes 2.3k, 2 read 4.0k | 50% less | 1.9 s longer |
+| 9.8k tokens | 3 write 7.8k each | 1 writes 7.8k, 2 read 9.5k | 58% less | 2.3 s longer |
+
+It is off by default because it trades about 2 s per cold batch for money. Turn it on when you often start three or
+more children at once and the prompt is large (a long `AGENTS.md`, many skills; roughly 8k tokens and up) or the
+children run on an expensive model. With two siblings, a small prompt and Haiku the saving is a fraction of a cent.
+
+`npm run test:subagent:cache` (by hand, real Haiku 5.5, see [Development](#development)) measures all of the above
+in fresh repositories and fails when a later child reads less than 80% of the first one's prompt.
+
 ## Config
 
 Optional, in `.pi/settings.json` or `~/.pi/agent/settings.json`:
@@ -343,6 +394,7 @@ Optional, in `.pi/settings.json` or `~/.pi/agent/settings.json`:
   "maxConcurrent": 20,                             // running children per pi process; extra calls queue. The first session's value wins for the process
   "childCodemode": "only",                         // "only" (default): children see only `codemode`; "inherit": v1 behaviour, direct tools
   "backgroundScripts": true,                       // false: a script that starts an Agent waits for it, as in v2 (pi's own codemode)
+  "staggerStart": false,                           // true: siblings with the same model, tools and project wait (at most 5 s) for the first one's response to begin, then read its cached prompt. See "Prompt caching"
   "shutdownGraceMs": 10000,                        // how long a stopped child may take to shut down (SIGTERM) before SIGKILL; raise it for slow MCP servers
   "panelLingerMs": 30000,                          // how long a finished subagent stays in the panel (the pty tests shorten it)
   "piCommand": "xpi"                               // unset: children run the same build as this process; XPI_SUBAGENT_TEST_PI also overrides
@@ -361,12 +413,14 @@ npm run test:subagent:parent  # a real `xpi --mode rpc` parent: background scrip
 npm run test:subagent:tui     # interactive xpi in a pty (node-pty + headless xterm)
 npm run test:subagent:evals -- --runs 3
 npm run test:subagent:stress -- --calls 20 --limit 20
+npm run test:subagent:cache   # what the prompt cache reuses: agent types, worktree, memory edit, staggered start
 ```
 
 The first line is part of the package `test` script (root `npm test`); the others are run by hand and need
 `npm run build` plus Anthropic credentials. Each sandbox sets `XPI_CODING_AGENT_DIR` to a temp dir that holds a copy of
 `~/.pi/agent/auth.json` and nothing else, and a temp HOME, so your own setup never leaks in and the real agent dir is
-never written. `XPI_SUBAGENT_TEST_PI` points the real suites at another build; `XPI_SUBAGENT_COST_LOG=<file>` makes each
+never written. A sandbox refuses to start when the OAuth token in that file expires within 30 minutes: a copy that
+refreshed it would log your own file out. Send one message in xpi and run again. `XPI_SUBAGENT_TEST_PI` points the real suites at another build; `XPI_SUBAGENT_COST_LOG=<file>` makes each
 real test file append its sum of `usage.cost.total`. The tui tests are slow (about 25 to 30 s each) and cost roughly a cent
 each; the whole real set costs a few cents. The fault suite covers what real xpi will not do on demand: malformed JSON
 line, missing session header, crash with stderr, provider-error retries, a child that never settles or never exits, exact

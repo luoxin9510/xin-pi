@@ -50,7 +50,7 @@ test("directories per scope are created on start; the name must not be a path", 
 		const t = setup(`memory: ${scope}`);
 		const spec = t.resolve();
 		assert.ok(existsSync(join(t.dir, rel)), scope);
-		assert.ok(spec.systemPrompt.includes(join(t.dir, rel)), scope);
+		assert.ok(spec.systemPrompt.tail.includes(join(t.dir, rel)), scope);
 	}
 	const t = setup();
 	assert.throws(() => t.resolve({ ...t.def, name: "../evil" }), /"\.\.\/evil"/);
@@ -58,7 +58,7 @@ test("directories per scope are created on start; the name must not be a path", 
 
 test("without memory the prompt has no memory section and nothing is created", () => {
 	const t = setup("");
-	assert.equal(t.resolve().systemPrompt.includes("Persistent memory"), false);
+	assert.equal(t.resolve().systemPrompt.tail.includes("Persistent memory"), false);
 	assert.equal(existsSync(join(t.root, ".claude")), false);
 });
 
@@ -67,9 +67,9 @@ test("MEMORY.md: no file, a short file, over 200 lines, over the byte limit, mul
 	const promptWith = (text: string) => {
 		mkdirSync(t.memDir, { recursive: true });
 		writeFileSync(join(t.memDir, "MEMORY.md"), text);
-		return t.resolve().systemPrompt;
+		return t.resolve().systemPrompt.tail;
 	};
-	const none = t.resolve().systemPrompt;
+	const none = t.resolve().systemPrompt.tail;
 	assert.ok(none.includes("# Persistent memory") && none.includes("does not exist yet"));
 
 	const short = promptWith("- fact one\n- fact two\n");
@@ -119,10 +119,10 @@ test("disallowedTools Write or Edit: memory is read-only, the prompt says so, th
 		const tools = toolsOf(spec.args);
 		assert.ok(tools.includes("read") && !tools.includes("write") && !tools.includes("edit"), denied);
 		assert.ok(spec.args[spec.args.indexOf("--exclude-tools") + 1].includes(denied.toLowerCase()));
-		assert.ok(spec.systemPrompt.includes("not allowed for you"));
+		assert.ok(spec.systemPrompt.tail.includes("not allowed for you"));
 		assert.ok(spec.warnings.some((w) => w.includes("memory") && w.includes("read-only")));
 	}
-	assert.equal(setup().resolve().systemPrompt.includes("not allowed for you"), false);
+	assert.equal(setup().resolve().systemPrompt.tail.includes("not allowed for you"), false);
 });
 
 test("a memory agent's name must be a safe directory name; without memory any name parses", () => {

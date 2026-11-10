@@ -49,6 +49,8 @@ export interface Scenario {
 	promptError?: string; // answer the prompt command with success: false
 	abortSettles?: boolean; // answer an rpc abort with agent_settled aborted: true
 	writeFile?: string; // create this file in the child's cwd when the prompt arrives
+	logFile?: string; // append "start" at process start and "line <n>" before each line
+	hold?: { line: number; starts: number }; // before that line, wait (at most 4 s) until the log has that many "start"
 }
 
 // A temp repo (with .git) and a temp HOME, so discovery never sees the real user dirs.
@@ -80,6 +82,7 @@ export function sandbox() {
 			commands: { type: string; message?: string }[];
 			cwd: string;
 			systemPrompt?: string;
+			systemPromptTail?: string;
 		} {
 			return JSON.parse(readFileSync(recordFile, "utf8"));
 		},

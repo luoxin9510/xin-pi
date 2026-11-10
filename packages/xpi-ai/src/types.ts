@@ -577,6 +577,15 @@ export interface SystemMessage {
 	 * the original. Avoid integer-like names; JSON objects reorder those.
 	 */
 	sections?: Record<string, string | null>;
+	/**
+	 * Names of prompt parts after which the provider may place a cache breakpoint: `"content"`
+	 * for the base text, or a key of `sections`. Only read on the leading message. A provider
+	 * with explicit prompt caching (Anthropic) splits the prompt into one block per region and
+	 * marks each hinted region's last block; others ignore it, so the rendered text never
+	 * changes. Names that match no rendered part are ignored. When the provider's breakpoint
+	 * budget is exceeded, the earliest hints are dropped first.
+	 */
+	cacheBreakpoints?: string[];
 	/** Complete definitions of tools that become available at this point. */
 	toolsAdded?: Tool[];
 	/** Tools that stop being available at this point. */

@@ -86,10 +86,13 @@ export function getCurrentSystemMessage(messages: TranscriptMessages): SystemMes
 	}
 	const tools = getCurrentTools(messages);
 	if (timestamp === undefined && tools.length === 0) return undefined;
+	const cacheBreakpoints = getInitialSystemMessage(messages)?.cacheBreakpoints;
 	return {
 		role: "system",
 		content: content.join("\n\n"),
 		...(sections.size > 0 ? { sections: Object.fromEntries(sections) } : {}),
+		// Cache hints are a property of the leading message only.
+		...(cacheBreakpoints ? { cacheBreakpoints } : {}),
 		...(tools.length > 0 ? { toolsAdded: tools } : {}),
 		timestamp: timestamp ?? 0,
 	};

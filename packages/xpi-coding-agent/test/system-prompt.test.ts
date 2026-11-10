@@ -1,7 +1,13 @@
 import { describe, expect, test } from "vitest";
+import { getSystemMessageRegions } from "xpi-ai";
 import type { Skill } from "../src/core/skills.ts";
 import { createSyntheticSourceInfo } from "../src/core/source-info.ts";
-import { buildSystemPrompt } from "../src/core/system-prompt.ts";
+import {
+	buildSystemPrompt,
+	buildSystemPromptCacheBreakpoints,
+	buildSystemPromptSections,
+	displayContextPath,
+} from "../src/core/system-prompt.ts";
 
 const testSkill: Skill = {
 	name: "test-skill",
@@ -70,7 +76,7 @@ describe("buildSystemPrompt", () => {
 
 			expect(prompt).toContain("<addendum>\nAdditional instructions.\n</addendum>");
 			expect(prompt).toContain(
-				'<project_context>\nProject-specific instructions and guidelines:\n\n<project_instructions path="/tmp/AGENTS.md">',
+				'<project_context>\nProject-specific instructions and guidelines:\n\n<project_instructions path="AGENTS.md">',
 			);
 			expect(prompt).toContain("<cwd>\n/tmp\n</cwd>");
 		});
@@ -241,6 +247,156 @@ describe("buildSystemPrompt", () => {
 			expect(build(["read", "bash"])).toContain("\nLoad a skill's file when the task matches its description.");
 			expect(build(["read"])).toContain("Use bash to load a skill's file");
 			expect(build([])).toContain("Use the read tool to load a skill's file");
+		});
+	});
+
+	describe("context file paths", () => {
+		test("a file in the project is relative to the working directory; home files are ~/; others stay absolute", () => {
+			const home = "/home/u";
+			const root = "/home/u/code/app";
+			expect(displayContextPath(`${root}/AGENTS.md`, root, root, home)).toBe("AGENTS.md");
+			expect(displayContextPath(`${root}/AGENTS.md`, `${root}/packages/x`, root, home)).toBe("../../AGENTS.md");
+			expect(displayContextPath(`${root}/packages/x/CLAUDE.md`, `${root}/packages/x`, root, home)).toBe("CLAUDE.md");
+			// The global file and the project file are both named AGENTS.md and stay apart.
+			expect(displayContextPath("/home/u/.pi/agent/AGENTS.md", root, root, home)).toBe("~/.pi/agent/AGENTS.md");
+			// An ancestor above the project keeps one spelling however deep the working directory is.
+			expect(displayContextPath("/home/u/code/AGENTS.md", root, root, home)).toBe("~/code/AGENTS.md");
+			expect(
+				displayContextPath("/home/u/code/AGENTS.md", `${root}/.pi/worktrees/w1`, `${root}/.pi/worktrees/w1`, home),
+			).toBe("~/code/AGENTS.md");
+			expect(displayContextPath("/etc/AGENTS.md", root, root, home)).toBe("/etc/AGENTS.md");
+			// Without a project root the working directory is the project.
+			expect(displayContextPath("/home/u/code/app/AGENTS.md", root, undefined, home)).toBe("AGENTS.md");
+			expect(displayContextPath("/home/u/code/app-other/AGENTS.md", root, root, home)).toBe(
+				"~/code/app-other/AGENTS.md",
+			);
+		});
+
+		test("the main checkout and a worktree of it render the same project context", () => {
+			const render = (root: string) =>
+				buildSystemPromptSections({
+					cwd: root,
+					projectRoot: root,
+					selectedTools: [],
+					skills: [],
+					contextFiles: [{ path: `${root}/AGENTS.md`, content: "Project instructions." }],
+				}).project_context;
+			expect(render("/work/app")).toBe(render("/work/app/.pi/worktrees/w1"));
+			expect(render("/work/app")).not.toContain("/work/app");
+		});
+	});
+
+	describe("tail (cache layout)", () => {
+		const base = {
+			customPrompt: "Shared head.",
+			selectedTools: ["read"],
+			contextFiles: [{ path: "/work/app/AGENTS.md", content: "Project instructions." }],
+			skills: [testSkill],
+			sections: { extra: "Extension text." },
+		};
+		const regions = (options: Parameters<typeof buildSystemPromptSections>[0]) =>
+			getSystemMessageRegions({
+				role: "system",
+				content: "",
+				sections: buildSystemPromptSections(options),
+				cacheBreakpoints: buildSystemPromptCacheBreakpoints(options),
+				timestamp: 0,
+			});
+
+		test("without a tail the sections, their order and the hints are as before", () => {
+			const options = { ...base, cwd: "/work/app" };
+			expect(Object.keys(buildSystemPromptSections(options))).toEqual([
+				"preamble",
+				"project_context",
+				"skills",
+				"cwd",
+				"extra",
+			]);
+			expect(buildSystemPromptCacheBreakpoints(options)).toBeUndefined();
+			expect(regions(options)).toHaveLength(1);
+		});
+
+		test("with a tail the head ends before cwd and the instructions come last, each with a hint", () => {
+			const options = { ...base, cwd: "/work/app", tail: "You are agent A.\n\nDate: 2026-11-10" };
+			const sections = buildSystemPromptSections(options);
+			expect(Object.keys(sections)).toEqual([
+				"preamble",
+				"project_context",
+				"skills",
+				"extra",
+				"cwd",
+				"instructions",
+			]);
+			expect(sections.instructions).toBe("<instructions>\nYou are agent A.\n\nDate: 2026-11-10\n</instructions>");
+			expect(buildSystemPromptCacheBreakpoints(options)).toEqual(["extra", "instructions"]);
+			const [head, tail, ...rest] = regions(options);
+			expect(rest).toEqual([]);
+			expect(head.breakpoint && tail.breakpoint).toBe(true);
+			expect(head.text.endsWith("</extra>")).toBe(true);
+			expect(head.text).not.toContain("/work/app");
+			expect(tail.text.startsWith("\n\n<cwd>\n/work/app\n</cwd>")).toBe(true);
+			// The split changes no text: the regions concatenate to the prompt every other provider gets.
+			expect(head.text + tail.text).toBe(buildSystemPrompt(options));
+		});
+
+		test("the head is the same for two tails and for a worktree; only the tail region differs", () => {
+			const a = regions({ ...base, cwd: "/work/app", projectRoot: "/work/app", tail: "You are agent A." });
+			const b = regions({ ...base, cwd: "/work/app", projectRoot: "/work/app", tail: "You are agent B. Memory: x" });
+			const worktree = "/work/app/.pi/worktrees/w1";
+			const w = regions({
+				...base,
+				cwd: worktree,
+				projectRoot: worktree,
+				contextFiles: [{ path: `${worktree}/AGENTS.md`, content: "Project instructions." }],
+				tail: "You are agent A.",
+			});
+			expect(b[0].text).toBe(a[0].text);
+			expect(w[0].text).toBe(a[0].text);
+			expect(b[1].text).not.toBe(a[1].text);
+			expect(w[1].text).toContain(worktree);
+		});
+
+		test("skills that live in the project follow cwd, because their absolute paths differ per worktree", () => {
+			const projectSkill = (root: string): Skill => ({
+				...testSkill,
+				name: "project-skill",
+				filePath: `${root}/.pi/skills/project-skill/SKILL.md`,
+				baseDir: `${root}/.pi/skills/project-skill`,
+			});
+			const build = (root: string) => {
+				const options = {
+					...base,
+					cwd: root,
+					projectRoot: root,
+					contextFiles: [{ path: `${root}/AGENTS.md`, content: "Project instructions." }],
+					skills: [testSkill, projectSkill(root)],
+					tail: "You are agent A.",
+				};
+				return { names: Object.keys(buildSystemPromptSections(options)), regions: regions(options) };
+			};
+			const main = build("/work/app");
+			const worktree = build("/work/app/.pi/worktrees/w1");
+			expect(main.names).toEqual(["preamble", "project_context", "extra", "cwd", "skills", "instructions"]);
+			expect(worktree.regions[0].text).toBe(main.regions[0].text);
+			expect(main.regions[1].text).toContain("/work/app/.pi/skills/project-skill/SKILL.md");
+		});
+
+		test("an empty tail still moves cwd out of the head; the instructions name is reserved only with a tail", () => {
+			const options = { ...base, cwd: "/work/app", tail: "" };
+			expect(Object.keys(buildSystemPromptSections(options))).toEqual([
+				"preamble",
+				"project_context",
+				"skills",
+				"extra",
+				"cwd",
+			]);
+			expect(buildSystemPromptCacheBreakpoints(options)).toEqual(["extra", "cwd"]);
+			expect(() =>
+				buildSystemPromptSections({ cwd: "/tmp", tail: "x", sections: { instructions: "mine" } }),
+			).toThrow(/Invalid system prompt section name: instructions/);
+			expect(buildSystemPromptSections({ cwd: "/tmp", sections: { instructions: "mine" } }).instructions).toContain(
+				"mine",
+			);
 		});
 	});
 });
