@@ -1,6 +1,6 @@
 # 03: Side model calls from extensions (`ctx.complete`)
 
-Status: draft, waiting for Grill 1 (`decisions.md`). No code until the owner approves.
+Status: accepted (Grill 1, `decisions.md`). Ticket in `issues/`.
 
 Origin: omp's judge and one-shot calls (a second model reviews, classifies or summarises; usage is journalled; retries
 follow the error class). Needed by the planned advisor, auto-thinking and autolearn packages.

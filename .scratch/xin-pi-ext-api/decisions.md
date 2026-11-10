@@ -14,9 +14,9 @@ memory, auto-thinking, ast-grep.
 Facts were checked against main `1b622c231` on 2026-11-10 (four read-only investigations). Claude API facts from the
 claude-api reference: assistant prefill and forced `tool_choice` (`any`/`tool`) return 400 on current Claude models.
 
-## Grill 1 (2026-11-10): waiting for the owner
+## Grill 1 (2026-11-10): accepted (owner answered "all yes")
 
-Each line is worded so "yes" accepts the proposal.
+Each line is worded so "yes" accepts the proposal; the owner accepted all 17.
 
 Order
 

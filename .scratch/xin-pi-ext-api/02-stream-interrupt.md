@@ -1,6 +1,6 @@
 # 02: Interrupt a streaming response and retry the turn
 
-Status: draft, waiting for Grill 1 (`decisions.md`). No code until the owner approves.
+Status: accepted (Grill 1, `decisions.md`). Ticket in `issues/`.
 
 Origin: omp's time-traveling stream rules (TTSR): a rule sits dormant until the model's output matches its pattern;
 then the stream is aborted, the rule is injected as a reminder, and the turn is requested again. The rule costs context

@@ -1,6 +1,6 @@
 # 04: Path schemes for file tools (`registerScheme`)
 
-Status: draft, waiting for Grill 1 (`decisions.md`). No code until the owner approves.
+Status: accepted (Grill 1, `decisions.md`). Ticket in `issues/`.
 
 Origin: omp's internal URL router: `pr://1428`, `skill://name`, `conflict://1` and others resolve inside every
 file-shaped tool, so the model learns one interface (`read`/`write`) instead of a tool per resource. See

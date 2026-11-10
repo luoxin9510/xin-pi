@@ -1,6 +1,6 @@
 # 01: Tool effects
 
-Status: draft, waiting for Grill 1 (`decisions.md`). No code until the owner approves.
+Status: accepted (Grill 1, `decisions.md`). Ticket in `issues/`.
 
 Origin: the omp study (tools carry an approval tier `read | write | exec`; plan mode and approval read it) and the
 owner's list of packages to build (a plan-mode/approval package first).
