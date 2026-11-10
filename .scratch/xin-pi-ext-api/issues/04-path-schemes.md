@@ -8,7 +8,7 @@ and every tool works on it. Registered schemes are listed in the system prompt.
 
 **Blocked by:** None (lands last by the agreed order)
 
-**Status:** in review
+**Status:** done (PR #38, merged 2026-11-10)
 
 - [x] `registerScheme(name, { describe, resolve?, locate?, write?, readOnly? })`; exactly one of `resolve`/`locate`
 - [x] Reserved names `http`, `https`, `file`, `data`; a duplicate name fails at load time naming both sources
@@ -39,3 +39,6 @@ and every tool works on it. Registered schemes are listed in the system prompt.
   show up when the prompt is next rebuilt (no change listener).
 - Deviation: a first line over the byte limit on a virtual path reads "... cannot be shown" (no bash fallback exists).
 - Tests: `test/path-schemes.test.ts` (27), `test/suite/path-schemes-session.test.ts` (4).
+
+2026-11-10: final real-model Haiku regression on main fb1f55493 (all four APIs): `test:subagent:real` 91/91, `:parent`
+12/12, `:tui` 16/16, `test:upstream:real` 1/1.
