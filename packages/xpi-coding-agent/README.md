@@ -20,6 +20,9 @@ What xin-pi adds to pi:
   finished, and a running script can be paused and resumed.
 - **Native codemode background**: codemode can move a running script to the background; nested calls keep their ids,
   context and usage.
+- **Relay**: the model `relay/auto` runs one conversation on two models. A strong lead explores, plans and reviews; a
+  cheap worker builds. The lead hands over with a plan and acceptance commands, and reads a record of the result, not
+  the worker's transcript.
 - **`/upstream`**: compares upstream pi with xin-pi and asks the model what is worth porting.
 
 ## Install
@@ -37,6 +40,7 @@ variables use the `XPI_` prefix (for example `XPI_CODING_AGENT_DIR`).
 
 - xin-pi overview, install from source, porting from upstream: [docs/xin-pi.md](https://github.com/luoxin9510/xin-pi/blob/main/docs/xin-pi.md)
 - Subagents: [docs/subagent.md](https://github.com/luoxin9510/xin-pi/blob/main/packages/xpi-coding-agent/docs/subagent.md)
+- Relay: [docs/relay.md](https://github.com/luoxin9510/xin-pi/blob/main/packages/xpi-coding-agent/docs/relay.md)
 - Everything else (usage, settings, extensions, sessions, models) works as in pi; the inherited guide is in
   [README.upstream.md](https://github.com/luoxin9510/xin-pi/blob/main/packages/xpi-coding-agent/README.upstream.md) and
   the `docs/` folder, with the command named `xpi` instead of `pi`.

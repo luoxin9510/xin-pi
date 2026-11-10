@@ -18,6 +18,7 @@ export {
 	type EditToolOptions,
 } from "./edit.ts";
 export { withFileMutationQueue } from "./file-mutation-queue.ts";
+export { FileStateStore } from "./file-state.ts";
 export {
 	createFindTool,
 	createFindToolDefinition,
@@ -83,6 +84,7 @@ import type { AgentTool } from "xpi-agent-core";
 import type { ToolDefinition } from "../extensions/types.ts";
 import { type BashToolOptions, createBashTool, createBashToolDefinition } from "./bash.ts";
 import { createEditTool, createEditToolDefinition, type EditToolOptions } from "./edit.ts";
+import { FileStateStore } from "./file-state.ts";
 import { createFindTool, createFindToolDefinition, type FindToolOptions } from "./find.ts";
 import { createGrepTool, createGrepToolDefinition, type GrepToolOptions } from "./grep.ts";
 import { createLsTool, createLsToolDefinition, type LsToolOptions } from "./ls.ts";
@@ -105,6 +107,12 @@ export const allToolNames: Set<ToolName> = new Set([
 ]);
 
 export interface ToolsOptions {
+	/**
+	 * What the session has read, shared by `read`, `edit` and `write` for the stale-edit guard. The functions
+	 * that build several tools at once create one when it is missing; `createTool` and
+	 * `createToolDefinition` use it only if given.
+	 */
+	fileState?: FileStateStore;
 	read?: ReadToolOptions;
 	bash?: BashToolOptions;
 	powershell?: PowerShellToolOptions;
@@ -115,7 +123,22 @@ export interface ToolsOptions {
 	ls?: LsToolOptions;
 }
 
-export function createToolDefinition(toolName: ToolName, cwd: string, options?: ToolsOptions): ToolDef {
+/** Options with the file-state store wired into read, edit and write. */
+function withFileState(options: ToolsOptions | undefined, fileState: FileStateStore | undefined): ToolsOptions {
+	return {
+		...options,
+		read: { ...options?.read, fileState: fileState ?? options?.read?.fileState },
+		edit: { ...options?.edit, fileState: fileState ?? options?.edit?.fileState },
+		write: { ...options?.write, fileState: fileState ?? options?.write?.fileState },
+	};
+}
+
+function withSharedFileState(options: ToolsOptions | undefined): ToolsOptions {
+	return withFileState(options, options?.fileState ?? new FileStateStore());
+}
+
+export function createToolDefinition(toolName: ToolName, cwd: string, rawOptions?: ToolsOptions): ToolDef {
+	const options = withFileState(rawOptions, rawOptions?.fileState);
 	switch (toolName) {
 		case "read":
 			return createReadToolDefinition(cwd, options?.read);
@@ -138,7 +161,8 @@ export function createToolDefinition(toolName: ToolName, cwd: string, options?: 
 	}
 }
 
-export function createTool(toolName: ToolName, cwd: string, options?: ToolsOptions): Tool {
+export function createTool(toolName: ToolName, cwd: string, rawOptions?: ToolsOptions): Tool {
+	const options = withFileState(rawOptions, rawOptions?.fileState);
 	switch (toolName) {
 		case "read":
 			return createReadTool(cwd, options?.read);
@@ -161,7 +185,8 @@ export function createTool(toolName: ToolName, cwd: string, options?: ToolsOptio
 	}
 }
 
-export function createCodingToolDefinitions(cwd: string, options?: ToolsOptions): ToolDef[] {
+export function createCodingToolDefinitions(cwd: string, rawOptions?: ToolsOptions): ToolDef[] {
+	const options = withSharedFileState(rawOptions);
 	return [
 		createReadToolDefinition(cwd, options?.read),
 		createBashToolDefinition(cwd, options?.bash),
@@ -170,7 +195,8 @@ export function createCodingToolDefinitions(cwd: string, options?: ToolsOptions)
 	];
 }
 
-export function createReadOnlyToolDefinitions(cwd: string, options?: ToolsOptions): ToolDef[] {
+export function createReadOnlyToolDefinitions(cwd: string, rawOptions?: ToolsOptions): ToolDef[] {
+	const options = withSharedFileState(rawOptions);
 	return [
 		createReadToolDefinition(cwd, options?.read),
 		createGrepToolDefinition(cwd, options?.grep),
@@ -179,7 +205,8 @@ export function createReadOnlyToolDefinitions(cwd: string, options?: ToolsOption
 	];
 }
 
-export function createAllToolDefinitions(cwd: string, options?: ToolsOptions): Record<ToolName, ToolDef> {
+export function createAllToolDefinitions(cwd: string, rawOptions?: ToolsOptions): Record<ToolName, ToolDef> {
+	const options = withSharedFileState(rawOptions);
 	return {
 		read: createReadToolDefinition(cwd, options?.read),
 		bash: createBashToolDefinition(cwd, options?.bash),
@@ -192,7 +219,8 @@ export function createAllToolDefinitions(cwd: string, options?: ToolsOptions): R
 	};
 }
 
-export function createCodingTools(cwd: string, options?: ToolsOptions): Tool[] {
+export function createCodingTools(cwd: string, rawOptions?: ToolsOptions): Tool[] {
+	const options = withSharedFileState(rawOptions);
 	return [
 		createReadTool(cwd, options?.read),
 		createBashTool(cwd, options?.bash),
@@ -201,7 +229,8 @@ export function createCodingTools(cwd: string, options?: ToolsOptions): Tool[] {
 	];
 }
 
-export function createReadOnlyTools(cwd: string, options?: ToolsOptions): Tool[] {
+export function createReadOnlyTools(cwd: string, rawOptions?: ToolsOptions): Tool[] {
+	const options = withSharedFileState(rawOptions);
 	return [
 		createReadTool(cwd, options?.read),
 		createGrepTool(cwd, options?.grep),
@@ -210,7 +239,8 @@ export function createReadOnlyTools(cwd: string, options?: ToolsOptions): Tool[]
 	];
 }
 
-export function createAllTools(cwd: string, options?: ToolsOptions): Record<ToolName, Tool> {
+export function createAllTools(cwd: string, rawOptions?: ToolsOptions): Record<ToolName, Tool> {
+	const options = withSharedFileState(rawOptions);
 	return {
 		read: createReadTool(cwd, options?.read),
 		bash: createBashTool(cwd, options?.bash),

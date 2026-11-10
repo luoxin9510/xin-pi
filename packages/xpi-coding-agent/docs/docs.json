@@ -153,6 +153,10 @@
           "path": "subagent-porting.md"
         },
         {
+          "title": "Relay",
+          "path": "relay.md"
+        },
+        {
           "title": "Slash Commands",
           "path": "slash-commands.md"
         },

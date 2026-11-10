@@ -361,6 +361,7 @@ export {
 	type EditToolDetails,
 	type EditToolInput,
 	type EditToolOptions,
+	FileStateStore,
 	type FindOperations,
 	type FindToolDetails,
 	type FindToolInput,

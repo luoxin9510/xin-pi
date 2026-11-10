@@ -5,9 +5,9 @@ export default mergeConfig(
 	baseConfig,
 	defineConfig({
 		test: {
-			// test/subagent/** and test/upstream/** are node:test suites (`npm run test:subagent`, `npm run
-			// test:upstream`), not vitest.
-			exclude: [...configDefaults.exclude, "test/subagent/**", "test/upstream/**"],
+			// test/subagent/**, test/upstream/** and test/relay/** are node:test suites (`npm run test:subagent`,
+			// `npm run test:upstream`, `npm run test:relay:real`), not vitest.
+			exclude: [...configDefaults.exclude, "test/subagent/**", "test/upstream/**", "test/relay/**"],
 			globals: true,
 			environment: "node",
 			testTimeout: 30000,

@@ -986,6 +986,10 @@ export class SettingsManager {
 		return this.settings.hideThinkingBlock ?? SETTINGS_DEFAULTS.hideThinkingBlock;
 	}
 
+	getStaleEditGuard(): boolean {
+		return this.settings.staleEditGuard ?? SETTINGS_DEFAULTS.staleEditGuard;
+	}
+
 	getShowCacheMissNotices(): boolean {
 		return this.settings.showCacheMissNotices ?? SETTINGS_DEFAULTS.showCacheMissNotices;
 	}

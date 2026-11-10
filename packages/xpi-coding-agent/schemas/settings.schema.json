@@ -233,6 +233,11 @@
       "type": "boolean",
       "default": false
     },
+    "staleEditGuard": {
+      "type": "boolean",
+      "description": "Make edit and write fail on a file that was not read in this session or changed since it was read.",
+      "default": true
+    },
     "showCacheMissNotices": {
       "type": "boolean",
       "description": "Show cache cost and provider recovery notices.",
@@ -880,6 +885,138 @@
       },
       "additionalProperties": true,
       "description": "Settings of the built-in subagent extension."
+    },
+    "relay": {
+      "type": "object",
+      "properties": {
+        "lead": {
+          "type": "string",
+          "description": "The model that explores, plans and reviews, as \"provider/model\". Default \"anthropic/claude-opus-5-5\"."
+        },
+        "worker": {
+          "type": "string",
+          "description": "The model that builds, as \"provider/model\". Default \"anthropic/claude-haiku-5-5\"."
+        },
+        "leadThinking": {
+          "type": "object",
+          "properties": {
+            "plan": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "const": "off"
+                },
+                {
+                  "type": "string",
+                  "const": "minimal"
+                },
+                {
+                  "type": "string",
+                  "const": "low"
+                },
+                {
+                  "type": "string",
+                  "const": "medium"
+                },
+                {
+                  "type": "string",
+                  "const": "high"
+                },
+                {
+                  "type": "string",
+                  "const": "xhigh"
+                },
+                {
+                  "type": "string",
+                  "const": "max"
+                }
+              ]
+            },
+            "review": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "const": "off"
+                },
+                {
+                  "type": "string",
+                  "const": "minimal"
+                },
+                {
+                  "type": "string",
+                  "const": "low"
+                },
+                {
+                  "type": "string",
+                  "const": "medium"
+                },
+                {
+                  "type": "string",
+                  "const": "high"
+                },
+                {
+                  "type": "string",
+                  "const": "xhigh"
+                },
+                {
+                  "type": "string",
+                  "const": "max"
+                }
+              ]
+            }
+          },
+          "description": "The lead's thinking level before the first handover (\"plan\", default \"high\") and after a hand back (\"review\", default \"medium\")."
+        },
+        "workerThinking": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "off"
+            },
+            {
+              "type": "string",
+              "const": "minimal"
+            },
+            {
+              "type": "string",
+              "const": "low"
+            },
+            {
+              "type": "string",
+              "const": "medium"
+            },
+            {
+              "type": "string",
+              "const": "high"
+            },
+            {
+              "type": "string",
+              "const": "xhigh"
+            },
+            {
+              "type": "string",
+              "const": "max"
+            }
+          ]
+        },
+        "maxRounds": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Times failed acceptance commands go back to the worker before the lead is woken regardless. Default 3."
+        },
+        "acceptanceTimeoutMs": {
+          "type": "integer",
+          "minimum": 1000,
+          "description": "Time limit of one acceptance command. Default 600000."
+        },
+        "diffChars": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How much of the diff goes into the hand-back record. Default 20000."
+        }
+      },
+      "additionalProperties": true,
+      "description": "Settings of the built-in relay extension (the relay/auto model)."
     }
   },
   "additionalProperties": true,
