@@ -149,7 +149,7 @@ describe("Bedrock preferred strict tool fallback", () => {
 		const result = await run([tool("required", "require"), tool("ordinary")]);
 
 		expect(result.stopReason).toBe("error");
-		expect(result.errorMessage).toBe(`Validation error: ${unionLimitMessage}`);
+		expect(result.errorMessage).toBe(`ValidationException: ${unionLimitMessage}`);
 		expect(bedrockMock.inputs).toHaveLength(1);
 	});
 

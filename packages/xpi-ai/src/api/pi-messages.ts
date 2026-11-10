@@ -25,6 +25,7 @@ import type {
 	TranscriptContext,
 } from "../types.ts";
 import { appendAssistantMessageDiagnostic, createAssistantMessageDiagnostic } from "../utils/diagnostics.ts";
+import { applyErrorClassification } from "../utils/error-kind.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { headersToRecord, providerHeadersToRecord } from "../utils/headers.ts";
 import { getIdentityHeaders } from "../utils/identity.ts";
@@ -101,12 +102,22 @@ type PiMessagesErrorBody = {
 
 export class PiMessagesResponseError extends Error {
 	code?: string;
+	readonly status: number;
+	/** Response headers, so the classifier can read `retry-after`. */
+	readonly headers: Headers;
 	readonly diagnosticDetails: JsonObject;
 
-	constructor(message: string, code: string | undefined, diagnosticDetails: JsonObject) {
+	constructor(
+		message: string,
+		code: string | undefined,
+		response: Pick<Response, "status" | "headers">,
+		diagnosticDetails: JsonObject,
+	) {
 		super(message);
 		this.name = "PiMessagesResponseError";
 		this.code = code;
+		this.status = response.status;
+		this.headers = response.headers;
 		this.diagnosticDetails = diagnosticDetails;
 	}
 }
@@ -146,7 +157,7 @@ function createPiMessagesResponseError(
 ): PiMessagesResponseError {
 	const errorBody = parsePiMessagesErrorBody(body);
 	const code = typeof errorBody?.error?.code === "string" ? errorBody.error.code : undefined;
-	return new PiMessagesResponseError(formatPiMessagesResponseError(response, body, errorBody), code, {
+	return new PiMessagesResponseError(formatPiMessagesResponseError(response, body, errorBody), code, response, {
 		version: 1,
 		provider: model.provider,
 		model: model.id,
@@ -233,6 +244,10 @@ function createEventConverter(model: Model<"pi-messages">) {
 					partial.providerThinkingLevel = event.providerThinkingLevel;
 				}
 				appendRewriteDiagnostic(partial, event.rewrite);
+				// The backend relays the failure as text only: the kind comes from the text step of the classifier.
+				if (event.reason === "error") {
+					applyErrorClassification(partial, new Error(event.errorMessage ?? ""), { provider: model.provider });
+				}
 				return { type: "error", reason: event.reason, error: partial };
 			case "start":
 				break;
@@ -352,6 +367,9 @@ function createErrorEvent(model: Model<"pi-messages">, error: unknown, aborted: 
 		timestamp: Date.now(),
 	};
 
+	if (!aborted) {
+		applyErrorClassification(assistantMessage, error, { provider: model.provider });
+	}
 	if (!aborted && error instanceof PiMessagesResponseError) {
 		appendAssistantMessageDiagnostic(
 			assistantMessage,
