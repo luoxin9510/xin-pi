@@ -60,7 +60,7 @@ Commands the subagent extension sends:
 | Command | When |
 |---|---|
 | `{"id":"subagent-prompt","type":"prompt","message":...}` | start of every exchange |
-| `{"type":"steer","message":...}` (no id; pi's `response` to it is ignored) | the user types to a running subagent |
+| `{"type":"steer","message":...}` (no id; pi's `response` to it is ignored) | the user types to a running subagent, or main calls `SendMessage` to one |
 | `{"type":"abort"}` (no id; response ignored) | maxTurns reached on a tool turn, the caller aborted, the user pressed `x` / `/stop` |
 | `{"id":...,"type":"set_model","provider":...,"modelId":...}` | `/model` on a running subagent |
 

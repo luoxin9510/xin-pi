@@ -7,14 +7,30 @@ and [themes](packages/xpi-coding-agent/docs/themes.md), and use it [interactivel
 in [print or JSON mode](packages/xpi-coding-agent/docs/cli.md), over [RPC](packages/xpi-coding-agent/docs/rpc.md), or from
 the [TypeScript SDK](packages/xpi-coding-agent/docs/sdk.md).
 
-What differs from pi: the command is `xpi`, packages are named `xpi-*` (not published to npm), environment variables are
-`XPI_*`, and two built-in extensions are added, [subagent](packages/xpi-coding-agent/docs/subagent.md) (Claude
-Code-compatible agents called from codemode scripts) and `upstream` (reports what upstream pi has that is worth porting).
+What differs from pi: the command is `xpi`, packages are named `xpi-*` (only the CLI, `xpi-coding-agent`, is published
+to npm), environment variables are `XPI_*`, and two built-in extensions are added:
+
+- [subagent](packages/xpi-coding-agent/docs/subagent.md): Claude Code-compatible agents called from codemode scripts
+  (`Agent`, with structured output, worktree isolation, memory and names), `SendMessage` to steer or continue one,
+  background scripts, saved [workflows](packages/xpi-coding-agent/docs/subagent.md#workflows) run as `/name` or by the
+  model, and a panel and full-screen view to watch and talk to subagents.
+- `upstream`: `/upstream` reports what upstream pi has that is worth porting.
+
 xin-pi does not merge upstream; changes are ported by hand. The full list is in [docs/xin-pi.md](docs/xin-pi.md).
 
 ## Getting started
 
-xin-pi is run from source. It requires Node.js 22.19 or newer.
+Node.js 22.19 or newer. Install the published CLI:
+
+```bash
+npm install -g xpi-coding-agent
+xpi
+```
+
+Each [GitHub Release](https://github.com/luoxin9510/xin-pi/releases) also carries standalone `xpi` binaries
+(`xpi-<platform>.tar.gz` / `.zip`, with `SHA256SUMS`). npm is published by hand and can be behind the latest release.
+
+Or run it from source:
 
 ```bash
 npm install

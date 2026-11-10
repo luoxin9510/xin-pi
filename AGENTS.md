@@ -31,6 +31,7 @@
 ## Commands
 
 - After code changes (not docs): `npm run check` (full output, no tail). Fix all errors, warnings, and infos before committing. Does not run tests.
+- Docs and READMEs are always up to date: a change to behaviour, commands, tools, settings, tests or the release flow updates the docs in the same PR. Before opening a PR, grep `README.md`, `docs/xin-pi.md`, `packages/xpi-coding-agent/README.md` and `packages/xpi-coding-agent/docs/` (`subagent.md`, `subagent-porting.md`, `slash-commands.md`, `settings.md`) for what the change touches, and name the updated docs in the PR body.
 - Run `npm run build` whenever something needs built output (`dist/`): tests or benchmarks that import built packages, and the real-model subagent suites (they start `dist/bundle/cli.js`). Never use it to type check or lint: that is `npm run check`, the preferred check.
 - Never run `npm test` unless requested by the user.
 - Never run the full vitest suite directly: it includes e2e tests that activate when endpoint/auth env vars are present. For all non-e2e tests, run `./test.sh` from the repo root. It runs `packages/*` only. Otherwise run specific tests from the package root:
@@ -45,7 +46,7 @@
 
 ## Subagent and upstream extensions
 
-Built-in extensions under `packages/xpi-coding-agent/src/extensions/`: `subagent/` (the `Agent` tool, panel, `/subagents`; user docs `packages/xpi-coding-agent/docs/subagent.md`) and `upstream/` (`/upstream`). Details and the core files they touch: `docs/xin-pi.md`.
+Built-in extensions under `packages/xpi-coding-agent/src/extensions/`: `subagent/` (the `Agent`, `SendMessage` and `Workflow` tools, saved workflows, panel, `/subagents`; user docs `packages/xpi-coding-agent/docs/subagent.md`) and `upstream/` (`/upstream`). Details and the core files they touch: `docs/xin-pi.md`.
 
 - Run from `packages/xpi-coding-agent/`. Offline and free (part of `npm test`): `npm run test:subagent`, `npm run test:upstream`. Both need no auth, no network.
 - Real-model suites run by hand, never in CI or `./test.sh`, and only on Claude Haiku 5.5: `test:subagent:real`, `:parent`, `:tui`, `:evals`, `:stress`, `:cache`, `test:upstream:real`. They need `npm run build` and credentials.

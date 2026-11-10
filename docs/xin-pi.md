@@ -11,7 +11,8 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
   stays the shared `~/.pi/agent` (and `.pi/` in projects); override the agent dir with `XPI_CODING_AGENT_DIR` and the
   session dir with `XPI_CODING_AGENT_SESSION_DIR`.
 - Packages are unscoped `xpi-*`, directory name equal to package name: `xpi-ai`, `xpi-agent-core`, `xpi-tui`,
-  `xpi-coding-agent`, `xpi-codemode`, `xpi-mcp`, `xpi-schema`, `xpi-telemetry`, `xpi-evals`. They are not published to npm.
+  `xpi-coding-agent`, `xpi-codemode`, `xpi-mcp`, `xpi-schema`, `xpi-telemetry`, `xpi-evals`. All share one version. Only
+  `xpi-coding-agent` (the CLI, a self-contained bundle) is published to npm; see [Releasing](#releasing).
 - App-config environment variables carry the prefix `XPI_` instead of `PI_` (`XPI_OFFLINE`, `XPI_TELEMETRY`,
   `XPI_PACKAGE_DIR`, `XPI_SKIP_VERSION_CHECK`, ...). The list of renamed names is `ENV_VARS` in `scripts/xpi-rename.mjs`.
   CI secrets, build constants and release tooling variables keep their names.
@@ -19,8 +20,9 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
   agent-core and tui did not depend on them), together with their build, workspace, tsconfig and CI wiring. The
   version check is skipped by default (`XPI_SKIP_VERSION_CHECK ??= "1"` in `coding-agent/src/cli/setup.ts`).
 - Two built-in extensions, registered in `coding-agent/src/extensions/index.ts` and not replaceable:
-  - `subagent` (`src/extensions/subagent/`, off with `-builtin:subagent`): the `Agent` tool for codemode scripts, the panel,
-    `/subagents`. Settings namespace `subagent.*`, env `XPI_SUBAGENT_*`, branches `subagent/<id>`. It was the separate
+  - `subagent` (`src/extensions/subagent/`, off with `-builtin:subagent`): the `Agent`, `SendMessage` and `Workflow` tools
+    for codemode scripts, the script helpers (`agent`, `parallel`, `pipeline`, `phase`, `log`), saved workflows
+    (`/<name>`, `/workflows`), the panel, `/subagents`. Settings namespace `subagent.*`, env `XPI_SUBAGENT_*`, branches `subagent/<id>`. It was the separate
     extension pi-pipipi. User docs: [subagent.md](../packages/xpi-coding-agent/docs/subagent.md); porting contracts:
     [subagent-porting.md](../packages/xpi-coding-agent/docs/subagent-porting.md).
   - `upstream` (`src/extensions/upstream/`, off with `-builtin:upstream`): `/upstream`, see below.
@@ -77,6 +79,22 @@ Dry run of the procedure (2026-11-09, recorded in ticket 07): upstream had no co
 upstream commit `566344046` (a 3-line retry-pattern fix in `packages/ai`) was reverted in our tree on a throwaway branch,
 then ported with the steps above. The renamed patch applied cleanly, `xpi-rename --check` was clean, the package's
 retry test passed and `npm run check` was green. The branch was not merged.
+
+## Releasing
+
+One version for every package. Two steps, each from an up-to-date `main`:
+
+1. `npm run release:patch` (or `release:minor`, `release:major`): `scripts/release.mjs bump` puts every package on the
+   new version, refreshes the lockfile and the coding-agent install lock, and opens a PR from `release-vX.Y.Z`.
+2. After that PR is merged and CI on `main` passed, `npm run release:tag` tags `main` `vX.Y.Z` and pushes only that tag.
+   The tag starts `.github/workflows/release.yml`: a source tarball, six Bun-compiled `xpi` binaries
+   (`xpi-<platform>.tar.gz` / `.zip`), `SHA256SUMS`, a smoke test on three operating systems, then the GitHub Release
+   with generated notes.
+
+npm is not published by either step or by CI. The owner publishes by hand (2FA):
+`cd packages/xpi-coding-agent && npm publish --access public`. So npm can be behind the latest GitHub Release.
+
+The other workflows are `ci.yml` (build, check, tests) and `npm-audit.yml` (scheduled audit).
 
 ## Core changes: codemode background controller
 
@@ -170,7 +188,7 @@ files, the child's session file), never on model wording, and never start a test
 | `npm run test:subagent:real` | `real/*`: the extension in-process, children are the built xpi on real haiku | `npm run build`, auth |
 | `npm run test:subagent:parent` | `parent/*`: a real `xpi --mode rpc` parent, background scripts, `/subagents stop` | `npm run build`, auth |
 | `npm run test:subagent:tui` | `tui/*`: interactive xpi in a pty (node-pty + headless xterm): panel, screen, keys | `npm run build`, auth |
-| `npm run test:subagent:evals -- --runs 3` | `evals/`: 17 cases on haiku, graded on structure | `npm run build`, auth |
+| `npm run test:subagent:evals -- --runs 3` | `evals/`: 21 cases on haiku, graded on structure | `npm run build`, auth |
 | `npm run test:subagent:stress -- --calls 20 --limit 20` | `stress/`: 20 concurrent children | `npm run build`, auth, about 4 GB of memory |
 | `npm run test:subagent:cache` | `cache/`: what the provider's prompt cache reuses between agent types, a worktree child and a memory edit, siblings at once with `staggerStart` off and on, plus a payload dump | `npm run build`, auth |
 | `npm run test:upstream:real` | `/upstream` on the built xpi in rpc mode, Claude Haiku 5.5 | `npm run build`, auth |

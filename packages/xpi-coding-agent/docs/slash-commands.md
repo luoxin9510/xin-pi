@@ -52,6 +52,24 @@ Review a session before exporting or sharing it. Sessions can contain prompts, t
 | `/changelog` | Show changelog entries |
 | `/quit` | Quit Pi |
 
+## Subagents and workflows
+
+Added by the built-in `subagent` extension (see [Subagents](subagent.md)); absent with `-builtin:subagent`.
+
+| Command | Description |
+|---------|-------------|
+| `/subagents` | Pick one of the session's subagents and open its screen |
+| `/subagents stop` | Stop every running subagent and script of the session |
+| `/subagents worktrees` | List the kept subagent worktrees of the checkout and remove the ones you pick |
+| `/workflows` | List saved workflows and this session's workflow runs; Enter runs one or opens a run's agents |
+| `/<workflow name> [args]` | Run a saved workflow with no model turn; `args` is JSON or text |
+
+## Upstream
+
+| Command | Description |
+|---------|-------------|
+| `/upstream` | Report what upstream pi has that xin-pi does not (built-in `upstream` extension) |
+
 ## Commands added by resources
 
 - Extensions can register commands with their own arguments and completion behavior.
