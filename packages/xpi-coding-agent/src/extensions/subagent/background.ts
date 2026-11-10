@@ -18,6 +18,9 @@ export interface ScriptRecord {
 	stopRequested: boolean; // stopped through the registry (the panel x, or the session ending)
 	pinned: boolean; // an Agent call said run_in_background: false: the script stays in the foreground
 	agents: string[]; // agentIds in start order
+	phases: Record<string, string>; // agentId -> the `phase()` title it was started in
+	phase?: string; // the latest `phase()` title
+	log?: string; // the latest `log()` line
 	startedAt: number;
 	endedAt?: number;
 }
@@ -83,6 +86,7 @@ class ScriptRegistry {
 					stopRequested: false,
 					pinned: false,
 					agents: [],
+					phases: {},
 					startedAt: info.startedAt,
 				});
 				this.changed();
@@ -147,10 +151,18 @@ class ScriptRegistry {
 			codemodeScripts.background(script.id, BACKGROUND_TEXT(script.id));
 	}
 
-	addAgent(toolCallId: string, agentId: string): void {
+	addAgent(toolCallId: string, agentId: string, phase?: string): void {
 		const script = this.owner(toolCallId);
 		if (!script) return;
 		script.agents.push(agentId);
+		if (phase !== undefined) script.phases[agentId] = phase;
+		this.changed();
+	}
+
+	// A `phase()` or `log()` call of the script (script-helpers.ts).
+	note(script: ScriptRecord, note: { phase: string } | { log: string }): void {
+		if ("phase" in note) script.phase = note.phase;
+		else script.log = note.log;
 		this.changed();
 	}
 

@@ -3,6 +3,7 @@
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "../../core/extensions/types.ts";
 import { isStdoutTakenOver, writeRawStdout } from "../../core/output-guard.ts";
 import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.ts";
+import { codemodeAddons } from "../codemode/addons.ts";
 import { createCodemodeExtension } from "../codemode/index.ts";
 import { agentTool, describeAgents, parentContext } from "./agent-tool.ts";
 import { scripts } from "./background.ts";
@@ -11,6 +12,7 @@ import { discoverAgents } from "./discovery.ts";
 import { bindHost, limitConcurrency } from "./exchange.ts";
 import { installPanel } from "./panel.ts";
 import { registry } from "./registry.ts";
+import { scriptHelpers } from "./script-helpers.ts";
 import { registerStructuredOutput } from "./structured-output.ts";
 import { subagentsCommand } from "./subagents-command.ts";
 import { startWorkflow, workflowStartText } from "./workflow-run.ts";
@@ -24,6 +26,9 @@ export default function subagent(pi: ExtensionAPI) {
 		registerStructuredOutput(pi); // only when the call passed a schema
 		return;
 	}
+	// agent(), parallel(), pipeline(), phase(), log() in every script that can call Agent (script-helpers.ts). The add-on
+	// is process-wide and the same for every session; registering it again replaces it.
+	codemodeAddons.register(scriptHelpers);
 
 	let config: Config | undefined;
 	// The context of the latest event: a session start (also after /new or a resume) or an agent run. Note delivery and

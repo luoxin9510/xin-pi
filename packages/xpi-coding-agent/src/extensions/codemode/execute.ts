@@ -31,6 +31,7 @@ import { formatSize, sliceHead, sliceTail } from "../../core/tools/truncate.ts";
 import { combineUsage } from "../../core/usage-totals.ts";
 import { writeOutputFile } from "../../utils/output-files.ts";
 import { Bm25Ranker, createToolSearchDocument, DEFAULT_TOOL_SEARCH_LIMIT } from "../tool-search/tool.ts";
+import { codemodeAddons } from "./addons.ts";
 import { beginCodemodeScript } from "./scripts.ts";
 import {
 	CODEMODE_DOCS_PATH,
@@ -499,7 +500,7 @@ async function runCodemode(
 	options: CodemodeToolOptions = {},
 ): Promise<AgentToolResult<CodemodeToolDetails>> {
 	const startedAt = performance.now();
-	const { code, options: sourceOptions } = parseCodemodeSource(input.code);
+	const { code: source, options: sourceOptions } = parseCodemodeSource(input.code);
 	const calls: CodemodeNestedCall[] = [];
 	// Usage of the script's `models.*` calls. Nested tool calls report theirs through the session.
 	let modelUsage: Usage | undefined;
@@ -552,6 +553,20 @@ async function runCodemode(
 		},
 	}));
 
+	// Add-ons (addons.ts): their preludes go on the script's first line, so its line numbers stay the source's.
+	const addons = codemodeAddons.for(callable.map((tool) => tool.name));
+	const toolsByName = new Map(sandboxTools.map((tool) => [tool.name, tool]));
+	const addonScript = {
+		toolCallId,
+		callTool: (name: string, args: unknown, callSignal: AbortSignal) => {
+			const tool = toolsByName.get(name);
+			if (!tool) throw new Error(`Tool "${name}" is not available to this script`);
+			return Promise.resolve(tool.execute(args, { signal: callSignal }));
+		},
+	};
+	const addonGlobals = addons.flatMap((addon) => addon.globals?.(addonScript) ?? []);
+	const code = addons.map((addon) => addon.prelude).join("") + source;
+
 	// The wait for a worker counts toward the script's deadline.
 	const deadline = sourceOptions.timeoutMs ?? Number.POSITIVE_INFINITY;
 	const waitStartedAt = performance.now();
@@ -586,6 +601,7 @@ async function runCodemode(
 			tools: sandboxTools,
 			globals: [
 				...createDiscoveryGlobals(callable, samples, options),
+				...addonGlobals,
 				...(options.models && ctx
 					? createModelGlobals(ctx.modelRegistry, toolCallId, calls, publish, addModelUsage, addGeneratedImages)
 					: []),

@@ -60,6 +60,7 @@ export interface Scenario {
 	logFile?: string; // append "start" at process start and "line <n>" before each line
 	hold?: { line: number; starts: number }; // before that line, wait (at most 4 s) until the log has that many "start"
 	reply?: string[]; // stay up after `lines` and play these on a second prompt
+	byPrompt?: Record<string, string[]>; // lines to play instead when the prompt contains that text (first match)
 }
 
 // A temp repo (with .git) and a temp HOME, so discovery never sees the real user dirs.
