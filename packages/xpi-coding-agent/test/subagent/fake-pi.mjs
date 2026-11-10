@@ -5,10 +5,12 @@
 //   agent_settled aborted: true, writeFile?: string (a file name to create in the child's cwd when the prompt arrives),
 //   logFile?: string (append "start" when the process starts and "line <n>" before each line: the order of events
 //   across several children), hold?: { line, starts } (before that line, wait until the log has that many "start"
-//   entries, at most 4 s: siblings that should run at the same time are seen to, however slow the machine) }
+//   entries, at most 4 s: siblings that should run at the same time are seen to, however slow the machine),
+//   reply?: string[] (lines for a second prompt: the child stays up after `lines` and plays these when one comes) }
 // Like pi, it waits for a `prompt` command on stdin, answers it with a response, then plays the lines. Without `hang` it
 // exits after the lines; with `hang` it stays up and ignores stdin closing.
-// FAKE_PI_RECORD: path where argv, XPI_SUBAGENT_DEPTH, the system prompt head and tail texts and the commands received are written as JSON.
+// FAKE_PI_RECORD: path where argv, XPI_SUBAGENT_DEPTH, the system prompt head and tail texts, the schema file's content
+// (XPI_SUBAGENT_SCHEMA_FILE) and the commands received are written as JSON.
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { createInterface } from "node:readline";
@@ -30,6 +32,7 @@ const record = () =>
       cwd: process.cwd(),
       systemPrompt: sp === -1 ? undefined : readFileSync(argv[sp + 1], "utf8"),
       systemPromptTail: spTail === -1 ? undefined : readFileSync(argv[spTail + 1], "utf8"),
+      schema: process.env.XPI_SUBAGENT_SCHEMA_FILE ? readFileSync(process.env.XPI_SUBAGENT_SCHEMA_FILE, "utf8") : undefined,
     }),
   );
 record();
@@ -61,6 +64,7 @@ if (scenario.termDelayMs !== undefined) {
 const out = (o) => process.stdout.write((typeof o === "string" ? o : JSON.stringify(o)) + "\n");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let played = false;
+let replied = false;
 
 const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
 rl.on("line", async (line) => {
@@ -75,6 +79,15 @@ rl.on("line", async (line) => {
   if (cmd.type === "set_model") {
     out({ id: cmd.id, type: "response", command: "set_model", success: true, data: {} });
     return;
+  }
+  if (cmd.type === "prompt" && played && scenario.reply && !replied) {
+    replied = true;
+    out({ id: cmd.id, type: "response", command: "prompt", success: true, data: { disposition: "started" } });
+    for (const l of scenario.reply) {
+      out(l);
+      if (scenario.delayMs) await sleep(scenario.delayMs);
+    }
+    process.exit(scenario.exitCode ?? 0);
   }
   if (cmd.type !== "prompt" || played) return;
   played = true;
@@ -94,5 +107,6 @@ rl.on("line", async (line) => {
     if (scenario.delayMs) await sleep(scenario.delayMs);
   }
   if (scenario.hang) setInterval(() => {}, 1000);
+  else if (scenario.reply) setTimeout(() => process.exit(3), 10_000); // waits for the second prompt
   else process.exit(scenario.exitCode ?? 0);
 });

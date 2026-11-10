@@ -9,6 +9,7 @@ import { discoverAgents } from "./discovery.ts";
 import { bindHost, limitConcurrency } from "./exchange.ts";
 import { installPanel } from "./panel.ts";
 import { registry } from "./registry.ts";
+import { registerStructuredOutput } from "./structured-output.ts";
 import { subagentsCommand } from "./subagents-command.ts";
 
 export default function subagent(pi: ExtensionAPI) {
@@ -16,6 +17,7 @@ export default function subagent(pi: ExtensionAPI) {
 	// gets `codemode` in mode "only" here, which replaces pi's built-in codemode extension.
 	if (process.env.XPI_SUBAGENT_DEPTH) {
 		if (process.env.XPI_SUBAGENT_CHILD_CODEMODE === "only") createCodemodeExtension({ mode: "only" })(pi);
+		registerStructuredOutput(pi); // only when the call passed a schema
 		return;
 	}
 

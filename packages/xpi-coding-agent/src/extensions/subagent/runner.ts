@@ -7,7 +7,8 @@ import { join } from "node:path";
 import type { Readable, Writable } from "node:stream";
 import { type Static, Type } from "typebox";
 import { GROUPS, signalTree, trackTree } from "./process-tree.ts";
-import type { ChildSpec } from "./resolve.ts";
+import { type ChildSpec, STRUCTURED_OUTPUT_TOOL } from "./resolve.ts";
+import { MAX_STRUCTURED_ATTEMPTS, SCHEMA_FILE_ENV, STRUCTURED_REMINDER } from "./structured-output.ts";
 
 export const usageSchema = Type.Object({
 	input: Type.Number(),
@@ -36,6 +37,7 @@ export interface RunResult {
 	durationMs: number;
 	error?: string;
 	aborted: boolean; // the child reported that its run was aborted (an rpc abort took effect)
+	structured?: unknown; // a call with `schema`: the arguments of the child's accepted StructuredOutput call
 }
 
 export interface Progress {
@@ -109,13 +111,20 @@ export function runChild(
 	writeFileSync(systemPromptFile, spec.systemPrompt.head);
 	writeFileSync(systemPromptTailFile, spec.systemPrompt.tail);
 	const argv = [...spec.args, "--system-prompt", systemPromptFile, "--system-prompt-tail", systemPromptTailFile];
+	// A call with `schema`: the child's subagent extension registers StructuredOutput with it (structured-output.ts).
+	let env = spec.env;
+	if (spec.schema) {
+		const schemaFile = join(tmp, "schema.json");
+		writeFileSync(schemaFile, JSON.stringify(spec.schema));
+		env = { ...env, [SCHEMA_FILE_ENV]: schemaFile };
+	}
 
 	return new Promise((resolve, reject) => {
 		let child: ChildProcessByStdio<Writable, Readable, Readable>;
 		try {
 			child = spawn(spec.command, argv, {
 				cwd: spec.cwd,
-				env: spec.env,
+				env,
 				stdio: ["pipe", "pipe", "pipe"],
 				detached: GROUPS, // own process group: signals reach the child's whole tree (process-tree.ts)
 			});
@@ -144,6 +153,7 @@ export function runChild(
 			child.stdin.write(`${JSON.stringify(command)}\n`);
 		};
 		const PROMPT_ID = "subagent-prompt";
+		const REMINDER_ID = "subagent-structured-reminder";
 		let modelRequests = 0; // set_model request ids
 		const requests = new Map<string, (error: string | undefined) => void>(); // commands waiting for pi's response
 
@@ -167,6 +177,10 @@ export function runChild(
 		let aborting = false; // an rpc abort was sent
 		let finished = false; // the child process is gone: no more commands
 		let promptError: string | undefined; // pi rejected our prompt command
+		let structured: unknown; // the accepted StructuredOutput arguments (a call with `schema`)
+		let invalidStructured = 0; // StructuredOutput calls pi rejected (validation errors)
+		let schemaError: string | undefined; // too many invalid calls: we stopped the child
+		let reminded = false; // the child ended once without StructuredOutput and was asked again
 
 		const stopChild = () => {
 			if (child.exitCode !== null || child.signalCode !== null) return;
@@ -208,7 +222,7 @@ export function runChild(
 						requests.delete(event.id as string);
 						answer(event.success === true ? undefined : ((event.error as string | undefined) ?? "pi refused"));
 					}
-					if (event.id === PROMPT_ID && event.success !== true) {
+					if ((event.id === PROMPT_ID || event.id === REMINDER_ID) && event.success !== true) {
 						promptError = (event.error as string | undefined) ?? "pi rejected the prompt";
 						stopChild();
 					}
@@ -241,6 +255,24 @@ export function runChild(
 						lastTool = event.toolName as string;
 						onProgress({ turns: turns + 1, lastTool }); // the turn in progress
 						break;
+					case "tool_execution_end": {
+						if (!spec.schema || event.toolName !== STRUCTURED_OUTPUT_TOOL) break;
+						const result = event.result as { content?: { text?: string }[]; details?: unknown } | undefined;
+						if (event.isError !== true) {
+							structured = result?.details; // the validated (and coerced) arguments
+							break;
+						}
+						invalidStructured++;
+						if (invalidStructured >= MAX_STRUCTURED_ATTEMPTS && schemaError === undefined) {
+							const last = (result?.content ?? [])
+								.map((c) => c.text ?? "")
+								.join("")
+								.trim();
+							schemaError = `structured output did not match the schema after ${MAX_STRUCTURED_ATTEMPTS} attempts: ${last}`;
+							abortChild();
+						}
+						break;
+					}
 					case "turn_end": {
 						// A turn that failed with a provider error is retried by pi: it does not count.
 						const stop = (event.message as { stopReason?: string } | undefined)?.stopReason ?? turnStop;
@@ -250,7 +282,7 @@ export function runChild(
 						onProgress({ turns, lastTool });
 						if (spec.maxTurns !== undefined && turns >= spec.maxTurns) {
 							hitMaxTurns = true;
-							if (stop === "toolUse") {
+							if (stop === "toolUse" && structured === undefined) {
 								// The turn called tools, so the run wants another turn: it is cut short here.
 								cutShort = true;
 								abortChild();
@@ -262,6 +294,20 @@ export function runChild(
 						break;
 					}
 					case "agent_settled":
+						// A call with `schema` whose child ended normally without StructuredOutput: ask once more.
+						if (
+							spec.schema &&
+							structured === undefined &&
+							!reminded &&
+							event.aborted !== true &&
+							!hitMaxTurns &&
+							!assistantError &&
+							!aborting
+						) {
+							reminded = true;
+							send({ id: REMINDER_ID, type: "prompt", message: STRUCTURED_REMINDER });
+							break;
+						}
 						settled = true;
 						if (event.aborted === true) childAborted = true;
 						if (graceTimer) clearTimeout(graceTimer);
@@ -312,18 +358,34 @@ export function runChild(
 			requests.clear();
 			if (parentAborted) return reject(new Error("aborted"));
 
-			const base = { output, usage, turns, durationMs: Date.now() - started, aborted: childAborted };
-			if (hitMaxTurns && (cutShort || !settled || childAborted)) return resolve({ status: "partial", ...base });
+			const base = {
+				output: structured === undefined ? output : JSON.stringify(structured, null, 2),
+				usage,
+				turns,
+				durationMs: Date.now() - started,
+				aborted: childAborted,
+				...(structured === undefined ? {} : { structured }),
+			};
+			if (hitMaxTurns && structured === undefined && (cutShort || !settled || childAborted))
+				return resolve({ status: "partial", ...base });
 			const stderrTail = stderr.trimEnd().split("\n").slice(-STDERR_LINES).join("\n");
 			const error =
 				spawnError?.message ??
 				streamError ??
+				schemaError ??
 				promptError ??
 				assistantError ??
 				(childAborted ? "child run was aborted" : undefined) ??
 				(code !== 0 && !stoppedAfterSettle ? stderrTail || `pi exited with code ${code}` : undefined) ??
 				(!settled ? stderrTail || "pi exited before the run settled" : undefined);
-			resolve(error === undefined ? { status: "completed", ...base } : { status: "failed", ...base, error });
+			const missing =
+				error === undefined && spec.schema && structured === undefined
+					? "the agent ended without structured output"
+					: undefined;
+			const failure = error ?? missing;
+			resolve(
+				failure === undefined ? { status: "completed", ...base } : { status: "failed", ...base, error: failure },
+			);
 		};
 
 		send({ id: PROMPT_ID, type: "prompt", message: spec.prompt });

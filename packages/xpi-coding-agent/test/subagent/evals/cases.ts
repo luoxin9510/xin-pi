@@ -426,6 +426,71 @@ Reply with the returned JSON only.`,
 		},
 	},
 	{
+		name: "schema returns a value",
+		kind: "direct",
+		async run(signal) {
+			const cwd = fixture({ "src/alpha.ts": "export const a = 1;\n", "src/beta.ts": "export const b = 2;\n" });
+			const t = await directTool(cwd, signal);
+			const r = await t.call({
+				prompt: "List the .ts files under src/. quick",
+				subagent_type: "Explore",
+				schema: {
+					type: "object",
+					properties: { files: { type: "array", items: { type: "string" } } },
+					required: ["files"],
+				},
+			});
+			// Relative or absolute paths are both right; compare their ends.
+			const files = ((r as { structured?: { files?: string[] } }).structured?.files ?? []).map((f) =>
+				f.replace(/^.*?(src\/[^/]+)$/, "$1"),
+			);
+			return {
+				cost: costOf(r),
+				checks: [
+					check("completed", r.status === "completed", r.error),
+					onHaiku(r),
+					check("structured lists both files", files.sort().join() === "src/alpha.ts,src/beta.ts", files),
+					check("output is the JSON text", r.output.trim().startsWith("{"), r.output),
+				],
+			};
+		},
+	},
+	{
+		name: "parent asks for a structured result",
+		kind: "parent",
+		async run(signal) {
+			const cwd = fixture({ "src/alpha.ts": "export const a = 1;\n", "src/beta.ts": "export const b = 2;\n" });
+			const r = await runParent(
+				cwd,
+				"Delegate to an Explore subagent (tools.Agent from a codemode script) the task of listing the .ts files under src/, and have it return them as structured data with a `schema` ({ files: string[] }) instead of prose. This run is non-interactive, so pass run_in_background: false. Reply with the files from its result, comma-separated, nothing else.",
+				signal,
+			);
+			// A child session that called StructuredOutput: the schema reached the child and it answered through it.
+			const root = join(r.sessionDir, "subagents");
+			const sessions = existsSync(root)
+				? readdirSync(root).flatMap((d) =>
+						readdirSync(join(root, d))
+							.filter((f) => f.endsWith(".jsonl"))
+							.map((f) => readFileSync(join(root, d, f), "utf8")),
+					)
+				: [];
+			return {
+				cost: r.cost,
+				checks: [
+					check("parent finished", !r.timedOut && r.code === 0, { timedOut: r.timedOut, code: r.code }),
+					check("used Agent", r.tools.includes("Agent"), r.tools),
+					check(
+						"a child answered with StructuredOutput",
+						sessions.some((t) => t.includes('"name":"StructuredOutput"')),
+						sessions.length,
+					),
+					check("answers both files", r.text.includes("alpha.ts") && r.text.includes("beta.ts"), r.text),
+					parentOnHaiku(r.models),
+				],
+			};
+		},
+	},
+	{
 		name: "background script frees main",
 		kind: "parent",
 		async run(signal) {
