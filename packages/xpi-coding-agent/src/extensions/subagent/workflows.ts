@@ -134,6 +134,33 @@ const META_START = /^\s*(?:(?:\/\/[^\n]*|\/\*[\s\S]*?\*\/)\s*)*export\s+const\s+
 // `import` statements and `import()` calls: a workflow cannot load modules (the sandbox has none).
 const IMPORT = /(^|[^\w$.])import\s*(\(|[\s{*'"])/m;
 
+// The script with its string literals, template literals and comments blanked out, so the word "import" in a prompt
+// or a comment is not taken for an import. Code inside a template's `${}` is blanked with it: a module loaded from
+// there fails when the script runs, which is the sandbox's own error.
+function codeOnly(text: string): string {
+	let out = "";
+	for (let i = 0; i < text.length; ) {
+		const c = text[i]!;
+		if (c === "/" && text[i + 1] === "/") {
+			const end = text.indexOf("\n", i);
+			i = end === -1 ? text.length : end;
+		} else if (c === "/" && text[i + 1] === "*") {
+			const end = text.indexOf("*/", i + 2);
+			i = end === -1 ? text.length : end + 2;
+			out += " ";
+		} else if (c === '"' || c === "'" || c === "`") {
+			let j = i + 1;
+			while (j < text.length && text[j] !== c) j += text[j] === "\\" ? 2 : 1;
+			i = j + 1;
+			out += '""';
+		} else {
+			out += c;
+			i++;
+		}
+	}
+	return out;
+}
+
 // Parse a workflow file. Throws with the reason when it is not one.
 export function parseWorkflow(text: string, fileName: string): { meta: WorkflowMeta; body: string } {
 	const start = META_START.exec(text);
@@ -161,7 +188,7 @@ export function parseWorkflow(text: string, fileName: string): { meta: WorkflowM
 	if (m.phases !== undefined && (!Array.isArray(m.phases) || !m.phases.every((p) => typeof p === "string"))) {
 		throw new Error("meta.phases must be a list of strings");
 	}
-	if (IMPORT.test(body)) throw new Error("a workflow cannot import modules");
+	if (IMPORT.test(codeOnly(body))) throw new Error("a workflow cannot import modules");
 	return {
 		meta: { name: m.name, description: m.description, ...(m.phases ? { phases: m.phases as string[] } : {}) },
 		body,

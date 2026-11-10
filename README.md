@@ -56,7 +56,8 @@ Configuration stays in the shared `~/.pi/agent` directory (override with `XPI_CO
 
 ## Packages
 
-This monorepo contains the Pi CLI and its supporting libraries.
+This monorepo contains the `xpi` CLI and its supporting libraries. All share one version; only `xpi-coding-agent` is
+published to npm (it bundles the others).
 
 | Package | Description |
 |---------|-------------|
@@ -65,6 +66,10 @@ This monorepo contains the Pi CLI and its supporting libraries.
 | **[xpi-agent-core](packages/xpi-agent-core)** | Agent runtime with tool calling and state management |
 | **[xpi-coding-agent](packages/xpi-coding-agent)** | Interactive coding agent CLI |
 | **[xpi-tui](packages/xpi-tui)** | Terminal UI library with differential rendering |
+| **[xpi-codemode](packages/xpi-codemode)** | Sandboxed JavaScript execution where the only capability is calling injected tools |
+| **[xpi-mcp](packages/xpi-mcp)** | Standalone Model Context Protocol client |
+| **[xpi-schema](packages/xpi-schema)** | JSON Schema validation without eval (drafts 2020-12 and 7) |
+| **[xpi-evals](packages/xpi-evals)** | Real-model evals (private, not published) |
 
 ## Permissions & Containerization
 
@@ -142,8 +147,8 @@ We treat npm dependency changes as reviewed code changes.
 - `package-lock.json` is the dependency ground truth. Pre-commit blocks accidental lockfile commits unless `PI_ALLOW_LOCKFILE_CHANGE=1` is set.
 - `npm run check` verifies pinned direct deps, native TypeScript import compatibility, and the generated coding-agent install lock.
 - The upstream installer installed from `packages/xpi-coding-agent/install-lock/`, generated from the root lockfile, to pin transitive deps. The npm package does not pin transitive deps.
-- Local release smoke tests and npm publication use the same tarball packer; npm publishes the validated tarballs rather than repacking workspace directories.
-- Local release installs, documented npm installs, and `xpi update --self` use `--ignore-scripts` where supported.
+- Local release smoke tests (`npm run release:local`) build and pack with the same scripts the release workflow uses. npm is published by hand from `packages/xpi-coding-agent`, whose `prepublishOnly` rebuilds the bundle first.
+- Local release installs and the documented npm install use `--ignore-scripts`. xpi does not update itself.
 - CI installs with `npm ci --ignore-scripts`, and a scheduled GitHub workflow runs `npm audit --omit=dev` plus `npm audit signatures --omit=dev`.
 - Install lock generation has an explicit allowlist for dependency lifecycle scripts; new lifecycle-script deps fail checks until reviewed.
 

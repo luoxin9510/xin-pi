@@ -142,7 +142,7 @@ Keep `retry.provider.maxRetries` at `0` unless provider-level retries are requir
 | `shellPath` | string | Platform default | Custom shell executable path. Supports a leading `~`. |
 | `shellCommandPrefix` | string | None | Prefix prepended to every shell command. |
 | `npmCommand` | `string[]` | `npm` | Command and arguments used for npm package lookup and installation. |
-| `selfUpdateCommand` | `string[]` | None | Unused in xpi (self-update is disabled; xpi is installed from source). Command and arguments `pi update` ran to update Pi itself, with `{packageName}`, `{version}`, and `{installSpec}` placeholders. `XPI_SELF_UPDATE_COMMAND` takes precedence. **Can only be set in agent-directory settings.** See [Custom update command](cli.md#custom-update-command). |
+| `selfUpdateCommand` | `string[]` | None | Unused in xpi (self-update is disabled). Command and arguments `pi update` ran to update Pi itself, with `{packageName}`, `{version}`, and `{installSpec}` placeholders. `XPI_SELF_UPDATE_COMMAND` takes precedence. **Can only be set in agent-directory settings.** See [Custom update command](cli.md#custom-update-command). |
 
 See [Shell aliases](shell-aliases.md) for shell setup and [Pi Packages](packages.md) for package-manager behavior.
 
@@ -161,7 +161,14 @@ Resource paths in user settings resolve from the agent directory. Paths in proje
 
 Resource arrays support glob exclusions with `!pattern`, exact inclusion with `+path`, and exact exclusion with `-path`. Pi loads resources listed in both user-level and project settings.
 
-The built-in extensions are named `builtin:mcp`, `builtin:llama.cpp`, `builtin:codemode`, and `builtin:tool-search` in `extensions`. They load by default; `-builtin:mcp` disables one. A `+builtin:<name>` or `-builtin:<name>` entry in project settings overrides the user setting. `pi config` lists them under Built-in. `--no-extensions` disables them too, and `-e builtin:<name>` loads one explicitly.
+The built-in extensions are named `builtin:mcp`, `builtin:llama.cpp`, `builtin:codemode`, `builtin:tool-search`, `builtin:subagent`, and `builtin:upstream` in `extensions`. They load by default; `-builtin:mcp` disables one. A `+builtin:<name>` or `-builtin:<name>` entry in project settings overrides the user setting. `pi config` lists them under Built-in. `--no-extensions` disables them too, and `-e builtin:<name>` loads one explicitly.
+
+## Subagents
+
+The built-in `subagent` extension reads its settings from a `subagent` block (`models`, `defaultModel`, `toolMap`,
+`maxConcurrent`, `maxAgentsPerScript`, `childCodemode`, `backgroundScripts`, `fork`, `staggerStart`,
+`shutdownGraceMs`, `panelLingerMs`, `piCommand`). They are listed with their defaults in
+[Subagents: Config](subagent.md#config). The block is not part of the settings schema, so editors do not complete it.
 
 ## Updates, telemetry, and warnings
 

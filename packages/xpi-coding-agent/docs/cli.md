@@ -287,7 +287,7 @@ Add `--force` to reinstall Pi when the selected update includes Pi.
 
 #### Custom update command
 
-xpi does not self-update (it is installed from source; rebuild and reinstall, see docs/xin-pi.md), so the setting below has no effect in xpi. Upstream pi: if a wrapper or another package manager provides Pi, set `XPI_SELF_UPDATE_COMMAND` so `pi update` runs its update command:
+xpi does not self-update (reinstall it the way it was installed: `npm install -g xpi-coding-agent@latest`, a newer release binary, or a rebuild from source), so the setting below has no effect in xpi. Upstream pi: if a wrapper or another package manager provides Pi, set `XPI_SELF_UPDATE_COMMAND` so `pi update` runs its update command:
 
 ```sh
 export XPI_SELF_UPDATE_COMMAND="mise use -g npm:{packageName}@{version}"
