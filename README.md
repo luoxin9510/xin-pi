@@ -14,7 +14,7 @@ to npm), environment variables are `XPI_*`, and two built-in extensions are adde
   (`Agent`, with structured output, worktree isolation, memory and names), a `fork` that starts with the whole
   conversation (`/subtask`), `SendMessage` to steer or continue one,
   background scripts, saved [workflows](packages/xpi-coding-agent/docs/subagent.md#workflows) run as `/name` or by the
-  model, and a panel and full-screen view to watch and talk to subagents.
+  model (with relaunch from saved results, and pause), and a panel and full-screen view to watch and talk to subagents.
 - `upstream`: `/upstream` reports what upstream pi has that is worth porting.
 
 xin-pi does not merge upstream; changes are ported by hand. The full list is in [docs/xin-pi.md](docs/xin-pi.md).

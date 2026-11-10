@@ -16,7 +16,8 @@ What xin-pi adds to pi:
 - **Workflows**: orchestration scripts saved as `.pi/workflows/<name>.js` in Claude Code's format (its own
   `.claude/workflows/` files run unchanged), with the helpers
   `agent`, `parallel`, `pipeline`, `phase` and `log`; run as `/<name> args` with no model turn, or by the model through
-  the `Workflow` tool.
+  the `Workflow` tool. Runs are recorded: a run that stopped or failed is relaunched without redoing the agents that
+  finished, and a running script can be paused and resumed.
 - **Native codemode background**: codemode can move a running script to the background; nested calls keep their ids,
   context and usage.
 - **`/upstream`**: compares upstream pi with xin-pi and asks the model what is worth porting.

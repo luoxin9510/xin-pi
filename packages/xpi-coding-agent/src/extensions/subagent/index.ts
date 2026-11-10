@@ -12,13 +12,14 @@ import { discoverAgents, setCliAgents } from "./discovery.ts";
 import { bindHost, limitConcurrency } from "./exchange.ts";
 import { installPanel } from "./panel.ts";
 import { registry } from "./registry.ts";
+import type { Run } from "./runs.ts";
 import { scriptHelpers } from "./script-helpers.ts";
 import { sendMessageTool } from "./send-message-tool.ts";
 import { registerStructuredOutput } from "./structured-output.ts";
 import { subagentsCommand } from "./subagents-command.ts";
 import { startWorkflowCommand, workflowStartText } from "./workflow-run.ts";
 import { saveScriptAsWorkflow } from "./workflow-save.ts";
-import { describeWorkflows, workflowTool } from "./workflow-tool.ts";
+import { describeWorkflows, runToRelaunch, workflowTool } from "./workflow-tool.ts";
 import { discoverWorkflows, parseArgs, type Workflow } from "./workflows.ts";
 import { workflowsCommand } from "./workflows-command.ts";
 
@@ -78,7 +79,8 @@ export default function subagent(pi: ExtensionAPI) {
 		return found.workflows;
 	};
 	const runsInBackground = (ctx: ExtensionContext) => config?.backgroundScripts !== false && ctx.hasUI;
-	const runWorkflowCommand = async (name: string, text: string, ctx: ExtensionCommandContext) => {
+	// `relaunch`: a run id of this workflow to start again from its saved results (its args are used, not `text`).
+	const runWorkflowCommand = async (name: string, text: string, ctx: ExtensionCommandContext, relaunch?: string) => {
 		const workflow = runnableWorkflows(ctx).get(name);
 		if (!workflow) {
 			const message = `workflow ${name} is not available here (removed, or a project workflow in an untrusted project)`;
@@ -86,9 +88,25 @@ export default function subagent(pi: ExtensionAPI) {
 			else process.stderr.write(`${message}\n`);
 			return;
 		}
-		const start = await startWorkflowCommand(ctx, workflow, parseArgs(text), runsInBackground(ctx));
+		let earlier: Run | undefined;
+		if (relaunch !== undefined) {
+			try {
+				earlier = runToRelaunch(
+					{ sessionFile: ctx.sessionManager.getSessionFile(), sessionId: ctx.sessionManager.getSessionId() },
+					name,
+					relaunch,
+				);
+			} catch (err) {
+				const message = `subagent: ${(err as Error).message}`;
+				if (ctx.hasUI) ctx.ui.notify(message, "error");
+				else process.stderr.write(`${message}\n`);
+				return;
+			}
+		}
+		const args = earlier ? earlier.args : parseArgs(text);
+		const start = await startWorkflowCommand(ctx, workflow, args, runsInBackground(ctx), earlier);
 		if (start.background) {
-			ctx.ui.notify(workflowStartText(name, start.scriptId), "info");
+			ctx.ui.notify(workflowStartText(name, start.scriptId, start.run), "info");
 			return;
 		}
 		const output = start.result.content.map((c) => (c.type === "text" ? c.text : "")).join("");
@@ -169,9 +187,13 @@ export default function subagent(pi: ExtensionAPI) {
 		},
 	});
 	pi.registerCommand("workflows", {
-		description: "List saved workflows and this session's workflow runs; Enter runs one or opens a run's agents",
+		description:
+			"List saved workflows and this session's workflow runs; Enter runs a workflow, acts on a run that is going, or relaunches one that stopped",
 		handler: (_args, ctx) =>
-			workflowsCommand(ctx, runnableWorkflows(ctx), (name) => runWorkflowCommand(name, "", ctx)),
+			workflowsCommand(ctx, runnableWorkflows(ctx), {
+				run: (name) => runWorkflowCommand(name, "", ctx),
+				relaunch: (name, runId) => runWorkflowCommand(name, "", ctx, runId),
+			}),
 	});
 	pi.registerCommand("subagents", {
 		description:

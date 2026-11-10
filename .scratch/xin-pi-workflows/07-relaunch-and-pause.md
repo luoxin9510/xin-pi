@@ -1,6 +1,6 @@
 # 07: Relaunch with saved results, pause and resume
 
-Status: ready-for-agent (owner approved Grill 4 on 2026-11-10). The owner asked for both features and ruled
+Status: built and tested offline (2026-11-10, `issues/07-relaunch-and-pause.md`); real-model checks not yet run. The owner asked for both features and ruled
 `/deep-research` out.
 
 ## Problem

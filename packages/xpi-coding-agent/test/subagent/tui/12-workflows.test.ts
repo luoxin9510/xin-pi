@@ -53,7 +53,7 @@ test("the panel shows the name, the phase and the log line; s saves the script; 
 		// that, which shows it really started from the saved file with no model turn.
 		pi.submit("/saved-one");
 		await pi.waitFor("Workflow saved-one started as background script S2", 30_000);
-		await pi.waitFor(/Background script S2 \(workflow saved-one\) failed/, 30_000);
+		await pi.waitFor(/Background script S2 \(workflow saved-one[^)]*\) failed/, 30_000);
 		await pi.waitFor('the name "kid" is already used by agent', 30_000);
 	});
 });
@@ -85,5 +85,32 @@ test("r on a running agent's row restarts it: the row stays running and the firs
 		assert.doesNotMatch(pi.viewport(), /Background script S1 (failed|stopped)/);
 		pi.type("x");
 		await pi.waitFor(/(failed|stopped) · general-purpose\(stuck kid\)/, 30_000);
+	});
+});
+
+const TWO = `Use the codemode tool exactly once. Script:
+const a = await tools.Agent({ description: "first kid", prompt: "Run the bash command 'sleep 6' using a tool, then reply OK.", subagent_type: "general-purpose" });
+const b = await tools.Agent({ description: "second kid", prompt: "Run the bash command 'sleep 6' using a tool, then reply OK.", subagent_type: "general-purpose" });
+return "chk:" + a.status + b.status;
+If the tool says the script moved to the background, reply with the single word moved and stop.`;
+
+test("p on a script row pauses it: the running agent finishes and the next one waits until p resumes", async () => {
+	await withPi({ lingerMs: 60000 }, async (pi) => {
+		await pi.waitFor("claude-haiku");
+		pi.submit(TWO);
+		await pi.waitFor(/running · general-purpose\(first kid\) · [1-9]\d* turns/, 90_000);
+		pi.press("down");
+		await pi.waitFor((s) => /▸ .*script S1/.test(s) && s.includes("p pause"));
+		pi.type("p");
+		await pi.waitFor((s) => /● paused · script S1/.test(s) && s.includes("p resume"));
+		// The first agent finishes; the second is not started while the script is paused.
+		await pi.waitFor(/completed · general-purpose\(first kid\)/, 60_000);
+		await new Promise((r) => setTimeout(r, 4000));
+		assert.doesNotMatch(pi.viewport(), /general-purpose\(second kid\)/);
+		assert.match(pi.viewport(), /● paused · script S1/);
+		pi.type("p");
+		await pi.waitFor(/running · general-purpose\(second kid\)/, 60_000);
+		await pi.waitFor("Background script S1 completed", 90_000);
+		await pi.waitFor("chk:completedcompleted", 30_000);
 	});
 });

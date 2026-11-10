@@ -256,12 +256,12 @@ test("run with a UI (rpc mode): the workflow starts in the background at once an
 	});
 	child.stdin.write(`${JSON.stringify({ id: "1", type: "prompt", message: "/greet" })}\n`);
 	try {
-		for (let i = 0; i < 300 && !out.includes("Background script S1 (workflow greet) completed"); i++)
+		for (let i = 0; i < 300 && !out.includes("Background script S1 (workflow greet, run R1) completed"); i++)
 			await new Promise((r) => setTimeout(r, 50));
-		assert.match(out, /Workflow greet started as background script S1/);
+		assert.match(out, /Workflow greet started as background script S1 \(run R1\)/);
 		assert.match(
 			out,
-			/Background script S1 \(workflow greet\) completed\.\\nReturn value:[^"]*workflow-done completed/,
+			/Background script S1 \(workflow greet, run R1\) completed\.\\nReturn value:[^"]*workflow-done completed/,
 		);
 		assert.ok(
 			out.indexOf("started as background script") < out.indexOf("Background script S1"),

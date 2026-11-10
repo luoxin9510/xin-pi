@@ -135,6 +135,18 @@ class Registry {
 		return this.named(parentSessionId, ref);
 	}
 
+	// Take the name away from a subagent (a relaunched run's rerun call takes it over). It keeps its id.
+	dropName(id: string): void {
+		const old = this.records.get(id);
+		if (!old?.name) return;
+		const { name, ...rest } = old;
+		const key = `${old.parentSessionId}\0${name}`;
+		if (this.claims.get(key) === id) this.claims.delete(key); // the claim it started under
+		this.records.set(id, rest);
+		this.writeMeta(rest);
+		this.emit();
+	}
+
 	// Take a name for an agent that is about to start, so two calls in one tick cannot both have it. Throws when another
 	// subagent of the session has it. `release` gives it back if the agent never started.
 	claim(parentSessionId: string, name: string, id: string): () => void {
