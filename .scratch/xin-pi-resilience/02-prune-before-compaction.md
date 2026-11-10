@@ -1,6 +1,6 @@
 # 02: Prune old tool output before compaction
 
-Status: draft, waiting for Grill 1 (`decisions.md`). No code until the owner approves.
+Status: approved (Grill 1, `decisions.md`, 2026-11-10). Tickets in `issues/`.
 
 Origin: the omp study (`~/Developer/omp-study/09-对比-xpi/xpi可借鉴清单.md`, item 2). omp replaces old tool results
 with a placeholder (newest 40k tokens protected, nothing pruned unless it saves at least 20k) as a maintenance step on

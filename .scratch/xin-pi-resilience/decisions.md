@@ -9,7 +9,7 @@ Three specs ported from the omp study (`~/Developer/omp-study/09-对比-xpi/xpi�
 Facts behind the drafts were checked against main `5b70c1f51` on 2026-11-10 (three read-only investigations plus
 spot checks). Flow: Grill 1 → owner approves → tickets in `issues/` → implementation, one PR per spec.
 
-## Grill 1 (2026-11-10): waiting for the owner
+## Grill 1 (2026-11-10): all 12 accepted by the owner on 2026-11-10
 
 Each line is worded so "yes" accepts the proposal.
 

@@ -1,6 +1,6 @@
 # 03: Classify provider errors once, retry by kind
 
-Status: draft, waiting for Grill 1 (`decisions.md`). No code until the owner approves.
+Status: approved (Grill 1, `decisions.md`, 2026-11-10). Tickets in `issues/`.
 
 Origin: the omp study (`~/Developer/omp-study/09-对比-xpi/xpi可借鉴清单.md`, item 3). omp classifies every provider
 error once into bit flags (`errorId`) from the error class, the status code and, last, the text; every retry layer

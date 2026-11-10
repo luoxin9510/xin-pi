@@ -1,6 +1,6 @@
 # 01: Stale-edit guard
 
-Status: draft, waiting for Grill 1 (`decisions.md`). No code until the owner approves.
+Status: approved (Grill 1, `decisions.md`, 2026-11-10). Tickets in `issues/`.
 
 Origin: the omp study (`~/Developer/omp-study/09-对比-xpi/xpi可借鉴清单.md`, item 1). omp rejects an edit whose
 file changed after the model read it (hashline tags carry a whole-file hash); Claude Code refuses Edit on a file not
