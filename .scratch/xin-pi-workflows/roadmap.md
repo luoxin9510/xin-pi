@@ -1,6 +1,6 @@
 # Subagents v4: closing the gap to Claude Code's subagents and dynamic workflows
 
-Status: specs 1-3 approved by the owner on 2026-11-10 (Grill 1, `decisions.md`); 4 and 5 not written yet
+Status: specs 1-3 approved by the owner on 2026-11-10 (Grill 1, `decisions.md`); 1 and 2 done (`issues/`); 4 and 5 not written yet
 
 Compared on 2026-11-10 against Claude Code's docs (`code.claude.com/docs/en/sub-agents`, `.../workflows`) and
 `packages/xpi-coding-agent/docs/subagent.md`.

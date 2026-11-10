@@ -153,7 +153,8 @@ instructions (read-only wording when Write or Edit is denied) and the head of `M
 | `pi.on("session_shutdown", (event, ctx))` (emitted on quit, reload, /new, resume and fork, before the runtime is torn down; rpc SIGTERM emits it with reason "quit") | `src/extensions/subagent/index.ts` | background scripts and detached agents keep running past the session; with it they are stopped (agents `stopped`, resumable) and main is sent nothing |
 | `pi.on("agent_start" / "agent_end", (event, ctx))` | `src/extensions/subagent/index.ts` | the subagent extension keeps the latest `ctx` from these and `session_start`; without them the note to main and main's state on the screen use the context of session start, which a reload replaces |
 | `pi.getSettings()` keeping the unknown `subagent` key | `src/extensions/subagent/config.ts` | defaults only (replace with your own config source) |
-| `pi.registerCommand(name, { handler(args, ctx: ExtensionCommandContext) })` | `/subagents` | no `/subagents` |
+| `pi.registerCommand(name, { handler(args, ctx: ExtensionCommandContext) })`, `pi.getCommands()` | `/subagents`, `/workflows`, one `/<name>` per saved workflow | no commands; a workflow could still run through the Workflow tool |
+| `ctx.createToolContext(toolCallId)` on the command context; a nested call with no assistant message in the session runs against an empty one | `src/extensions/subagent/workflow-run.ts` (`/<name>` starts a workflow) | `/<name>` cannot start a script; use the Workflow tool from a model turn |
 | `pi.sendMessage({ customType, content, display }, { deliverAs: "steer" })`; `{ triggerTurn: true, deliverAs: "steer" }` for a background script's or detached agent's result | the note to main, the background script message | main is not told about your exchanges |
 | `ctx.cwd`, `ctx.model {provider,id}` (may be undefined: `inherit` then throws), `ctx.thinkingLevel`, `ctx.isProjectTrusted()`, `ctx.isIdle()` | `src/extensions/subagent/agent-tool.ts`, `src/extensions/subagent/index.ts` | `inherit`, thinking and trust mirroring, the note's delivery |
 | `ctx.hasUI`, `ctx.ui.notify` | `src/extensions/subagent/index.ts` | gates the panel, discovery warnings and background scripts; false = tool only, no UI, scripts stay in the foreground (print mode exits at turn end) |
@@ -199,6 +200,11 @@ that import `@earendil-works/*` are not supported by xpi; see [xin-pi.md](../../
   `sendMessage` delivery. Esc aborts main's signal, which stops only foreground scripts; session shutdown stops every
   script and detached agent. Without a controller, set `subagent.backgroundScripts: false`: scripts stay in the foreground
   (v2 behaviour). The file-by-file list of core changes is in [xin-pi.md](../../../docs/xin-pi.md).
+- Workflow helpers (`agent`, `parallel`, `pipeline`, `phase`, `log`) come from a codemode add-on
+  (`codemodeAddons` in `src/extensions/codemode/addons.ts`): a one-line prelude prepended to the script and two host
+  globals, `__subagentAgent` (runs `Agent` through the script's own tool path, carrying the phase in an
+  `AsyncLocalStorage`) and `__subagentNote`. Without add-ons, scripts keep `tools.Agent` only, and saved workflows
+  that use the helpers fail with `agent is not defined`.
 - With codemode-only, an agent's `tools` list must also bind inside scripts (a script calling a tool outside `--tools`
   gets "does not exist"). Check with `test/subagent/real/09-codemode-only.test.ts`.
 

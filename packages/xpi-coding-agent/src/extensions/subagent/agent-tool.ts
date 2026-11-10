@@ -11,6 +11,7 @@ import { exchange } from "./exchange.ts";
 import { registry } from "./registry.ts";
 import { type CallInput, type ChildSpec, type ParentContext, resolveChild } from "./resolve.ts";
 import { emptyUsage, STATUSES, type Status, usageSchema } from "./runner.ts";
+import { agentPhase, countScriptAgent } from "./script-helpers.ts";
 import { capText, newAgentId, storedAgent } from "./sessions.ts";
 import { checkSchema } from "./structured-output.ts";
 import {
@@ -130,6 +131,10 @@ export function describeAgents({ agents }: Discovery, backgroundScripts: boolean
 		"write a complete task. The result's `output` is the agent's final message; filter it before returning it.",
 		"Run independent agents in parallel with Promise.all.",
 		'Pass `schema` (a JSON Schema with type "object") to get the result as a value in `structured` instead of prose.',
+		"Script helpers over this tool: `agent(prompt, { label?, schema?, type?, model?, effort?, isolation? })` resolves to",
+		"the output text (with `schema`, the value) and rejects when the agent failed; `parallel([fn or promise...])` and",
+		"`pipeline(items, (item, i) => ...)` run all at once and resolve to results in order, null for a failed one;",
+		"`phase(title, fn?)` names the agents started from there for the panel; `log(text)` shows a progress line.",
 		"",
 		...(!hasUI ? PRINT_RULES : backgroundScripts ? BACKGROUND_RULES : DETACHED_RULES),
 		"",
@@ -215,7 +220,7 @@ async function executeAgent(
 	const memoryRoot = await memoryRootFor(def.memory, def.name, parent.cwd);
 
 	const spec = resolveChild(def, input as CallInput, config, parent, { agentId, worktree, memoryRoot });
-	scripts.addAgent(toolCallId, spec.agentId);
+	scripts.addAgent(toolCallId, spec.agentId, agentPhase.getStore());
 	if (worktreeWarning) spec.warnings.push(worktreeWarning);
 	if (stored && input.isolation !== undefined) {
 		spec.warnings.push(
@@ -278,6 +283,7 @@ export function agentTool(getConfig: () => Config, description: string, deliver:
 			ctx: ExtensionContext,
 		) {
 			scripts.agentStarting(toolCallId, params.run_in_background); // the first plain Agent call moves its script to the background
+			countScriptAgent(toolCallId, getConfig().maxAgentsPerScript);
 			const parent = parentContext(ctx);
 			if (params.run_in_background === true && ctx.hasUI) {
 				// The agent runs on its own, not tied to this call's signal; main hears of its end by message.

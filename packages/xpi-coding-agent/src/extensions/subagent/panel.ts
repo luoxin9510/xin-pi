@@ -15,10 +15,14 @@ import { openSubagentScreen } from "./subagent-screen.ts";
 export interface PanelOptions {
 	lingerMs: number; // finished rows drop out this long after they ended
 	viewable: boolean; // false for an in-memory session: subagents cannot be viewed, so no rows, only a notice
+	save?: (script: ScriptRecord) => void; // `s` on a script row: save it as a workflow
 }
 
-// One selectable row: a script, or a subagent (indented when it belongs to a script row shown above it).
-type Row = { kind: "script"; script: ScriptRecord } | { kind: "agent"; record: SubagentRecord; indent: boolean };
+// One selectable row: a script, or a subagent (indented when it belongs to a script row shown above it; `phase` is the
+// `phase()` title it was started in).
+type Row =
+	| { kind: "script"; script: ScriptRecord }
+	| { kind: "agent"; record: SubagentRecord; indent: boolean; phase?: string };
 
 const scriptStatus = (s: ScriptRecord): SubagentStatus =>
 	s.state === "foreground" || s.state === "background" ? "running" : s.state;
@@ -71,15 +75,20 @@ export class Panel {
 			.list(this.sessionId)
 			.filter((s) => s.endedAt === undefined || now - s.endedAt < this.options.lingerMs);
 		const inScript = new Set(shown.flatMap((s) => s.agents));
-		const groups: { at: number; rows: Row[] }[] = shown.map((script) => ({
-			at: script.startedAt,
-			rows: [
-				{ kind: "script", script },
-				...agents
-					.filter((r) => script.agents.includes(r.id))
-					.map((record): Row => ({ kind: "agent", record, indent: true })),
-			],
-		}));
+		const groups: { at: number; rows: Row[] }[] = shown.map((script) => {
+			// Agents grouped by phase, phases in the order they began.
+			const order: (string | undefined)[] = [...new Set(script.agents.map((id) => script.phases[id]))];
+			const mine = agents
+				.filter((r) => script.agents.includes(r.id))
+				.map((record): Row & { kind: "agent" } => ({
+					kind: "agent",
+					record,
+					indent: true,
+					phase: script.phases[record.id],
+				}))
+				.sort((a, b) => order.indexOf(a.phase) - order.indexOf(b.phase));
+			return { at: script.startedAt, rows: [{ kind: "script", script } as Row, ...mine] };
+		});
 		for (const record of agents)
 			if (!inScript.has(record.id))
 				groups.push({ at: record.startedAt, rows: [{ kind: "agent", record, indent: false }] });
@@ -139,6 +148,10 @@ export class Panel {
 		else if (matchesKey(data, "enter")) {
 			const row = rows[this.selected]!;
 			if (row.kind === "agent") this.open(row.record); // a script has no screen
+		} else if (matchesKey(data, "s") && rows[this.selected]?.kind === "script" && this.options.save) {
+			const row = rows[this.selected] as Row & { kind: "script" };
+			this.focused = false; // the dialogs take the keyboard
+			this.options.save(row.script);
 		} else if (data === "X" || matchesKey(data, "shift+x")) {
 			void stopEverything(this.sessionId); // every script and subagent of the session; the rows show the result
 		} else if (matchesKey(data, "x")) {
@@ -169,6 +182,16 @@ export class Panel {
 		const nScripts = rows.length - nAgents;
 		const lines = [t.fg("muted", `Subagents (${nAgents})${nScripts > 0 ? ` · Scripts (${nScripts})` : ""}`)];
 		rows.forEach((r, i) => {
+			// A phase title above the first agent of each phase of a script.
+			const prev = rows[i - 1];
+			if (
+				r.kind === "agent" &&
+				r.indent &&
+				r.phase !== undefined &&
+				(prev?.kind !== "agent" || !prev.indent || prev.phase !== r.phase)
+			) {
+				lines.push(truncateToWidth(t.fg("muted", `    ${r.phase}`), width));
+			}
 			let parts: string[];
 			if (r.kind === "script") {
 				const s = r.script;
@@ -178,11 +201,12 @@ export class Panel {
 				const running = agents.filter((a) => a.status === "running").length;
 				parts = [
 					t.fg(COLORS[status], `${ICONS[status]} ${s.state}`),
-					`script ${s.id}`,
+					s.workflow ? `workflow ${s.workflow} (${s.id})` : `script ${s.id}`,
 					t.fg("muted", `${running} agents running`),
 					t.fg("muted", elapsed((s.endedAt ?? Date.now()) - s.startedAt)),
 					t.fg("muted", `$${cost.toFixed(4)}`),
 				];
+				if (s.log) parts.push(t.fg("muted", s.log));
 			} else {
 				const a = r.record;
 				parts = [
@@ -198,7 +222,15 @@ export class Panel {
 			const line = truncateToWidth(`${selected ? "▸" : " "} ${indent}${parts.join(" · ")}`, width);
 			lines.push(selected ? t.bg("selectedBg", line) : line);
 		});
-		if (this.focused) lines.push(t.fg("dim", "↑↓ select · enter open · x stop · X stop all · esc back to editor"));
+		if (this.focused) {
+			const onScript = rows[this.selected]?.kind === "script" && this.options.save;
+			lines.push(
+				t.fg(
+					"dim",
+					`↑↓ select · enter open · x stop · X stop all${onScript ? " · s save as workflow" : ""} · esc back to editor`,
+				),
+			);
+		}
 		return lines;
 	}
 
@@ -215,7 +247,11 @@ export class Panel {
 const KEY = "subagent-panel";
 let installed: { panel?: Panel; removeHook: () => void } | undefined;
 
-export function installPanel(current: () => ExtensionContext, config: Config): void {
+export function installPanel(
+	current: () => ExtensionContext,
+	config: Config,
+	save?: (script: ScriptRecord) => void,
+): void {
 	const ctx = current();
 	if (installed) {
 		installed.removeHook();
@@ -244,6 +280,7 @@ export function installPanel(current: () => ExtensionContext, config: Config): v
 				{
 					lingerMs: config.panelLingerMs,
 					viewable,
+					...(save ? { save } : {}),
 				},
 			);
 			return state.panel;

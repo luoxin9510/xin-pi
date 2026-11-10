@@ -554,6 +554,80 @@ return "TOK-" + (6 * 7) + " " + r.status;`;
 		},
 	},
 	{
+		name: "parent runs a saved workflow",
+		kind: "parent",
+		async run(signal) {
+			// A saved workflow that fits the task: main should run it (tools.Workflow) rather than write its own script.
+			const cwd = fixture({
+				"src/alpha.ts": "export const a = 1;\n",
+				"src/beta.ts": "export const b = 2;\n",
+				"lib/gamma.ts": "export const c = 3;\n",
+				".pi/workflows/list-ts.js": [
+					"export const meta = {",
+					"  name: 'list-ts',",
+					"  description: 'List the .ts files under each directory given in args.dirs, one Explore agent per directory',",
+					"}",
+					"",
+					"phase('list')",
+					"const found = await pipeline(args.dirs, (dir) =>",
+					"  agent('List the .ts files directly under ' + dir + '/. quick', {",
+					"    label: dir,",
+					"    type: 'Explore',",
+					"    schema: { type: 'object', required: ['files'], properties: { files: { type: 'array', items: { type: 'string' } } } },",
+					"  }),",
+					")",
+					"log('listed ' + found.length + ' directories')",
+					"return 'WF-RESULT ' + found.filter(Boolean).flatMap((r) => r.files).map((f) => f.split('/').pop()).sort().join(',')",
+				].join("\n"),
+			});
+			const prompt =
+				"List the .ts files under the src and lib directories of this project. A saved workflow does exactly this: run it rather than writing your own script. When its result arrives, reply with the line that starts with WF-RESULT, verbatim.";
+			const isAnswer = (e: { type: string; message?: any }) =>
+				e.type === "message_end" &&
+				e.message.role === "assistant" &&
+				messageText(e.message).includes("WF-RESULT alpha");
+			const r = await runRpcParent(cwd, prompt, (events) => events.some(isAnswer), signal);
+			const ev = r.events;
+			const workflowCall = ev.find((e) => e.type === "tool_execution_end" && e.toolName === "Workflow");
+			const agents = ev.filter(
+				(e) =>
+					e.type === "tool_execution_end" && e.toolName === "Agent" && e.result?.details?.status === "completed",
+			);
+			const message = ev.find(
+				(e) =>
+					e.type === "message_end" &&
+					e.message.role === "custom" &&
+					messageText(e.message).includes("(workflow list-ts) completed"),
+			);
+			const answer = ev.find(isAnswer);
+			return {
+				cost: r.cost,
+				checks: [
+					check(
+						"did not time out",
+						!r.timedOut,
+						ev.map((e) => e.type),
+					),
+					check("main called Workflow", !!workflowCall, [
+						...new Set(ev.filter((e) => e.type === "tool_execution_end").map((e) => e.toolName)),
+					]),
+					check("two agents completed", agents.length === 2, agents.length),
+					check(
+						"the workflow's end reached main",
+						!!message && messageText(message.message).includes("WF-RESULT alpha.ts,beta.ts,gamma.ts"),
+						message && messageText(message.message),
+					),
+					check(
+						"main's answer carries the result",
+						!!answer && messageText(answer.message).includes("WF-RESULT alpha.ts,beta.ts,gamma.ts"),
+						answer && messageText(answer.message),
+					),
+					parentOnHaiku(r.models),
+				],
+			};
+		},
+	},
+	{
 		name: "isolated agent keeps a worktree only when it changes files",
 		kind: "direct",
 		async run(signal) {

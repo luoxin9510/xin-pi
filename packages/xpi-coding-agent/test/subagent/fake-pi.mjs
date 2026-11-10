@@ -6,7 +6,8 @@
 //   logFile?: string (append "start" when the process starts and "line <n>" before each line: the order of events
 //   across several children), hold?: { line, starts } (before that line, wait until the log has that many "start"
 //   entries, at most 4 s: siblings that should run at the same time are seen to, however slow the machine),
-//   reply?: string[] (lines for a second prompt: the child stays up after `lines` and plays these when one comes) }
+//   reply?: string[] (lines for a second prompt: the child stays up after `lines` and plays these when one comes),
+//   byPrompt?: { [text]: string[] } (lines to play instead of `lines` when the prompt contains that text; first match) }
 // Like pi, it waits for a `prompt` command on stdin, answers it with a response, then plays the lines. Without `hang` it
 // exits after the lines; with `hang` it stays up and ignores stdin closing.
 // FAKE_PI_RECORD: path where argv, XPI_SUBAGENT_DEPTH, the system prompt head and tail texts, the schema file's content
@@ -97,8 +98,10 @@ rl.on("line", async (line) => {
   } else {
     out({ id: cmd.id, type: "response", command: "prompt", success: true, data: { disposition: "started" } });
   }
+  const lines =
+    Object.entries(scenario.byPrompt ?? {}).find(([text]) => String(cmd.message).includes(text))?.[1] ?? scenario.lines;
   const starts = () => readFileSync(scenario.logFile, "utf8").split("\n").filter((entry) => entry === "start").length;
-  for (const [n, l] of scenario.lines.entries()) {
+  for (const [n, l] of lines.entries()) {
     if (scenario.hold?.line === n) {
       for (let waited = 0; starts() < scenario.hold.starts && waited < 4000; waited += 20) await sleep(20);
     }

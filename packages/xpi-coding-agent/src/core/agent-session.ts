@@ -825,20 +825,16 @@ export class AgentSession {
 			getTools: () => this._getCallableTools(),
 			isSequential: () => this.agent.toolExecution === "sequential",
 			// A background script's later calls run against the turn that started it, not the latest one.
-			captureOrigin: () => {
-				const assistantMessage = this._findLastAssistantMessage();
-				return assistantMessage ? { assistantMessage, messages: [...this.agent.state.messages] } : undefined;
-			},
+			captureOrigin: () => ({
+				assistantMessage: this._findLastAssistantMessage() ?? this._emptyAssistantMessage(),
+				messages: [...this.agent.state.messages],
+			}),
 			runToolCall: (toolCall, parentId, signal, onUpdate, origin) => {
 				const captured = origin as { assistantMessage: AssistantMessage; messages: AgentMessage[] } | undefined;
-				const assistantMessage = captured?.assistantMessage ?? this._findLastAssistantMessage();
-				if (!assistantMessage) {
-					return Promise.resolve({
-						toolCall,
-						result: { content: [{ type: "text", text: "No assistant message issued this call" }], details: {} },
-						isError: true,
-					});
-				}
+				// A call no model turn issued (a script a command started, before the session's first reply) runs against
+				// an empty assistant message.
+				const assistantMessage =
+					captured?.assistantMessage ?? this._findLastAssistantMessage() ?? this._emptyAssistantMessage();
 				return runToolCall(toolCall, {
 					tools: this._getCallableTools(),
 					assistantMessage,
@@ -1370,6 +1366,27 @@ export class AgentSession {
 	}
 
 	/** Find the last assistant message in agent state (including aborted ones) */
+	/** Stands in for the assistant message of a tool call no model turn issued. Not added to the session. */
+	private _emptyAssistantMessage(): AssistantMessage {
+		return {
+			role: "assistant",
+			content: [],
+			api: this.model?.api ?? "unknown",
+			provider: this.model?.provider ?? "unknown",
+			model: this.model?.id ?? "unknown",
+			usage: {
+				input: 0,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 0,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			stopReason: "stop",
+			timestamp: Date.now(),
+		};
+	}
+
 	private _findLastAssistantMessage(): AssistantMessage | undefined {
 		const messages = this.agent.state.messages;
 		for (let i = messages.length - 1; i >= 0; i--) {

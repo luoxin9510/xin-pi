@@ -431,6 +431,14 @@ export interface ExtensionCommandContext extends ExtensionContext {
 	/** Get the current base system-prompt construction options. */
 	getSystemPromptOptions(): BuildSystemPromptOptions;
 
+	/**
+	 * A tool context for work the command starts that calls tools, such as a codemode script run by a slash command:
+	 * `executeTool()` runs calls through the session's tool pipeline with ids `<toolCallId>/<n>`. `toolCallId` names that
+	 * work; it must not be the id of a model tool call. Calls made while no model turn exists run against an empty
+	 * assistant message.
+	 */
+	createToolContext(toolCallId: string, signal?: AbortSignal): ExtensionToolContext;
+
 	/** Wait for the agent to finish streaming */
 	waitForIdle(): Promise<void>;
 

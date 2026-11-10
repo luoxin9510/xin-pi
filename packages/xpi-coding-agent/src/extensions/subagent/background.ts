@@ -5,17 +5,22 @@
 import { type CodemodeScriptEnd, codemodeScripts } from "../codemode/scripts.ts";
 import { registry } from "./registry.ts";
 import { capText } from "./sessions.ts";
+import { workflowOf } from "./workflow-run.ts";
 
 export type ScriptState = "foreground" | "background" | "completed" | "failed" | "stopped";
 
 export interface ScriptRecord {
 	id: string; // S1, S2, ... (the controller's script id)
 	callId: string; // the codemode tool call id; the script's Agent calls have ids "<callId>/<n>"
+	workflow?: string; // the saved workflow it runs, when a /name command started it
 	sessionId: string; // the main session the script belongs to
 	state: ScriptState;
 	stopRequested: boolean; // stopped through the registry (the panel x, or the session ending)
 	pinned: boolean; // an Agent call said run_in_background: false: the script stays in the foreground
 	agents: string[]; // agentIds in start order
+	phases: Record<string, string>; // agentId -> the `phase()` title it was started in
+	phase?: string; // the latest `phase()` title
+	log?: string; // the latest `log()` line
 	startedAt: number;
 	endedAt?: number;
 }
@@ -75,11 +80,13 @@ class ScriptRegistry {
 				this.scripts.set(info.id, {
 					id: info.id,
 					callId: info.toolCallId,
+					...(workflowOf(info.toolCallId) ? { workflow: workflowOf(info.toolCallId) } : {}),
 					sessionId: info.sessionId,
 					state: "foreground",
 					stopRequested: false,
 					pinned: false,
 					agents: [],
+					phases: {},
 					startedAt: info.startedAt,
 				});
 				this.changed();
@@ -144,10 +151,18 @@ class ScriptRegistry {
 			codemodeScripts.background(script.id, BACKGROUND_TEXT(script.id));
 	}
 
-	addAgent(toolCallId: string, agentId: string): void {
+	addAgent(toolCallId: string, agentId: string, phase?: string): void {
 		const script = this.owner(toolCallId);
 		if (!script) return;
 		script.agents.push(agentId);
+		if (phase !== undefined) script.phases[agentId] = phase;
+		this.changed();
+	}
+
+	// A `phase()` or `log()` call of the script (script-helpers.ts).
+	note(script: ScriptRecord, note: { phase: string } | { log: string }): void {
+		if ("phase" in note) script.phase = note.phase;
+		else script.log = note.log;
 		this.changed();
 	}
 
@@ -207,7 +222,7 @@ export function endMessage(
 		return r ? `- ${id} ${r.type} ${r.status} $${r.usage.cost.total.toFixed(4)}` : `- ${id}`;
 	});
 	return [
-		`Background script ${script.id} ${state}.`,
+		`Background script ${script.id}${script.workflow ? ` (workflow ${script.workflow})` : ""} ${state}.`,
 		allFailed
 			? `Error: every agent failed\nReturn value:\n${text}`
 			: state === "failed"

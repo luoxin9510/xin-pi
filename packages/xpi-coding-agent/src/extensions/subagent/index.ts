@@ -1,6 +1,9 @@
 // subagent extension entry: register the `Agent` tool for codemode scripts.
 
-import type { ExtensionAPI, ExtensionContext } from "../../core/extensions/types.ts";
+import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "../../core/extensions/types.ts";
+import { isStdoutTakenOver, writeRawStdout } from "../../core/output-guard.ts";
+import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.ts";
+import { codemodeAddons } from "../codemode/addons.ts";
 import { createCodemodeExtension } from "../codemode/index.ts";
 import { agentTool, describeAgents, parentContext } from "./agent-tool.ts";
 import { scripts } from "./background.ts";
@@ -9,8 +12,14 @@ import { discoverAgents } from "./discovery.ts";
 import { bindHost, limitConcurrency } from "./exchange.ts";
 import { installPanel } from "./panel.ts";
 import { registry } from "./registry.ts";
+import { scriptHelpers } from "./script-helpers.ts";
 import { registerStructuredOutput } from "./structured-output.ts";
 import { subagentsCommand } from "./subagents-command.ts";
+import { startWorkflowCommand, workflowStartText } from "./workflow-run.ts";
+import { saveScriptAsWorkflow } from "./workflow-save.ts";
+import { describeWorkflows, workflowTool } from "./workflow-tool.ts";
+import { discoverWorkflows, parseArgs, type Workflow } from "./workflows.ts";
+import { workflowsCommand } from "./workflows-command.ts";
 
 export default function subagent(pi: ExtensionAPI) {
 	// Children run with XPI_SUBAGENT_DEPTH=1. Nesting is fixed at one level, so they get no Agent tool. A codemode-only child
@@ -20,6 +29,9 @@ export default function subagent(pi: ExtensionAPI) {
 		registerStructuredOutput(pi); // only when the call passed a schema
 		return;
 	}
+	// agent(), parallel(), pipeline(), phase(), log() in every script that can call Agent (script-helpers.ts). The add-on
+	// is process-wide and the same for every session; registering it again replaces it.
+	codemodeAddons.register(scriptHelpers);
 
 	let config: Config | undefined;
 	// The context of the latest event: a session start (also after /new or a resume) or an agent run. Note delivery and
@@ -39,6 +51,83 @@ export default function subagent(pi: ExtensionAPI) {
 		pi.sendMessage({ customType: "subagent", content, display: true }, { triggerTurn: true, deliverAs: "steer" });
 	let disconnect: (() => void) | undefined;
 
+	// Saved workflows become `/name` commands. A command cannot be unregistered: one registered for an earlier session
+	// stays, and its handler looks the workflow up again when it runs (an edited file runs as edited).
+	const workflowCommands = new Set<string>();
+	// Names another command has (built-in, or another extension's): a workflow with one is skipped.
+	const takenNames = () =>
+		new Set([
+			...BUILTIN_SLASH_COMMANDS.map((c) => c.name),
+			...pi
+				.getCommands()
+				.map((c) => c.name)
+				.filter((n) => !workflowCommands.has(n)),
+		]);
+	// The workflows runnable here now, looked up again at each run (an edited file runs as edited).
+	const runnableWorkflows = (ctx: ExtensionContext) => {
+		const found = discoverWorkflows(ctx.cwd, ctx.isProjectTrusted());
+		const taken = takenNames();
+		for (const name of [...found.workflows.keys()]) if (taken.has(name)) found.workflows.delete(name);
+		return found.workflows;
+	};
+	const runsInBackground = (ctx: ExtensionContext) => config?.backgroundScripts !== false && ctx.hasUI;
+	const runWorkflowCommand = async (name: string, text: string, ctx: ExtensionCommandContext) => {
+		const workflow = runnableWorkflows(ctx).get(name);
+		if (!workflow) {
+			const message = `workflow ${name} is not available here (removed, or a project workflow in an untrusted project)`;
+			if (ctx.hasUI) ctx.ui.notify(message, "error");
+			else process.stderr.write(`${message}\n`);
+			return;
+		}
+		const start = await startWorkflowCommand(ctx, workflow, parseArgs(text), runsInBackground(ctx));
+		if (start.background) {
+			ctx.ui.notify(workflowStartText(name, start.scriptId), "info");
+			return;
+		}
+		const output = start.result.content.map((c) => (c.type === "text" ? c.text : "")).join("");
+		if (ctx.hasUI) deliver(`Workflow ${name} ${start.result.isError ? "failed" : "completed"}.\n${output}`);
+		// Print mode keeps stdout for the answer and moves other writes to stderr; the workflow's result is the answer.
+		else if (isStdoutTakenOver()) writeRawStdout(`${output}\n`);
+		else process.stdout.write(`${output}\n`);
+	};
+	// Each runnable workflow becomes a `/name` command; the Workflow tool lists them. Returns the warnings.
+	const registerWorkflows = (ctx: ExtensionContext): string[] => {
+		const { workflows, warnings } = discoverWorkflows(ctx.cwd, ctx.isProjectTrusted());
+		const taken = takenNames();
+		const runnable: Workflow[] = [];
+		for (const workflow of workflows.values()) {
+			const { meta, path } = workflow;
+			if (taken.has(meta.name)) {
+				warnings.push(`workflow ${path} skipped: /${meta.name} is already a command`);
+				continue;
+			}
+			runnable.push(workflow);
+			if (workflowCommands.has(meta.name)) continue;
+			workflowCommands.add(meta.name);
+			pi.registerCommand(meta.name, {
+				description: `${meta.description} (workflow)`,
+				handler: (args, cctx) => runWorkflowCommand(meta.name, args, cctx),
+			});
+		}
+		// Only offered when there is one to run (the description lists them; a workflow saved later is offered after a
+		// reload). A tool cannot be unregistered: one from an earlier session stays, and finds nothing to run.
+		if (runnable.length > 0) {
+			pi.registerTool(
+				workflowTool(
+					describeWorkflows(runnable),
+					(name, tctx) => runnableWorkflows(tctx).get(name),
+					runsInBackground,
+				),
+			);
+		}
+		return warnings;
+	};
+
+	pi.registerCommand("workflows", {
+		description: "List saved workflows and this session's workflow runs; Enter runs one or opens a run's agents",
+		handler: (_args, ctx) =>
+			workflowsCommand(ctx, runnableWorkflows(ctx), (name) => runWorkflowCommand(name, "", ctx)),
+	});
 	pi.registerCommand("subagents", {
 		description:
 			"List this session's subagents; `stop` stops everything running; `worktrees` lists and removes kept worktrees",
@@ -94,13 +183,23 @@ export default function subagent(pi: ExtensionAPI) {
 					current!.isIdle() ? undefined : { deliverAs: "steer" },
 				),
 		});
-		const warnings = registry.rebuild(parentContext(ctx));
+		const warnings = [...registry.rebuild(parentContext(ctx)), ...registerWorkflows(ctx)];
 		const discovery = discoverAgents(ctx.cwd);
 		pi.registerTool(
 			agentTool(() => config!, describeAgents(discovery, config.backgroundScripts, ctx.hasUI), deliver),
 		);
 		if (ctx.hasUI) {
-			installPanel(() => current!, config);
+			installPanel(
+				() => current!,
+				config,
+				(script) => {
+					void saveScriptAsWorkflow(current!, script).then((path) => {
+						// A new workflow is a command and in the Workflow tool's list at once.
+						if (path)
+							for (const w of registerWorkflows(current!)) current!.ui.notify(`subagent: ${w}`, "warning");
+					});
+				},
+			);
 			for (const warning of [...warnings, ...discovery.warnings]) ctx.ui.notify(`subagent: ${warning}`, "warning");
 		}
 	});

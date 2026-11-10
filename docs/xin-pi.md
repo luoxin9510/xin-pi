@@ -104,6 +104,23 @@ policy (when to move, the end message). The `codemode` tool is no longer wrapped
   no UI (print mode), means scripts are neither tracked nor moved.
 - Tests: `test/nested-tool-calls.test.ts` (detached scopes), `test/suite/codemode-scripts.test.ts` (controller).
 
+## Core changes: workflows
+
+Saved workflows (`docs/subagent.md`, "Workflows") start a codemode script from a slash command, with no model turn, and
+add helpers to every script that can call `Agent`.
+
+- `src/core/extensions/types.ts`, `src/core/extensions/runner.ts`: `ExtensionCommandContext.createToolContext(toolCallId,
+  signal?)`, the tool context a command uses for work that calls tools (`executeTool` with ids `<toolCallId>/<n>`).
+- `src/core/agent-session.ts`: a nested call with no assistant message in the session (a command's script, the usual
+  case for a fresh session) runs against an empty assistant message (`_emptyAssistantMessage()`), where it used to
+  fail with "No assistant message issued this call".
+- `src/extensions/codemode/addons.ts` (new), `src/extensions/codemode/execute.ts`: `codemodeAddons.register({ name,
+  applies(toolNames), prelude, globals(script) })`. A script whose callable tools an add-on applies to gets its
+  one-line prelude on its first line (line numbers do not move) and its host globals, which may call the script's tools
+  through `script.callTool` (a nested call row like `tools.<name>()`).
+- Tests: `test/subagent/faults/workflows.test.ts` (commands, print and rpc mode), `test/subagent/faults/script-helpers.test.ts`
+  (add-on, helpers in a real sandbox), `test/suite/subagent-workflow-tool.test.ts` (the Workflow tool on a session).
+
 ## Core changes: prompt cache layout
 
 The Anthropic prompt cache reuses a request prefix only up to a cache breakpoint an earlier request set. Subagent

@@ -60,6 +60,7 @@ export interface Scenario {
 	logFile?: string; // append "start" at process start and "line <n>" before each line
 	hold?: { line: number; starts: number }; // before that line, wait (at most 4 s) until the log has that many "start"
 	reply?: string[]; // stay up after `lines` and play these on a second prompt
+	byPrompt?: Record<string, string[]>; // lines to play instead when the prompt contains that text (first match)
 }
 
 // A temp repo (with .git) and a temp HOME, so discovery never sees the real user dirs.
@@ -127,6 +128,7 @@ interface FakeCtx {
 	sessionFile?: string;
 	sessionId?: string;
 	sendThrows?: string; // pi.sendMessage throws an error with this message
+	otherCommands?: string[]; // command names other extensions registered
 	notes?: string[]; // collects ui notifications even when loading throws
 }
 
@@ -136,10 +138,12 @@ export async function loadTool(settings: Record<string, unknown>, c: FakeCtx) {
 	const handlers: Record<string, Function[]> = {};
 	const notes: string[] = c.notes ?? [];
 	const messages: { message: any; options: any }[] = []; // pi.sendMessage calls: what main was sent
+	const commands: Record<string, any> = {};
 	const pi = {
 		on: (event: string, h: Function) => (handlers[event] ??= []).push(h),
 		registerTool: (t: any) => (tools[t.name] = t),
-		registerCommand: () => {},
+		registerCommand: (name: string, c: any) => (commands[name] = c),
+		getCommands: () => [...(c.otherCommands ?? []), ...Object.keys(commands)].map((name) => ({ name })),
 		sendMessage: (m: any, o: any) => {
 			if (c.sendThrows) throw new Error(c.sendThrows);
 			messages.push({ message: m, options: o });
@@ -170,6 +174,7 @@ export async function loadTool(settings: Record<string, unknown>, c: FakeCtx) {
 	const updates: string[] = [];
 	return {
 		tool,
+		tools,
 		ctx,
 		emit: async (event: string, payload: object) => {
 			for (const h of handlers[event] ?? []) await h(payload, ctx);
@@ -177,6 +182,7 @@ export async function loadTool(settings: Record<string, unknown>, c: FakeCtx) {
 		notes,
 		messages,
 		updates,
+		commands,
 		registered: tool !== undefined,
 		run: (params: Record<string, unknown>, signal?: AbortSignal) =>
 			tool.execute(

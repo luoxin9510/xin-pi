@@ -1,6 +1,6 @@
 # 02: Workflows (saved, rerunnable orchestration scripts)
 
-Status: ready-for-agent (owner approved Grill 1 on 2026-11-10; the two open facts were verified the same day, see Verified facts)
+Status: done (2026-11-10, `issues/02-workflows.md`)
 
 ## Problem
 

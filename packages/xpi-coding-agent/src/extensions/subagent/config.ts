@@ -5,6 +5,7 @@ export interface Config {
 	defaultModel: string;
 	toolMap: Record<string, string>;
 	maxConcurrent: number;
+	maxAgentsPerScript: number; // agents one script run may start; the next Agent call throws
 	piCommand?: string; // unset: children run the build of this process (invocation.ts)
 	childCodemode: "only" | "inherit";
 	backgroundScripts: boolean; // a script that starts an Agent moves to the background
@@ -49,6 +50,11 @@ export function readConfig(raw: unknown): Config {
 		throw new Error("subagent.maxConcurrent must be a positive integer");
 	}
 
+	const maxAgentsPerScript = r.maxAgentsPerScript ?? 1000;
+	if (!Number.isInteger(maxAgentsPerScript) || (maxAgentsPerScript as number) < 1) {
+		throw new Error("subagent.maxAgentsPerScript must be a positive integer");
+	}
+
 	const childCodemode = r.childCodemode ?? "only";
 	if (childCodemode !== "only" && childCodemode !== "inherit") {
 		throw new Error(`subagent.childCodemode must be "only" or "inherit", got ${JSON.stringify(childCodemode)}`);
@@ -79,6 +85,7 @@ export function readConfig(raw: unknown): Config {
 		defaultModel: optionalString(r.defaultModel, "defaultModel") ?? "haiku",
 		toolMap: stringMap(r.toolMap, "toolMap"),
 		maxConcurrent: maxConcurrent as number,
+		maxAgentsPerScript: maxAgentsPerScript as number,
 		piCommand: optionalString(r.piCommand, "piCommand"),
 		childCodemode,
 	};

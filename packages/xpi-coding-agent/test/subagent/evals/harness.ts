@@ -102,6 +102,7 @@ export async function directTool(cwd: string, signal: AbortSignal, options: Dire
 		on: (event: string, h: Function) => (handlers[event] ??= []).push(h),
 		registerTool: (t: { name: string; execute: Function }) => (tools[t.name] = t),
 		registerCommand: () => {},
+		getCommands: () => [],
 		sendMessage: () => {},
 		getSettings: () => ({
 			subagent: { ...PINNED.subagent, piCommand: PI, ...options.settings },
