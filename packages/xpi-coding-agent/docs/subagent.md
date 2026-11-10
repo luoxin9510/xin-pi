@@ -246,7 +246,7 @@ format. Every script that can call `Agent` has these helpers over it, so a scrip
 | `agent(prompt, opts?)` | One subagent. `opts`: `label` (the `description`; default: the prompt's first words), `schema`, `type` (`subagent_type`), `model`, `effort`, `isolation`; `stallMs` is accepted and unused. Resolves to the output text, or with `schema` to the value. Rejects when the agent failed; awaited directly, that ends the script with the error. |
 | `parallel(tasks)` | Functions returning promises, or promises; all run at once. Resolves to their results in order, `null` for one that failed. |
 | `pipeline(items, fn)` | `fn(item, index)` for every item at once (`maxConcurrent` queues the agents). Results in order, `null` for a failed item. At most 4096 items. |
-| `phase(title, fn?)` | Names the agents started from here (or inside `fn`) for the panel. Phases are sequential: concurrent `phase()` calls share one current title. |
+| `phase(title, fn?)` | Names the agents started from here (or inside `fn`) for the panel, whether a script starts them with `agent()` or with `tools.Agent`. Phases are sequential: concurrent `phase()` calls share one current title. |
 | `log(text)` | A progress line on the script's row in the panel. |
 | `args` | The run's input; `undefined` in an ad hoc script. |
 

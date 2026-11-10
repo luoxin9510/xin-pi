@@ -155,7 +155,9 @@ class ScriptRegistry {
 		const script = this.owner(toolCallId);
 		if (!script) return;
 		script.agents.push(agentId);
-		if (phase !== undefined) script.phases[agentId] = phase;
+		// `agent()` carries its phase; a plain tools.Agent call belongs to the script's current one.
+		const title = phase ?? script.phase;
+		if (title !== undefined) script.phases[agentId] = title;
 		this.changed();
 	}
 
