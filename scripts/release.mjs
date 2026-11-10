@@ -120,7 +120,7 @@ async function pinAndBuildWithNewestModelCatalog() {
 	if (result.status !== 0) {
 		console.error(
 			`Error: the build with the newest published model catalog ${revision} failed; the Nix build of the release tag would fail too.\n` +
-				"If the errors concern model IDs, types, or APIs, the catalog predates main: publish one from main (Publish Model Catalog workflow).\n" +
+				"If the errors concern model IDs, types, or APIs, the catalog predates main: upstream pi publishes it, so wait for a newer one.\n" +
 				"Otherwise fix the build (e.g. run `npm ci --ignore-scripts` if node_modules is out of date).\n" +
 				restored,
 		);
