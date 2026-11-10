@@ -2,7 +2,7 @@
 
 Sessions are stored as JSONL (JSON Lines) files. Each line is a JSON object with a `type` field. Session entries form a tree structure via `id`/`parentId` fields, enabling in-place branching without creating new files.
 
-For programmatic creation, persistence, and tree navigation, see the [`SessionManager` API](sdk.md#sessionmanager-api).
+For programmatic creation, persistence, and tree navigation, see the [`SessionManager` API](sdk.md#session-storage).
 
 
 ## File Location
