@@ -148,9 +148,12 @@ export async function exchange(
 					},
 					(handle) => registry.attach(id, handle),
 					(event) => {
-						// The provider has started to answer, so it has stored the prompt prefix.
-						const from = (event.message as { role?: string } | undefined)?.role;
-						if (staggered && event.type === "message_start" && from === "assistant") responded(spec.prefixKey);
+						// The provider has started to answer, so it has stored the prompt prefix. A request that failed before
+						// any answer also starts an assistant message, the one that carries the error: nothing was stored.
+						const message = event.message as { role?: string; stopReason?: string } | undefined;
+						const failed = message?.stopReason === "error" || message?.stopReason === "aborted";
+						if (staggered && event.type === "message_start" && message?.role === "assistant" && !failed)
+							responded(spec.prefixKey);
 						registry.event(id, event);
 					},
 				);

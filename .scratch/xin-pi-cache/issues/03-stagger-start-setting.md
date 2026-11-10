@@ -63,3 +63,10 @@ key, abort, warm time, late leader), the `readConfig` test, 5 wiring tests with 
 set, leader ends without a response, stop of a waiting sibling by signal and by `registry.stopAll`). The fake child
 got `logFile` and `hold` so the order of events across siblings does not depend on process start speed. Mutation
 check: with the signal disabled the "on" test fails, with the gate forced on the "off" test fails.
+
+**Review before the PR (2026-11-10).** One bug found and fixed: a request that fails before any answer (overload,
+network) also emits `message_start` for an assistant message, the one that carries the error (`stopReason` "error" or
+"aborted"; `xpi-agent-core/src/agent-loop.ts`). It opened the gate and marked the prefix warm for 4 minutes although
+nothing was cached. `exchange.ts` now ignores such a message, so the followers keep waiting for the retry's response
+or the timeout. New wiring test "a request that failed before any answer does not let the siblings start" (fails
+without the guard).

@@ -176,6 +176,26 @@ test("staggerStart on: the other siblings start once the first one's response ha
 	assert.ok(order.lastIndexOf("start") < order.indexOf("line 4"), `all started before any run ended: ${order}`);
 });
 
+test("staggerStart on: a request that failed before any answer does not let the siblings start", async () => {
+	const s = sandbox();
+	const log = join(s.root, "order.log");
+	const failed = JSON.stringify({
+		type: "message_start",
+		message: { role: "assistant", content: [], stopReason: "error", errorMessage: "overloaded" },
+	});
+	// line 1 the failed request, line 2 the retry's response begins; the leader then goes on once both run
+	s.scenario({
+		lines: [ev.session(), failed, responseBegins(), ev.assistant("done"), ev.turnEnd(), ev.settled()],
+		delayMs: 150,
+		logFile: log,
+		hold: { line: 3, starts: 2 },
+	});
+	const t = await loadTool({ staggerStart: true }, { cwd: s.repo });
+	await Promise.all([t.run({}), t.run({})]);
+	const order = logged(log);
+	assert.deepEqual(order.slice(0, 4), ["start", "line 0", "line 1", "line 2"], `the follower waited: ${order}`);
+});
+
 test("staggerStart on: siblings with another tool set do not wait", async () => {
 	const s = sandbox();
 	const log = join(s.root, "order.log");

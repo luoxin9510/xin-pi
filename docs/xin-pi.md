@@ -133,9 +133,9 @@ preloaded skills, memory, working directory, date). The main agent's prompt has 
   the head as `--system-prompt` and the tail as `--system-prompt-tail`.
 - `src/extensions/subagent/stagger.ts`, `exchange.ts`, `config.ts`: `subagent.staggerStart` (default false). After
   the concurrency slot, the first child with a `ChildSpec.prefixKey` (model, tool args, head preamble, git root of the
-  parent's cwd) leads; later ones wait until a child with that key sees `message_start` of an assistant message (the
-  provider has begun to answer, so the prefix is cached), at most 5 s. For 4 minutes after such a response nobody
-  waits. No core file is touched for this.
+  parent's cwd) leads; later ones wait until a child with that key sees `message_start` of an assistant message that
+  is not a failed request's error (the provider has begun to answer, so the prefix is cached), at most 5 s. For 4
+  minutes after such a response nobody waits. No core file is touched for this.
 - Tests: `test/system-prompt.test.ts`, `test/system-prompt-updates.test.ts`, `test/resource-loader.test.ts`,
   `test/args.test.ts`, `test/subagent/worktree/cache-layout.test.ts`, `test/subagent/faults/stagger.test.ts`; by hand
   on a real model: `npm run test:subagent:cache`.
