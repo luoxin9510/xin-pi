@@ -9,6 +9,9 @@ function buildProviderErrorPattern(patterns: readonly string[]): RegExp {
 	return new RegExp(patterns.join("|"), "i");
 }
 
+// Text tables. Each group below stays because the failure carries no class, status or code the classifier can read:
+// - quota and plan-limit wording (this table): servers send it with 400, 429 or 5xx and only the text tells a spent
+//   quota from a throttle.
 const NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN = buildProviderErrorPattern([
 	// OpenCode Go/free-tier limits returned as 429 JSON error types by OpenCode's
 	// Zen API. These are subscription/account limits, not transient throttles.
@@ -39,6 +42,9 @@ const NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN = buildProviderErrorPattern([
 	'"code"\\s*:\\s*"?1308(?![0-9])',
 ]);
 
+// - transient wording (this table). It is the whole signal for (a) errors inside a 200 stream, where the status is 200
+//   and only an error event or a premature end tells the stream failed, and (b) network errors that carry no `code`
+//   or error class (a gateway's "upstream connect error", a bare "terminated").
 const RETRYABLE_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
 	// Generic provider load, HTTP status, and server-side transient failures.
 	"overloaded",
@@ -135,6 +141,9 @@ const RETRYABLE_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
 /**
  * Regex patterns to detect context overflow errors from different providers.
  *
+ * These stay because overflow usually arrives as a plain HTTP 400 with a free-text message and no error code: the
+ * text is the only thing that tells it from any other bad request.
+ *
  * These patterns match error messages returned when the input exceeds
  * the model's context window or the provider's request byte-size limit.
  *
@@ -212,7 +221,9 @@ const CEREBRAS_BODYLESS_OVERFLOW_PATTERN = /^4(?:00|13)\s*(?:status code)?\s*\(n
  * pattern without this exclusion.
  */
 const NON_OVERFLOW_PATTERNS = [
-	/^(Throttling error|Service unavailable):/i, // AWS Bedrock non-overflow errors (human-readable prefixes from formatBedrockError)
+	// Old sessions only: messages stored before Bedrock errors were classified by exception name carry no `errorKind`
+	// and start with these prefixes.
+	/^(Throttling error|Service unavailable):/i,
 	/rate limit/i, // Generic rate limiting
 	/too many requests/i, // Generic HTTP 429 style
 ];
@@ -300,6 +311,27 @@ const PROVIDER_CODE_KINDS: Record<string, ErrorKind> = {
 	insufficient_quota: "usage_limit",
 	context_length_exceeded: "context_overflow",
 	invalid_api_key: "auth",
+	// Codex (ChatGPT backend): the plan's usage is spent
+	usage_limit_reached: "usage_limit",
+	usage_not_included: "usage_limit",
+};
+
+/**
+ * Exception names of the AWS SDK (Bedrock). Decided before the status and the text: a stream exception carries no
+ * status, and `ThrottlingException: Too many tokens, please wait` must not read as overflow. `ValidationException`
+ * is left out on purpose: it is a plain bad request unless its text says overflow (see the text step).
+ */
+const EXCEPTION_NAME_KINDS: Record<string, ErrorKind> = {
+	ThrottlingException: "rate_limit",
+	ServiceQuotaExceededException: "usage_limit",
+	AccessDeniedException: "auth",
+	UnrecognizedClientException: "auth",
+	ExpiredTokenException: "auth",
+	InternalServerException: "transient",
+	ServiceUnavailableException: "transient",
+	ModelNotReadyException: "transient",
+	ModelTimeoutException: "transient",
+	ModelStreamErrorException: "transient",
 };
 
 function chainOf(error: unknown): object[] {
@@ -398,6 +430,7 @@ export function classifyErrorText(text: string, provider?: string): ErrorKind {
 
 /**
  * Classify a provider failure once. Order:
+ * 0. AWS SDK exception name (Bedrock): decides before everything else.
  * 1. Error class or `code` on the cause chain: connection-level failures are `transient`.
  * 2. HTTP status (after overflow and quota codes or text, which win at any status). 401/403 `auth`, 402 `usage_limit`, 408/409/425/5xx `transient`, 413 `context_overflow`, 429
  *    `rate_limit`, other 4xx `invalid_request`; 400/422 go on to steps 3 and 4 because the same status carries
@@ -414,7 +447,8 @@ export function classifyProviderError(error: unknown, options: ClassifyOptions =
 	let retryAfterMs: number | undefined;
 	for (const entry of chain) {
 		status ??= statusOf(entry);
-		retryAfterMs ??= parseRetryAfterMs((entry as { headers?: unknown }).headers);
+		const e = entry as { headers?: unknown; $response?: { headers?: unknown } };
+		retryAfterMs ??= parseRetryAfterMs(e.headers ?? e.$response?.headers);
 	}
 	const result = (kind: ErrorKind): ErrorClassification => {
 		const classification: ErrorClassification = { kind };
@@ -424,6 +458,13 @@ export function classifyProviderError(error: unknown, options: ClassifyOptions =
 	};
 
 	const codeKinds = [...chain.flatMap((entry) => bodyCodeKinds(entry)), ...textCodeKinds(text)];
+
+	// 0. AWS SDK exception names.
+	for (const entry of chain) {
+		const name = (entry as { name?: unknown }).name;
+		const kind = typeof name === "string" ? EXCEPTION_NAME_KINDS[name] : undefined;
+		if (kind) return result(kind);
+	}
 
 	// 1. Connection-level failures: no response to read a status from.
 	if (status === undefined) {
@@ -460,8 +501,14 @@ export function classifyProviderError(error: unknown, options: ClassifyOptions =
 
 	// 4. Text.
 	const byText = classifyErrorText(text, options.provider);
-	if (byText === "unknown" && status !== undefined) return result("invalid_request");
+	const isValidationException = chain.some((entry) => (entry as { name?: unknown }).name === "ValidationException");
+	if (byText === "unknown" && (status !== undefined || isValidationException)) return result("invalid_request");
 	return result(byText);
+}
+
+/** Only `transient` and `rate_limit` failures are retried. */
+export function isRetryableErrorKind(kind: ErrorKind): boolean {
+	return kind === "transient" || kind === "rate_limit";
 }
 
 /** Fill `errorKind`, `errorStatus` and `retryAfterMs` on a failed message from the error its provider caught. */

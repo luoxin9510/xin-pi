@@ -50,6 +50,7 @@ import type {
 } from "../types.ts";
 import { appendAssistantMessageDiagnostic } from "../utils/diagnostics.ts";
 import { normalizeProviderError } from "../utils/error-body.ts";
+import { applyErrorClassification } from "../utils/error-kind.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { providerHeadersToRecord } from "../utils/headers.ts";
 import { type ClientIdentity, getClientVersion } from "../utils/identity.ts";
@@ -388,6 +389,7 @@ export const stream: StreamFunction<"bedrock-converse-stream", BedrockOptions> =
 			output.stopReason = options.signal?.aborted ? "aborted" : "error";
 			output.errorMessage = formatBedrockError(error);
 			if (output.stopReason === "error") {
+				applyErrorClassification(output, error, { provider: model.provider, text: output.errorMessage });
 				appendBedrockFailureDiagnostic(output, error, responseRequestId);
 			}
 			stream.push({ type: "error", reason: output.stopReason, error: output });
@@ -399,20 +401,6 @@ export const stream: StreamFunction<"bedrock-converse-stream", BedrockOptions> =
 };
 
 /**
- * Human-readable prefixes for Bedrock SDK exception names.
- * The downstream retry logic in agent-session matches patterns like
- * `server.?error` and `service.?unavailable`, so we preserve the legacy
- * prefix format rather than using the raw SDK exception name.
- */
-const BEDROCK_ERROR_PREFIXES: Record<string, string> = {
-	InternalServerException: "Internal server error",
-	ModelStreamErrorException: "Model stream error",
-	ValidationException: "Validation error",
-	ThrottlingException: "Throttling error",
-	ServiceUnavailableException: "Service unavailable",
-};
-
-/**
  * Some models reject the account/profile's configured Bedrock data retention mode
  * (e.g. "data retention mode 'default' is not available for this model"). Point
  * users at the AWS docs explaining how to configure a supported mode.
@@ -420,11 +408,10 @@ const BEDROCK_ERROR_PREFIXES: Record<string, string> = {
 const BEDROCK_DATA_RETENTION_DOCS_URL = "https://docs.aws.amazon.com/bedrock/latest/userguide/data-retention.html";
 
 /**
- * Format a Bedrock error with a human-readable prefix.
+ * Format a Bedrock error for display, prefixed with the SDK exception name.
  * AWS SDK exceptions (both from `client.send()` and from stream event items)
- * extend BedrockRuntimeServiceException. We map the `.name` to a stable
- * human-readable prefix so downstream consumers (retry logic, context-overflow
- * detection) can distinguish error categories via simple string matching.
+ * extend BedrockRuntimeServiceException. The retry and overflow decisions do not
+ * read this text: `classifyProviderError` decides by the exception name.
  */
 function formatBedrockError(error: unknown): string {
 	const norm = normalizeProviderError(error);
@@ -439,8 +426,7 @@ function formatBedrockError(error: unknown): string {
 		? ` See ${BEDROCK_DATA_RETENTION_DOCS_URL} for supported data retention modes.`
 		: "";
 	if (error instanceof BedrockRuntimeServiceException) {
-		const prefix = BEDROCK_ERROR_PREFIXES[error.name] ?? error.name;
-		return `${prefix}: ${core}${dataRetentionHint}`;
+		return `${error.name}: ${core}${dataRetentionHint}`;
 	}
 	return `${core}${dataRetentionHint}`;
 }
@@ -468,8 +454,7 @@ function extractBedrockErrorCode(error: unknown): string | undefined {
 }
 
 /**
- * Structured metadata alongside `errorMessage`, which stays byte-identical because `isRetryableAssistantError`
- * matches against it. Unknown fields are omitted, never guessed: a modeled mid-stream exception reaches us as
+ * Structured metadata alongside `errorMessage`. Unknown fields are omitted, never guessed: a modeled mid-stream exception reaches us as
  * a bare object literal, leaving only `fallbackRequestId`. `details` only, as the throw is not always `Error`.
  */
 function appendBedrockFailureDiagnostic(
