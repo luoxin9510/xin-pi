@@ -24,6 +24,8 @@ export interface AgentDefinition {
 	color?: AgentColor; // tints the agent's label in the panel and on its screen
 	memory?: "user" | "project" | "local"; // persistent memory directory (Claude Code's paths)
 	isolation?: "worktree"; // run in its own git worktree (the Agent call's isolation wins)
+	background?: boolean; // true: a call without run_in_background runs this agent in the background
+	mcpServers?: string[]; // names of configured MCP servers: the agent gets their tools and no other server's
 	source: string;
 	inert: string[];
 	warnings: string[]; // problems that do not skip the file (an unknown colour); shown once at discovery
@@ -32,19 +34,46 @@ export interface AgentDefinition {
 export type ParseResult = { ok: true; def: AgentDefinition } | { ok: false; reason: string };
 
 // Tier B (mapped in v2) and tier C (no effect) fields: parsed, then reported as having no effect.
-const INERT_FIELDS = [
-	"mcpServers",
-	"autoCompactWindow",
-	"permissionMode",
-	"hooks",
-	"background",
-	"initialPrompt",
-	"experimental",
-];
+// Claude Code fields with no effect here, and why.
+const INERT_REASONS: Record<string, string> = {
+	autoCompactWindow: "xpi compacts by reserve tokens (the compaction.* settings), not by a window size",
+	permissionMode: "xpi has no permission modes",
+	hooks: "xpi has no hooks; extensions do that work",
+	initialPrompt: "it applies to an agent run as the main session, which xpi does not have",
+	experimental: "it is ignored by Claude Code too",
+};
+const INERT_FIELDS = Object.keys(INERT_REASONS);
 
-export const inertNotice = (field: string) => `field "${field}" has no effect in subagent`;
+export const inertNotice = (field: string) => `field "${field}" has no effect in subagent: ${INERT_REASONS[field]}`;
 
 class Skip extends Error {}
+
+// `mcpServers`: Claude Code takes server names and inline definitions (a mapping with the server name as key). Only
+// names of servers configured in mcp.json are supported here; an inline definition is skipped with a warning.
+function serverNames(value: unknown, warnings: string[]): string[] | undefined {
+	if (value === undefined || value === null) return undefined;
+	const entries = typeof value === "string" ? value.split(",").map((s) => s.trim()) : value;
+	const inline = (names: string[]) => {
+		for (const name of names) {
+			warnings.push(
+				`mcpServers: the inline definition of "${name}" is not supported and was skipped (configure the server in mcp.json and list its name)`,
+			);
+		}
+	};
+	if (!Array.isArray(entries)) {
+		if (typeof entries !== "object") throw new Skip('"mcpServers" must be a list of server names');
+		inline(Object.keys(entries as object));
+		return [];
+	}
+	const names: string[] = [];
+	for (const entry of entries) {
+		if (typeof entry === "string") {
+			if (entry !== "" && !names.includes(entry)) names.push(entry);
+		} else if (typeof entry === "object" && entry !== null && !Array.isArray(entry)) inline(Object.keys(entry));
+		else throw new Skip('"mcpServers" must be a list of server names');
+	}
+	return names;
+}
 
 // The agent name becomes a directory name and a line in .git/info/exclude.
 const isMemoryName = (name: string) => name !== "" && !name.startsWith(".") && !/[\\/\0\r\n*?[\]!#]/.test(name);
@@ -136,6 +165,8 @@ export function parseDefinition(source: string, text: string): ParseResult {
 				"user | project | local",
 			),
 			isolation: optional<"worktree">(f.isolation, "isolation", (v) => v === "worktree", "worktree"),
+			background: optional<boolean>(f.background, "background", (v) => typeof v === "boolean", "true or false"),
+			mcpServers: serverNames(f.mcpServers, warnings),
 			source,
 			warnings,
 			inert: INERT_FIELDS.filter((k) => k in f),
