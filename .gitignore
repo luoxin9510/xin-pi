@@ -33,6 +33,7 @@ coverage/
 tui-debug.log
 compaction-results/
 packages/xpi-coding-agent/test/subagent/evals/results/
+packages/xpi-coding-agent/test/delegation/results/
 .opencode/
 syntax.jsonl
 out.jsonl

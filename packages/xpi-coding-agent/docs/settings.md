@@ -189,7 +189,7 @@ the extension itself validates it at session start and names the wrong key.
 ## Relay
 
 The built-in `relay` extension reads a `relay` block (`lead`, `worker`, `leadThinking`, `workerThinking`, `maxRounds`,
-`acceptanceTimeoutMs`, `diffChars`), listed with defaults in [Relay: Settings](relay.md#settings). The settings schema
+`acceptanceTimeoutMs`, `diffChars`, `objective`, `workerRecord`, `minuteCost`), listed with defaults in [Relay: Settings](relay.md#settings). The settings schema
 describes the block.
 
 ## Updates, telemetry, and warnings

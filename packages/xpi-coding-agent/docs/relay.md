@@ -21,8 +21,8 @@ lead explores → handover(plan, acceptance, findings)
              → lead reads the record → answers / fixes a small thing / hands over again
 ```
 
-1. **The lead explores and plans.** It reads what the decision depends on. For a task of a few edits it does the work
-   itself and nothing below happens.
+1. **The lead explores and plans.** It reads what the decision depends on. Whether to hand over at all is its
+   decision (see [What the lead is told](#what-the-lead-is-told)); when it does the work itself, nothing below happens.
 2. **Handover.** The lead calls the `handover` tool. From the next request on the worker answers. It reads the whole
    conversation, once and uncached, so nothing is lost in a brief.
 3. **The worker builds** and calls `handback` with a report, or simply stops.
@@ -33,6 +33,37 @@ lead explores → handover(plan, acceptance, findings)
 
 A user message during a worker phase goes to the worker: you are talking to the model that is doing the work. Use
 `/handback` to reach the lead.
+
+## What the lead is told
+
+No rule says when to hand over. While `relay/auto` is selected, the system prompt gives the lead what a decision
+needs, and the decision is the lead's:
+
+- **The objective**: `relay.objective`. By default, a correct result for as few lead tokens as possible, with worker
+  tokens not counted.
+- **The prices**: the API list prices of both models per million tokens (input, cached input, cache write, output,
+  and the higher tier of a model that has one), and how many times a lead token costs a worker token. They are read
+  from the model catalog, so they follow the models you configure. For example, with Opus 5.5 as lead and Haiku 5.5 as
+  worker: input $4 against $0.1, output $20 against $0.5, 40 times each. With a pair of models whose prices are not
+  known, it says so.
+- **Time**: what a round adds (the worker's first read of the conversation, its work, the acceptance commands, the
+  lead's reading of the record). Time is part of the objective only when `relay.minuteCost` is set: the lead is then
+  told what one minute of your waiting is worth in dollars of tokens, and can weigh it against the prices.
+- **What a handover does**: the worker reads the whole conversation and works until it hands back or stops; the
+  acceptance commands are run, and a failure goes back to the worker at most `maxRounds` times.
+- **What comes back**: what the record keeps as written, what is new in it, and what is not kept (the worker's steps,
+  and the tool output the lead read before the handover).
+- **That nothing is final** after a hand back: the lead can read, change things itself, or hand over again.
+- **About the worker**: `relay.workerRecord`, when set. For example a measured result of the worker model on tasks
+  of this project.
+
+After each hand back the lead is also told what was measured: how long the round took from the handover to the hand
+back, how much of that the acceptance commands took, and what each model has used in the session so far (requests,
+tokens by kind, cost, time in requests and output tokens per second). So from the second decision on, the lead
+knows the cost and the speed of a round in this very session.
+
+A stronger model needs no more than this; a setup where the lead decides badly is corrected by changing these facts,
+not by adding rules. `npm run eval:delegation` measures the decisions (see [Limits](#limits)).
 
 ## The two tools
 
@@ -82,9 +113,34 @@ commands.
 
 After a hand back every later lead request reads the record, not the conversation it replaced.
 
-Measured on a small task (three functions, one acceptance command; Opus 5.5 as lead, Haiku 5.5 as worker): the lead's
-request after the hand back read 3,093 tokens from the cache and wrote 1,086, the record. `/session` lists the cost of
-each model.
+### Measured
+
+`npm run eval:delegation -- --long`, 2026-11-10, Opus 5.5 as lead and Haiku 5.5 as worker, on three features of this
+repository built again from their spec (each about 1,200 changed lines over 20 files in the original; done when the
+offline subagent suite passes). One run per cell, so differences of 10 to 20 percent mean nothing.
+
+| Task | Way of working | Passed | Time | Opus cost | Haiku cost | Handovers |
+|---|---|---|---|---|---|---|
+| fork agent type | Opus alone | yes | 365 s | $1.52 | | |
+| | Haiku alone | yes | 676 s | | $0.71 | |
+| | relay, the lead decides | yes | 472 s | $0.21 | $0.26 | 1 |
+| | relay, told to hand over | yes | 624 s | $0.18 | $0.10 | 1 |
+| names and SendMessage | Opus alone | yes | 282 s | $0.93 | | |
+| | Haiku alone | yes | 502 s | | $0.11 | |
+| | relay, the lead decides | yes | 345 s | $0.19 | $0.06 | 1 |
+| | relay, told to hand over | yes | 717 s | $0.24 | $0.04 | 1 |
+| agent file fields | Opus alone | yes | 332 s | $1.15 | | |
+| | Haiku alone | yes | 540 s | | $0.18 | |
+| | relay, the lead decides | yes | 526 s | $0.24 | $0.33 | 1 |
+| | relay, told to hand over | yes | 778 s | $0.22 | $0.15 | 2 |
+
+- With the facts above and no rule, the lead handed over in all three tasks, after 3 to 8 requests of its own. Its
+  cost was 14 to 20 percent of what it spent alone; the time was longer than Opus alone and shorter than Haiku alone.
+- With the earlier prompt, which told the lead when to hand over but gave it neither prices nor an objective, the lead
+  never handed over in the same three tasks (and never started a subagent with the `Agent` tool): relay cost the
+  same as Opus alone.
+- Haiku alone passes all three tasks. They show what a handover costs and saves, not what the lead's judgement is
+  worth on a task the worker cannot do by itself.
 
 ## Commands
 
@@ -105,7 +161,8 @@ each model.
     "workerThinking": "medium",
     "maxRounds": 3,
     "acceptanceTimeoutMs": 600000,
-    "diffChars": 20000
+    "diffChars": 20000,
+    "objective": "the user wants a correct result for as few of your (lead) tokens as possible. Worker tokens are not counted."
   }
 }
 ```
@@ -120,6 +177,9 @@ each model.
 | `maxRounds` | `3` | Times failed acceptance commands go back to the worker before the lead is woken regardless. `0`: never. |
 | `acceptanceTimeoutMs` | `600000` | Time limit of one acceptance command. |
 | `diffChars` | `20000` | How much of the diff goes into the record. `0`: the stat only. |
+| `objective` | see above | What the user optimizes for, told to the lead. Change it to weigh time, or to count worker tokens. |
+| `workerRecord` | unset | What is known about the worker's ability, told to the lead. |
+| `minuteCost` | unset | What one minute of your waiting is worth, in dollars of tokens. Unset: time is not part of the objective. |
 
 The values are read at each request, so a change applies to the next one. A wrong value ends the request with an
 error that names the key. The thinking level selected for `relay/auto` itself is not used.
@@ -133,3 +193,7 @@ error that names the key. The thinking level selected for `relay/auto` itself is
 - Subagents do not get the relay model or its tools.
 - Tests: `test/suite/relay.test.ts` (faux provider), `npm run test:relay:real` (real models; both roles are Haiku
   unless `RELAY_TEST_LEAD` names another model).
+- `npm run eval:delegation -- --long` runs long tasks (features of this repository built again from their spec) three
+  ways: the main model alone, with the `Agent` tool, and as the lead of `relay/auto`. It reports the result, each
+  model's tokens and cost, and how often the model delegated or handed over. `EVAL_MAIN` names the main model
+  (default Haiku); `--force` tells the model to delegate, for comparison with its own decision.
