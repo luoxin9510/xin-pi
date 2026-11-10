@@ -2,8 +2,9 @@
 
 import { discoverAgents } from "./discovery.ts";
 import { exchange, getHost, recordSteer } from "./exchange.ts";
+import { FORK_DEFINITION, FORK_TYPE, resolveAgent } from "./fork.ts";
 import { registry } from "./registry.ts";
-import { type ParentContext, resolveChild } from "./resolve.ts";
+import type { ParentContext } from "./resolve.ts";
 import { memoryRoot } from "./worktree.ts";
 
 export type Delivery = "steered" | "queued" | "started";
@@ -18,10 +19,10 @@ export function talkTo(parent: ParentContext, id: string, text: string): { deliv
 		return { delivery: "steered", done: Promise.resolve() };
 	}
 	const queued = registry.busy(id);
-	const def = discoverAgents(parent.cwd).agents.get(r.type);
+	const def = r.type === FORK_TYPE ? FORK_DEFINITION : discoverAgents(parent.cwd).agents.get(r.type);
 	if (!def) throw new Error(`cannot continue ${id}: agent "${r.type}" no longer exists`);
 	const done = (async () => {
-		const spec = resolveChild(
+		const spec = resolveAgent(
 			def,
 			{
 				description: r.description,

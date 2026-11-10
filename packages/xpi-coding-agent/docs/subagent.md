@@ -3,8 +3,8 @@
 The `subagent` built-in extension of xpi gives codemode scripts a Claude Code-compatible `Agent` tool. Each call runs
 an agent definition in its own `xpi` subprocess and returns a structured result, so a script can run agents in parallel
 and filter what reaches the model. Next to it: `SendMessage` to steer or continue an agent
-([Names and SendMessage](#names-and-sendmessage)), and saved, rerunnable scripts with fan-out helpers, run as `/name` or
-through the `Workflow` tool ([Workflows](#workflows)). In interactive xpi you can watch the subagents in a panel below the editor, open one in
+([Names and SendMessage](#names-and-sendmessage)), a [fork](#fork) that starts with the whole conversation, and saved, rerunnable
+scripts with fan-out helpers, run as `/name` or through the `Workflow` tool ([Workflows](#workflows)). In interactive xpi you can watch the subagents in a panel below the editor, open one in
 a full-screen view, and talk to it (see [Watching and talking](#watching-and-talking-to-subagents)).
 
 It started as the separate extension pi-pipipi and was merged into xin-pi; see [xin-pi.md](../../../docs/xin-pi.md) for
@@ -208,6 +208,33 @@ await tools.SendMessage({ to: "reviewer", message: "Also check the migration fil
 on the agent's screen). `SendMessage` carries no `schema`: use `Agent` with `resume` for a structured answer. Children
 get neither `Agent` nor `SendMessage`: agents do not message each other. With an in-memory parent session
 (`--no-session`) names and steers work while the process lives, and nothing can be continued, as with `resume`.
+
+## Fork
+
+A fork is a subagent that starts as a copy of the main conversation instead of empty: it knows everything said so far,
+does one side task, and returns only its result. Use it when the task needs the conversation ("write the tests for
+what we just built") and restating the context in `prompt` would be long or lossy.
+
+```js
+const r = await tools.Agent({ subagent_type: "fork", description: "write the tests", prompt: "Write tests for the parser we just changed." });
+```
+
+- The user starts one with `/subtask <task>`, with no model turn: it runs in the background and its result arrives in
+  main as a message (in print mode the command waits and prints it).
+- `fork` is a reserved agent type with no agent file; an agent file or `--agents` entry with that name is skipped with
+  a warning. It is listed in the tool's description when the session is saved and `subagent.fork` is not `false`.
+- It runs on main's model and thinking level. `model`, `effort` and `schema` are refused. `name`, `isolation` and
+  `run_in_background` work as for any agent, and so do `resume`, `SendMessage`, the panel, the screen and stop.
+- How it starts: main's session file is copied into the subagents dir as the fork's own session
+  (`SessionManager.forkFrom`), and every tool call of the last assistant message that has no result yet (the script
+  that is calling `Agent`) gets one that says "you are a fork, do the task in the next message". The child then
+  starts like a resume. It gets no system prompt flags: the session holds main's.
+- Cost: the system prompt and tool declarations travel with the session, so the fork's first request reads main's
+  prompt cache. Measured on haiku: a main prefix of 5929 tokens was read in full (`cacheRead 5929`), with 115 to 640
+  new tokens written.
+- A fork is a normal child: it has no `Agent`, `SendMessage` or `Workflow`, so it cannot start a subagent or another
+  fork.
+- An in-memory session (`--no-session`) has no file to copy: the call throws and says so.
 
 ## Workflows
 
@@ -539,6 +566,7 @@ Optional, in `.pi/settings.json` or `~/.pi/agent/settings.json`:
   "maxAgentsPerScript": 1000,                      // agents one script run may start; the next Agent call throws
   "childCodemode": "only",                         // "only" (default): children see only `codemode`; "inherit": v1 behaviour, direct tools
   "backgroundScripts": true,                       // false: a script that starts an Agent waits for it, as in v2 (pi's own codemode)
+  "fork": true,                                    // false: no "fork" agent type and /subtask starts nothing
   "staggerStart": false,                           // true: siblings with the same model, tools and project wait (at most 5 s) for the first one's response to begin, then read its cached prompt. See "Prompt caching"
   "shutdownGraceMs": 10000,                        // how long a stopped child may take to shut down (SIGTERM) before SIGKILL; raise it for slow MCP servers
   "panelLingerMs": 30000,                          // how long a finished subagent stays in the panel (the pty tests shorten it)
@@ -595,12 +623,14 @@ npm run test:subagent:evals -- --runs 3           # repeat, for pass rates
 npm run test:subagent:evals -- --only resume      # cases whose name contains "resume"
 ```
 
-`evals/cases.ts` holds 21 cases. Fifteen call the tool in-process with real `pi` children (listing, read-only agents
+`evals/cases.ts` holds 22 cases. Fifteen call the tool in-process with real `pi` children (listing, read-only agents
 cannot write, custom agent tools, resume, `maxTurns`, skills, context files vs `omitClaudeMd`, model aliases, a bad
-model, no nesting, parallel runs, a steer that changes a running subagent's course, sent through the registry handle and graded by an exact token and a file that must not appear, a `schema` that returns a value, worktree isolation, and agent memory). The isolation case runs on a temp git repository: an isolated agent that writes a file keeps its worktree (the result has path, branch and the changed file, the file is in the worktree, the main checkout is clean), and an isolated read-only agent leaves no worktree or branch. The memory case uses `memory: project` in a temp repository (never `~/.claude`): run 1 saves a fact to `MEMORY.md`, and a fresh run 2 (no `resume`) answers from it. Six start a real parent `xpi` on haiku (the built CLI, `--tools +codemode`). Four run in print mode and pass
+model, no nesting, parallel runs, a steer that changes a running subagent's course, sent through the registry handle and graded by an exact token and a file that must not appear, a `schema` that returns a value, worktree isolation, and agent memory). The isolation case runs on a temp git repository: an isolated agent that writes a file keeps its worktree (the result has path, branch and the changed file, the file is in the worktree, the main checkout is clean), and an isolated read-only agent leaves no worktree or branch. The memory case uses `memory: project` in a temp repository (never `~/.claude`): run 1 saves a fact to `MEMORY.md`, and a fresh run 2 (no `resume`) answers from it. Seven start a real parent `xpi` on haiku (the built CLI, `--tools +codemode`). Five run in print mode and pass
 `run_in_background: false`, since print mode would exit before a background result arrived: a given script, the model
-deciding to delegate, the model asking for a structured result with `schema`, and the model asking a named agent one
-more thing (it must use `SendMessage` with the name, not a second agent). Two run a long-lived `xpi --mode rpc` parent:
+deciding to delegate, the model asking for a structured result with `schema`, the model asking a named agent one
+more thing (it must use `SendMessage` with the name, not a second agent), and a fork (main is told a code word and
+must not put it in the fork's prompt; the fork answers from the copied conversation and its first request must read
+main's prompt cache). Two run a long-lived `xpi --mode rpc` parent:
 the background case (the script's `codemode` call must return "moved to the background", main's turn must end while the
 agent still runs, the result message must start a new turn, and main's final answer must contain the token the script
 computed) and the saved-workflow case (main must run a fitting saved workflow through the `Workflow` tool, and the
@@ -609,7 +639,7 @@ your settings say, and every case checks that every result (or, for the parent c
 parent and its children) ran on haiku. A case running over 5 minutes is aborted and its children stopped. Results go
 to `evals/results/`; the runs worth keeping are committed as a record.
 
-Children are `xpi --mode rpc` and codemode-only by default. Last run (xpi 1.5.1, 2026-11-10, one run): 21/21, $0.009 in all, 31 s wall; the new parent cases (structured result, saved workflow, named agent) each 3/3 at about $0.0015 a run. Before that (pi 1.5.0, v3b, `--runs 3`): 51/51 over the 17 cases of the time, $0.037 in all, 94 s wall; the background case 3/3 at $0.001 and about 14 s per run, the isolation case 3/3 at $0.0008 and about 11 s, the memory case 3/3 at $0.0011 and about 12 s. Earlier (v2): 39/39 over 3 runs for the 13 original cases, $0.027 in all; the steer case passed 11/13 over two batches (the miss: haiku batched both steps into one codemode script, so there was nothing left to steer; $0.0005 per run). The first version of the suite found a bug that the fake-pi
+Children are `xpi --mode rpc` and codemode-only by default. Last run (xpi 1.5.1, 2026-11-10, one run): 22/22, $0.009 in all, 32 s wall; the new parent cases (structured result, saved workflow, named agent, fork) each 3/3 at $0.0015 to $0.002 a run. Before that (pi 1.5.0, v3b, `--runs 3`): 51/51 over the 17 cases of the time, $0.037 in all, 94 s wall; the background case 3/3 at $0.001 and about 14 s per run, the isolation case 3/3 at $0.0008 and about 11 s, the memory case 3/3 at $0.0011 and about 12 s. Earlier (v2): 39/39 over 3 runs for the 13 original cases, $0.027 in all; the steer case passed 11/13 over two batches (the miss: haiku batched both steps into one codemode script, so there was nothing left to steer; $0.0005 per run). The first version of the suite found a bug that the fake-pi
 tests had missed (a run could go past `maxTurns` and still be reported `completed`), fixed since. Two checks depend on
 the model or on timing and could fail without a bug: `maxTurns` needs haiku to call a tool on its first turn, and the
 parallel case needs wall time under 0.7 × the summed run times.

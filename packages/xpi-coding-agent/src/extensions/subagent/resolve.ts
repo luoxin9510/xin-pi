@@ -39,7 +39,8 @@ export interface ChildSpec {
 	cwd: string;
 	// Two prompt-cache regions. `head` (--system-prompt) is the same text for every agent type; the child puts the
 	// project context after it. `tail` (--system-prompt-tail) is this agent's own, volatile part and comes last.
-	systemPrompt: { head: string; tail: string };
+	// A fork has none: its session holds main's system prompt.
+	systemPrompt?: { head: string; tail: string };
 	// Children with the same key send the same start of a request (tools, then the head and the project context), so
 	// one can read what another wrote to the provider's prompt cache (stagger.ts).
 	prefixKey: string;
@@ -282,7 +283,7 @@ export function resolveChild(
 	config: Config,
 	parent: ParentContext,
 	options: ResolveOptions = {},
-): ChildSpec {
+): ChildSpec & { systemPrompt: { head: string; tail: string } } {
 	const model = resolveModel(input, def, config, parent);
 	const thinking = input.effort ?? def.effort ?? parent.thinking;
 	const codemode = config.childCodemode === "only" && def.codemode !== false;

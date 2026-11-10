@@ -22,7 +22,7 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
 - Two built-in extensions, registered in `coding-agent/src/extensions/index.ts` and not replaceable:
   - `subagent` (`src/extensions/subagent/`, off with `-builtin:subagent`): the `Agent`, `SendMessage` and `Workflow` tools
     for codemode scripts, the script helpers (`agent`, `parallel`, `pipeline`, `phase`, `log`), saved workflows
-    (`/<name>`, `/workflows`), the panel, `/subagents`, the `--agents` flag. Settings namespace `subagent.*`, env `XPI_SUBAGENT_*`, branches `subagent/<id>`. It was the separate
+    (`/<name>`, `/workflows`), the `fork` agent type and `/subtask`, the panel, `/subagents`, the `--agents` flag. Settings namespace `subagent.*`, env `XPI_SUBAGENT_*`, branches `subagent/<id>`. It was the separate
     extension pi-pipipi. User docs: [subagent.md](../packages/xpi-coding-agent/docs/subagent.md); porting contracts:
     [subagent-porting.md](../packages/xpi-coding-agent/docs/subagent-porting.md).
   - `upstream` (`src/extensions/upstream/`, off with `-builtin:upstream`): `/upstream`, see below.
@@ -188,7 +188,7 @@ files, the child's session file), never on model wording, and never start a test
 | `npm run test:subagent:real` | `real/*`: the extension in-process, children are the built xpi on real haiku | `npm run build`, auth |
 | `npm run test:subagent:parent` | `parent/*`: a real `xpi --mode rpc` parent, background scripts, `/subagents stop` | `npm run build`, auth |
 | `npm run test:subagent:tui` | `tui/*`: interactive xpi in a pty (node-pty + headless xterm): panel, screen, keys | `npm run build`, auth |
-| `npm run test:subagent:evals -- --runs 3` | `evals/`: 21 cases on haiku, graded on structure | `npm run build`, auth |
+| `npm run test:subagent:evals -- --runs 3` | `evals/`: 22 cases on haiku, graded on structure | `npm run build`, auth |
 | `npm run test:subagent:stress -- --calls 20 --limit 20` | `stress/`: 20 concurrent children | `npm run build`, auth, about 4 GB of memory |
 | `npm run test:subagent:cache` | `cache/`: what the provider's prompt cache reuses between agent types, a worktree child and a memory edit, siblings at once with `staggerStart` off and on, plus a payload dump | `npm run build`, auth |
 | `npm run test:upstream:real` | `/upstream` on the built xpi in rpc mode, Claude Haiku 5.5 | `npm run build`, auth |

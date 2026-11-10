@@ -108,9 +108,12 @@ export function runChild(
 	const tmp = mkdtempSync(join(tmpdir(), "subagent-"));
 	const systemPromptFile = join(tmp, "system-prompt.md");
 	const systemPromptTailFile = join(tmp, "system-prompt-tail.md");
-	writeFileSync(systemPromptFile, spec.systemPrompt.head);
-	writeFileSync(systemPromptTailFile, spec.systemPrompt.tail);
-	const argv = [...spec.args, "--system-prompt", systemPromptFile, "--system-prompt-tail", systemPromptTailFile];
+	const argv = [...spec.args];
+	if (spec.systemPrompt) {
+		writeFileSync(systemPromptFile, spec.systemPrompt.head);
+		writeFileSync(systemPromptTailFile, spec.systemPrompt.tail);
+		argv.push("--system-prompt", systemPromptFile, "--system-prompt-tail", systemPromptTailFile);
+	}
 	// A call with `schema`: the child's subagent extension registers StructuredOutput with it (structured-output.ts).
 	let env = spec.env;
 	if (spec.schema) {

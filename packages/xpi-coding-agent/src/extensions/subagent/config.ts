@@ -9,6 +9,7 @@ export interface Config {
 	piCommand?: string; // unset: children run the build of this process (invocation.ts)
 	childCodemode: "only" | "inherit";
 	backgroundScripts: boolean; // a script that starts an Agent moves to the background
+	fork: boolean; // the "fork" agent type and /subtask
 	staggerStart: boolean; // siblings with the same prompt prefix wait for the first one's response to begin (stagger.ts)
 	shutdownGraceMs: number; // how long a stopped child may take to shut down (SIGTERM) before SIGKILL
 	panelLingerMs: number; // how long a finished subagent stays in the panel
@@ -72,6 +73,9 @@ export function readConfig(raw: unknown): Config {
 	if (typeof backgroundScripts !== "boolean")
 		throw new Error(`subagent.backgroundScripts must be true or false, got ${JSON.stringify(backgroundScripts)}`);
 
+	const fork = r.fork ?? true;
+	if (typeof fork !== "boolean") throw new Error(`subagent.fork must be true or false, got ${JSON.stringify(fork)}`);
+
 	const staggerStart = r.staggerStart ?? false;
 	if (typeof staggerStart !== "boolean")
 		throw new Error(`subagent.staggerStart must be true or false, got ${JSON.stringify(staggerStart)}`);
@@ -81,6 +85,7 @@ export function readConfig(raw: unknown): Config {
 		shutdownGraceMs,
 		backgroundScripts,
 		staggerStart,
+		fork,
 		models: { ...DEFAULT_MODELS, ...stringMap(r.models, "models") },
 		defaultModel: optionalString(r.defaultModel, "defaultModel") ?? "haiku",
 		toolMap: stringMap(r.toolMap, "toolMap"),

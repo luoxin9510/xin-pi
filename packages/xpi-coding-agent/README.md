@@ -11,6 +11,8 @@ What xin-pi adds to pi:
   keeps going), worktree isolation and agent memory.
 - **Structured output, names and messages**: `schema` on an `Agent` call returns a validated value instead of prose;
   `name` an agent and reach it later with `resume` or `SendMessage` (a steer while it runs, a continue once it ended).
+- **Fork**: `subagent_type: "fork"` or `/subtask <task>` starts a subagent as a copy of the conversation; its first
+  request reads the main session's prompt cache.
 - **Workflows**: orchestration scripts saved as `.pi/workflows/<name>.js` in Claude Code's format, with the helpers
   `agent`, `parallel`, `pipeline`, `phase` and `log`; run as `/<name> args` with no model turn, or by the model through
   the `Workflow` tool.

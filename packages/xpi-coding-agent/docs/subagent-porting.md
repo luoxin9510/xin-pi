@@ -160,6 +160,7 @@ instructions (read-only wording when Write or Edit is denied) and the head of `M
 | `ctx.hasUI`, `ctx.ui.notify` | `src/extensions/subagent/index.ts` | gates the panel, discovery warnings and background scripts; false = tool only, no UI, scripts stay in the foreground (print mode exits at turn end) |
 | `ctx.sessionManager.getSessionFile()` / `getSessionId()` | sessions, registry | children run `--no-session`, no resume. The session dir must be writable: the subagent extension writes `subagents/` there and rebuilds its list from it on every `session_start` (startup, reload, resume, new) |
 | `ctx.modelRegistry.getAvailable()` | `/model` picker | type `/model provider/id` only |
+| `SessionManager.forkFrom(file, cwd, dir, { id })` and `appendMessage()` on the result; a session that stores its system prompt and tool declarations, and a child that continues it with `--session-dir` / `--session-id` | fork (`src/extensions/subagent/fork.ts`) | set `subagent.fork: false`; everything else works |
 | `pi.registerFlag("agents", { type: "string" })`, `pi.getFlag("agents")` | `--agents` (`src/extensions/subagent/discovery.ts`, `setCliAgents`) | no agents from the command line; agent files still work |
 | `loadMcpConfig({ agentDir, cwd, projectTrusted })` from the MCP built-in (`src/extensions/mcp/config.ts`) | the configured server names behind an agent file's `mcpServers` (`src/extensions/subagent/resolve.ts`) | pass the names yourself (`ResolveOptions.mcpServers`), or every name warns as not configured |
 
