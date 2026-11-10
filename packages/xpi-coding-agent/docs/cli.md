@@ -120,7 +120,7 @@ pi --tools read,grep,find,ls --print "Review this project"
 See [Settings](settings.md#tools) for configuring the default tool selection.
 
 - `-t`, `--tools <list>`<br>
-  Replaces the default selection with a comma-separated allowlist of built-in, extension, or custom tools. Entries are tool names or patterns where `*` matches any characters. MCP tools are kept unless an entry starts with `mcp__` (see [MCP tools](#mcp-tools)). A list of only `+name` and `-name` entries is not an allowlist; it changes the default selection instead.
+  Replaces the default selection with a comma-separated allowlist of built-in, extension, or custom tools. Entries are tool names or patterns where `*` matches any characters. MCP tools are kept unless an entry starts with `mcp__` (see [MCP tools](#tools)). A list of only `+name` and `-name` entries is not an allowlist; it changes the default selection instead.
 - `-xt`, `--exclude-tools <list>`<br>
   Disables comma-separated tool names or patterns after all other selection options, MCP tools included.
 - `-nbt`, `--no-builtin-tools`<br>
@@ -138,7 +138,7 @@ Default enabled tools are `read`, `bash`, `edit`, and `write`, unless `defaultTo
 pi --tools read,bash,codemode,'mcp__radius__*'
 ```
 
-The MCP resource tools (`list_mcp_resources`, `list_mcp_resource_templates`, `read_mcp_resource`) count as MCP tools. To remove MCP tools, use `--exclude-tools 'mcp__*'` or [`--no-mcp`](#resource-options).
+The MCP resource tools (`list_mcp_resources`, `list_mcp_resource_templates`, `read_mcp_resource`) count as MCP tools. To remove MCP tools, use `--exclude-tools 'mcp__*'` or [`--no-mcp`](#resources).
 
 | Built-in | Purpose |
 |---|---|
@@ -287,7 +287,7 @@ Add `--force` to reinstall Pi when the selected update includes Pi.
 
 #### Custom update command
 
-xpi does not self-update (it is installed from source; rebuild and reinstall, see docs/xin-pi.md), so the setting below has no effect in xpi. Upstream pi: if a wrapper or another package manager provides Pi, set `XPI_SELF_UPDATE_COMMAND` so `pi update` runs its update command:
+xpi does not self-update (reinstall it the way it was installed: `npm install -g xpi-coding-agent@latest`, a newer release binary, or a rebuild from source), so the setting below has no effect in xpi. Upstream pi: if a wrapper or another package manager provides Pi, set `XPI_SELF_UPDATE_COMMAND` so `pi update` runs its update command:
 
 ```sh
 export XPI_SELF_UPDATE_COMMAND="mise use -g npm:{packageName}@{version}"
