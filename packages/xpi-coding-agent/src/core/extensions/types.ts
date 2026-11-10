@@ -22,6 +22,7 @@ import type {
 import type {
 	AnyModel,
 	Api,
+	AssistantMessage,
 	AssistantMessageEvent,
 	AssistantMessageEventStream,
 	ClassifierApi,
@@ -1129,6 +1130,34 @@ export interface MessageUpdateEvent {
 	assistantMessageEvent: AssistantMessageEvent;
 }
 
+/**
+ * Returned by a `message_update` handler. `interrupt` aborts the current model request (not the run),
+ * hides the abandoned attempt from the model, appends `inject` as a hidden custom message and
+ * requests the same turn again. See docs/extensions.md.
+ */
+export interface MessageUpdateEventResult {
+	interrupt?: {
+		/** Reminder text the model sees on the retry. Stored as a custom message with `display: false`. */
+		inject: string;
+	};
+}
+
+/**
+ * Fired when a `message_update` handler interrupted a streaming response, after the abandoned attempt
+ * was hidden and the reminder appended, right before the turn is requested again.
+ */
+export interface StreamInterruptedEvent {
+	type: "stream_interrupted";
+	/** The abandoned assistant message (stopReason "aborted"). It stays in the session file. */
+	message: AssistantMessage;
+	/** The reminder that was appended. */
+	inject: string;
+	/** Interrupts used for the current user prompt, including this one. */
+	count: number;
+	/** Interrupts allowed per user prompt. */
+	limit: number;
+}
+
 /** Fired when a message ends */
 export interface MessageEndEvent {
 	type: "message_end";
@@ -1472,6 +1501,7 @@ export type ExtensionEvent =
 	| TurnEndEvent
 	| MessageStartEvent
 	| MessageUpdateEvent
+	| StreamInterruptedEvent
 	| MessageEndEvent
 	| ToolExecutionStartEvent
 	| ToolExecutionUpdateEvent
@@ -1723,7 +1753,8 @@ export interface ExtensionAPI {
 	on(event: "turn_start", handler: ExtensionHandler<TurnStartEvent>): () => void;
 	on(event: "turn_end", handler: ExtensionHandler<TurnEndEvent, TurnEndEventResult>): () => void;
 	on(event: "message_start", handler: ExtensionHandler<MessageStartEvent>): () => void;
-	on(event: "message_update", handler: ExtensionHandler<MessageUpdateEvent>): () => void;
+	on(event: "message_update", handler: ExtensionHandler<MessageUpdateEvent, MessageUpdateEventResult>): () => void;
+	on(event: "stream_interrupted", handler: ExtensionHandler<StreamInterruptedEvent>): () => void;
 	on(event: "message_end", handler: ExtensionHandler<MessageEndEvent, MessageEndEventResult>): () => void;
 	on(event: "tool_execution_start", handler: ExtensionHandler<ToolExecutionStartEvent>): () => void;
 	on(event: "tool_execution_update", handler: ExtensionHandler<ToolExecutionUpdateEvent>): () => void;

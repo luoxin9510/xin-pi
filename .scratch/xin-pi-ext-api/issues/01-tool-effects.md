@@ -8,7 +8,7 @@ extension tools may declare it, MCP tools derive it from `readOnlyHint`, and an 
 
 **Blocked by:** None (can start immediately)
 
-**Status:** in review
+**Status:** done (PR #34, merged 2026-11-10)
 
 - [x] `effect?: "read" | "write" | "exec"` on the extension `ToolDefinition` and on `AgentTool`, carried through the
       definition wrapper; one exported `ToolEffect` type

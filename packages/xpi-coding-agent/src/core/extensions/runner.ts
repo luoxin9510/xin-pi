@@ -60,6 +60,8 @@ import type {
 	MessageEndEvent,
 	MessageEndEventResult,
 	MessageRenderer,
+	MessageUpdateEvent,
+	MessageUpdateEventResult,
 	ProjectTrustContext,
 	ProjectTrustEvent,
 	ProjectTrustEventResult,
@@ -1205,6 +1207,30 @@ export class ExtensionRunner {
 		}
 
 		return modified ? currentMessage : undefined;
+	}
+
+	/** Emits `message_update`; returns the first `interrupt` a handler asked for. Later handlers still run. */
+	async emitMessageUpdate(event: MessageUpdateEvent): Promise<MessageUpdateEventResult["interrupt"]> {
+		const ctx = this.createContext();
+		let interrupt: MessageUpdateEventResult["interrupt"];
+
+		for (const { ext, handlers } of snapshotEventHandlers(this.extensions, "message_update")) {
+			for (const handler of handlers) {
+				try {
+					const result = (await handler(event, ctx)) as MessageUpdateEventResult | undefined;
+					interrupt ??= result?.interrupt;
+				} catch (err) {
+					this.emitError({
+						extensionPath: ext.path,
+						event: "message_update",
+						error: err instanceof Error ? err.message : String(err),
+						stack: err instanceof Error ? err.stack : undefined,
+					});
+				}
+			}
+		}
+
+		return interrupt;
 	}
 
 	async emitToolResult(event: ToolResultEvent): Promise<ToolResultEventResult | undefined> {

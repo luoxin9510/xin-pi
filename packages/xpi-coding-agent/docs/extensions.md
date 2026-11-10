@@ -755,7 +755,7 @@ Host integrations that construct `TurnEndEvent` values must provide `messageEntr
 Fired for message lifecycle updates.
 
 - `message_start` and `message_end` fire for every message, including user, assistant, tool-result, and custom messages.
-- `message_update` fires for assistant streaming updates.
+- `message_update` fires for assistant streaming updates. A handler may return `{ interrupt: { inject } }`; see [Interrupting a stream](#interrupting-a-stream).
 - `message_end` handlers can return `{ message }` to replace the finalized message. The replacement must keep the same `role`.
 
 ```typescript
@@ -785,6 +785,50 @@ pi.on("message_end", async (event, ctx) => {
   };
 });
 ```
+
+##### Interrupting a stream
+
+A `message_update` handler can stop a response while it streams and have the model answer again, for example when the
+output breaks a rule:
+
+```typescript
+pi.on("message_update", async (event) => {
+  if (JSON.stringify(event.message.content).includes("TODO")) {
+    return { interrupt: { inject: "Do not leave TODO markers. Finish the work." } };
+  }
+});
+
+pi.on("stream_interrupted", async (event) => {
+  // event.message (the abandoned attempt), event.inject, event.count, event.limit
+});
+```
+
+What happens on an interrupt:
+
+1. The current model request is aborted. The run is not: `session.abort()` semantics do not apply, and a user abort
+   during the retried request still ends the run.
+2. The abandoned assistant message stays in the session file with `stopReason: "aborted"`, but is hidden from model
+   context (a persistent `context_edit`, the same mechanism as error retry and overflow recovery). `/tree` and export
+   still show it.
+3. `inject` is appended as a hidden custom message (`customType: "stream_interrupt"`, `display: false`; the model sees
+   it as a user message), and the same turn is requested again.
+4. Only discard: the partial output is never sent back to the model (Claude rejects a request that ends with an
+   assistant message).
+
+Rules:
+
+- No tool call of the abandoned attempt runs. Tool calls start only after the assistant message has ended, and an
+  aborted message ends the loop before any tool starts. If a provider still completes the response after the abort, the
+  loop marks it `aborted`.
+- The first `interrupt` of an attempt wins (across handlers and updates). Later updates of the same attempt are ignored.
+- At most 3 interrupts per user prompt. After that interrupt results are ignored and the stream finishes. A new user
+  prompt resets the count.
+- The abandoned attempt's usage stays in the session cost totals. An interrupt does not count as an error retry: no
+  `auto_retry_start`, and `retryAttempt` is unchanged.
+- `agent_end` of the interrupted run reports `willRetry: true`.
+- `stream_interrupted` fires after the attempt is hidden and the reminder appended, before the turn is requested again.
+  Fields: `message`, `inject`, `count` (interrupts used for this prompt, including this one) and `limit` (3). It is also
+  emitted to `session.subscribe()` listeners with the same fields.
 
 #### tool_execution_start / tool_execution_update / tool_execution_end
 

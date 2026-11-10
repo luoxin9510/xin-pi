@@ -277,6 +277,15 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
 	prepareRequest?: PrepareRequest;
 
 	/**
+	 * Called right before each provider request with a function that aborts only that request.
+	 * The aborted attempt ends with stopReason "aborted" and the run ends as after any aborted
+	 * response, but the run's own signal is untouched. The function does nothing once the request
+	 * has finished. If the provider still delivers a complete response after the request was
+	 * aborted, the loop marks it "aborted", so none of its tool calls run.
+	 */
+	onRequestStart?: (abortRequest: () => void) => void;
+
+	/**
 	 * Called after `turn_end` when the loop will continue, immediately before the next turn starts.
 	 * Return replacement context/model/thinking state or messages to append to affect that turn.
 	 * Return undefined to keep using the current context/config.
