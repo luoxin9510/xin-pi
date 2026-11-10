@@ -199,7 +199,10 @@ export function childSetup(dir: string, agentId: string) {
 		model: `${model.provider}/${model.modelId}`,
 		thinking: entries.filter((e) => e.type === "thinking_level_change").at(-1)!.thinkingLevel as string,
 		tools: (sys.toolsAdded as { name: string }[]).map((t) => t.name).sort(),
-		prompt: sys.sections.preamble as string, // agent body, preloaded skills and the environment block
+		// The shared head (the same for every agent type; the codemode line when the child has codemode) and the
+		// agent's own part, which the child puts last as <instructions>: body, preloaded skills, environment block.
+		head: sys.sections.preamble as string,
+		prompt: (sys.sections.instructions as string).replace(/^<instructions>\n|\n<\/instructions>$/g, ""),
 		hasContextFiles: "project_context" in sys.sections,
 	};
 }

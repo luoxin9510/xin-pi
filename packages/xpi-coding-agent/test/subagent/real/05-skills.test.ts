@@ -28,7 +28,7 @@ test("skills are found in order, recursively, through symlinks, and preloaded af
 
 	const t = await loadTool({}, { cwd: sub, persist: join(s.root, "sessions") });
 	const r = await t.result({ subagent_type: "x", prompt: REPLY_OK });
-	const prompt = childSetup(t.sessionDir!, r.agentId).prompt;
+	const { head, prompt } = childSetup(t.sessionDir!, r.agentId);
 
 	const order = [
 		"AGENT BODY",
@@ -54,10 +54,8 @@ test("skills are found in order, recursively, through symlinks, and preloaded af
 	assert.match(prompt, /Review carefully\./);
 	assert.match(prompt, /Linked skill, matched by folder name\./);
 	assert.doesNotMatch(prompt, /Inside another skill/);
-	assert.match(
-		prompt,
-		/\n# Environment\nWorking directory: .*app\nPlatform: \w+\nDate: \d{4}-\d{2}-\d{2}\n\nUse the `codemode` tool[^\n]*$/,
-	);
+	assert.match(prompt, /\n# Environment\nWorking directory: .*app\nPlatform: \w+\nDate: \d{4}-\d{2}-\d{2}$/);
+	assert.match(head, /\n\nUse the `codemode` tool[^\n]*$/, "the codemode line is in the shared head");
 	assert.deepEqual(r.warnings, ['skill "inner" not found', 'skill "ghost" not found']);
 	assert.equal(r.status, "completed", "missing skills do not stop the run");
 });
@@ -82,9 +80,10 @@ test("the system prompt replaces pi's default", async () => {
 	const s = sandbox();
 	const t = await loadTool({}, { cwd: s.repo, persist: join(s.root, "sessions") });
 	const r = await t.result({ prompt: REPLY_OK });
-	const prompt = childSetup(t.sessionDir!, r.agentId).prompt;
+	const { head, prompt } = childSetup(t.sessionDir!, r.agentId);
+	assert.match(head, /^You are a subagent/);
 	assert.match(prompt, /^[\s\S]+\n\n# Environment\nWorking directory: /);
-	assert.doesNotMatch(prompt, /pi documentation|Pi documentation|Available tools:/);
+	assert.doesNotMatch(head + prompt, /pi documentation|Pi documentation|Available tools:/);
 });
 
 test("an unreadable skills directory counts as empty: the skill is reported not found", async () => {
