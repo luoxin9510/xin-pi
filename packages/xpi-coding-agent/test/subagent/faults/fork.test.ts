@@ -172,7 +172,7 @@ test("fork is a reserved type: listed for the model, and an agent file cannot ta
 	s.write(join(s.repo, ".pi/agents/fork.md"), agentFile("name: fork\ndescription: my own fork", "Mine."));
 	s.scenario(ok());
 	const t = await loadTool({}, { cwd: s.repo, sessionFile, sessionId: "fork-reserved" });
-	assert.match(t.tool.description, /- fork: A copy of you: it starts with this whole conversation/);
+	assert.match(t.tool.description, /- fork: A copy of you, with this whole conversation and your model/);
 	assert.doesNotMatch(t.tool.description, /my own fork/);
 	assert.ok(
 		t.notes.some((n) => /skipped agent file .*fork\.md: "fork" is a reserved agent type/.test(n)),

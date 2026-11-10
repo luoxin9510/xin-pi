@@ -15,20 +15,22 @@ const parameters = Type.Object({
 });
 type SendInput = Static<typeof parameters>;
 
-// An Agent result, or for a steer only `status: "running"`, `agentId` and `delivered`.
-const outputSchema = Type.Object({
-	...Type.Partial(agentOutput).properties,
-	status: agentOutput.properties.status,
-	agentId: Type.String(),
-	delivered: Type.Optional(Type.String({ description: '"steer" when the agent was running and got the message' })),
-});
+// What the codemode declaration shows of the result: an Agent result (see Agent's declaration), or for a steer only
+// `status: "running"`, `agentId` and `delivered`. The declaration is in every prompt, so it does not repeat Agent's.
+const outputSchema = Type.Object(
+	{
+		status: agentOutput.properties.status,
+		agentId: Type.String(),
+		delivered: Type.Optional(Type.String({ description: '"steer": the agent was running and got the message' })),
+		output: Type.Optional(Type.String()),
+	},
+	{ description: "For a finished agent, every field of an Agent result" },
+);
 
 export const SEND_MESSAGE_DESCRIPTION = [
 	"Send a message to a subagent this session started, by name (the `name` of its Agent call) or agentId.",
-	'A running agent gets it as a steer, taken after its current step: the call returns at once with status "running"',
-	'and `delivered: "steer"`; its answer is part of the result its Agent call (or its end message) gives.',
-	"A finished agent (completed, partial, failed or stopped) is continued from its session with the message, exactly",
-	"like Agent({ resume, prompt: message }): the call returns that Agent result, under the same background rules.",
+	'A running agent takes it as a steer after its current step: the call returns status "running" and `delivered: "steer"`.',
+	"A finished agent is continued from its session, like Agent({ resume, prompt: message }): the call returns that result.",
 ].join("\n");
 
 export function sendMessageTool(agent: ReturnType<typeof agentTool>) {

@@ -48,7 +48,7 @@ test("precedence across the five sources, closest project dir first, recursive s
 	);
 
 	assert.match(t.tool.description, /- a: sub-pi\n/);
-	assert.match(t.tool.description, /- Plan: Read-only software architect/);
+	assert.match(t.tool.description, /- Plan: Read-only architect/);
 });
 
 test("without a repo only cwd is scanned", async () => {

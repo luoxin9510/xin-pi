@@ -27,45 +27,40 @@ import {
 
 const DEFAULT_AGENT = "general-purpose";
 
+// The descriptions are part of every prompt (the codemode declaration of the tool): one short line each.
 const parameters = Type.Object({
-	description: Type.String({ description: "Short (3-5 word) label for the task, shown in progress" }),
-	prompt: Type.String({ description: "The full task for the agent. It sees nothing else from this session." }),
-	subagent_type: Type.Optional(Type.String({ description: `Agent to run. Default "${DEFAULT_AGENT}".` })),
+	description: Type.String({ description: "3-5 word label, shown in progress" }),
+	prompt: Type.String({ description: "The full task. The agent sees nothing else of this session." }),
+	subagent_type: Type.Optional(Type.String({ description: `Default "${DEFAULT_AGENT}".` })),
 	model: Type.Optional(
 		Type.String({
 			description:
-				'Model override: "opus", "sonnet", "haiku", "fable", "inherit" (the parent\'s model) or a pi model pattern. Default: the agent\'s model, else haiku.',
+				'Override: "opus", "sonnet", "haiku", "fable", "inherit" (yours) or a model pattern. Default: the agent\'s model, else haiku.',
 		}),
 	),
 	effort: Type.Optional(StringEnum(EFFORTS, { description: "Thinking level override" })),
-	resume: Type.Optional(
-		Type.String({
-			description:
-				"agentId from an earlier result, or the agent's name, to continue that agent's session. subagent_type may be omitted.",
-		}),
-	),
+	resume: Type.Optional(Type.String({ description: "An agentId or a name: continue that agent's session." })),
 	run_in_background: Type.Optional(
 		Type.Boolean({
 			description:
-				'true: return at once with status "running"; the agent\'s result arrives later as a message. false: wait for the agent and keep this script in the foreground. Omitted: wait for the agent, and the script moves to the background.',
+				'true: return at once with status "running"; the result arrives as a message. false: keep the script in the foreground.',
 		}),
 	),
 	isolation: Type.Optional(
 		Type.String({
 			description:
-				'"worktree": run the agent in its own git worktree on its own branch. Unchanged, it is removed when the run ends; with changes it is kept and the result names its path, branch, changed files and commits. Default: the agent file\'s isolation, else none.',
+				'"worktree": the agent works in its own git worktree and branch, kept only when it changed something (the result\'s `worktree`).',
 		}),
 	),
 	schema: Type.Optional(
 		Type.Record(Type.String(), Type.Unknown(), {
 			description:
-				'JSON Schema (type "object" at the top) for the result. The agent returns a value matching it: the result\'s `structured` holds the value and `output` its JSON text. After 5 invalid attempts, or when the agent ends without one, the status is "failed".',
+				'JSON Schema (type "object") for the result: `structured` holds the value, `output` its JSON text. Status "failed" after 5 invalid attempts.',
 		}),
 	),
 	name: Type.Optional(
 		Type.String({
-			description:
-				"A name for the agent (letters, digits, _ and -), unique in this session. Use it as `resume` and as `to` in SendMessage.",
+			description: "Unique name (letters, digits, _ and -), to use as `resume` or in SendMessage.",
 		}),
 	),
 });
@@ -112,21 +107,48 @@ export const outputSchema = Type.Object({
 		),
 	),
 });
+// What the codemode declaration shows of the result. The value is the one `outputSchema` describes; the declaration
+// is in every prompt, so it names the fields a script uses and leaves the rest to docs/subagent.md.
+export const declaredOutput = Type.Object({
+	status: StringEnum([...STATUSES, "running"] as const),
+	agentId: Type.String({ description: "Pass as `resume` to continue this agent" }),
+	agentType: Type.String(),
+	output: Type.String({ description: "The agent's last message; with `schema`, the JSON text of `structured`" }),
+	structured: Type.Optional(Type.Unknown()),
+	model: Type.String(),
+	usage: Type.Object({ input: Type.Number(), output: Type.Number(), cost: Type.Object({ total: Type.Number() }) }),
+	turns: Type.Number(),
+	durationMs: Type.Number(),
+	warnings: Type.Array(Type.String()),
+	error: Type.Optional(Type.String()),
+	worktree: Type.Optional(
+		Type.Object(
+			{
+				changed: Type.Boolean(),
+				path: Type.Optional(Type.String()),
+				branch: Type.Optional(Type.String()),
+				files: Type.Optional(Type.Array(Type.String())),
+				commits: Type.Optional(Type.Array(Type.String())),
+				note: Type.Optional(Type.String()),
+			},
+			{ description: 'With isolation "worktree". changed false: it was removed' },
+		),
+	),
+});
+
 export type AgentResult = Omit<Static<typeof outputSchema>, "status"> & { status: Status | "running" };
 
 const BACKGROUND_RULES = [
-	"Background rules. By default the first Agent call in a codemode script moves the whole script to the background: the",
-	"codemode call returns to you at once, the script keeps running, and its return value arrives later as a message (do",
-	"not wait or poll; end your turn or do other work). `run_in_background: false` keeps the script in the foreground:",
-	"you wait and the codemode call returns the script's own result. `run_in_background: true` makes this call return",
-	'at once with status "running" and the agentId (output is empty); the agent finishes on its own and you get its',
-	"output, status and cost as a message. It does not move the script to the background.",
+	"Background: the first Agent call moves the whole script to the background. The codemode call returns at once and the",
+	"script's return value arrives later as a message: do not wait or poll. `run_in_background: false` keeps the script in",
+	'the foreground. `run_in_background: true` detaches only that agent: the call returns status "running" and the',
+	"agent's result arrives as a message.",
 ];
 
 // subagent.backgroundScripts: false: scripts always wait; only an explicit `true` detaches an agent.
 const DETACHED_RULES = [
-	'Scripts wait for their agents. `run_in_background: true` makes a call return at once with status "running" and the',
-	"agentId (output is empty); the agent finishes on its own and you get its output, status and cost as a message.",
+	'Scripts wait for their agents. `run_in_background: true` detaches an agent: the call returns status "running" and',
+	"its result arrives as a message.",
 ];
 
 // Print mode (no UI): pi exits when the turn ends, so nothing runs in the background and the model is not told of it.
@@ -144,14 +166,12 @@ export function describeAgents(
 	].join("\n");
 	return [
 		"Run a subagent: a separate pi session with its own system prompt, tools and model. It sees only `prompt`, so",
-		"write a complete task. The result's `output` is the agent's final message; filter it before returning it.",
-		"Run independent agents in parallel with Promise.all.",
-		'Pass `schema` (a JSON Schema with type "object") to get the result as a value in `structured` instead of prose.',
-		"Pass `name` to reach the agent later by that name: `resume: name`, or SendMessage({ to: name, message }).",
-		"Script helpers over this tool: `agent(prompt, { label?, schema?, type?, model?, effort?, isolation? })` resolves to",
-		"the output text (with `schema`, the value), or to null when the agent failed or was stopped; `parallel([fn or promise...])` and",
-		"`pipeline(items, (item, i) => ...)` run all at once and resolve to results in order, null for a failed one;",
-		"`phase(title, fn?)` names the agents started from there for the panel; `log(text)` shows a progress line.",
+		"write a complete task. The result's `output` is its final message. Independent agents run in parallel with Promise.all.",
+		'`schema` (a JSON Schema, type "object") returns a value in `structured`. `name` lets you reach the agent again:',
+		"`resume: name`, or SendMessage({ to: name, message }), which steers it while it runs and continues it afterwards.",
+		"Helpers: `agent(prompt, { label?, schema?, type?, model?, effort?, isolation? })` resolves to the output text (with",
+		"`schema`, the value); `parallel([fn or promise...])` and `pipeline(items, (item, i) => ...)` to results in order. A",
+		"failed or stopped agent gives null. `phase(title, fn?)` groups agents in the panel; `log(text)` shows a progress line.",
 		"",
 		...(!hasUI ? PRINT_RULES : backgroundScripts ? BACKGROUND_RULES : DETACHED_RULES),
 		"",
@@ -361,7 +381,7 @@ export function agentTool(getConfig: () => Config, description: string, deliver:
 		exposure: "codemode" as const,
 		description,
 		parameters,
-		outputSchema,
+		outputSchema: declaredOutput,
 		async execute(
 			toolCallId: string,
 			params: AgentInput,

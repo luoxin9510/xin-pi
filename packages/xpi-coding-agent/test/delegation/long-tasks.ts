@@ -67,7 +67,7 @@ function longTask(feature: Feature): Task {
 		timeoutMs: 45 * 60_000,
 		prompt: [
 			`Implement the feature specified in ${feature.spec} (ticket: ${feature.ticket}): ${feature.summary}`,
-			`The work is in ${PACKAGE}/src/extensions/subagent/. The tests for the feature are already in ${PACKAGE}/test/subagent/ and fail now.`,
+			`Most of the work is in ${PACKAGE}/src/extensions/subagent/. The tests for the feature are already in ${PACKAGE}/test/subagent/ and fail now.`,
 			`You are done when \`npm run test:subagent\`, run in ${PACKAGE}, passes entirely. Update ${PACKAGE}/docs/subagent.md for what you add.`,
 			"Do not edit anything under test/. Do not run npm install, do not start real-model tests, do not commit or push.",
 		].join("\n"),
@@ -143,5 +143,27 @@ export const longTasks: Task[] = [
 		spec: ".scratch/xin-pi-workflows/05-inert-fields.md",
 		ticket: ".scratch/xin-pi-workflows/issues/05-inert-fields.md",
 		summary: "the agent-file fields mcpServers and background, and the --agents command line flag.",
+	}),
+	// Larger features, added to find work the worker model cannot finish alone.
+	longTask({
+		name: "long: workflows",
+		pr: 11,
+		spec: ".scratch/xin-pi-workflows/02-workflows.md",
+		ticket: ".scratch/xin-pi-workflows/issues/02-workflows.md",
+		summary: "saved workflows: script helpers, /name commands, the Workflow tool and saving a script from the panel.",
+	}),
+	longTask({
+		name: "long: relaunch and pause",
+		pr: 22,
+		spec: ".scratch/xin-pi-workflows/07-relaunch-and-pause.md",
+		ticket: ".scratch/xin-pi-workflows/issues/07-relaunch-and-pause.md",
+		summary: "recorded workflow runs, relaunching a run from its saved results, and pausing and resuming a script.",
+	}),
+	longTask({
+		name: "long: structured output",
+		pr: 10,
+		spec: ".scratch/xin-pi-workflows/01-structured-output.md",
+		ticket: ".scratch/xin-pi-workflows/issues/01-structured-output.md",
+		summary: "the schema parameter of the Agent tool: a subagent returns a value that matches a JSON Schema.",
 	}),
 ];
