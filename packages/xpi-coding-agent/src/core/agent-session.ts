@@ -156,7 +156,7 @@ import {
 	normalizeBuildSystemPromptOptions,
 } from "./system-prompt.ts";
 import { type BashOperations, createLocalBashOperations } from "./tools/bash.ts";
-import { createAllToolDefinitions, FileStateStore } from "./tools/index.ts";
+import { createAllToolDefinitions, FileStateStore, SchemeResolver } from "./tools/index.ts";
 import { createToolDefinitionFromAgentTool, resolveToolEffect } from "./tools/tool-definition-wrapper.ts";
 import { addUsageToTotals, combineUsage, createUsageTotals } from "./usage-totals.ts";
 import {
@@ -1907,6 +1907,10 @@ export class AgentSession {
 			hiddenTools: [...this._hiddenDeclarations],
 			toolSnippets,
 			toolGuidelines: Object.fromEntries(this._toolPromptGuidelines),
+			schemes: this._resourceLoader
+				.getExtensions()
+				.runtime.schemes.list()
+				.map(({ name, handler }) => ({ name, describe: handler.describe })),
 		});
 	}
 
@@ -3992,6 +3996,8 @@ export class AgentSession {
 		const autoResizeImages = this.settingsManager.getImageAutoResize();
 		const shellCommandPrefix = this.settingsManager.getShellCommandPrefix();
 		const shellPath = this.settingsManager.getShellPath();
+		const extensionsResult = this._resourceLoader.getExtensions();
+		const schemes = new SchemeResolver(extensionsResult.runtime.schemes, () => this._extensionRunner.createContext());
 		const baseToolDefinitions = this._baseToolsOverride
 			? Object.fromEntries(
 					Object.entries(this._baseToolsOverride).map(([name, tool]) => [
@@ -4001,6 +4007,7 @@ export class AgentSession {
 				)
 			: createAllToolDefinitions(this._cwd, {
 					fileState: this._fileState,
+					schemes,
 					read: { autoResizeImages },
 					bash: { commandPrefix: shellCommandPrefix, shellPath },
 				});
@@ -4009,7 +4016,6 @@ export class AgentSession {
 			Object.entries(baseToolDefinitions).map(([name, tool]) => [name, tool as ToolDefinition]),
 		);
 
-		const extensionsResult = this._resourceLoader.getExtensions();
 		if (options.flagValues) {
 			for (const [name, value] of options.flagValues) {
 				extensionsResult.runtime.flagValues.set(name, value);

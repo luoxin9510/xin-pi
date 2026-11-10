@@ -18,6 +18,7 @@ import type { ExecOptions } from "../exec.ts";
 import { execCommand } from "../exec.ts";
 import { type McpServerConfig, McpServerRegistry, validateMcpServerConfig } from "../mcp-servers.ts";
 import { readPiManifest } from "../pi-manifest.ts";
+import { SchemeRegistry, validateScheme } from "../schemes.ts";
 import { createSyntheticSourceInfo, getSyntheticPathSource, isSyntheticPath } from "../source-info.ts";
 import { time } from "../timings.ts";
 import type { ModelRouteRequest, VirtualModelDefinition } from "../virtual-models.ts";
@@ -35,6 +36,7 @@ import type {
 	MessageRenderer,
 	ProviderConfig,
 	RegisteredCommand,
+	SchemeHandler,
 	ToolDefinition,
 	ToolRendererResolver,
 } from "./types.ts";
@@ -191,6 +193,7 @@ export function createExtensionRuntime(): ExtensionRuntime {
 		pendingProviderRegistrations: [],
 		pendingNativeProviderRegistrations: [],
 		mcpServers: new McpServerRegistry(),
+		schemes: new SchemeRegistry(),
 		pendingVirtualModelRegistrations: [],
 		createContext: notInitialized,
 		assertActive,
@@ -254,6 +257,8 @@ function createExtensionAPI(
 	eventBus: EventBus,
 ): { api: ExtensionAPI; commit: () => void; discard: () => void } {
 	const pendingFlagValues = new Map<string, boolean | string>();
+	/** Names of the schemes registered while loading, applied to the runtime on commit. */
+	const loadingSchemes = new Set<string>();
 	const pendingRuntimeChanges: Array<() => void> = [];
 	const loadingUnsubscribers: Array<() => void> = [];
 	let state: "loading" | "active" | "failed" = "loading";
@@ -269,6 +274,7 @@ function createExtensionAPI(
 	};
 	const clearPending = () => {
 		pendingFlagValues.clear();
+		loadingSchemes.clear();
 		pendingRuntimeChanges.length = 0;
 		loadingUnsubscribers.length = 0;
 	};
@@ -494,6 +500,20 @@ function createExtensionAPI(
 			if (clash) throw new Error(`MCP server "${name}" conflicts with registered server "${clash.name}"`);
 			const server = { name, config: structuredClone(validated), extensionPath: extension.path };
 			applyRuntimeChange(() => runtime.mcpServers.register(server));
+		},
+
+		registerScheme(name: string, handler: SchemeHandler) {
+			assertActive();
+			const problem = validateScheme(name, handler);
+			if (problem) throw new Error(`Invalid scheme registered by extension "${extension.path}": ${problem}`);
+			const owner = loadingSchemes.has(name) ? extension.path : runtime.schemes.get(name)?.extensionPath;
+			if (owner !== undefined) {
+				throw new Error(
+					`Scheme "${name}" registered by extension "${extension.path}" is already registered by extension "${owner}"`,
+				);
+			}
+			if (state === "loading") loadingSchemes.add(name);
+			applyRuntimeChange(() => runtime.schemes.register({ name, handler, extensionPath: extension.path }));
 		},
 
 		unregisterMcpServer(name: string) {

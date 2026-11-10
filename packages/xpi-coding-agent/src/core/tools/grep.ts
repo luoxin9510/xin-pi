@@ -7,6 +7,7 @@ import { ensureTool } from "../../utils/tools-manager.ts";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
 import { resolveToCwd } from "./path-utils.ts";
 import { grepRenderers } from "./renderers/grep.ts";
+import type { SchemeResolver } from "./scheme-resolver.ts";
 import { type TypeBoxAgentTool, wrapToolDefinition } from "./tool-definition-wrapper.ts";
 import {
 	DEFAULT_MAX_BYTES,
@@ -71,6 +72,8 @@ function decodeRgText(data: { text?: string; bytes?: string } | undefined): stri
 }
 
 export interface GrepToolOptions {
+	/** Resolves `name://...` paths of registered schemes (`registerScheme`): a file-backed one is searched at its located path, a virtual one fails. */
+	schemes?: SchemeResolver;
 	/** Custom operations for grep. Default: local filesystem plus ripgrep */
 	operations?: GrepOperations;
 }
@@ -80,6 +83,7 @@ export function createGrepToolDefinition(
 	options?: GrepToolOptions,
 ): ToolDefinition<typeof grepSchema, GrepToolDetails | undefined> {
 	const customOps = options?.operations;
+	const schemes = options?.schemes;
 	return {
 		name: "grep",
 		label: "grep",
@@ -131,7 +135,10 @@ export function createGrepToolDefinition(
 							return;
 						}
 
-						const searchPath = resolveToCwd(searchDir || ".", ctx?.cwd || cwd);
+						const searchPath = resolveToCwd(
+							schemes ? await schemes.searchPath(searchDir || ".", ctx) : searchDir || ".",
+							ctx?.cwd || cwd,
+						);
 						const ops = customOps ?? defaultGrepOperations;
 						let isDirectory: boolean;
 						try {

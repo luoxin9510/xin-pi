@@ -57,6 +57,11 @@ async function fileKey(filePath: string): Promise<string> {
 	}
 }
 
+/** Key of a virtual resource. Real keys are absolute paths, so the prefix keeps the two apart. */
+function urlKey(url: string): string {
+	return `url:${url}`;
+}
+
 /**
  * What one session has seen of each file: the fingerprint of the last text read, edit or write. `edit` and
  * `write` over an existing file consult it so they never overwrite changes the model has not seen.
@@ -90,12 +95,27 @@ export class FileStateStore {
 		action: "editing" | "overwriting it",
 	): Promise<void> {
 		if (!this.enabled) return;
-		const known = this.fingerprints.get(await fileKey(absolutePath));
+		this.check(await fileKey(absolutePath), `File ${displayPath}`, currentFingerprint, action);
+	}
+
+	/** Like {@link record} for a virtual resource, keyed by its URL (see `registerScheme`). */
+	recordUrl(url: string, fingerprint: string): void {
+		this.fingerprints.set(urlKey(url), fingerprint);
+	}
+
+	/** Like {@link verify} for a virtual resource, keyed by its URL. */
+	verifyUrl(url: string, currentFingerprint: string, action: "editing" | "overwriting it"): void {
+		if (!this.enabled) return;
+		this.check(urlKey(url), `Resource ${url}`, currentFingerprint, action);
+	}
+
+	private check(key: string, label: string, currentFingerprint: string, action: string): void {
+		const known = this.fingerprints.get(key);
 		if (known === undefined) {
-			throw new Error(`File ${displayPath} has not been read in this session. Read it before ${action}.`);
+			throw new Error(`${label} has not been read in this session. Read it before ${action}.`);
 		}
 		if (known !== currentFingerprint) {
-			throw new Error(`File ${displayPath} changed since you last read it. Read it again before ${action}.`);
+			throw new Error(`${label} changed since you last read it. Read it again before ${action}.`);
 		}
 	}
 }

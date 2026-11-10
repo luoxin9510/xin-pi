@@ -9,7 +9,7 @@ usage entry `ext:<purpose>`, and throws errors with a kind.
 
 **Blocked by:** None (lands after 02 by the agreed order)
 
-**Status:** in review
+**Status:** done (PR #37, merged 2026-11-10)
 
 - [x] Available on the extension context in commands and event handlers, not only during a run
 - [x] Model reference: `inherit`, an alias from the new shared `settings.models`, or anything the existing model

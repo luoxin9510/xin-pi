@@ -9,6 +9,7 @@ import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
 import { type FileStateStore, TextFingerprint } from "./file-state.ts";
 import { resolveReadPathAsync } from "./path-utils.ts";
 import { readRenderers } from "./renderers/read.ts";
+import type { SchemeResolver } from "./scheme-resolver.ts";
 import { type TypeBoxAgentTool, wrapToolDefinition } from "./tool-definition-wrapper.ts";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, type TruncationResult, truncateHead } from "./truncate.ts";
 
@@ -93,6 +94,11 @@ export interface ReadToolOptions {
 	operations?: ReadOperations;
 	/** Records the fingerprint of every text file read, for the stale-edit guard in `edit` and `write`. */
 	fileState?: FileStateStore;
+	/**
+	 * Resolves `name://...` paths of registered schemes (`registerScheme`). A file-backed scheme reads the
+	 * located file like any path; a virtual one reads the handler's content as text.
+	 */
+	schemes?: SchemeResolver;
 }
 
 /** The image block and its note, or the text for text files and images that could not be processed. */
@@ -248,6 +254,56 @@ async function selectLinesFromStream(
 	return { totalFileLines: line + 1, truncation, firstLineBytes };
 }
 
+/**
+ * The text and details of a read of selected lines: the lines, plus a notice telling the model how to continue
+ * when truncation or the user's limit stopped the output. `shellPath` is the path a bash fallback may name for a
+ * line too long to show; it is undefined for a virtual resource, which bash cannot reach.
+ */
+function formatTextRead(
+	selected: SelectedLines,
+	startLine: number,
+	limit: number | undefined,
+	shellPath: string | undefined,
+): { text: string; details: ReadToolDetails | undefined } {
+	const { totalFileLines, truncation, firstLineBytes } = selected;
+	const startLineDisplay = startLine + 1;
+	// A user-specified limit is honored before truncation.
+	const userLimitedLines = limit === undefined ? undefined : Math.min(startLine + limit, totalFileLines) - startLine;
+	if (truncation.firstLineExceedsLimit) {
+		const firstLineSize = formatSize(firstLineBytes);
+		const exceeds = `Line ${startLineDisplay} is ${firstLineSize}, exceeds ${formatSize(DEFAULT_MAX_BYTES)} limit`;
+		// First line alone exceeds the byte limit. Point the model at a bash fallback when bash can read the path.
+		const text =
+			shellPath === undefined
+				? `[${exceeds} and cannot be shown.]`
+				: `[${exceeds}. Use bash: sed -n '${startLineDisplay}p' ${shellPath} | head -c ${DEFAULT_MAX_BYTES}]`;
+		return { text, details: { truncation } };
+	}
+	if (truncation.truncated) {
+		// Truncation occurred. Build an actionable continuation notice.
+		const endLineDisplay = startLineDisplay + truncation.outputLines - 1;
+		const nextOffset = endLineDisplay + 1;
+		let text = truncation.content;
+		if (truncation.truncatedBy === "lines") {
+			text += `\n\n[Showing lines ${startLineDisplay}-${endLineDisplay} of ${totalFileLines}. Use offset=${nextOffset} to continue.]`;
+		} else {
+			text += `\n\n[Showing lines ${startLineDisplay}-${endLineDisplay} of ${totalFileLines} (${formatSize(DEFAULT_MAX_BYTES)} limit). Use offset=${nextOffset} to continue.]`;
+		}
+		return { text, details: { truncation } };
+	}
+	if (userLimitedLines !== undefined && startLine + userLimitedLines < totalFileLines) {
+		// User-specified limit stopped early, but the file still has more content.
+		const remaining = totalFileLines - (startLine + userLimitedLines);
+		const nextOffset = startLine + userLimitedLines + 1;
+		return {
+			text: `${truncation.content}\n\n[${remaining} more lines in file. Use offset=${nextOffset} to continue.]`,
+			details: undefined,
+		};
+	}
+	// No truncation and no remaining user-limited content.
+	return { text: truncation.content, details: undefined };
+}
+
 export function createReadToolDefinition(
 	cwd: string,
 	options?: ReadToolOptions,
@@ -256,6 +312,7 @@ export function createReadToolDefinition(
 	const fallbackResizeOptions = options?.resizeOptions;
 	const ops = options?.operations ?? defaultReadOperations;
 	const fileState = options?.fileState;
+	const schemes = options?.schemes;
 	return {
 		name: "read",
 		label: "read",
@@ -288,7 +345,33 @@ export function createReadToolDefinition(
 
 					(async () => {
 						try {
-							const absolutePath = await resolveReadPathAsync(path, ctx?.cwd || cwd);
+							const target = await schemes?.resolve(path, ctx);
+							if (aborted) return;
+							if (schemes && target?.kind === "virtual") {
+								const text = await schemes.read(target, ctx);
+								if (aborted) return;
+								// Same line selection and truncation as a file, over the resolved content.
+								const startLine = offset ? Math.max(0, offset - 1) : 0;
+								const fingerprint = new TextFingerprint();
+								const selected = selectLinesFromBuffer(
+									Buffer.from(text, "utf-8"),
+									startLine,
+									limit,
+									fingerprint,
+								);
+								if (startLine >= selected.totalFileLines) {
+									throw new Error(
+										`Offset ${offset} is beyond end of file (${selected.totalFileLines} lines total)`,
+									);
+								}
+								fileState?.recordUrl(target.url, fingerprint.digest());
+								const { text: outputText, details } = formatTextRead(selected, startLine, limit, undefined);
+								signal?.removeEventListener("abort", onAbort);
+								resolve({ content: [{ type: "text", text: outputText }], details });
+								return;
+							}
+							const filePath = target?.kind === "file" ? target.path : path;
+							const absolutePath = await resolveReadPathAsync(filePath, ctx?.cwd || cwd);
 							if (aborted) return;
 							// Check if file exists and is readable.
 							await ops.access(absolutePath);
@@ -320,7 +403,6 @@ export function createReadToolDefinition(
 							} else {
 								// Read text content. Convert offset from 1-indexed input to 0-indexed line access.
 								const startLine = offset ? Math.max(0, offset - 1) : 0;
-								const startLineDisplay = startLine + 1;
 								const fingerprint = fileState ? new TextFingerprint() : undefined;
 								const { totalFileLines, truncation, firstLineBytes } =
 									ops.createReadStream && isStreamableRange(offset, limit)
@@ -339,35 +421,13 @@ export function createReadToolDefinition(
 									throw new Error(`Offset ${offset} is beyond end of file (${totalFileLines} lines total)`);
 								}
 								if (fileState && fingerprint) await fileState.record(absolutePath, fingerprint.digest());
-								// A user-specified limit is honored before truncation.
-								const userLimitedLines =
-									limit === undefined ? undefined : Math.min(startLine + limit, totalFileLines) - startLine;
-								let outputText: string;
-								if (truncation.firstLineExceedsLimit) {
-									// First line alone exceeds the byte limit. Point the model at a bash fallback.
-									const firstLineSize = formatSize(firstLineBytes);
-									outputText = `[Line ${startLineDisplay} is ${firstLineSize}, exceeds ${formatSize(DEFAULT_MAX_BYTES)} limit. Use bash: sed -n '${startLineDisplay}p' ${path} | head -c ${DEFAULT_MAX_BYTES}]`;
-									details = { truncation };
-								} else if (truncation.truncated) {
-									// Truncation occurred. Build an actionable continuation notice.
-									const endLineDisplay = startLineDisplay + truncation.outputLines - 1;
-									const nextOffset = endLineDisplay + 1;
-									outputText = truncation.content;
-									if (truncation.truncatedBy === "lines") {
-										outputText += `\n\n[Showing lines ${startLineDisplay}-${endLineDisplay} of ${totalFileLines}. Use offset=${nextOffset} to continue.]`;
-									} else {
-										outputText += `\n\n[Showing lines ${startLineDisplay}-${endLineDisplay} of ${totalFileLines} (${formatSize(DEFAULT_MAX_BYTES)} limit). Use offset=${nextOffset} to continue.]`;
-									}
-									details = { truncation };
-								} else if (userLimitedLines !== undefined && startLine + userLimitedLines < totalFileLines) {
-									// User-specified limit stopped early, but the file still has more content.
-									const remaining = totalFileLines - (startLine + userLimitedLines);
-									const nextOffset = startLine + userLimitedLines + 1;
-									outputText = `${truncation.content}\n\n[${remaining} more lines in file. Use offset=${nextOffset} to continue.]`;
-								} else {
-									// No truncation and no remaining user-limited content.
-									outputText = truncation.content;
-								}
+								const { text: outputText, details: textDetails } = formatTextRead(
+									{ totalFileLines, truncation, firstLineBytes },
+									startLine,
+									limit,
+									filePath,
+								);
+								details = textDetails;
 								content = [{ type: "text", text: outputText }];
 							}
 

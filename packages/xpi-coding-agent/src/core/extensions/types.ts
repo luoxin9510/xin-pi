@@ -71,6 +71,7 @@ import type { McpServerConfig, McpServerRegistry, RegisteredMcpServer } from "..
 import type { CustomMessage } from "../messages.ts";
 import type { ModelRegistry } from "../model-registry.ts";
 import type { ScopedModel } from "../model-resolver.ts";
+import type { SchemeRegistry } from "../schemes.ts";
 import type {
 	BranchSummaryEntry,
 	CompactionEntry,
@@ -2014,6 +2015,27 @@ export interface ExtensionAPI {
 	getMcpServers(): RegisteredMcpServer[];
 
 	/**
+	 * Own the `name://...` paths in the built-in `read`, `write`, `edit`, `ls`, `grep` and `find` tools, so the
+	 * model reaches a resource (a pull request, a skill, a note) with the file tools it already knows. A
+	 * handler is either virtual (`resolve` returns content, `write` may accept changes) or file-backed
+	 * (`locate` returns a real absolute path and every tool then works on that file, stale-edit guard
+	 * included). See {@link SchemeHandler}.
+	 *
+	 * Registered schemes are listed in the system prompt, one line each, in registration order. Throws for an
+	 * invalid name or handler, for the reserved names `http`, `https`, `file` and `data`, and for a name
+	 * that is already registered (by this or another extension, the message names both). Schemes are not
+	 * saved; register again on every load.
+	 *
+	 * @example
+	 * pi.registerScheme("note", {
+	 *   describe: "a note in the vault, note://<name>",
+	 *   resolve: async (url) => ({ content: await loadNote(url) }),
+	 *   readOnly: true,
+	 * });
+	 */
+	registerScheme(name: string, handler: SchemeHandler): void;
+
+	/**
 	 * Register a virtual model: a selectable catalog entry that routes each request to a physical
 	 * model. The selection (`ctx.model`, `model_change` entries) names the virtual model; assistant
 	 * messages record the physical model and thinking level the router picked.
@@ -2267,6 +2289,39 @@ export type SetLabelHandler = (entryId: string, label: string | undefined) => vo
  * Shared state created by loader, used during registration and runtime.
  * Contains flag values (defaults set during registration, CLI values set after).
  */
+/** What a virtual scheme returns for a URL. */
+export interface SchemeContent {
+	content: string;
+	/** Informational, for example `text/markdown`. The file tools treat the content as text. */
+	contentType?: string;
+}
+
+/**
+ * How an extension serves `name://...` paths in the file tools (see {@link ExtensionAPI.registerScheme}).
+ * Exactly one of `resolve` and `locate` must be set.
+ */
+export interface SchemeHandler {
+	/** One line for the system prompt, for example `a pull request, pr://<number>`. */
+	describe: string;
+	/**
+	 * Virtual scheme: the current content of `url`. `read` pages it like a file, `edit` applies its
+	 * replacements to it. `grep`, `find` and `ls` refuse the path ("use read").
+	 */
+	resolve?: (url: string, ctx: ExtensionContext) => Promise<SchemeContent>;
+	/**
+	 * File-backed scheme: the absolute path of the real file `url` stands for. The tool then proceeds on that
+	 * path as if the model had given it, so all six tools work, with the stale-edit guard and the mutation queue.
+	 */
+	locate?: (url: string, ctx: ExtensionContext) => Promise<string>;
+	/**
+	 * Virtual scheme: accept a `write` (and the result of an `edit`) for `url`. Calls for one URL run one at a
+	 * time. Not allowed with `locate`, whose writes go to the located file.
+	 */
+	write?: (url: string, content: string, ctx: ExtensionContext) => Promise<void>;
+	/** Refuse `write` and `edit` ("<scheme>:// is read-only"). A virtual scheme without `write` is read-only too. */
+	readOnly?: boolean;
+}
+
 export interface ExtensionRuntimeState {
 	flagValues: Map<string, boolean | string>;
 	/** Legacy provider-config registrations queued during extension loading, processed when runner binds. */
@@ -2294,6 +2349,8 @@ export interface ExtensionRuntimeState {
 	unregisterProvider: (name: string, extensionPath?: string) => void;
 	/** Servers registered with `pi.registerMcpServer()`. */
 	mcpServers: McpServerRegistry;
+	/** Schemes registered with `pi.registerScheme()`, read by the file tools. */
+	schemes: SchemeRegistry;
 	registerVirtualModel: (definition: VirtualModelDefinition, extensionPath?: string) => void;
 	unregisterVirtualModel: (provider: string, id: string) => void;
 }

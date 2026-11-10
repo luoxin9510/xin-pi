@@ -4,6 +4,7 @@ import { type Static, Type } from "typebox";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
 import { pathExists, resolveToCwd } from "./path-utils.ts";
 import { lsRenderers } from "./renderers/ls.ts";
+import type { SchemeResolver } from "./scheme-resolver.ts";
 import { type TypeBoxAgentTool, wrapToolDefinition } from "./tool-definition-wrapper.ts";
 import { DEFAULT_MAX_BYTES, formatSize, type TruncationResult, truncateHead } from "./truncate.ts";
 
@@ -46,6 +47,8 @@ const defaultLsOperations: LsOperations = {
 };
 
 export interface LsToolOptions {
+	/** Resolves `name://...` paths of registered schemes (`registerScheme`): a file-backed one is searched at its located path, a virtual one fails. */
+	schemes?: SchemeResolver;
 	/** Custom operations for directory listing. Default: local filesystem */
 	operations?: LsOperations;
 }
@@ -55,6 +58,7 @@ export function createLsToolDefinition(
 	options?: LsToolOptions,
 ): ToolDefinition<typeof lsSchema, LsToolDetails | undefined> {
 	const ops = options?.operations ?? defaultLsOperations;
+	const schemes = options?.schemes;
 	return {
 		name: "ls",
 		label: "ls",
@@ -80,7 +84,10 @@ export function createLsToolDefinition(
 
 				(async () => {
 					try {
-						const dirPath = resolveToCwd(path || ".", ctx?.cwd || cwd);
+						const dirPath = resolveToCwd(
+							schemes ? await schemes.searchPath(path || ".", ctx) : path || ".",
+							ctx?.cwd || cwd,
+						);
 						// A limit of 0 would list nothing and report "(empty directory)", so it means 1.
 						const effectiveLimit = Math.max(1, Math.floor(limit ?? DEFAULT_LIMIT));
 

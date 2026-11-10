@@ -62,6 +62,7 @@ export {
 	type ReadToolInput,
 	type ReadToolOptions,
 } from "./read.ts";
+export { SchemeResolver, type SchemeTarget } from "./scheme-resolver.ts";
 export {
 	DEFAULT_MAX_BYTES,
 	DEFAULT_MAX_LINES,
@@ -90,6 +91,7 @@ import { createGrepTool, createGrepToolDefinition, type GrepToolOptions } from "
 import { createLsTool, createLsToolDefinition, type LsToolOptions } from "./ls.ts";
 import { createPowerShellTool, createPowerShellToolDefinition, type PowerShellToolOptions } from "./powershell.ts";
 import { createReadTool, createReadToolDefinition, type ReadToolOptions } from "./read.ts";
+import type { SchemeResolver } from "./scheme-resolver.ts";
 import { createWriteTool, createWriteToolDefinition, type WriteToolOptions } from "./write.ts";
 
 export type Tool = AgentTool<any>;
@@ -113,6 +115,11 @@ export interface ToolsOptions {
 	 * `createToolDefinition` use it only if given.
 	 */
 	fileState?: FileStateStore;
+	/**
+	 * Resolves `name://...` paths of schemes extensions registered, shared by read, write, edit, grep, find and
+	 * ls. Without one those paths are ordinary relative paths.
+	 */
+	schemes?: SchemeResolver;
 	read?: ReadToolOptions;
 	bash?: BashToolOptions;
 	powershell?: PowerShellToolOptions;
@@ -123,13 +130,29 @@ export interface ToolsOptions {
 	ls?: LsToolOptions;
 }
 
-/** Options with the file-state store wired into read, edit and write. */
+/** Options with the file-state store wired into read, edit and write, and the scheme resolver into the file tools. */
 function withFileState(options: ToolsOptions | undefined, fileState: FileStateStore | undefined): ToolsOptions {
+	const schemes = options?.schemes;
 	return {
 		...options,
-		read: { ...options?.read, fileState: fileState ?? options?.read?.fileState },
-		edit: { ...options?.edit, fileState: fileState ?? options?.edit?.fileState },
-		write: { ...options?.write, fileState: fileState ?? options?.write?.fileState },
+		read: {
+			...options?.read,
+			fileState: fileState ?? options?.read?.fileState,
+			schemes: schemes ?? options?.read?.schemes,
+		},
+		edit: {
+			...options?.edit,
+			fileState: fileState ?? options?.edit?.fileState,
+			schemes: schemes ?? options?.edit?.schemes,
+		},
+		write: {
+			...options?.write,
+			fileState: fileState ?? options?.write?.fileState,
+			schemes: schemes ?? options?.write?.schemes,
+		},
+		grep: { ...options?.grep, schemes: schemes ?? options?.grep?.schemes },
+		find: { ...options?.find, schemes: schemes ?? options?.find?.schemes },
+		ls: { ...options?.ls, schemes: schemes ?? options?.ls?.schemes },
 	};
 }
 
