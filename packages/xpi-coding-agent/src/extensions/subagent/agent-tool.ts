@@ -12,6 +12,7 @@ import { checkForkCall, FORK_DEFINITION, FORK_DESCRIPTION, FORK_TYPE, resolveAge
 import { AGENT_NAME, registry } from "./registry.ts";
 import type { CallInput, ChildSpec, ParentContext } from "./resolve.ts";
 import { emptyUsage, STATUSES, type Status, usageSchema } from "./runner.ts";
+import { runs } from "./runs.ts";
 import { agentPhase, countScriptAgent } from "./script-helpers.ts";
 import { capText, newAgentId, storedAgent } from "./sessions.ts";
 import { checkSchema } from "./structured-output.ts";
@@ -240,6 +241,11 @@ async function executeAgent(
 
 	// Isolation: a resume uses the stored worktree (or none) whatever is asked now; a new agent, the call's value else the file's.
 	const agentId = input.resume ?? newAgentId();
+	if (input.name !== undefined && !stored) {
+		// In a relaunch, a call that runs again takes over the name its agent of the earlier run holds.
+		const owner = registry.named(parent.sessionId, input.name);
+		if (owner !== undefined && runs.isEarlierAgent(toolCallId, owner)) registry.dropName(owner);
+	}
 	const release =
 		input.name !== undefined && !stored ? registry.claim(parent.sessionId, input.name, agentId) : undefined;
 	try {
@@ -348,7 +354,7 @@ function runsInBackground(params: AgentInput, parent: ParentContext): boolean {
 }
 
 export function agentTool(getConfig: () => Config, description: string, deliver: (content: string) => void) {
-	return {
+	const tool = {
 		name: "Agent",
 		label: "Agent",
 		exposure: "codemode" as const,
@@ -433,4 +439,34 @@ export function agentTool(getConfig: () => Config, description: string, deliver:
 			};
 		},
 	};
+	// Around every call: a workflow run records it (runs.ts), a relaunch answers it from the earlier run's saved
+	// results when it can, and a paused script holds it before anything starts.
+	const start = tool.execute;
+	tool.execute = async (toolCallId, params, signal, onUpdate, ctx) => {
+		const recorded = runs.call(toolCallId, params as Record<string, unknown>);
+		if (recorded.saved) {
+			scripts.addSaved(toolCallId);
+			const result: AgentResult = {
+				...recorded.saved,
+				warnings: [...recorded.saved.warnings, `answered from the saved results of run ${recorded.from}`],
+			};
+			return {
+				content: [{ type: "text" as const, text: summary(result) }],
+				details: result as AgentResult | undefined,
+				structuredContent: result as unknown as JsonValue,
+				usage: emptyUsage(), // nothing ran: the earlier run paid for it
+				isError: false,
+			};
+		}
+		try {
+			await scripts.gate(toolCallId, signal);
+			const outcome = await start(toolCallId, params, signal, onUpdate, ctx);
+			recorded.done?.({ result: outcome.details });
+			return outcome;
+		} catch (err) {
+			recorded.done?.({ error: (err as Error).message });
+			throw err;
+		}
+	};
+	return tool;
 }

@@ -209,6 +209,10 @@ that import `@earendil-works/*` are not supported by xpi; see [xin-pi.md](../../
   globals, `__subagentAgent` (runs `Agent` through the script's own tool path, carrying the phase in an
   `AsyncLocalStorage`) and `__subagentNote`. Without add-ons, scripts keep `tools.Agent` only, and saved workflows
   that use the helpers fail with `agent is not defined`.
+- Runs, relaunch and pause (`src/extensions/subagent/runs.ts`, `background.ts`) need nothing more from the host: the
+  run file lives next to the subagent sessions, a relaunch is decided inside the `Agent` tool (which answers a call
+  without starting a child), and a pause holds the `Agent` call before it starts anything. They rely on what is listed
+  above: nested call ids `<script id>/<n>` in call order, and the script controller's `onEnd`.
 - With codemode-only, an agent's `tools` list must also bind inside scripts (a script calling a tool outside `--tools`
   gets "does not exist"). Check with `test/subagent/real/09-codemode-only.test.ts`.
 

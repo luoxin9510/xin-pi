@@ -4,6 +4,7 @@
 
 import { type CodemodeScriptEnd, codemodeScripts } from "../codemode/scripts.ts";
 import { registry } from "./registry.ts";
+import { runs } from "./runs.ts";
 import { capText } from "./sessions.ts";
 import { workflowOf } from "./workflow-run.ts";
 
@@ -13,6 +14,9 @@ export interface ScriptRecord {
 	id: string; // S1, S2, ... (the controller's script id)
 	callId: string; // the codemode tool call id; the script's Agent calls have ids "<callId>/<n>"
 	workflow?: string; // the saved workflow it runs, when a /name command started it
+	run?: string; // the workflow run's id (R1, R2, ...): its results are saved for a relaunch
+	saved?: number; // Agent calls answered from a relaunched run's saved results
+	paused?: boolean; // it starts no new agent: its Agent calls wait (`gate`) until it is resumed
 	sessionId: string; // the main session the script belongs to
 	state: ScriptState;
 	stopRequested: boolean; // stopped through the registry (the panel x, or the session ending)
@@ -81,6 +85,7 @@ class ScriptRegistry {
 					id: info.id,
 					callId: info.toolCallId,
 					...(workflowOf(info.toolCallId) ? { workflow: workflowOf(info.toolCallId) } : {}),
+					...(runs.ofScript(info.toolCallId) ? { run: runs.ofScript(info.toolCallId)!.id } : {}),
 					sessionId: info.sessionId,
 					state: "foreground",
 					stopRequested: false,
@@ -161,6 +166,53 @@ class ScriptRegistry {
 		this.changed();
 	}
 
+	// An Agent call of the script was answered from a relaunched run's saved results (runs.ts).
+	addSaved(toolCallId: string): void {
+		const script = this.owner(toolCallId);
+		if (!script) return;
+		script.saved = (script.saved ?? 0) + 1;
+		this.changed();
+	}
+
+	// --- pause: a paused script starts no new agent. Its Agent calls wait here; agents already running finish.
+
+	private waiting = new Map<string, { resume: () => void; stop: (reason: Error) => void }[]>();
+
+	// Pause or resume a running script. Returns the new state, or undefined when the script is not running.
+	togglePause(id: string): boolean | undefined {
+		const script = this.scripts.get(id);
+		if (!script || (script.state !== "foreground" && script.state !== "background")) return undefined;
+		script.paused = !script.paused;
+		if (!script.paused) this.releaseWaiting(id, undefined);
+		this.changed();
+		return script.paused;
+	}
+
+	// Resume the waiting calls in the order they arrived, or (with `reason`) reject them all.
+	private releaseWaiting(id: string, reason: Error | undefined): void {
+		const waiting = this.waiting.get(id) ?? [];
+		this.waiting.delete(id);
+		for (const w of waiting) reason ? w.stop(reason) : w.resume();
+	}
+
+	// Called by an Agent call before it starts anything: resolves at once unless its script is paused, then when the
+	// script is resumed. Rejects when the script is stopped, or the caller aborts, while it waits.
+	gate(toolCallId: string, signal: AbortSignal | undefined): Promise<void> {
+		const script = this.owner(toolCallId);
+		if (!script?.paused) return Promise.resolve();
+		return new Promise<void>((resolve, reject) => {
+			const onAbort = () => reject(new Error("aborted"));
+			signal?.addEventListener("abort", onAbort, { once: true });
+			const settle = (fn: () => void) => () => {
+				signal?.removeEventListener("abort", onAbort);
+				fn();
+			};
+			const list = this.waiting.get(script.id) ?? [];
+			list.push({ resume: settle(resolve), stop: (reason) => settle(() => reject(reason))() });
+			this.waiting.set(script.id, list);
+		});
+	}
+
 	// A `phase()` or `log()` call of the script (script-helpers.ts).
 	note(script: ScriptRecord, note: { phase: string } | { log: string }): void {
 		if ("phase" in note) script.phase = note.phase;
@@ -171,6 +223,8 @@ class ScriptRegistry {
 	setState(script: ScriptRecord, state: ScriptState): void {
 		script.state = state;
 		if (state !== "foreground" && state !== "background") {
+			script.paused = false;
+			this.releaseWaiting(script.id, new Error(`script ${script.id} ended while this call waited for it to resume`));
 			script.endedAt = Date.now();
 			const ended = [...this.scripts.values()].filter((x) => x.endedAt !== undefined);
 			for (const old of ended.slice(0, Math.max(0, ended.length - this.keepEnded))) this.scripts.delete(old.id);
@@ -194,6 +248,7 @@ class ScriptRegistry {
 		const script = this.scripts.get(id);
 		if (!script || (script.state !== "foreground" && script.state !== "background")) return false;
 		script.stopRequested = true; // from here on the script's Agent calls throw (agentStarting)
+		this.releaseWaiting(id, new Error(`script ${script.id} is being stopped`)); // calls held by a pause
 		await registry.stopAll(script.agents); // each running agent ends failed / "stopped by user"
 		return codemodeScripts.stop(id); // the script itself, and any agent still waiting for a slot
 	}
@@ -223,13 +278,23 @@ export function endMessage(
 		const r = registry.get(id);
 		return r ? `- ${id} ${r.type} ${r.status} $${r.usage.cost.total.toFixed(4)}` : `- ${id}`;
 	});
+	const what = script.workflow ? ` (workflow ${script.workflow}${script.run ? `, run ${script.run}` : ""})` : "";
+	// A workflow run that did not complete can be started again without redoing what finished.
+	const relaunch =
+		script.workflow && script.run && (state === "stopped" || state === "failed")
+			? [
+					`Relaunch it with Workflow({ name: "${script.workflow}", relaunch: "${script.run}" }): agents that completed are answered from saved results.`,
+				]
+			: [];
 	return [
-		`Background script ${script.id}${script.workflow ? ` (workflow ${script.workflow})` : ""} ${state}.`,
+		`Background script ${script.id}${what} ${state}.`,
 		allFailed
 			? `Error: every agent failed\nReturn value:\n${text}`
 			: state === "failed"
 				? `Error: ${text}`
 				: `Return value:\n${text}`,
 		agents.length > 0 ? `Agents:\n${agents.join("\n")}` : "Agents: none",
+		...(script.saved ? [`Answered from saved results: ${script.saved}`] : []),
+		...relaunch,
 	].join("\n");
 }

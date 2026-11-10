@@ -597,7 +597,7 @@ return "TOK-" + (6 * 7) + " " + r.status;`;
 				(e) =>
 					e.type === "message_end" &&
 					e.message.role === "custom" &&
-					messageText(e.message).includes("(workflow list-ts) completed"),
+					/\(workflow list-ts[^)]*\) completed/.test(messageText(e.message)),
 			);
 			const answer = ev.find(isAnswer);
 			return {

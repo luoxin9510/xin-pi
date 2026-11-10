@@ -148,6 +148,12 @@ export class Panel {
 		else if (matchesKey(data, "enter")) {
 			const row = rows[this.selected]!;
 			if (row.kind === "agent") this.open(row.record); // a script has no screen
+		} else if (
+			matchesKey(data, "p") &&
+			rows[this.selected]?.kind === "script" &&
+			(rows[this.selected] as Row & { kind: "script" }).script.endedAt === undefined
+		) {
+			scripts.togglePause((rows[this.selected] as Row & { kind: "script" }).script.id); // or resume
 		} else if (matchesKey(data, "s") && rows[this.selected]?.kind === "script" && this.options.save) {
 			const row = rows[this.selected] as Row & { kind: "script" };
 			this.focused = false; // the dialogs take the keyboard
@@ -206,12 +212,13 @@ export class Panel {
 				const cost = agents.reduce((sum, a) => sum + a.usage.cost.total, 0);
 				const running = agents.filter((a) => a.status === "running").length;
 				parts = [
-					t.fg(COLORS[status], `${ICONS[status]} ${s.state}`),
-					s.workflow ? `workflow ${s.workflow} (${s.id})` : `script ${s.id}`,
+					t.fg(COLORS[status], `${ICONS[status]} ${s.paused ? "paused" : s.state}`),
+					s.workflow ? `workflow ${s.workflow} (${s.id}${s.run ? `, ${s.run}` : ""})` : `script ${s.id}`,
 					t.fg("muted", `${running} agents running`),
 					t.fg("muted", elapsed((s.endedAt ?? Date.now()) - s.startedAt)),
 					t.fg("muted", `$${cost.toFixed(4)}`),
 				];
+				if (s.saved) parts.push(t.fg("muted", `${s.saved} from saved results`));
 				if (s.log) parts.push(t.fg("muted", s.log));
 			} else {
 				const a = r.record;
@@ -231,11 +238,17 @@ export class Panel {
 		if (this.focused) {
 			const onScript = rows[this.selected]?.kind === "script" && this.options.save;
 			const row = rows[this.selected];
+			const pause =
+				row?.kind === "script" && row.script.endedAt === undefined
+					? row.script.paused
+						? " · p resume"
+						: " · p pause"
+					: "";
 			const restartable = row?.kind === "agent" && registry.restartRefusal(row.record.id) === undefined;
 			lines.push(
 				t.fg(
 					"dim",
-					`↑↓ select · enter open · x stop${restartable ? " · r restart" : ""} · X stop all${onScript ? " · s save as workflow" : ""} · esc back to editor`,
+					`↑↓ select · enter open · x stop${restartable ? " · r restart" : ""}${pause} · X stop all${onScript ? " · s save as workflow" : ""} · esc back to editor`,
 				),
 			);
 		}

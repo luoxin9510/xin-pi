@@ -295,16 +295,56 @@ return audits.filter(Boolean)
   UI it starts as a background script at once and its result arrives in main as a message; in print mode
   (`xpi -p "/audit-routes"`) it runs in the foreground and prints its return value. A name another command already has
   is skipped with a warning.
-- The model runs one with `tools.Workflow({ name, args })` (offered when at least one workflow can run; its
+- The model runs one with `tools.Workflow({ name, args })`, or starts a run again with `relaunch` (offered when at least one workflow can run; its
   description lists them). It returns the script id at once, and the result arrives as a message.
-- `/workflows` lists the saved workflows (with the directory each was read from) and this session's workflow runs. Enter runs a workflow (no args) or lists a
-  run's agents to open one.
+- `/workflows` lists the saved workflows (with the directory each was read from) and this session's workflow runs
+  (`R2 audit · stopped · 3 of 5 calls completed`). Enter on a workflow runs it (no args); on a run that is going it
+  offers its agents, pause or resume, and stop; on one that stopped or failed it relaunches it.
 - `s` on a script row in the panel saves that script: it asks for a name, a description and where (project or user),
   confirms an overwrite, and writes the script with a `meta` statement into `.pi/workflows/` or
   `~/.pi/agent/workflows/` (never into `.claude/`). The new workflow is a command at once.
 
-The panel shows a workflow's run as `workflow <name> (S<n>)` with its last `log()` line, and its agents under their
-`phase()` titles.
+The panel shows a workflow's run as `workflow <name> (S<n>, R<n>)` with its last `log()` line, and its agents under
+their `phase()` titles.
+
+### Runs, saved results and relaunch
+
+Every run of a saved workflow is recorded: a run file `subagents/<session id>/runs/R<n>.json` next to the session
+holds the workflow's name, its args, and each `Agent` call in the order the script made it, with what it asked and
+what it returned. Run ids are `R1`, `R2`, ... per session; the script row and the end message show them. An in-memory
+session keeps its runs for the life of the process. A script that was not saved is not recorded: save it first (`s`).
+
+A run that stopped or failed (or whose script finished although an agent failed) can be relaunched, so the work that
+finished is not done twice:
+
+- You: `/workflows`, select the run, `Enter`.
+- The model: `tools.Workflow({ name, relaunch: "R2" })`. The end message of such a run says so.
+
+A relaunch runs the script again from the top, with the workflow file as it is now and the args of the run it
+relaunches (`args` may not be passed). Each `Agent` call, in order, is answered from the saved results when every call
+before it was, and it asks the same thing (prompt, agent type, model, effort, schema, isolation) and completed last
+time. No child starts and nothing is spent; the result is the old agent's, with its id, so it can still be continued.
+The first call that differs, failed, or was still running when the run stopped runs again, and so does every call after
+it, even ones that had completed (they may depend on what came before). This is Claude Code's rule. Example: a script
+starts A, B, C and D in that order and B failed; the relaunch answers A from saved results and runs B, C and D.
+
+- A relaunch is a run of its own (`R3`, a relaunch of `R2`) and can be relaunched in turn.
+- Refused, with the reason: a run that is still going or whose agents are still running, a run that completed with
+  nothing left to do, a run id with no saved results (`nothing to resume`).
+- `Date.now()`, `Math.random()` and `new Date()` keep working (Claude Code makes them throw). A script whose prompts
+  depend on them reruns from the first prompt that differs.
+- A call with `run_in_background: true` is never answered from saved results and is not compared.
+- A call that runs again and carries a `name` takes the name over from its agent of the earlier run, which keeps its
+  id and loses the name.
+- The script row shows how many calls were answered: `12 from saved results`.
+
+### Pause and resume
+
+`p` on a running script's row in the panel pauses it, and `p` again resumes it; `/workflows` offers the same for a run
+that is going. A paused script starts no new agent: each `Agent` call it makes waits until it is resumed, in the order
+the calls arrived. Agents that are already running finish their work (a model request under way cannot be held), and
+their results are kept. Any script can be paused, saved or not. A paused script can be stopped (`x`); when the session
+ends it is stopped like any other, and a saved workflow's run can then be relaunched.
 
 ## Worktree isolation
 
@@ -397,9 +437,10 @@ drops out; running rows stay. Only subagents that ran in this pi process show as
 | `x` | stop the selected subagent (nothing happens on a row that is not running) |
 | `r` | restart the selected running subagent: it starts over with the same task (see Restart below) |
 | `s` | on a script row: save the script as a workflow |
+| `p` | on a running script's row: pause it, or resume it (see Pause and resume) |
 | `shift+x` | stop everything of the session: every background script and every running subagent |
 
-While the panel has focus it takes `↑ ↓ Enter x r s shift+x Esc` (`r` and `s` only on a row they apply to). Any other key (ctrl+c, ctrl+d, text) goes to pi as usual and gives the
+While the panel has focus it takes `↑ ↓ Enter x r s p shift+x Esc` (`r`, `s` and `p` only on a row they apply to). Any other key (ctrl+c, ctrl+d, text) goes to pi as usual and gives the
 focus back to the editor. In an in-memory session (`xpi --no-session`) the panel lists no rows, only a one-line notice that
 subagents cannot be viewed.
 

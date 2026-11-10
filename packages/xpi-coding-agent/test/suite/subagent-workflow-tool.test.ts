@@ -91,10 +91,10 @@ describe("Workflow tool", () => {
 		await vi.waitFor(
 			() => {
 				const end = harness.session.messages.find(
-					(m) => m.role === "custom" && String((m as { content: unknown }).content).includes("(workflow greet)"),
+					(m) => m.role === "custom" && String((m as { content: unknown }).content).includes("(workflow greet"),
 				);
 				expect(String((end as { content: unknown } | undefined)?.content)).toMatch(
-					/Background script S\d+ \(workflow greet\) completed\.[\s\S]*greeted ada: child says hi/,
+					/Background script S\d+ \(workflow greet, run R1\) completed\.[\s\S]*greeted ada: child says hi/,
 				);
 			},
 			{ timeout: 15_000 },
