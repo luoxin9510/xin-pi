@@ -178,6 +178,7 @@ test("phase() and log(): the script's row records each agent's phase and the lat
 phase('find');
 await agent('first');
 await phase('fix', async () => { await parallel([() => agent('second'), () => agent('third')]); });
+await tools.Agent({ description: 'plain', prompt: 'fourth' });
 log('all done');
 return 'ok';`,
 	);
@@ -185,10 +186,11 @@ return 'ok';`,
 	for (let i = 0; i < 300 && t.messages.length === 0; i++) await new Promise((res) => setTimeout(res, 20));
 	assert.match(t.messages[0].message.content as string, /completed/);
 	const row = scripts.list("helpers-phase")[0];
-	assert.equal(row.agents.length, 3);
+	assert.equal(row.agents.length, 4);
 	assert.deepEqual(
 		row.agents.map((a) => row.phases[a]),
-		["find", "fix", "fix"],
+		["find", "fix", "fix", "fix"],
+		"a plain tools.Agent call belongs to the current phase too",
 	);
 	assert.equal(row.phase, "fix");
 	assert.equal(row.log, "all done");

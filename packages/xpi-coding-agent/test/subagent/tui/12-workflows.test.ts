@@ -1,0 +1,59 @@
+// Specs 02 and 03 in real interactive xpi (pty + headless xterm), real haiku: a named agent's label, the phase title and
+// the log line in the panel; `s` on a script row saves the script as a workflow; `/name` then runs it with no model turn.
+import assert from "node:assert/strict";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { test } from "node:test";
+import { withPi } from "./harness.ts";
+
+const SCRIPT = `Use the codemode tool exactly once. Script:
+phase("work");
+log("halfway there");
+const r = await tools.Agent({ name: "kid", description: "panel kid", prompt: "Run the bash command 'sleep 45' using a tool, then reply OK.", subagent_type: "general-purpose" });
+return "chk:" + r.status;
+If the tool says the script moved to the background, reply with the single word moved and stop.`;
+
+test("the panel shows the name, the phase and the log line; s saves the script; /name runs the saved workflow", async () => {
+	await withPi({ lingerMs: 60000 }, async (pi) => {
+		await pi.waitFor("claude-haiku");
+		pi.submit(SCRIPT);
+		const v = await pi.waitFor(
+			(s) =>
+				/● background · script S1 · 1 agents running .*halfway there/.test(s) &&
+				/running · general-purpose\(kid\) panel kid · /.test(s),
+			90_000,
+		);
+		const lines = v.split("\n");
+		const script = lines.findIndex((l) => l.includes("script S1 ·"));
+		assert.equal(lines[script + 1]!.trim(), "work", "the phase title sits between the script and its agent");
+		assert.match(lines[script + 2]!, /general-purpose\(kid\) panel kid/);
+
+		pi.press("down");
+		await pi.waitFor((s) => /▸ .*script S1/.test(s) && s.includes("s save as workflow"));
+		pi.type("s");
+		await pi.waitFor("Save script as workflow: name");
+		pi.type("saved-one");
+		pi.press("enter");
+		await pi.waitFor("Description");
+		pi.type("Saved from the panel");
+		pi.press("enter");
+		await pi.waitFor("Save where?");
+		pi.press("enter"); // the first choice: the project
+		await pi.waitFor("subagent: saved"); // the notice wraps: the path is long
+		const file = join(pi.repo, ".pi", "workflows", "saved-one.js");
+		assert.ok(existsSync(file), "the workflow file was written");
+		const text = readFileSync(file, "utf8");
+		assert.match(
+			text,
+			/^export const meta = \{\n {2}name: "saved-one",\n {2}description: "Saved from the panel",\n\}/,
+		);
+		assert.match(text, /tools\.Agent\(\{ name: "kid"/);
+
+		// The new workflow is a command at once. Its own agent cannot take the name "kid" again, so the run fails on
+		// that, which shows it really started from the saved file with no model turn.
+		pi.submit("/saved-one");
+		await pi.waitFor("Workflow saved-one started as background script S2", 30_000);
+		await pi.waitFor(/Background script S2 \(workflow saved-one\) failed/, 30_000);
+		await pi.waitFor('the name "kid" is already used by agent', 30_000);
+	});
+});
