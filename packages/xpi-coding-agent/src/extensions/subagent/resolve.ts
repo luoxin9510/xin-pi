@@ -18,6 +18,7 @@ export interface CallInput {
 	model?: string;
 	effort?: string; // a thinking level: an Effort, or "off" when continuing a stored conversation
 	resume?: string;
+	schema?: Record<string, unknown>; // a JSON Schema (type "object"): the child returns its result through StructuredOutput
 }
 
 export interface ParentContext {
@@ -41,6 +42,7 @@ export interface ChildSpec {
 	// one can read what another wrote to the provider's prompt cache (stagger.ts).
 	prefixKey: string;
 	prompt: string;
+	schema?: Record<string, unknown>; // the parameters of the child's StructuredOutput tool; the runner hands it over
 	model: string;
 	thinking: string;
 	maxTurns?: number;
@@ -62,6 +64,11 @@ export interface ResolveOptions {
 const HEAD_PROMPT =
 	"You are a subagent: another agent handed you one task. Your role and instructions are in the <instructions> section at the end of this prompt.";
 const CODEMODE_PROMPT = "Use the `codemode` tool for all tool calls, and put independent calls in one script.";
+
+// The child's tool for a call with `schema` (registered by the subagent extension in the child, index.ts).
+export const STRUCTURED_OUTPUT_TOOL = "StructuredOutput";
+// In the tail: it belongs to this call, and the head must stay the same with and without a schema.
+const STRUCTURED_OUTPUT_PROMPT = `Finish by calling the \`${STRUCTURED_OUTPUT_TOOL}\` tool with your result; do not write the result as text.`;
 
 const BUILTIN_TOOL_MAP: Record<string, string> = {
 	Read: "read",
@@ -158,6 +165,7 @@ function resolveTools(
 	def: AgentDefinition,
 	config: Config,
 	codemode: boolean,
+	structured: boolean,
 ): { args: string[]; warnings: string[]; memoryReadOnly: boolean } {
 	const toolMap = { ...BUILTIN_TOOL_MAP, ...config.toolMap };
 	const warnings: string[] = [];
@@ -196,11 +204,13 @@ function resolveTools(
 		const extra = (memoryReadOnly ? memoryTools.slice(0, 1) : memoryTools).filter((t) => !listed.includes(t));
 		const allow = [...listed, ...extra].filter((t) => !deny.includes(t));
 		if (allow.length === 0) throw new Error(`agent "${def.name}" has no usable tools`);
-		args.push("--tools", (codemode ? ["codemode", ...allow.filter((t) => t !== "codemode")] : allow).join(","));
+		const selected = codemode ? ["codemode", ...allow.filter((t) => t !== "codemode")] : allow;
+		args.push("--tools", [...selected, ...(structured ? [STRUCTURED_OUTPUT_TOOL] : [])].join(","));
 		// A --tools list does not drop MCP tools unless an entry starts with mcp__; an agent must not get unlisted ones.
 		if (!allow.some((t) => t.startsWith("mcp__"))) deny.push("mcp__*");
-	} else if (codemode) {
-		args.push("--tools", "+codemode");
+	} else if (codemode || structured) {
+		const added = [...(codemode ? ["codemode"] : []), ...(structured ? [STRUCTURED_OUTPUT_TOOL] : [])];
+		args.push("--tools", added.map((t) => `+${t}`).join(","));
 	}
 	if (deny.length > 0) args.push("--exclude-tools", deny.join(","));
 	return { args, warnings, memoryReadOnly };
@@ -213,6 +223,7 @@ function buildSystemPrompt(
 	cwd: string,
 	now: Date,
 	codemode: boolean,
+	structured: boolean,
 	memory?: string,
 ): { head: string; tail: string; warnings: string[] } {
 	const parts = [def.prompt];
@@ -231,6 +242,7 @@ function buildSystemPrompt(
 			`Date: ${now.toISOString().slice(0, 10)}`,
 		].join("\n"),
 	);
+	if (structured) parts.push(STRUCTURED_OUTPUT_PROMPT);
 	const head = codemode ? `${HEAD_PROMPT}\n\n${CODEMODE_PROMPT}` : HEAD_PROMPT;
 	return { head, tail: parts.join("\n\n"), warnings };
 }
@@ -245,12 +257,13 @@ export function resolveChild(
 	const model = resolveModel(input, def, config, parent);
 	const thinking = input.effort ?? def.effort ?? parent.thinking;
 	const codemode = config.childCodemode === "only" && def.codemode !== false;
-	const tools = resolveTools(def, config, codemode);
+	const structured = input.schema !== undefined;
+	const tools = resolveTools(def, config, codemode, structured);
 	const cwd = options.worktree ? join(options.worktree.path, options.worktree.subdir ?? "") : parent.cwd;
 	const memory = def.memory
 		? memorySection(memoryDir(def, parent, options), tools.memoryReadOnly, tools.warnings)
 		: undefined;
-	const system = buildSystemPrompt(def, parent.cwd, cwd, new Date(), codemode, memory);
+	const system = buildSystemPrompt(def, parent.cwd, cwd, new Date(), codemode, structured, memory);
 
 	// A resume id was already checked by storedAgent().
 	const agentId = input.resume ?? options.agentId ?? newAgentId();
@@ -290,8 +303,10 @@ export function resolveChild(
 			def.omitClaudeMd ? "no context files" : "",
 			system.head,
 			findGitPaths(parent.cwd)?.repoDir ?? parent.cwd, // the same for a child in a worktree of this checkout
+			structured ? JSON.stringify(input.schema) : "", // the tool's parameters come before the system prompt
 		].join("\0"),
 		prompt: input.prompt,
+		...(structured ? { schema: input.schema } : {}),
 		model,
 		thinking,
 		maxTurns: def.maxTurns,

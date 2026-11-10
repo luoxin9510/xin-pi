@@ -12,6 +12,7 @@ import { registry } from "./registry.ts";
 import { type CallInput, type ChildSpec, type ParentContext, resolveChild } from "./resolve.ts";
 import { emptyUsage, STATUSES, type Status, usageSchema } from "./runner.ts";
 import { capText, newAgentId, storedAgent } from "./sessions.ts";
+import { checkSchema } from "./structured-output.ts";
 import {
 	listLines,
 	memoryRoot as memoryRootFor,
@@ -51,6 +52,12 @@ const parameters = Type.Object({
 				'"worktree": run the agent in its own git worktree on its own branch. Unchanged, it is removed when the run ends; with changes it is kept and the result names its path, branch, changed files and commits. Default: the agent file\'s isolation, else none.',
 		}),
 	),
+	schema: Type.Optional(
+		Type.Record(Type.String(), Type.Unknown(), {
+			description:
+				'JSON Schema (type "object" at the top) for the result. The agent returns a value matching it: the result\'s `structured` holds the value and `output` its JSON text. After 5 invalid attempts, or when the agent ends without one, the status is "failed".',
+		}),
+	),
 	name: Type.Optional(Type.String({ description: "Not supported; ignored" })),
 });
 export type AgentInput = Static<typeof parameters>;
@@ -59,7 +66,10 @@ export const outputSchema = Type.Object({
 	status: StringEnum([...STATUSES, "running"] as const),
 	agentId: Type.String({ description: "Pass as `resume` to continue this agent" }),
 	agentType: Type.String(),
-	output: Type.String({ description: "Text of the agent's last message" }),
+	output: Type.String({
+		description: "Text of the agent's last message; with `schema`, the JSON text of `structured`",
+	}),
+	structured: Type.Optional(Type.Unknown({ description: "With `schema`: the agent's result, matching the schema" })),
 	model: Type.String(),
 	usage: usageSchema,
 	turns: Type.Number(),
@@ -119,6 +129,7 @@ export function describeAgents({ agents }: Discovery, backgroundScripts: boolean
 		"Run a subagent: a separate pi session with its own system prompt, tools and model. It sees only `prompt`, so",
 		"write a complete task. The result's `output` is the agent's final message; filter it before returning it.",
 		"Run independent agents in parallel with Promise.all.",
+		'Pass `schema` (a JSON Schema with type "object") to get the result as a value in `structured` instead of prose.',
 		"",
 		...(!hasUI ? PRINT_RULES : backgroundScripts ? BACKGROUND_RULES : DETACHED_RULES),
 		"",
@@ -171,6 +182,7 @@ async function executeAgent(
 	if (input.isolation !== undefined && input.isolation !== "worktree") {
 		throw new Error(`invalid isolation "${input.isolation}": only "worktree" is supported`);
 	}
+	if (input.schema !== undefined) checkSchema(input.schema);
 	let agentType = input.subagent_type;
 	let stored: ReturnType<typeof storedAgent> | undefined;
 	if (input.resume !== undefined) {

@@ -33,6 +33,14 @@ export const ev = {
 		}),
 	user: (text: string) => JSON.stringify({ type: "message_end", message: { role: "user", content: text } }),
 	tool: (name: string) => JSON.stringify({ type: "tool_execution_start", toolCallId: "c", toolName: name, args: {} }),
+	toolEnd: (name: string, details: unknown, isError = false, text = isError ? "Validation failed" : "ok") =>
+		JSON.stringify({
+			type: "tool_execution_end",
+			toolCallId: "c",
+			toolName: name,
+			result: { content: [{ type: "text", text }], details },
+			isError,
+		}),
 	turnEnd: (message: Record<string, unknown> = {}) => JSON.stringify({ type: "turn_end", message, toolResults: [] }),
 	settled: () => JSON.stringify({ type: "agent_settled", aborted: false }),
 };
@@ -51,6 +59,7 @@ export interface Scenario {
 	writeFile?: string; // create this file in the child's cwd when the prompt arrives
 	logFile?: string; // append "start" at process start and "line <n>" before each line
 	hold?: { line: number; starts: number }; // before that line, wait (at most 4 s) until the log has that many "start"
+	reply?: string[]; // stay up after `lines` and play these on a second prompt
 }
 
 // A temp repo (with .git) and a temp HOME, so discovery never sees the real user dirs.
@@ -83,6 +92,7 @@ export function sandbox() {
 			cwd: string;
 			systemPrompt?: string;
 			systemPromptTail?: string;
+			schema?: string;
 		} {
 			return JSON.parse(readFileSync(recordFile, "utf8"));
 		},

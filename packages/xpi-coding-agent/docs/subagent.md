@@ -88,8 +88,9 @@ Without Anthropic credentials, haiku (and so every agent by default) fails with 
 
 ## The Agent tool
 
-Input (compatible with Claude Code's Agent tool): `{ description, prompt, subagent_type?, model?, effort?, resume?, run_in_background?, isolation? }`.
-`subagent_type` defaults to `general-purpose`. `isolation` is `"worktree"` or omitted (see [Worktree isolation](#worktree-isolation));
+Input (compatible with Claude Code's Agent tool): `{ description, prompt, subagent_type?, model?, effort?, resume?, run_in_background?, isolation?, schema? }`.
+`subagent_type` defaults to `general-purpose`. `isolation` is `"worktree"` or omitted (see [Worktree isolation](#worktree-isolation)); `schema` makes the
+result a value (see [Structured output](#structured-output));
 `name` is accepted and ignored with a warning. Children run as `xpi --mode rpc` and get the prompt as a protocol message on stdin, not as a command
 line argument, so prompts of any size work.
 
@@ -102,7 +103,8 @@ Result:
   status: "completed" | "partial" | "failed" | "running"; // running: only with run_in_background: true
   agentId: string;      // pass as `resume` to continue this agent's session
   agentType: string;
-  output: string;       // the agent's last message
+  output: string;       // the agent's last message; with `schema`, the JSON text of `structured`
+  structured?: unknown; // with `schema`: the agent's result, matching the schema
   model: string;
   usage: Usage;         // added to the session cost
   turns: number;
@@ -124,6 +126,43 @@ cannot be resumed, and the subagent screen cannot show them: the panel shows a o
 `/subagents` says so. The
 `Agent` tool itself works as before. A resume without `subagent_type` reuses the agent type of the first run; a different
 `subagent_type` is an error. Children inherit the parent's project trust.
+
+## Structured output
+
+`schema` on an `Agent` call, a JSON Schema with `type: "object"` at the top, makes the agent return a value instead of
+prose, as Claude Code's workflow `agent(prompt, { schema })` does:
+
+```js
+const r = await tools.Agent({
+  description: "list routes",
+  prompt: "List every route file under src/routes.",
+  subagent_type: "Explore",
+  schema: { type: "object", properties: { files: { type: "array", items: { type: "string" } } }, required: ["files"] },
+});
+r.structured.files; // string[]
+```
+
+How it works: the child gets one more tool, `StructuredOutput`, whose parameters are the schema, and one line at the
+end of its prompt telling it to finish with that tool. pi validates the call like any tool call, so an invalid one goes
+back to the model with the failing paths and the model tries again within the same run. A valid call ends the run. The
+tool is offered to the model directly, also to a codemode-only child (next to `codemode`), and is added to an agent's
+`tools` list.
+
+| Outcome | Result |
+|---|---|
+| a valid call | `completed`; `structured` is the value (validated and coerced), `output` its JSON text (`JSON.stringify(value, null, 2)`) |
+| 5 invalid calls | `failed`, `error: "structured output did not match the schema after 5 attempts: <last validation error>"`; the child is stopped |
+| the run ends without the call | the child is asked once more ("Call StructuredOutput now with your result."); still none: `failed`, `error: "the agent ended without structured output"`, `output` keeps its last text |
+| `maxTurns` reached first | `partial`, no `structured` (a valid call in the last allowed turn counts as `completed`) |
+
+A schema no value could match throws before any child starts: not an object, a root other than `type: "object"`,
+`properties` that is not an object of schemas, `required` that is not a list of names, or a required name that
+`additionalProperties: false` rules out. Nested schemas are not checked beforehand (pi's validator accepts almost any
+schema, since it takes MCP servers' too); a nested mistake shows up as failed attempts.
+
+The schema belongs to the call: a `resume` may pass one or not, and talking to the agent on its screen never uses one.
+A `run_in_background: true` agent's end message carries the JSON text. The tool list comes before the system prompt in
+a request, so a child with a schema has its own prompt-cache prefix (see [Prompt caching](#prompt-caching)).
 
 ## Worktree isolation
 
