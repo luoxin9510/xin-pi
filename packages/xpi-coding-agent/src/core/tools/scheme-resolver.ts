@@ -46,8 +46,8 @@ export class SchemeResolver {
 		const { handler } = scheme;
 		if (!handler.locate) return { kind: "virtual", url, scheme: scheme.name, handler };
 		const located = await handler.locate(url, ctx ?? this.createContext());
-		if (typeof located !== "string" || !isAbsolute(located)) {
-			throw new Error(`${scheme.name}:// locate() must return an absolute path for ${url}, got ${String(located)}`);
+		if (!isAbsolute(located)) {
+			throw new Error(`${scheme.name}:// locate() must return an absolute path for ${url}, got ${located}`);
 		}
 		return { kind: "file", url, scheme: scheme.name, path: located, handler };
 	}
@@ -55,11 +55,7 @@ export class SchemeResolver {
 	/** The current content of a virtual resource. */
 	async read(target: SchemeTarget & { kind: "virtual" }, ctx?: ExtensionContext): Promise<string> {
 		// resolve is set: validateScheme requires one of resolve/locate and a locate target is never virtual.
-		const result = await target.handler.resolve!(target.url, ctx ?? this.createContext());
-		if (typeof result?.content !== "string") {
-			throw new Error(`${target.scheme}:// resolve() must return { content: string } for ${target.url}`);
-		}
-		return result.content;
+		return (await target.handler.resolve!(target.url, ctx ?? this.createContext())).content;
 	}
 
 	/** Throw "<scheme>:// is read-only" when the target cannot be written (`write` and `edit`). */
