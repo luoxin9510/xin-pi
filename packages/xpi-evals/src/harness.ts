@@ -83,7 +83,7 @@ export function applyIsolatedEnvironment(home: string, agentDir: string): () => 
 	const overrides = { HOME: home, USERPROFILE: home, XPI_CODING_AGENT_DIR: agentDir };
 	const previous = new Map<string, string | undefined>();
 	for (const name of Object.keys(process.env)) {
-		if (!name.startsWith("PI_EVAL_")) continue;
+		if (!name.startsWith("XPI_EVAL_")) continue;
 		previous.set(name, process.env[name]);
 		delete process.env[name];
 	}
