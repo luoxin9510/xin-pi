@@ -27,13 +27,15 @@ tool has `codemode` exposure: the model reaches it only through the `codemode` t
 
 ## Agent definitions
 
-Existing Claude Code agent files work unchanged. Sources, highest priority first (each scanned recursively for `*.md`):
+Existing Claude Code agent files work unchanged. Sources, highest priority first (the directories are scanned
+recursively for `*.md`):
 
-1. `.pi/agents/` (cwd up to the repo root, closest wins)
-2. `.claude/agents/` (same walk)
-3. `~/.pi/agent/agents/`
-4. `~/.claude/agents/`
-5. Built-in: `Explore`, `Plan`, `general-purpose`
+1. `--agents` on the command line (see [Agents on the command line](#agents-on-the-command-line))
+2. `.pi/agents/` (cwd up to the repo root, closest wins)
+3. `.claude/agents/` (same walk)
+4. `~/.pi/agent/agents/`
+5. `~/.claude/agents/`
+6. Built-in: `Explore`, `Plan`, `general-purpose`
 
 The project walk never includes your home directory (`~/.pi/agent/agents` and `~/.claude/agents` are user sources only).
 Scans skip dot directories and `node_modules`, go at most 6 levels deep and read at most 5000 entries per source.
@@ -55,7 +57,22 @@ Invalid files are skipped with a warning.
 | `color` | `red`, `blue`, `green`, `yellow`, `purple`, `orange`, `pink` or `cyan` tints the agent's label in the panel and on its screen header (fixed 256-colour escapes; the status icon and text keep their status colours). Any other value warns once and is ignored. |
 | `isolation` | `worktree` runs every call of this agent in its own git worktree; the call's `isolation` wins. See [Worktree isolation](#worktree-isolation). |
 | `memory` | `user`, `project` or `local` gives the agent a persistent directory. See [Agent memory](#agent-memory). |
-| `mcpServers`, `autoCompactWindow`, `permissionMode`, `hooks`, `background`, `initialPrompt`, `experimental` | Accepted, no effect yet (warning). |
+| `mcpServers` | A list of names of MCP servers configured in `mcp.json`. The agent gets those servers' tools and no other server's; `[]` means no MCP. An unknown name warns in the result. An inline server definition (Claude Code's other form) is not supported: it is skipped with a warning. See [MCP](#mcp). |
+| `background` | `true`: a call for this agent without `run_in_background` returns at once with `status: "running"`, and the result arrives as a message. The call's own `run_in_background` wins; print mode waits. |
+| `autoCompactWindow`, `permissionMode`, `hooks`, `initialPrompt`, `experimental` | Accepted, no effect; the warning says why (xpi compacts by reserve tokens, has no permission modes and no hooks, and has no agent-as-main-session for `initialPrompt`). |
+
+### Agents on the command line
+
+`xpi --agents '<json>'` defines agents for one run, in Claude Code's shape: an object whose keys are agent names and
+whose values are definitions, with `prompt` as the system prompt and the other keys as the fields above. The value may
+also be the path of a JSON file.
+
+```bash
+xpi --agents '{"reviewer": {"description": "Reviews a diff", "prompt": "You review code.", "tools": "Read, Grep", "model": "sonnet"}}'
+```
+
+They rank above every agent file, so one named like a file agent or a built-in replaces it for the run. A value that
+is not such an object stops the start with the reason; an entry that is not a valid agent is skipped with a warning.
 
 ## Model selection
 
@@ -434,8 +451,12 @@ Opt out:
 ## MCP
 
 MCP tools are excluded from a child whenever its agent file has a `tools` list without `mcp__` entries. An agent with
-no `tools` list gets your normal tools and every installed extension, MCP included. `mcpServers` in an agent file is
-still ignored (a warning).
+no `tools` list gets your normal tools and every installed extension, MCP included.
+
+`mcpServers: [docs, slack]` in an agent file narrows that to the named servers (names as in `mcp.json`, the agent dir's
+and, in a trusted project, the project's). With a `tools` list, each server's tools join it as `mcp__<server>__*`.
+Without one, the configured servers the agent does not name are excluded (`--exclude-tools`); servers an extension
+registers at run time are not in `mcp.json` and are not excluded this way. `mcpServers: []` removes all MCP tools.
 
 ## Limits and memory
 

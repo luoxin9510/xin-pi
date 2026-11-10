@@ -8,7 +8,7 @@ import { createCodemodeExtension } from "../codemode/index.ts";
 import { agentTool, describeAgents, parentContext } from "./agent-tool.ts";
 import { scripts } from "./background.ts";
 import { type Config, readConfig } from "./config.ts";
-import { discoverAgents } from "./discovery.ts";
+import { discoverAgents, setCliAgents } from "./discovery.ts";
 import { bindHost, limitConcurrency } from "./exchange.ts";
 import { installPanel } from "./panel.ts";
 import { registry } from "./registry.ts";
@@ -30,6 +30,12 @@ export default function subagent(pi: ExtensionAPI) {
 		registerStructuredOutput(pi); // only when the call passed a schema
 		return;
 	}
+	pi.registerFlag("agents", {
+		type: "string",
+		description:
+			'Subagents for this run: a JSON object {"<name>": {"description", "prompt", ...agent-file fields}} or the path of a JSON file. They rank above agent files.',
+	});
+
 	// agent(), parallel(), pipeline(), phase(), log() in every script that can call Agent (script-helpers.ts). The add-on
 	// is process-wide and the same for every session; registering it again replaces it.
 	codemodeAddons.register(scriptHelpers);
@@ -163,6 +169,14 @@ export default function subagent(pi: ExtensionAPI) {
 			if (ctx.hasUI) ctx.ui.notify(`subagent: ${(err as Error).message}`, "error");
 			throw err;
 		}
+		let cliWarnings: string[];
+		try {
+			const flag = pi.getFlag("agents");
+			cliWarnings = setCliAgents(typeof flag === "string" ? flag : undefined, ctx.cwd);
+		} catch (err) {
+			if (ctx.hasUI) ctx.ui.notify(`subagent: ${(err as Error).message}`, "error");
+			throw err;
+		}
 		limitConcurrency(config.maxConcurrent);
 		disconnect?.();
 		disconnect = scripts.connect({
@@ -184,7 +198,7 @@ export default function subagent(pi: ExtensionAPI) {
 					current!.isIdle() ? undefined : { deliverAs: "steer" },
 				),
 		});
-		const warnings = [...registry.rebuild(parentContext(ctx)), ...registerWorkflows(ctx)];
+		const warnings = [...cliWarnings, ...registry.rebuild(parentContext(ctx)), ...registerWorkflows(ctx)];
 		const discovery = discoverAgents(ctx.cwd);
 		const agent = agentTool(() => config!, describeAgents(discovery, config.backgroundScripts, ctx.hasUI), deliver);
 		pi.registerTool(agent);

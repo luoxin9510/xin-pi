@@ -91,6 +91,8 @@ export async function loadTool(settings: Record<string, unknown>, c: Ctx) {
 		registerTool: (t: any) => (tools[t.name] = t),
 		registerCommand: (name: string, c: any) => (commands[name] = c),
 		getCommands: () => Object.keys(commands).map((name) => ({ name })),
+		registerFlag: () => {},
+		getFlag: () => undefined,
 		sendMessage: (message: any, options: any) => messages.push({ message, options }),
 		getSettings: () => ({ subagent: { piCommand: PI, ...settings } }),
 	};

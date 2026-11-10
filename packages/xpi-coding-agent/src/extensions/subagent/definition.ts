@@ -108,8 +108,15 @@ export function parseDefinition(source: string, text: string): ParseResult {
 	}
 	if (typeof fm !== "object" || fm === null || Array.isArray(fm))
 		return { ok: false, reason: "frontmatter is not a mapping" };
-	const f = fm as Record<string, unknown>;
+	const body = lines
+		.slice(end + 1)
+		.join("\n")
+		.trim();
+	return definitionFromFields(source, fm as Record<string, unknown>, body);
+}
 
+// A definition from its fields (an agent file's frontmatter, or an entry of `--agents`) and its system prompt.
+export function definitionFromFields(source: string, f: Record<string, unknown>, prompt: string): ParseResult {
 	const name = f.name;
 	if (name === undefined || name === null) return { ok: false, reason: 'missing "name"' };
 	if (typeof name !== "string") return { ok: false, reason: '"name" must be a string' };
@@ -135,10 +142,7 @@ export function parseDefinition(source: string, text: string): ParseResult {
 		const def: AgentDefinition = {
 			name,
 			description: f.description.trim(),
-			prompt: lines
-				.slice(end + 1)
-				.join("\n")
-				.trim(),
+			prompt,
 			tools: nameList(f.tools, "tools"),
 			disallowedTools: nameList(f.disallowedTools, "disallowedTools"),
 			model: optional<string>(f.model, "model", (v) => typeof v === "string" && v !== "", "a string"),
