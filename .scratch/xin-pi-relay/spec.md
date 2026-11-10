@@ -172,3 +172,14 @@ feature list, `docs/xin-pi.md` (core changes).
 - `handback` ends the worker's run at once (no extra worker request).
 - `/handback` tells the worker to stop and report; the hand back follows when its run ends.
 - The settings are read at each request.
+
+## Facts in place of rules (owner, 2026-11-10)
+
+The lead gets no rule about when to hand over. It gets the objective (`relay.objective`: by default as few lead tokens
+as possible, worker tokens not counted), the API list prices of both models from the catalog, what a handover does and
+what comes back, and after each hand back the measured time and usage of the session. `relay.minuteCost` puts a price
+on the user's waiting time; unset by default. `relay.workerRecord` says what is known about the worker.
+
+The owner's criterion for relay: the lead's cost below the lead working alone, and the time below the worker working
+alone. Measured with `npm run eval:delegation -- --long` (results in `docs/relay.md`): met in all three tasks, one run
+each. With the earlier rules the lead never handed over.

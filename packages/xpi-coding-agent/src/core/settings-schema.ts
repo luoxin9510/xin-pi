@@ -333,6 +333,24 @@ const RelaySettingsSchema = Type.Object(
 				description: "How much of the diff goes into the hand-back record. Default 20000.",
 			}),
 		),
+		objective: Type.Optional(
+			Type.String({
+				description:
+					"What the user optimizes for, told to the lead, which decides with it whether to hand over. Default: a correct result for as few lead tokens as possible; worker tokens are not counted.",
+			}),
+		),
+		workerRecord: Type.Optional(
+			Type.String({
+				description: "What is known about the worker's ability, told to the lead. Unset: nothing is said.",
+			}),
+		),
+		minuteCost: Type.Optional(
+			Type.Number({
+				minimum: 0,
+				description:
+					"What one minute of the user's waiting is worth, in dollars of tokens, told to the lead next to the objective. Unset: time is not part of the objective.",
+			}),
+		),
 	},
 	{ additionalProperties: true, description: "Settings of the built-in relay extension (the relay/auto model)." },
 );

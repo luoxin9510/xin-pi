@@ -4,6 +4,7 @@ import type { AgentTool } from "xpi-agent-core";
 import { type Context, type FauxResponseStep, fauxAssistantMessage, fauxToolCall, type Message } from "xpi-ai";
 import type { Settings } from "../../src/core/settings-manager.ts";
 import { readRelayConfig } from "../../src/extensions/relay/config.ts";
+import { leadFacts, objectiveFact, priceFact, roundTimeFact } from "../../src/extensions/relay/facts.ts";
 import relayExtension, { RELAY_MODEL, RELAY_PROVIDER } from "../../src/extensions/relay/index.ts";
 import { renderConversation } from "../../src/extensions/relay/record.ts";
 import { nextState, RECORD_MARKER, USER_HANDOVER_MARKER } from "../../src/extensions/relay/router.ts";
@@ -59,16 +60,20 @@ describe("relay", () => {
 		await harness.session.setModel(runtime.getModel(RELAY_PROVIDER, RELAY_MODEL)!);
 		/** What each request saw, and which model got it. */
 		const seen: { model: string; text: string }[] = [];
+		const system: string[] = [];
 		const reply =
 			(message: ReturnType<typeof fauxAssistantMessage>): FauxResponseStep =>
 			(context, _options, _state, model) => {
 				seen.push({ model: model.id, text: textOf(context) });
+				system.push(
+					context.messages.flatMap((m) => ((m.role as string) === "system" ? [JSON.stringify(m)] : [])).join("\n"),
+				);
 				return message;
 			};
 		const call = (name: string, args: Parameters<typeof fauxToolCall>[1]) =>
 			reply(fauxAssistantMessage(fauxToolCall(name, args), { stopReason: "toolUse" }));
 		const say = (text: string) => reply(fauxAssistantMessage(text));
-		return { harness, seen, call, say };
+		return { harness, seen, system, call, say };
 	}
 
 	it("puts the two tools in the tool list only while the relay model is selected", async () => {
@@ -81,7 +86,7 @@ describe("relay", () => {
 	});
 
 	it("hands over to the worker and gives the lead a record in place of the worker's transcript", async () => {
-		const { harness, seen, call, say } = await createRelayHarness();
+		const { harness, seen, system, call, say } = await createRelayHarness();
 		harness.setResponses([
 			say("I looked around. LEAD-EARLIER-REPLY"),
 			call("handover", {
@@ -99,6 +104,8 @@ describe("relay", () => {
 		await harness.session.prompt("USER-SECOND-MESSAGE please build it");
 
 		expect(seen.map((request) => request.model)).toEqual(["large", "large", "small", "small", "large"]);
+		expect(system[0]).toContain("Relay objective:");
+		expect(system[0]).toContain("Relay prices:");
 		// The worker reads the whole conversation and the brief.
 		expect(seen[2].text).toContain("LEAD-EARLIER-REPLY");
 		expect(seen[2].text).toContain("You are the worker");
@@ -115,6 +122,7 @@ describe("relay", () => {
 			"WORKER-REPORT-TEXT",
 			"`true`: passed (exit 0)",
 			"You are the lead again",
+			"Used so far in this session:",
 		]) {
 			expect(review).toContain(kept);
 		}
@@ -233,6 +241,57 @@ describe("relay", () => {
 		expect(() => readRelayConfig({ lead: "opus" })).toThrow(/relay\.lead must be "provider\/model"/);
 		expect(() => readRelayConfig({ maxRounds: -1 })).toThrow(/relay\.maxRounds/);
 		expect(() => readRelayConfig({ leadThinking: { plan: "huge" } })).toThrow(/relay\.leadThinking\.plan/);
+	});
+
+	it("tells the lead the objective, the prices and what a handover does, and no rule about when", () => {
+		type Tier = { inputTokensAbove: number; input: number; output: number; cacheRead: number; cacheWrite: number };
+		const price = (input: number, output: number, tiers?: Tier[]) => ({
+			cost: { input, output, cacheRead: input / 10, cacheWrite: input * 1.25, ...(tiers ? { tiers } : {}) },
+		});
+		const opus = price(4, 20);
+		const haiku = price(0.1, 0.5, [
+			{ inputTokensAbove: 100_000, input: 0.5, output: 2.5, cacheRead: 0.05, cacheWrite: 0.625 },
+		]);
+		const fact = priceFact(opus, haiku);
+		expect(fact).toContain("You: input $4, cached input $0.4, cache write $5, output $20.");
+		expect(fact).toContain(
+			"The worker: input $0.1, cached input $0.01, cache write $0.125, output $0.5; with more than 100,000 prompt tokens: input $0.5,",
+		);
+		expect(fact).toContain(
+			"one of your input tokens costs 40 times a worker input token, one of your output tokens 40 times",
+		);
+		expect(priceFact(price(3, 15), price(1.2, 5))).toContain("costs 2.5 times");
+		expect(priceFact(price(15, 75), price(0, 0))).toBeUndefined();
+		expect(priceFact(undefined, price(1, 5))).toBeUndefined();
+		const facts = leadFacts(
+			readRelayConfig({ workerRecord: "RECORD-TEXT", maxRounds: 2 }),
+			price(15, 75),
+			price(1, 5),
+		).join("\n");
+		for (const part of [
+			"Whether and when to call handover is your decision",
+			"Relay objective: the user wants a correct result for as few of your (lead) tokens as possible",
+			"costs 15 times",
+			"Time with handover:",
+			"at most 2 time(s)",
+			"Not kept: the worker's own steps",
+			"RECORD-TEXT",
+		]) {
+			expect(facts).toContain(part);
+		}
+		expect(leadFacts(readRelayConfig(undefined), undefined, undefined).join("\n")).toContain(
+			"Relay prices: not known",
+		);
+		expect(() => readRelayConfig({ objective: " " })).toThrow(/relay\.objective/);
+		// Time enters the objective only as a price the user sets.
+		expect(objectiveFact(readRelayConfig(undefined))).not.toContain("minute");
+		expect(objectiveFact(readRelayConfig({ minuteCost: 0.5 }))).toContain(
+			"one minute of wall-clock time is worth $0.5 of tokens",
+		);
+		expect(() => readRelayConfig({ minuteCost: -1 })).toThrow(/relay\.minuteCost/);
+		expect(roundTimeFact(2, 1000, 40_000, 426_000)).toBe(
+			"Round 2 took 7m05s from the handover to this hand back, 40s of it in the acceptance commands.",
+		);
 	});
 
 	it("drops the oldest lead replies first when the conversation is too long", () => {

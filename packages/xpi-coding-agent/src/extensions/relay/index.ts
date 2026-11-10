@@ -10,6 +10,7 @@ import type { ExtensionAPI, ExtensionContext, SessionBoundaryDraft } from "../..
 import type { SessionEntry } from "../../core/session-manager.ts";
 import { getVirtualModelState } from "../../core/virtual-models.ts";
 import { type RelayConfig, readRelayConfig, splitModelRef } from "./config.ts";
+import { leadFacts, roundTimeFact, spendFact } from "./facts.ts";
 import {
 	type AcceptanceResult,
 	acceptancePassed,
@@ -64,6 +65,10 @@ function userText(message: AgentMessage): string {
 /** What a worker phase left on the branch, read back when it ends. */
 interface Phase {
 	handover?: Handover;
+	/** When the handover was made. */
+	startedAt?: number;
+	/** Time the acceptance commands took in the attempts that failed. */
+	acceptanceMs: number;
 	/** The worker's `handback` call, unless acceptance failed after it and the worker went on. */
 	handback?: Handback;
 	failedRounds: number;
@@ -73,12 +78,14 @@ interface Phase {
 }
 
 export function readPhase(branch: readonly SessionEntry[]): Phase {
-	const phase: Phase = { failedRounds: 0, conversation: [], earlierRounds: [] };
+	const phase: Phase = { failedRounds: 0, acceptanceMs: 0, conversation: [], earlierRounds: [] };
 	let working = false;
 	for (const entry of branch) {
 		if (entry.type === "custom") {
 			if (entry.customType === HANDOVER_ENTRY) {
 				phase.handover = entry.data as Handover;
+				phase.startedAt = Date.parse(entry.timestamp) || undefined;
+				phase.acceptanceMs = 0;
 				phase.handback = undefined;
 				phase.failedRounds = 0;
 				working = true;
@@ -86,6 +93,7 @@ export function readPhase(branch: readonly SessionEntry[]): Phase {
 				phase.handback = entry.data as Handback;
 			} else if (entry.customType === VERIFY_ENTRY) {
 				phase.failedRounds++;
+				phase.acceptanceMs += (entry.data as { ms?: number } | undefined)?.ms ?? 0;
 				phase.handback = undefined;
 			} else if (entry.customType === ROUND_ENTRY) {
 				phase.earlierRounds.push((entry.data as RoundSummary).line);
@@ -103,13 +111,6 @@ export function readPhase(branch: readonly SessionEntry[]): Phase {
 	}
 	return phase;
 }
-
-const LEAD_RULES = [
-	`With the relay model you are the lead: explore, decide, then call ${HANDOVER_TOOL} so that a cheaper worker model carries the plan out. Your tokens are the expensive ones: spend them on reading what the decision depends on, on the plan and on the review, not on mechanical edits.`,
-	`Call ${HANDOVER_TOOL} once the plan is settled and more than a few edits remain. A task of a few edits you finish yourself.`,
-	`The worker reads this whole conversation, but write the ${HANDOVER_TOOL} note to stand alone: after the worker is done the conversation is replaced by a record that keeps your note, the user's messages and your replies, the worker's report, the diff and the acceptance output. What you learned and want to keep goes into findings.`,
-	`After a hand back, judge the diff against your criteria. Then either answer the user, fix a small thing yourself, or call ${HANDOVER_TOOL} again with a correction.`,
-];
 
 function workerBrief(handover: Handover, config: RelayConfig): string {
 	const lines = [
@@ -174,55 +175,61 @@ export default function relay(pi: ExtensionAPI) {
 		},
 	});
 
-	pi.registerTool({
-		name: HANDOVER_TOOL,
-		label: "Handover",
-		description:
-			"Relay mode, lead only: give the work to the worker model. Write a plan it can follow without you, the commands that must pass, and what you learned that must not be lost. The worker continues from here; you get a record back when it is done.",
-		promptGuidelines: LEAD_RULES,
-		defaultActive: false,
-		parameters: Type.Object({
-			plan: Type.String({ description: "The steps, in order, specific enough to follow without the lead." }),
-			acceptance: Type.Optional(
-				Type.Array(Type.String(), {
-					description:
-						"Shell commands that must exit 0 when the work is done (tests, a type check, a grep). Run in the session's directory after the worker hands back.",
-				}),
-			),
-			criteria: Type.Optional(
-				Type.String({ description: "What done means beyond the commands. You review the result against this." }),
-			),
-			findings: Type.Optional(
-				Type.String({
-					description: "What you learned and must not lose: the files involved, constraints, traps.",
-				}),
-			),
-			stopWhen: Type.Optional(
-				Type.String({ description: "When the worker must stop and hand back instead of pushing on." }),
-			),
-		}),
-		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			if (!isRelay(ctx.model))
-				throw new Error(`${HANDOVER_TOOL} works only with the ${RELAY_PROVIDER}/${RELAY_MODEL} model`);
-			const state = stateOf(ctx);
-			if (state.phase === "worker") {
-				throw new Error(`Only the lead hands over. You are the worker: do the work, then call ${HANDBACK_TOOL}.`);
-			}
-			if (!params.plan.trim()) throw new Error("plan is empty");
-			const cfg = config();
-			const handover: Handover = {
-				round: state.round + 1,
-				plan: params.plan,
-				acceptance: (params.acceptance ?? []).filter((command) => command.trim() !== ""),
-				criteria: params.criteria,
-				findings: params.findings,
-				stopWhen: params.stopWhen,
-				base: await snapshot(ctx.cwd),
-			};
-			pi.appendEntry(HANDOVER_ENTRY, handover);
-			return { content: [{ type: "text", text: workerBrief(handover, cfg) }], details: { round: handover.round } };
-		},
-	});
+	const registerHandover = (promptGuidelines: string[]) =>
+		pi.registerTool({
+			name: HANDOVER_TOOL,
+			label: "Handover",
+			description:
+				"Relay mode, lead only: give the work to the worker model. It continues from this conversation; when it is done you get a record back in place of the conversation (your note, the user's messages, your replies, its report, the diff, the acceptance output).",
+			promptGuidelines,
+			defaultActive: false,
+			parameters: Type.Object({
+				plan: Type.String({ description: "The steps, in order, specific enough to follow without the lead." }),
+				acceptance: Type.Optional(
+					Type.Array(Type.String(), {
+						description:
+							"Shell commands that must exit 0 when the work is done (tests, a type check, a grep). Run in the session's directory after the worker hands back.",
+					}),
+				),
+				criteria: Type.Optional(
+					Type.String({ description: "What done means beyond the commands. You review the result against this." }),
+				),
+				findings: Type.Optional(
+					Type.String({
+						description: "What you learned and must not lose: the files involved, constraints, traps.",
+					}),
+				),
+				stopWhen: Type.Optional(
+					Type.String({ description: "When the worker must stop and hand back instead of pushing on." }),
+				),
+			}),
+			async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+				if (!isRelay(ctx.model))
+					throw new Error(`${HANDOVER_TOOL} works only with the ${RELAY_PROVIDER}/${RELAY_MODEL} model`);
+				const state = stateOf(ctx);
+				if (state.phase === "worker") {
+					throw new Error(
+						`Only the lead hands over. You are the worker: do the work, then call ${HANDBACK_TOOL}.`,
+					);
+				}
+				if (!params.plan.trim()) throw new Error("plan is empty");
+				const cfg = config();
+				const handover: Handover = {
+					round: state.round + 1,
+					plan: params.plan,
+					acceptance: (params.acceptance ?? []).filter((command) => command.trim() !== ""),
+					criteria: params.criteria,
+					findings: params.findings,
+					stopWhen: params.stopWhen,
+					base: await snapshot(ctx.cwd),
+				};
+				pi.appendEntry(HANDOVER_ENTRY, handover);
+				return {
+					content: [{ type: "text", text: workerBrief(handover, cfg) }],
+					details: { round: handover.round },
+				};
+			},
+		});
 
 	pi.registerTool({
 		name: HANDBACK_TOOL,
@@ -249,6 +256,23 @@ export default function relay(pi: ExtensionAPI) {
 		},
 	});
 
+	// The lead's facts include the price ratio, which needs the catalog: they are stated again whenever the session or
+	// the selected model changes. Wrong settings are reported by the first request, not here.
+	const tell = (ctx?: ExtensionContext) => {
+		let cfg: RelayConfig;
+		try {
+			cfg = config();
+		} catch {
+			cfg = readRelayConfig(undefined);
+		}
+		const find = (ref: string) => {
+			const { provider, id } = splitModelRef(ref);
+			return ctx?.modelRegistry.find(provider, id);
+		};
+		registerHandover(leadFacts(cfg, find(cfg.lead), find(cfg.worker)));
+	};
+	tell();
+
 	// The two tools are in the tool list only while the relay model is selected.
 	const syncTools = (model: { provider: string; id: string } | undefined) => {
 		const active = pi.getActiveTools();
@@ -260,8 +284,14 @@ export default function relay(pi: ExtensionAPI) {
 			pi.setActiveTools(active.filter((name) => !relayTools.includes(name)));
 		}
 	};
-	pi.on("session_start", async (_event, ctx) => syncTools(ctx.model));
-	pi.on("model_select", async (event) => syncTools(event.model));
+	pi.on("session_start", async (_event, ctx) => {
+		tell(ctx);
+		syncTools(ctx.model);
+	});
+	pi.on("model_select", async (event, ctx) => {
+		tell(ctx);
+		syncTools(event.model);
+	});
 
 	// The end of a worker run: verify, then hand back.
 	pi.on("agent_before_settle", async (event, ctx) => {
@@ -275,16 +305,20 @@ export default function relay(pi: ExtensionAPI) {
 		forced = false;
 
 		let results: AcceptanceResult[] = [];
+		let acceptanceMs = phase.acceptanceMs;
 		if (!skipAcceptance && handover.acceptance.length > 0) {
 			notify(ctx, `relay: running ${handover.acceptance.length} acceptance command(s)`);
+			const acceptanceStarted = Date.now();
 			results = await runAcceptance(handover.acceptance, ctx.cwd, cfg.acceptanceTimeoutMs, ctx.signal);
+			const attemptMs = Date.now() - acceptanceStarted;
+			acceptanceMs += attemptMs;
 			if (ctx.signal?.aborted) return;
 			if (!acceptancePassed(results) && phase.failedRounds < cfg.maxRounds) {
 				const attempt = phase.failedRounds + 1;
 				notify(ctx, `relay: acceptance failed (${attempt} of ${cfg.maxRounds}), back to the worker`, "warning");
 				const drafts: SessionBoundaryDraft[] = [
 					...event.entries,
-					{ type: "custom", customType: VERIFY_ENTRY, data: { round: handover.round, attempt } },
+					{ type: "custom", customType: VERIFY_ENTRY, data: { round: handover.round, attempt, ms: attemptMs } },
 					{
 						type: "custom_message",
 						customType: VERIFY_ENTRY,
@@ -336,7 +370,14 @@ export default function relay(pi: ExtensionAPI) {
 				type: "custom_message",
 				customType: "relay.review",
 				display: true,
-				content: `You are the lead again. The record above is what the worker did in round ${handover.round}. Check the changes against your criteria (read the files or run commands where the diff is not enough), then answer the user, fix a small thing yourself, or call ${HANDOVER_TOOL} again with a correction.`,
+				content: [
+					`You are the lead again. The record above is what the worker did in round ${handover.round}.`,
+					roundTimeFact(handover.round, phase.startedAt, acceptanceMs),
+					spendFact(ctx.sessionManager.getBranch(), cfg),
+					`Nothing is final: you can read files, run commands, change things yourself, answer the user, or call ${HANDOVER_TOOL} again.`,
+				]
+					.filter(Boolean)
+					.join(" "),
 			},
 		];
 		return { entries: drafts, continue: true };

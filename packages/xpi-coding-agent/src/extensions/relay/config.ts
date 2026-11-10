@@ -10,6 +10,18 @@ export interface RelayConfig {
 	maxRounds: number; // times failed acceptance commands go back to the worker before the lead is woken
 	acceptanceTimeoutMs: number; // per acceptance command
 	diffChars: number; // how much of the diff goes into the hand-back record
+	objective: string; // what the user optimizes for; the lead decides with it
+	workerRecord?: string; // what is known about the worker's ability, told to the lead
+	minuteCost?: number; // what a minute of the user's waiting is worth, in dollars of tokens; unset: time is not counted
+}
+
+export const DEFAULT_OBJECTIVE =
+	"the user wants a correct result for as few of your (lead) tokens as possible. Worker tokens are not counted.";
+
+function text(value: unknown, key: string): string | undefined {
+	if (value === undefined) return undefined;
+	if (typeof value !== "string" || value.trim() === "") throw new Error(`relay.${key} must be a non-empty string`);
+	return value.trim();
 }
 
 export const DEFAULT_LEAD = "anthropic/claude-opus-5-5";
@@ -41,6 +53,14 @@ function count(value: unknown, key: string, fallback: number, min: number): numb
 	return value as number;
 }
 
+function minuteCost(value: unknown): number | undefined {
+	if (value === undefined) return undefined;
+	if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+		throw new Error("relay.minuteCost must be a number of dollars, 0 or more");
+	}
+	return value;
+}
+
 export function readRelayConfig(raw: unknown): RelayConfig {
 	if (raw === undefined) raw = {};
 	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
@@ -63,6 +83,9 @@ export function readRelayConfig(raw: unknown): RelayConfig {
 		maxRounds: count(r.maxRounds, "maxRounds", 3, 0),
 		acceptanceTimeoutMs: count(r.acceptanceTimeoutMs, "acceptanceTimeoutMs", 600_000, 1000),
 		diffChars: count(r.diffChars, "diffChars", 20_000, 0),
+		objective: text(r.objective, "objective") ?? DEFAULT_OBJECTIVE,
+		workerRecord: text(r.workerRecord, "workerRecord"),
+		minuteCost: minuteCost(r.minuteCost),
 	};
 }
 
