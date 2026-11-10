@@ -2418,6 +2418,8 @@ pi.registerTool({
 
 The `create*ToolDefinition()` factories, such as `createReadToolDefinition()`, return complete tool definitions, including the built-in prompt snippet and guidelines, for the same purpose. Rendering does not need copying: a tool registered under a built-in name inherits the built-in renderer for each slot it leaves out (see [Overriding Built-in Tools](#overriding-built-in-tools)).
 
+The stale-edit guard ([settings](settings.md#edit-and-write-safety)) is active for built-in tools only when `read`, `edit` and `write` share a `FileStateStore`. The session's own tools and the functions that build several tools (`createCodingTools()`, `createAllTools()`, `createAllToolDefinitions()`, ...) share one. A tool created alone, such as `createEditTool(cwd)`, has no store and edits any file unless you pass `{ fileState }` (also on the matching `read` and `write`). `WriteOperations.readFile` is optional; without it the guard does not check that tool's overwrites.
+
 **Operations interfaces:** `ReadOperations`, `WriteOperations`, `EditOperations`, `BashOperations`, `PowerShellOperations`, `LsOperations`, `GrepOperations`, `FindOperations`
 
 `GrepOperations` only covers the directory check: grep always runs the local `rg`. To search a remote system, override grep's `execute()` instead, as the [Gondolin example](../examples/extensions/gondolin/index.ts) does.

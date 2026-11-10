@@ -6,6 +6,7 @@ import type { Api, ImageContent, Model, ModelImageResizeOptions, TextContent } f
 import { processImage } from "../../utils/image-process.ts";
 import { detectSupportedImageMimeTypeFromFile } from "../../utils/mime.ts";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
+import { type FileStateStore, TextFingerprint } from "./file-state.ts";
 import { resolveReadPathAsync } from "./path-utils.ts";
 import { readRenderers } from "./renderers/read.ts";
 import { type TypeBoxAgentTool, wrapToolDefinition } from "./tool-definition-wrapper.ts";
@@ -90,6 +91,8 @@ export interface ReadToolOptions {
 	resizeOptions?: ModelImageResizeOptions;
 	/** Custom operations for file reading. Default: local filesystem */
 	operations?: ReadOperations;
+	/** Records the fingerprint of every text file read, for the stale-edit guard in `edit` and `write`. */
+	fileState?: FileStateStore;
 }
 
 /** The image block and its note, or the text for text files and images that could not be processed. */
@@ -126,12 +129,32 @@ function isStreamableRange(offset: number | undefined, limit: number | undefined
 }
 
 /** Select lines from a whole file in memory: for operations without createReadStream and unusual ranges. */
-function selectLinesFromBuffer(buffer: Buffer, startLine: number, limit: number | undefined): SelectedLines {
-	const allLines = buffer.toString("utf-8").split("\n");
+function selectLinesFromBuffer(
+	buffer: Buffer,
+	startLine: number,
+	limit: number | undefined,
+	fingerprint: TextFingerprint | undefined,
+): SelectedLines {
+	const text = buffer.toString("utf-8");
+	fingerprint?.update(text);
+	const allLines = text.split("\n");
 	const endLine = limit === undefined ? undefined : Math.min(startLine + limit, allLines.length);
 	const truncation = truncateHead(allLines.slice(startLine, endLine).join("\n"));
 	const firstLineBytes = truncation.firstLineExceedsLimit ? Buffer.byteLength(allLines[startLine], "utf-8") : 0;
 	return { totalFileLines: allLines.length, truncation, firstLineBytes };
+}
+
+/** Pass chunks through while feeding the whole file to the fingerprint. */
+async function* fingerprintChunks(
+	chunks: AsyncIterable<Uint8Array>,
+	fingerprint: TextFingerprint,
+): AsyncIterable<Uint8Array> {
+	const decoder = new TextDecoder("utf-8", { ignoreBOM: true });
+	for await (const chunk of chunks) {
+		fingerprint.update(decoder.decode(chunk, { stream: true }));
+		yield chunk;
+	}
+	fingerprint.update(decoder.decode());
 }
 
 /**
@@ -232,6 +255,7 @@ export function createReadToolDefinition(
 	const autoResizeImages = options?.autoResizeImages ?? true;
 	const fallbackResizeOptions = options?.resizeOptions;
 	const ops = options?.operations ?? defaultReadOperations;
+	const fileState = options?.fileState;
 	return {
 		name: "read",
 		label: "read",
@@ -296,20 +320,24 @@ export function createReadToolDefinition(
 								// Read text content. Convert offset from 1-indexed input to 0-indexed line access.
 								const startLine = offset ? Math.max(0, offset - 1) : 0;
 								const startLineDisplay = startLine + 1;
+								const fingerprint = fileState?.enabled ? new TextFingerprint() : undefined;
 								const { totalFileLines, truncation, firstLineBytes } =
 									ops.createReadStream && isStreamableRange(offset, limit)
 										? await selectLinesFromStream(
-												ops.createReadStream(absolutePath, { signal }),
+												fingerprint
+													? fingerprintChunks(ops.createReadStream(absolutePath, { signal }), fingerprint)
+													: ops.createReadStream(absolutePath, { signal }),
 												startLine,
 												limit,
 												signal,
 											)
-										: selectLinesFromBuffer(await ops.readFile(absolutePath), startLine, limit);
+										: selectLinesFromBuffer(await ops.readFile(absolutePath), startLine, limit, fingerprint);
 								if (aborted) return;
 								// Check if offset is out of bounds.
 								if (startLine >= totalFileLines) {
 									throw new Error(`Offset ${offset} is beyond end of file (${totalFileLines} lines total)`);
 								}
+								if (fileState && fingerprint) await fileState.record(absolutePath, fingerprint.digest());
 								// A user-specified limit is honored before truncation.
 								const userLimitedLines =
 									limit === undefined ? undefined : Math.min(startLine + limit, totalFileLines) - startLine;

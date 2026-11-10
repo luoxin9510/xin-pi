@@ -323,6 +323,13 @@ export const SettingsSchema = Type.Object(
 		branchSummary: Type.Optional(BranchSummarySettingsSchema),
 		retry: Type.Optional(RetrySettingsSchema),
 		hideThinkingBlock: Type.Optional(Type.Boolean({ default: SETTINGS_DEFAULTS.hideThinkingBlock })),
+		staleEditGuard: Type.Optional(
+			Type.Boolean({
+				description:
+					"Make edit and write fail on a file that was not read in this session or changed since it was read.",
+				default: SETTINGS_DEFAULTS.staleEditGuard,
+			}),
+		),
 		showCacheMissNotices: Type.Optional(
 			Type.Boolean({
 				description: "Show cache cost and provider recovery notices.",

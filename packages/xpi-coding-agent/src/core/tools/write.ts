@@ -1,8 +1,9 @@
-import { mkdir as fsMkdir, writeFile as fsWriteFile } from "fs/promises";
+import { mkdir as fsMkdir, readFile as fsReadFile, writeFile as fsWriteFile } from "fs/promises";
 import { dirname } from "path";
 import { type Static, Type } from "typebox";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
 import { withFileMutationQueue } from "./file-mutation-queue.ts";
+import { type FileStateStore, fingerprintText } from "./file-state.ts";
 import { resolveToCwd } from "./path-utils.ts";
 import { writeRenderers } from "./renderers/write.ts";
 import { type TypeBoxAgentTool, wrapToolDefinition } from "./tool-definition-wrapper.ts";
@@ -28,16 +29,33 @@ export interface WriteOperations {
 	writeFile: (absolutePath: string, content: string) => Promise<void>;
 	/** Create directory recursively */
 	mkdir: (dir: string) => Promise<void>;
+	/**
+	 * Read the current contents of an existing file; reject with code ENOENT or ENOTDIR when it does not
+	 * exist. The stale-edit guard needs it to tell an overwrite from a new file; without it the guard
+	 * does not check this tool's writes.
+	 */
+	readFile?: (absolutePath: string) => Promise<Buffer>;
 }
 
 const defaultWriteOperations: WriteOperations = {
 	writeFile: (path, content) => fsWriteFile(path, content, "utf-8"),
 	mkdir: (dir) => fsMkdir(dir, { recursive: true }).then(() => {}),
+	readFile: (path) => fsReadFile(path),
 };
+
+function isMissingFileError(error: unknown): boolean {
+	return error instanceof Error && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR");
+}
 
 export interface WriteToolOptions {
 	/** Custom operations for file writing. Default: local filesystem */
 	operations?: WriteOperations;
+	/**
+	 * What the session has read. When set, overwriting an existing file fails if it was not read through the
+	 * same store or changed since. Creating a new file needs no read. Without a store the tool overwrites
+	 * any file, as before.
+	 */
+	fileState?: FileStateStore;
 }
 
 export function createWriteToolDefinition(
@@ -45,6 +63,7 @@ export function createWriteToolDefinition(
 	options?: WriteToolOptions,
 ): ToolDefinition<typeof writeSchema, undefined> {
 	const ops = options?.operations ?? defaultWriteOperations;
+	const fileState = options?.fileState;
 	return {
 		name: "write",
 		label: "write",
@@ -73,12 +92,25 @@ export function createWriteToolDefinition(
 				};
 
 				throwIfAborted();
+
+				if (fileState?.enabled && ops.readFile) {
+					let existing: Buffer | undefined;
+					try {
+						existing = await ops.readFile(absolutePath);
+					} catch (error: unknown) {
+						if (!isMissingFileError(error)) throw error;
+					}
+					throwIfAborted();
+					if (existing) await fileState.verify(absolutePath, path, fingerprintText(existing.toString("utf-8")));
+				}
+
 				// Create parent directories if needed.
 				await ops.mkdir(dir);
 				throwIfAborted();
 
 				// Write the file contents.
 				await ops.writeFile(absolutePath, content);
+				await fileState?.record(absolutePath, fingerprintText(content));
 				throwIfAborted();
 
 				return {

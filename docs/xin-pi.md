@@ -175,6 +175,19 @@ preloaded skills, memory, working directory, date). The main agent's prompt has 
   `test/args.test.ts`, `test/subagent/worktree/cache-layout.test.ts`, `test/subagent/faults/stagger.test.ts`; by hand
   on a real model: `npm run test:subagent:cache`.
 
+## Core changes: stale-edit guard
+
+`read`, `edit` and `write` share a per-session `FileStateStore` (`coding-agent/src/core/tools/file-state.ts`, created by
+`AgentSession` and passed through `ToolsOptions.fileState`). `read` records a fingerprint of each text file (SHA-256 of
+the content with trailing spaces, tabs and CR removed per line; a paged read fingerprints the whole file as it streams;
+an image read records nothing). `edit` and `write` over an existing file verify it inside the per-path mutation queue
+and throw `File <path> has not been read in this session. Read it before editing.` or `File <path> changed since you
+last read it. Read it again before editing.`; a successful edit or write records the new content. Nothing is persisted,
+so resume, fork and subagent children start empty. Setting `staleEditGuard` (default true) turns it off. Tools made
+alone (`createEditTool(cwd)`) have no store and are unguarded; the multi-tool factories create one. This follows Claude
+Code's rule; upstream pi has no such check. User docs: `settings.md#edit-and-write-safety`.
+Tests: `test/stale-edit-guard.test.ts`, `test/suite/stale-edit-guard-session.test.ts`.
+
 ## Testing
 
 Everything below runs from `packages/xpi-coding-agent/`. Tests assert on structure and side effects (result fields,

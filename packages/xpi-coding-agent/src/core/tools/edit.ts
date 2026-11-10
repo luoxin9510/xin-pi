@@ -11,6 +11,7 @@ import {
 	normalizeToLF,
 } from "./edit-diff.ts";
 import { withFileMutationQueue } from "./file-mutation-queue.ts";
+import { type FileStateStore, fingerprintText } from "./file-state.ts";
 import { resolveToCwd } from "./path-utils.ts";
 import { type EditRenderState, editRenderers } from "./renderers/edit.ts";
 import { type TypeBoxAgentTool, wrapToolDefinition } from "./tool-definition-wrapper.ts";
@@ -93,6 +94,11 @@ const defaultEditOperations: EditOperations = {
 export interface EditToolOptions {
 	/** Custom operations for file editing. Default: local filesystem */
 	operations?: EditOperations;
+	/**
+	 * What the session has read. When set, an edit fails on a file that was not read through the same store
+	 * or that changed since it was. Without a store the tool edits any file, as before.
+	 */
+	fileState?: FileStateStore;
 }
 
 function prepareEditArguments(input: unknown): EditToolInput {
@@ -140,6 +146,7 @@ export function createEditToolDefinition(
 	options?: EditToolOptions,
 ): ToolDefinition<typeof editSchema, EditToolDetails | undefined, EditRenderState> {
 	const ops = options?.operations ?? defaultEditOperations;
+	const fileState = options?.fileState;
 	return {
 		name: "edit",
 		label: "edit",
@@ -182,6 +189,11 @@ export function createEditToolDefinition(
 				const rawContent = buffer.toString("utf-8");
 				throwIfAborted();
 
+				if (fileState?.enabled) {
+					await fileState.verify(absolutePath, path, fingerprintText(rawContent));
+					throwIfAborted();
+				}
+
 				// Strip BOM before matching. The model will not include an invisible BOM in oldText.
 				const { bom, text: content } = splitBom(rawContent);
 				const normalizedContent = normalizeToLF(content);
@@ -199,6 +211,7 @@ export function createEditToolDefinition(
 				const finalContent =
 					bom + (content === normalizedContent ? newContent : applyReplacementsToOriginal(content, replacements));
 				await ops.writeFile(absolutePath, finalContent);
+				await fileState?.record(absolutePath, fingerprintText(finalContent));
 				throwIfAborted();
 
 				return {
