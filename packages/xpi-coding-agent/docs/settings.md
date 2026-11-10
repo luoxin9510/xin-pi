@@ -16,6 +16,7 @@ Add `"$schema": "https://pi.dev/schemas/settings.schema.json"` to `settings.json
 | `modelThinkingLevels` | object | None | Per-model startup thinking levels keyed by exact `provider/modelId`. |
 | `thinkingBudgets` | object | Built-in budgets | Token budgets for `minimal`, `low`, `medium`, and `high` thinking levels. |
 | `enabledModels` | `string[]` | All available models | Model patterns used for startup selection and model cycling. Uses the same format as `--models`. |
+| `models` | `Record<string, string>` | None | Model aliases, alias to a model reference (`provider/id`, an id or a pattern, or `inherit`). Overrides the built-in aliases `opus`, `sonnet`, `haiku`, `fable`. Shared by extensions (`ctx.complete({ model: "cheap" })`, see [Extensions](extensions.md#ctxcompleteoptions)) and subagents; `subagent.models` wins for subagents. |
 | `hideThinkingBlock` | boolean | `false` | Hide thinking blocks in the transcript. |
 | `showCacheMissNotices` | boolean | `false` | Show notices for significant cache misses, successful cache warming, compaction usage, and provider recovery. |
 | `cacheWarming` | `"off" \| "streaming" \| "idle"` | `"streaming"` | Keep eligible provider prompt caches warm during active runs or, with `"idle"`, between runs. Global setting only. |

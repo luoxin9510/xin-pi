@@ -1,5 +1,7 @@
 // The `subagent` settings block (spec 3). This is a boundary: wrong types throw, naming the key.
 
+import { DEFAULT_MODEL_ALIASES } from "../../core/model-aliases.ts";
+
 export interface Config {
 	models: Record<string, string>;
 	defaultModel: string;
@@ -15,21 +17,13 @@ export interface Config {
 	panelLingerMs: number; // how long a finished subagent stays in the panel
 }
 
-// Claude Code model aliases -> the same-name Anthropic models. Settings override per alias.
-export const DEFAULT_MODELS: Record<string, string> = {
-	opus: "anthropic/claude-opus-5-5",
-	sonnet: "anthropic/claude-sonnet-5-5",
-	haiku: "anthropic/claude-haiku-5-5",
-	fable: "anthropic/claude-fable-5-1",
-};
-
-function stringMap(value: unknown, key: string): Record<string, string> {
+function stringMap(value: unknown, key: string, prefix = "subagent."): Record<string, string> {
 	if (value === undefined) return {};
 	if (typeof value !== "object" || value === null || Array.isArray(value)) {
-		throw new Error(`subagent.${key} must be an object of strings`);
+		throw new Error(`${prefix}${key} must be an object of strings`);
 	}
 	for (const [k, v] of Object.entries(value)) {
-		if (typeof v !== "string") throw new Error(`subagent.${key}.${k} must be a string`);
+		if (typeof v !== "string") throw new Error(`${prefix}${key}.${k} must be a string`);
 	}
 	return value as Record<string, string>;
 }
@@ -40,7 +34,9 @@ function optionalString(value: unknown, key: string): string | undefined {
 	return value;
 }
 
-export function readConfig(raw: unknown): Config {
+// `sharedModels` is the top-level `models` setting (alias to model reference), shared with ctx.complete. Alias lookup
+// order: `subagent.models`, then `models`, then the built-in aliases.
+export function readConfig(raw: unknown, sharedModels?: unknown): Config {
 	if (raw === undefined) raw = {};
 	if (typeof raw !== "object" || raw === null || Array.isArray(raw))
 		throw new Error("subagent settings must be an object");
@@ -86,7 +82,7 @@ export function readConfig(raw: unknown): Config {
 		backgroundScripts,
 		staggerStart,
 		fork,
-		models: { ...DEFAULT_MODELS, ...stringMap(r.models, "models") },
+		models: { ...DEFAULT_MODEL_ALIASES, ...stringMap(sharedModels, "models", ""), ...stringMap(r.models, "models") },
 		defaultModel: optionalString(r.defaultModel, "defaultModel") ?? "haiku",
 		toolMap: stringMap(r.toolMap, "toolMap"),
 		maxConcurrent: maxConcurrent as number,

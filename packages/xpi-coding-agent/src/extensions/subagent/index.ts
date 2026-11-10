@@ -224,7 +224,8 @@ export default function subagent(pi: ExtensionAPI) {
 		closing = false;
 		track(_event, ctx);
 		try {
-			config = readConfig((pi.getSettings() as { subagent?: unknown }).subagent);
+			const settings = pi.getSettings() as { subagent?: unknown; models?: unknown };
+			config = readConfig(settings.subagent, settings.models);
 		} catch (err) {
 			if (ctx.hasUI) ctx.ui.notify(`subagent: ${(err as Error).message}`, "error");
 			throw err;

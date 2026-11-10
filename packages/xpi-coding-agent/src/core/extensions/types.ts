@@ -82,6 +82,7 @@ import type {
 	SessionManager,
 } from "../session-manager.ts";
 import type { Settings } from "../settings-manager.ts";
+import type { CompleteOptions, CompleteResult } from "../side-call.ts";
 import type { SlashCommandInfo } from "../slash-commands.ts";
 import type { SourceInfo } from "../source-info.ts";
 import type { BuildSystemPromptOptions, NormalizedBuildSystemPromptOptions } from "../system-prompt.ts";
@@ -385,6 +386,13 @@ export interface ExtensionContext {
 	compact(options?: CompactOptions): void;
 	/** Get the current effective system prompt. */
 	getSystemPrompt(): string;
+	/**
+	 * Ask a model something outside the conversation, with the session's auth and providers. Works in commands and
+	 * event handlers, with or without a run. Retries transient errors and rate limits, validates a JSON answer
+	 * against `schema`, records the cost in the session as usage `ext:<purpose>`, and stops when the session is
+	 * aborted. Throws {@link CompleteError}.
+	 */
+	complete<T = unknown>(options: CompleteOptions): Promise<CompleteResult<T>>;
 }
 
 /** Options for {@link ExtensionToolContext.executeTool}. */
@@ -2328,6 +2336,7 @@ export interface ExtensionContextActions {
 	getContextUsage: () => ContextUsage | undefined;
 	compact: (options?: CompactOptions) => void;
 	getSystemPrompt: () => string;
+	complete: <T = unknown>(options: CompleteOptions) => Promise<CompleteResult<T>>;
 	getSystemPromptOptions?: () => BuildSystemPromptOptions;
 	/** Backs `ExtensionToolContext.executeTool()`. Without it, nested calls fail. */
 	executeTool?: (

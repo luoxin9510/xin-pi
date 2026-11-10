@@ -121,7 +121,9 @@ import { type BeforeAgentStartTrigger, emitSessionShutdownEvent } from "./extens
 import { findGitPaths } from "./footer-data-provider.ts";
 import { createToolNameMatcher, isMcpToolName } from "./mcp-servers.ts";
 import { type BashExecutionMessage, type CustomMessage, convertToLlm } from "./messages.ts";
+import { DEFAULT_MODEL_ALIASES } from "./model-aliases.ts";
 import { ModelRegistry } from "./model-registry.ts";
+import { resolveCliModel } from "./model-resolver.ts";
 import type { ModelRuntime } from "./model-runtime.ts";
 import { NestedToolCallRunner } from "./nested-tool-calls.ts";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
@@ -142,6 +144,7 @@ import {
 	DEFAULT_TOOL_NAMES,
 	type SettingsManager,
 } from "./settings-manager.ts";
+import { type CompleteOptions, type CompleteResult, runSideCall } from "./side-call.ts";
 import type { SlashCommandInfo } from "./slash-commands.ts";
 import { BUILTIN_PATH_PREFIX, createSyntheticSourceInfo, isSyntheticPath, type SourceInfo } from "./source-info.ts";
 import {
@@ -520,6 +523,8 @@ export class AgentSession {
 	private _extensionErrorUnsubscriber?: () => void;
 
 	private _modelRuntime: ModelRuntime;
+	/** Side calls in flight (`ctx.complete()`); a session abort stops them. */
+	private readonly _sideCallAborts = new Set<AbortController>();
 	private _cacheWarmer?: Pick<CacheWarmer, "cancel" | "status" | "onAgentSettled" | "onModeChanged" | "onWarmed">;
 
 	// Tool registry for extension getTools/setTools
@@ -1565,6 +1570,7 @@ export class AgentSession {
 			this.abortRetry();
 			this.abortCompaction();
 			this.abortBranchSummary();
+			this.abortSideCalls();
 			this.abortBash();
 			this.agent.abort();
 		} catch {
@@ -2738,6 +2744,7 @@ export class AgentSession {
 		this.abortRetry();
 		this.abortCompaction();
 		this.abortBranchSummary();
+		this.abortSideCalls();
 		if (this._isBeforeSettle) this._abortDuringBeforeSettle = true;
 		this.agent.abort();
 		await this.waitForIdle();
@@ -3213,6 +3220,49 @@ export class AgentSession {
 	 */
 	abortBranchSummary(): void {
 		this._branchSummaryAbortController?.abort();
+	}
+
+	/** Cancel the side calls extensions have in flight (`ctx.complete()`). */
+	abortSideCalls(): void {
+		for (const controller of this._sideCallAborts) controller.abort();
+	}
+
+	/**
+	 * A side model call for an extension: `ctx.complete()`. Works with or without a run. The call stops when the
+	 * caller's signal, the current run or the session is aborted.
+	 */
+	async complete<T = unknown>(options: CompleteOptions): Promise<CompleteResult<T>> {
+		const abort = new AbortController();
+		this._sideCallAborts.add(abort);
+		const signal = AbortSignal.any(
+			[abort.signal, options.signal, this.agent.signal].filter((s): s is AbortSignal => s !== undefined),
+		);
+		try {
+			return await runSideCall<T>(
+				{
+					resolveModel: (reference) => {
+						// An alias (built-in, overridden by the `models` setting), else a model reference as --model takes it.
+						const aliases = { ...DEFAULT_MODEL_ALIASES, ...this.settingsManager.getModelAliases() };
+						const target = aliases[reference] ?? reference;
+						if (reference === "inherit" || target === "inherit") return this.model;
+						return resolveCliModel({ cliModel: target, modelRuntime: this._modelRuntime }).model;
+					},
+					getRequest: async (model, requestSignal) => {
+						const request = await this._getSummarizationRequestAuth(model, requestSignal);
+						return { model: request.model, apiKey: request.apiKey, headers: request.headers, env: request.env };
+					},
+					streamFn: this.agent.streamFunction,
+					retry: this.settingsManager.getRetrySettings(),
+					recordUsage: (kind, message) => {
+						this.sessionManager.appendUsage(kind, message.provider, message.model, message.usage);
+					},
+				},
+				options,
+				signal,
+			);
+		} finally {
+			this._sideCallAborts.delete(abort);
+		}
 	}
 
 	/**
@@ -3790,6 +3840,7 @@ export class AgentSession {
 					})();
 				},
 				getSystemPrompt: () => this.systemPrompt,
+				complete: (options) => this.complete(options),
 				getSystemPromptOptions: () => this._baseSystemPromptOptions,
 				executeTool: (callerId, name, args, options, scopeToken) =>
 					this._executeNestedToolCall(callerId, name, args, options, scopeToken),

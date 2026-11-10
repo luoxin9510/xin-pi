@@ -223,6 +223,36 @@ aborts the run's one signal, so an extension could not stop one request and try 
 
 User docs: `extensions.md#interrupting-a-stream`, `json.md`. Test: `test/suite/stream-interrupt.test.ts`.
 
+## Core changes: ctx.complete
+
+`ctx.complete(options)` on `ExtensionContext` makes a side model call. Problem: every extension that wanted a second
+opinion (a judge, a classifier) repeated model lookup, auth, retries and JSON parsing, and its cost never reached the
+footer. Changes:
+
+- `coding-agent/src/core/side-call.ts`: `runSideCall` holds the rules, `CompleteError` (`kind` = `ErrorKind` plus
+  `aborted`, `no_model`, `no_auth`, `schema`) and the option and result types. It is a function over a `SideCallHost`,
+  so it has no session dependency.
+- `AgentSession.complete` wires the host. Model: `"inherit"` = `session.model`, else the shared `models` setting
+  (`SettingsManager.getModelAliases`, schema entry `models`), else `resolveCliModel` (the `--model` resolver). Auth:
+  `_getSummarizationRequestAuth`, the path compaction uses. Request: `cacheRetention: "none"`, a fresh `uuidv7`
+  session id, the session's stream function. Retry: `retryAssistantCall` with `settingsManager.getRetrySettings()`
+  (only `transient` and `rate_limit` retry, `retryAfterMs` honoured). Schema: the schema goes into the system prompt,
+  the answer is parsed (fence tolerated) and checked with `validateToolArguments`, 2 retries that append the bad
+  answer and the error; no tool choice, no prefill (both 400 on current Claude models).
+- Usage: each billed attempt (inside the `retryAssistantCall` producer, so failed and retried ones too) goes to
+  `sessionManager.appendUsage("ext:<purpose>", ...)`. `UsageEntry` already existed (cache warming); footer,
+  `getSessionStats` and `getUsageCostBreakdown` already add every `usage` entry, so no totals code changed. They show
+  under the entry's provider/model, not under the purpose.
+- Cancellation: the call's signal is `AbortSignal.any` of the caller's signal, the run's `agent.signal` and a
+  controller per call that `AgentSession.abort()` and `dispose()` trigger (`abortSideCalls`).
+- The extension runner takes `complete` in `ExtensionContextActions`; interactive mode's hand-built shortcut context
+  passes it too.
+- Subagent: `readConfig(subagent, models)` merges `{ built-in aliases, models, subagent.models }`, so `subagent.models`
+  wins, then the shared `models`.
+
+User docs: `extensions.md#ctxcompleteoptions`, `settings.md`, `subagent.md`. Tests: `test/suite/ctx-complete.test.ts`,
+`test/subagent/faults/model-aliases.test.ts`.
+
 ## Testing
 
 Everything below runs from `packages/xpi-coding-agent/`. Tests assert on structure and side effects (result fields,
