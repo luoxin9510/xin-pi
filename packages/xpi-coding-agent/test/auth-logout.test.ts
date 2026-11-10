@@ -36,7 +36,7 @@ describe("pi auth logout", () => {
 		for (const args of [[], ["--api-key"], ["radius", "extra"]]) {
 			errors.length = 0;
 			expect(await run(args)).toBe(1);
-			expect(errors).toEqual(["Usage: pi auth logout <provider>"]);
+			expect(errors).toEqual(["Usage: xpi auth logout <provider>"]);
 		}
 	});
 

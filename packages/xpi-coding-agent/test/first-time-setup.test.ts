@@ -33,8 +33,10 @@ describe("shouldRunFirstTimeSetup", () => {
 		}
 	});
 
-	it("returns true when experimental, default agent dir, and no settings.json", () => {
-		expect(shouldRunFirstTimeSetup(settingsPath)).toBe(true);
+	// First-time setup belongs to the official pi distribution. xpi is a fork, so it never runs, even when
+	// experimental features are on, the agent dir is the default one and there is no settings.json.
+	it("returns false in this fork when experimental, default agent dir, and no settings.json", () => {
+		expect(shouldRunFirstTimeSetup(settingsPath)).toBe(false);
 	});
 
 	it("returns false when experimental features are disabled", () => {
