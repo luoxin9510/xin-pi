@@ -80,7 +80,7 @@ test("omitClaudeMd drops context files; trust decides whether project extensions
 	}
 });
 
-test("name is ignored with a warning", async () => {
+test("name is accepted without a warning", async () => {
 	const { warnings } = await runAgent("", {}, true, { name: "bob" });
-	assert.deepEqual(warnings, ['"name" is not supported and was ignored']);
+	assert.deepEqual(warnings, []);
 });

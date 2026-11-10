@@ -41,6 +41,7 @@ export interface SubagentRecord {
 	id: string; // the agentId
 	parentSessionId: string;
 	type: string;
+	name?: string; // given by the `Agent` call that started it; unique in the parent session
 	description: string;
 	status: SubagentStatus;
 	turns: number; // all exchanges together
@@ -55,9 +56,15 @@ export interface SubagentRecord {
 	worktree?: WorktreeRef; // set when the subagent is isolated: where it runs and the commit it started from
 }
 
-// "type(description)", or the type alone.
-export const label = (r: Pick<SubagentRecord, "type" | "description">): string =>
-	r.description ? `${r.type}(${r.description})` : r.type;
+// "type(description)", or the type alone; a named subagent is "type(name) description".
+export const label = (r: Pick<SubagentRecord, "type" | "description" | "name">): string =>
+	r.name
+		? `${r.type}(${r.name})${r.description ? ` ${r.description}` : ""}`
+		: r.description
+			? `${r.type}(${r.description})`
+			: r.type;
+
+export const AGENT_NAME = /^[A-Za-z0-9_-]{1,64}$/;
 
 // "model · effort", leaving out what the record does not have (older meta files have no model).
 export const modelInfo = (r: Pick<SubagentRecord, "model" | "thinking">): string =>
@@ -66,6 +73,7 @@ export const modelInfo = (r: Pick<SubagentRecord, "model" | "thinking">): string
 export interface SubagentStart {
 	id: string;
 	type: string;
+	name?: string; // omit the key for a resume or a talk: the subagent keeps its name
 	description: string;
 	model: string;
 	thinking: string;
@@ -87,6 +95,7 @@ class Registry {
 	private listeners = new Set<() => void>();
 	private lives = new Map<string, LiveMessage>(); // the message each running child is writing
 	private watchers = new Map<string, Set<(event: ChildEvent) => void>>();
+	private claims = new Map<string, string>(); // "<session id>\0<name>" -> the agent id starting under that name
 
 	// The parent session's subagents, newest first.
 	list(parentSessionId: string): SubagentRecord[] {
@@ -109,6 +118,33 @@ class Registry {
 
 	get(id: string): SubagentRecord | undefined {
 		return this.records.get(id);
+	}
+
+	// The id of the session's subagent with this name: a known one, or one that claimed the name and has not started yet.
+	named(parentSessionId: string, name: string): string | undefined {
+		for (const r of this.records.values()) if (r.parentSessionId === parentSessionId && r.name === name) return r.id;
+		return this.claims.get(`${parentSessionId}\0${name}`);
+	}
+
+	// What `resume` or `SendMessage` names: an id of the session, else a name. Undefined when it is neither.
+	find(parentSessionId: string, ref: string): string | undefined {
+		const byId = this.records.get(ref);
+		if (byId?.parentSessionId === parentSessionId) return ref;
+		return this.named(parentSessionId, ref);
+	}
+
+	// Take a name for an agent that is about to start, so two calls in one tick cannot both have it. Throws when another
+	// subagent of the session has it. `release` gives it back if the agent never started.
+	claim(parentSessionId: string, name: string, id: string): () => void {
+		const owner = this.named(parentSessionId, name);
+		if (owner !== undefined && owner !== id) {
+			throw new Error(`the name "${name}" is already used by agent ${owner} of this session`);
+		}
+		const key = `${parentSessionId}\0${name}`;
+		this.claims.set(key, id);
+		return () => {
+			if (this.claims.get(key) === id && !this.records.has(id)) this.claims.delete(key);
+		};
 	}
 
 	// The live child of a running subagent; undefined when it is not running.
@@ -282,6 +318,7 @@ class Registry {
 				id,
 				parentSessionId: parent.sessionId,
 				type: meta.agentType,
+				...(typeof meta.name === "string" ? { name: meta.name } : {}),
 				description: meta.description ?? "",
 				status: meta.status === undefined ? "completed" : meta.status === "running" ? "stopped" : meta.status,
 				turns: meta.turns ?? 0,
@@ -363,6 +400,7 @@ class Registry {
 		this.prior.clear();
 		this.lives.clear();
 		this.ranHere.clear();
+		this.claims.clear();
 		this.listeners.clear(); // a fresh process has no screens or panels yet
 		this.watchers.clear();
 	}
