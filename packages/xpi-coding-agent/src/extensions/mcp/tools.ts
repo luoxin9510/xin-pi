@@ -270,6 +270,7 @@ export function createMcpToolDefinition(options: {
 		outputSchema: createMcpResultSchema(tool.outputSchema),
 		exposure: toToolExposure(options.exposure),
 		namespace: options.namespace,
+		effect: annotations?.readOnlyHint === true ? "read" : "write",
 		...(annotations ? { annotations } : {}),
 		...createMcpToolRenderers(label),
 		async execute(_toolCallId, params, signal, onUpdate) {

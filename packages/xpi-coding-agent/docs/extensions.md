@@ -55,6 +55,7 @@ See [examples/extensions/](../examples/extensions/) for working implementations.
 - [State Management](#state-management)
 - [Custom Tools](#custom-tools)
   - [Tool Exposure](#tool-exposure)
+    - [Tool effects](#tool-effects)
   - [Calling Other Tools](#calling-other-tools)
   - [Dynamic Tool Loading](#dynamic-tool-loading)
 - [MCP Servers](#mcp-servers)
@@ -754,7 +755,7 @@ Host integrations that construct `TurnEndEvent` values must provide `messageEntr
 Fired for message lifecycle updates.
 
 - `message_start` and `message_end` fire for every message, including user, assistant, tool-result, and custom messages.
-- `message_update` fires for assistant streaming updates.
+- `message_update` fires for assistant streaming updates. A handler may return `{ interrupt: { inject } }`; see [Interrupting a stream](#interrupting-a-stream).
 - `message_end` handlers can return `{ message }` to replace the finalized message. The replacement must keep the same `role`.
 
 ```typescript
@@ -784,6 +785,50 @@ pi.on("message_end", async (event, ctx) => {
   };
 });
 ```
+
+##### Interrupting a stream
+
+A `message_update` handler can stop a response while it streams and have the model answer again, for example when the
+output breaks a rule:
+
+```typescript
+pi.on("message_update", async (event) => {
+  if (JSON.stringify(event.message.content).includes("TODO")) {
+    return { interrupt: { inject: "Do not leave TODO markers. Finish the work." } };
+  }
+});
+
+pi.on("stream_interrupted", async (event) => {
+  // event.message (the abandoned attempt), event.inject, event.count, event.limit
+});
+```
+
+What happens on an interrupt:
+
+1. The current model request is aborted. The run is not: `session.abort()` semantics do not apply, and a user abort
+   during the retried request still ends the run.
+2. The abandoned assistant message stays in the session file with `stopReason: "aborted"`, but is hidden from model
+   context (a persistent `context_edit`, the same mechanism as error retry and overflow recovery). `/tree` and export
+   still show it.
+3. `inject` is appended as a hidden custom message (`customType: "stream_interrupt"`, `display: false`; the model sees
+   it as a user message), and the same turn is requested again.
+4. Only discard: the partial output is never sent back to the model (Claude rejects a request that ends with an
+   assistant message).
+
+Rules:
+
+- No tool call of the abandoned attempt runs. Tool calls start only after the assistant message has ended, and an
+  aborted message ends the loop before any tool starts. If a provider still completes the response after the abort, the
+  loop marks it `aborted`.
+- The first `interrupt` of an attempt wins (across handlers and updates). Later updates of the same attempt are ignored.
+- At most 3 interrupts per user prompt. After that interrupt results are ignored and the stream finishes. A new user
+  prompt resets the count.
+- The abandoned attempt's usage stays in the session cost totals. An interrupt does not count as an error retry: no
+  `auto_retry_start`, and `retryAttempt` is unchanged.
+- `agent_end` of the interrupted run reports `willRetry: true`.
+- `stream_interrupted` fires after the attempt is hidden and the reminder appended, before the turn is requested again.
+  Fields: `message`, `inject`, `count` (interrupts used for this prompt, including this one) and `limit` (3). It is also
+  emitted to `session.subscribe()` listeners with the same fields.
 
 #### tool_execution_start / tool_execution_update / tool_execution_end
 
@@ -993,6 +1038,7 @@ import { isToolCallEventType } from "xpi-coding-agent";
 pi.on("tool_call", async (event, ctx) => {
   // event.toolName - "bash", "read", "write", "edit", etc.
   // event.toolCallId
+  // event.effect - "read" | "write" | "exec": what the tool does (see Tool effects)
   // event.input - tool parameters (mutable)
 
   // Built-in tools: no type params needed
@@ -1918,6 +1964,7 @@ const all = pi.getAllTools();
 //   parameters: ...,
 //   promptGuidelines: ["Use read to examine files instead of cat or sed."],
 //   exposure: "direct",
+//   effect: "read",
 //   sourceInfo: { path: "builtin:read", source: "builtin", scope: "temporary", origin: "top-level" }
 // }, ...]
 // Tools shipped with Pi: core tools and tools from built-in extensions such as builtin:mcp
@@ -1928,7 +1975,7 @@ pi.setActiveTools([...new Set([...active, "my_custom_tool"])]); // Keep current 
 pi.setActiveTools(["read", "bash"]); // Only read and bash
 ```
 
-`pi.getAllTools()` returns `name`, `description`, `parameters`, `promptGuidelines`, `exposure`, `sourceInfo`, and, when set, `namespace`, `annotations`, and `reachesTools`.
+`pi.getAllTools()` returns `name`, `description`, `parameters`, `promptGuidelines`, `exposure`, `effect`, `sourceInfo`, and, when set, `namespace`, `annotations`, and `reachesTools`.
 
 Typical `sourceInfo` values:
 - `source: "builtin"` for tools shipped with Pi: core tools (`path: "builtin:<tool>"`) and tools registered by built-in extensions such as `builtin:mcp` (`path: "builtin:<extension>"`)
@@ -2308,6 +2355,7 @@ async execute(toolCallId, params) {
 
 | Field | Purpose |
 |---|---|
+| `effect` | `"read"`, `"write"` or `"exec"`: what the tool does; see [Tool effects](#tool-effects) |
 | `defaultActive` | Set `false` to register the tool inactive; `--tools`, the `defaultTools` setting, or `pi.setActiveTools()` activates it |
 | `exposure`, `namespace`, `annotations`, `reachesTools`, `prepareLoadout` | Control how the model and other tools reach the tool; see [Tool Exposure](#tool-exposure) |
 | `renderShell`, `renderCall`, `renderResult` | Custom rendering; see [Custom Rendering](#custom-rendering) |
@@ -2769,7 +2817,27 @@ When `search_tools` adds a match, the model receives the complete updated tool l
 
 `namespace: { name, aliases, description, instructions }` groups related tools, as MCP servers do. Codemode tools list a namespace under one heading with its `description`. `instructions` holds longer usage guidance; it is not listed, and codemode scripts read it with `describeNamespace(name)`. `aliases` are other names scripts may look the namespace up by, for example the server name `docs` for `mcp__docs`; a name and the same name as a script identifier (`my-docs`, `my_docs`) match alike.
 
-Registering a `direct` or `model-only` tool activates it unless it sets `defaultActive: false`; the other exposures are not activated on registration. The active set (`pi.getActiveTools()`, `pi.setActiveTools()`) is the set of tools declared to the model, except active tools whose declarations `prepareLoadout` hides. `pi.getAllTools()` reports each tool's `exposure`, `namespace`, `annotations`, and `reachesTools`.
+Registering a `direct` or `model-only` tool activates it unless it sets `defaultActive: false`; the other exposures are not activated on registration. The active set (`pi.getActiveTools()`, `pi.setActiveTools()`) is the set of tools declared to the model, except active tools whose declarations `prepareLoadout` hides. `pi.getAllTools()` reports each tool's `exposure`, `effect`, `namespace`, `annotations`, and `reachesTools`.
+
+#### Tool effects
+
+`effect` is a static declaration of what a tool does, so a package can gate tools without a list of names:
+
+- `read`: looks, changes nothing.
+- `write`: changes files or agent state.
+- `exec`: runs arbitrary code or processes.
+
+A tool that declares no effect counts as `exec`, so a forgotten declaration fails safe. Pi's tools declare it: `read`, `grep`, `find`, `ls`, `tool_search` and `StructuredOutput` are `read`; `edit`, `write`, `SendMessage` and relay's handover and handback are `write`; `bash`, `powershell`, `Agent`, `Workflow` and `codemode` are `exec`. An MCP tool is `read` when its server sets `readOnlyHint: true`, otherwise `write`. The effect is per tool, not per call, so `bash` is always `exec`, even for `ls`.
+
+The `tool_call` event carries the effective effect as `event.effect`, and `pi.getAllTools()` lists it as `effect`. This blocks every call that is not read-only:
+
+```typescript
+pi.on("tool_call", async (event) => {
+  if (planMode && event.effect !== "read") {
+    return { block: true, reason: `${event.toolName} is not read-only` };
+  }
+});
+```
 
 `annotations` are hints about what a tool does, with the meaning of MCP tool annotations: `readOnlyHint`, `destructiveHint`, `idempotentHint`, and `openWorldHint`. MCP tools carry the hints their server declares. Missing hints take the MCP defaults: a tool is not read-only, and may be destructive and reach an open world. The hints are not verified, but a permission extension can use them to decide which calls to confirm. This confirms the calls Codex asks approval for:
 

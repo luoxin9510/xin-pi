@@ -154,7 +154,7 @@ import {
 } from "./system-prompt.ts";
 import { type BashOperations, createLocalBashOperations } from "./tools/bash.ts";
 import { createAllToolDefinitions, FileStateStore } from "./tools/index.ts";
-import { createToolDefinitionFromAgentTool } from "./tools/tool-definition-wrapper.ts";
+import { createToolDefinitionFromAgentTool, resolveToolEffect } from "./tools/tool-definition-wrapper.ts";
 import { addUsageToTotals, combineUsage, createUsageTotals } from "./usage-totals.ts";
 import {
 	findLatestResponse,
@@ -211,6 +211,11 @@ type WithParentToolCallId<E> = E extends {
 	? E & { parentToolCallId?: string }
 	: E;
 
+/** Interrupts a `message_update` handler may spend per user prompt. */
+const MAX_STREAM_INTERRUPTS_PER_PROMPT = 3;
+/** `customType` of the hidden reminder message appended after a stream interrupt. */
+const STREAM_INTERRUPT_CUSTOM_TYPE = "stream_interrupt";
+
 /** Session-specific events that extend the core AgentEvent */
 export type AgentSessionEvent =
 	| WithParentToolCallId<Exclude<AgentEvent, { type: "agent_end" }>>
@@ -239,6 +244,7 @@ export type AgentSessionEvent =
 	  }
 	| { type: "auto_retry_start"; attempt: number; maxAttempts: number; delayMs: number; errorMessage: string }
 	| { type: "auto_retry_end"; success: boolean; attempt: number; finalError?: string }
+	| { type: "stream_interrupted"; message: AssistantMessage; inject: string; count: number; limit: number }
 	| {
 			type: "summarization_retry_scheduled";
 			attempt: number;
@@ -455,6 +461,14 @@ export class AgentSession {
 	 */
 	private _failedResponse: AssistantMessage | undefined;
 
+	// Stream interrupts (a message_update handler asked to abort the request and retry the turn)
+	/** Aborts the current model request only. Set at the start of each request. */
+	private _abortCurrentRequest: (() => void) | undefined;
+	/** The first interrupt of the current attempt; consumed by post-run handling. */
+	private _pendingStreamInterrupt: { inject: string } | undefined;
+	/** Interrupts spent on the current user prompt. */
+	private _streamInterruptCount = 0;
+
 	// Bash execution state
 	private readonly _bashAbortControllers = new Set<AbortController>();
 	private _pendingBashMessages: BashExecutionMessage[] = [];
@@ -554,6 +568,10 @@ export class AgentSession {
 		this._installAgentToolHooks();
 		this._installAgentNextTurnRefresh();
 		this._installAgentRequestProjection();
+		this.agent.onRequestStart = (abortRequest) => {
+			this._abortCurrentRequest = abortRequest;
+			this._pendingStreamInterrupt = undefined;
+		};
 		this._installAgentBoundaryHooks();
 		this._installHiddenDeclarationsProjection();
 		this._installAgentForcedPromptProjection();
@@ -738,6 +756,7 @@ export class AgentSession {
 				toolName: toolCall.name,
 				toolCallId: toolCall.id,
 				...(parentToolCallId ? { parentToolCallId } : {}),
+				effect: resolveToolEffect(this._toolDefinitions.get(toolCall.name)?.definition),
 				input: args as Record<string, unknown>,
 			});
 		} catch (err) {
@@ -1216,6 +1235,7 @@ export class AgentSession {
 		// This ensures the UI sees the updated queue state
 		if (event.type === "message_start" && event.message.role === "user") {
 			this._overflowRecoveryAttempted = false;
+			this._streamInterruptCount = 0;
 			const messageText = contentText(event.message.content, "");
 			// Check steering queue first
 			const steeringIndex = this._steeringMessages.indexOf(messageText);
@@ -1298,6 +1318,7 @@ export class AgentSession {
 
 	private _willRetryAfterAgentEnd(event: Extract<AgentEvent, { type: "agent_end" }>): boolean {
 		if (this._agentRunAbortRequested) return false;
+		if (this._pendingStreamInterrupt) return true;
 		const settings = this.settingsManager.getRetrySettings();
 		if (!settings.enabled || this._retryAttempt >= settings.maxRetries) {
 			return false;
@@ -1450,7 +1471,17 @@ export class AgentSession {
 				message: event.message,
 				assistantMessageEvent: event.assistantMessageEvent,
 			};
-			await this._extensionRunner.emit(extensionEvent);
+			const interrupt = await this._extensionRunner.emitMessageUpdate(extensionEvent);
+			// The first interrupt of an attempt wins. Past the cap, interrupts are ignored.
+			if (
+				interrupt &&
+				!this._pendingStreamInterrupt &&
+				!this._agentRunAbortRequested &&
+				this._streamInterruptCount < MAX_STREAM_INTERRUPTS_PER_PROMPT
+			) {
+				this._pendingStreamInterrupt = { inject: interrupt.inject };
+				this._abortCurrentRequest?.();
+			}
 		} else if (event.type === "message_end") {
 			const extensionEvent: MessageEndEvent = {
 				type: "message_end",
@@ -1638,6 +1669,7 @@ export class AgentSession {
 			parameters: definition.parameters,
 			promptGuidelines: definition.promptGuidelines,
 			exposure: this._getToolExposure(definition.name),
+			effect: resolveToolEffect(definition),
 			...(definition.namespace ? { namespace: definition.namespace } : {}),
 			...(definition.annotations ? { annotations: { ...definition.annotations } } : {}),
 			...(definition.reachesTools ? { reachesTools: definition.reachesTools } : {}),
@@ -2007,6 +2039,8 @@ export class AgentSession {
 	private async _startRun(trigger: BeforeAgentStartTrigger, onStarted?: () => void): Promise<void> {
 		this._isAgentRunActive = true;
 		this._agentRunAbortRequested = false;
+		this._streamInterruptCount = 0;
+		this._pendingStreamInterrupt = undefined;
 		let messages: AgentMessage[];
 		try {
 			messages = await this._prepareRun(trigger);
@@ -2119,6 +2153,9 @@ export class AgentSession {
 		}
 		if (!message) return this.agent.hasQueuedMessages();
 
+		// An interrupted attempt ends as an aborted message; it is not an error and uses no retry.
+		if (this._pendingStreamInterrupt) return await this._retryAfterStreamInterrupt(message);
+
 		if (this._isRetryableError(message) && (await this._prepareRetry(message))) {
 			if (this._agentRunAbortRequested) this._finishCancelledRetry();
 			this._failedResponse = message;
@@ -2147,6 +2184,37 @@ export class AgentSession {
 		// The low-level loop drains both queues before agent_end. Messages queued by
 		// agent_end handlers require a fresh run before pre-settlement handlers fire.
 		return !this._agentRunAbortRequested && this.agent.hasQueuedMessages();
+	}
+
+	/**
+	 * Hide the interrupted attempt (and its tool results, none of which ran) from model context, append the
+	 * reminder as a hidden custom message and ask for the same turn again. The abandoned message keeps its
+	 * usage and stays in the session file. Returns true when the run should continue.
+	 */
+	private async _retryAfterStreamInterrupt(message: AssistantMessage): Promise<boolean> {
+		const interrupt = this._pendingStreamInterrupt;
+		this._pendingStreamInterrupt = undefined;
+		if (!interrupt) return false;
+		this._streamInterruptCount++;
+		this._omitRecoveryAttempt(message);
+		this._appendCustomMessage({
+			role: "custom",
+			customType: STREAM_INTERRUPT_CUSTOM_TYPE,
+			content: interrupt.inject,
+			display: false,
+			timestamp: Date.now(),
+		});
+		this._failedResponse = message;
+		const interrupted = {
+			type: "stream_interrupted",
+			message,
+			inject: interrupt.inject,
+			count: this._streamInterruptCount,
+			limit: MAX_STREAM_INTERRUPTS_PER_PROMPT,
+		} as const;
+		await this._extensionRunner.emit(interrupted);
+		this._emit(interrupted);
+		return !this._agentRunAbortRequested;
 	}
 
 	private async _runBeforeSettleBoundary(): Promise<boolean> {

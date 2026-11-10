@@ -193,6 +193,36 @@ alone (`createEditTool(cwd)`) have no store and are unguarded; the multi-tool fa
 Code's rule; upstream pi has no such check. User docs: `settings.md#edit-and-write-safety`.
 Tests: `test/stale-edit-guard.test.ts`, `test/suite/stale-edit-guard-session.test.ts`.
 
+## Core changes: tool effects
+
+Every tool has a static `effect` (`read` | `write` | `exec`; type `ToolEffect`, declared in `xpi-agent-core` on
+`AgentTool` and on the extension `ToolDefinition`, carried by `wrapToolDefinition`). `resolveToolEffect`
+(`coding-agent/src/core/tools/tool-definition-wrapper.ts`) is the one resolver: declared effect, else `exec`. The
+`tool_call` event (`AgentSession._beforeToolCall`) and `getAllTools()` use it. The MCP adapter
+(`src/extensions/mcp/tools.ts`) maps `readOnlyHint === true` to `read`, otherwise `write`. Upstream pi has no effects.
+The subagent extension's read-only agents (Plan, Explore, memory) still list tool names. User docs:
+`extensions.md#tool-effects`. Test: `test/suite/tool-effects.test.ts`.
+
+## Core changes: stream interrupt
+
+A `message_update` handler may return `{ interrupt: { inject } }` (`MessageUpdateEventResult`). Problem: `agent.abort()`
+aborts the run's one signal, so an extension could not stop one request and try again. Changes:
+
+- `xpi-agent-core`: `streamAssistantResponse` (`agent-loop.ts`) gives every request its own `AbortController`, linked to
+  the run's signal, and passes it to `AgentLoopConfig.onRequestStart(abortRequest)` (`Agent.onRequestStart`). If the
+  provider still completes a request that was aborted alone, the loop sets `stopReason: "aborted"` on the result.
+  Tool calls run only after the assistant message ends, and an `aborted` or `error` result ends the loop before
+  `executeToolCalls`, so no tool call of the abandoned attempt can start.
+- `ExtensionRunner.emitMessageUpdate` returns the first interrupt. `AgentSession._emitExtensionEvent` stores it
+  (`_pendingStreamInterrupt`, first of an attempt wins, ignored past `MAX_STREAM_INTERRUPTS_PER_PROMPT` = 3, count reset
+  per user prompt) and calls the request abort. `_agentRunAbortRequested` is never set.
+- `_handlePostAgentRun` handles it before the error-retry branch (`_retryAfterStreamInterrupt`): `_omitRecoveryAttempt`
+  hides the attempt, `_appendCustomMessage` adds the hidden `stream_interrupt` message, `_failedResponse` is set like in
+  error retry, the extension event and session event `stream_interrupted` fire, and the run continues. `_retryAttempt`
+  is untouched; `_willRetryAfterAgentEnd` reports `willRetry: true`.
+
+User docs: `extensions.md#interrupting-a-stream`, `json.md`. Test: `test/suite/stream-interrupt.test.ts`.
+
 ## Testing
 
 Everything below runs from `packages/xpi-coding-agent/`. Tests assert on structure and side effects (result fields,

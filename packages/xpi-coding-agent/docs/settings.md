@@ -146,7 +146,7 @@ See [Themes](themes.md) and [Terminal Setup](terminal-setup.md) for format and p
 | `retry.provider.maxRetries` | number | `0` | Provider-level retry attempts. |
 | `retry.provider.maxRetryDelayMs` | number | `60000` | Maximum server-requested delay in milliseconds. Set to `0` to disable the limit. |
 
-Agent-level retry reads the failure's `errorKind` (see [Message Types](message-types.md)): only `transient` and `rate_limit` are retried. Usage limits, authentication failures, context overflow (handled by compaction) and invalid requests are not. When the provider sent a `retry-after`, Pi waits that long instead of the exponential backoff. Compaction and branch-summary calls follow the same rules. Messages without an `errorKind` (older sessions, providers that do not set it yet) are judged by their error text as before.
+Agent-level retry reads the failure's `errorKind` (see [Message Types](message-types.md)): only `transient` and `rate_limit` are retried. Usage limits, authentication failures, context overflow (handled by compaction) and invalid requests are not. When the provider sent a `retry-after`, Pi waits that long instead of the exponential backoff. Compaction and branch-summary calls follow the same rules. Messages without an `errorKind` (older sessions) are judged by their error text as before.
 
 Keep `retry.provider.maxRetries` at `0` unless provider-level retries are required. Provider retries can delay Pi from handling quota and usage-limit errors itself.
 

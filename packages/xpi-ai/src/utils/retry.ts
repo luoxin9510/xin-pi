@@ -1,5 +1,5 @@
 import type { AssistantMessage } from "../types.ts";
-import { textIndicatesRetryable } from "./error-kind.ts";
+import { isRetryableErrorKind, textIndicatesRetryable } from "./error-kind.ts";
 
 /**
  * Retry policy: bounded attempts with exponential backoff (`baseDelayMs * 2^(attempt-1)`).
@@ -162,7 +162,7 @@ export async function retryAssistantCall(
  */
 export function isRetryableAssistantError(message: AssistantMessage): boolean {
 	if (message.stopReason !== "error" || !message.errorMessage) return false;
-	if (message.errorKind !== undefined) return message.errorKind === "transient" || message.errorKind === "rate_limit";
+	if (message.errorKind !== undefined) return isRetryableErrorKind(message.errorKind);
 	return textIndicatesRetryable(message.errorMessage);
 }
 

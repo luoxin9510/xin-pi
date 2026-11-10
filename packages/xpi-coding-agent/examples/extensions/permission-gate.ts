@@ -1,7 +1,8 @@
 /**
  * Permission Gate Extension
  *
- * Prompts for confirmation before running potentially dangerous bash commands.
+ * Prompts for confirmation before running potentially dangerous shell commands. It checks every tool whose
+ * effect is "exec" (bash, powershell, ...) that takes a `command` input.
  * Patterns checked: rm -rf, sudo, chmod/chown 777
  */
 
@@ -11,9 +12,10 @@ export default function (pi: ExtensionAPI) {
 	const dangerousPatterns = [/\brm\s+(-rf?|--recursive)/i, /\bsudo\b/i, /\b(chmod|chown)\b.*777/i];
 
 	pi.on("tool_call", async (event, ctx) => {
-		if (event.toolName !== "bash") return undefined;
+		const input: Record<string, unknown> = event.input;
+		if (event.effect !== "exec" || typeof input.command !== "string") return undefined;
 
-		const command = event.input.command as string;
+		const command = input.command;
 		const isDangerous = dangerousPatterns.some((p) => p.test(command));
 
 		if (isDangerous) {

@@ -125,6 +125,7 @@ export interface AgentOptions {
 	afterToolCall?: (context: AfterToolCallContext, signal?: AbortSignal) => Promise<AfterToolCallResult | undefined>;
 	finishTurn?: FinishTurn;
 	prepareRequest?: PrepareRequest;
+	onRequestStart?: (abortRequest: () => void) => void;
 	prepareNextTurn?: (
 		signal?: AbortSignal,
 	) => Promise<AgentLoopTurnUpdate | undefined> | AgentLoopTurnUpdate | undefined;
@@ -214,6 +215,7 @@ export class Agent {
 	) => Promise<AfterToolCallResult | undefined>;
 	public finishTurn?: FinishTurn;
 	public prepareRequest?: PrepareRequest;
+	public onRequestStart?: (abortRequest: () => void) => void;
 	public prepareNextTurn?: (
 		signal?: AbortSignal,
 	) => Promise<AgentLoopTurnUpdate | undefined> | AgentLoopTurnUpdate | undefined;
@@ -250,6 +252,7 @@ export class Agent {
 		this.afterToolCall = runtimeOptions.afterToolCall;
 		this.finishTurn = runtimeOptions.finishTurn;
 		this.prepareRequest = runtimeOptions.prepareRequest;
+		this.onRequestStart = runtimeOptions.onRequestStart;
 		this.prepareNextTurn = runtimeOptions.prepareNextTurn;
 		this.prepareNextTurnWithContext = runtimeOptions.prepareNextTurnWithContext;
 		this.steeringQueue = new PendingMessageQueue(runtimeOptions.steeringMode ?? "one-at-a-time");
@@ -491,6 +494,7 @@ export class Agent {
 			afterToolCall: this.afterToolCall,
 			finishTurn: this.finishTurn,
 			prepareRequest: this.prepareRequest,
+			onRequestStart: this.onRequestStart,
 			prepareNextTurn:
 				this.prepareNextTurnWithContext || this.prepareNextTurn
 					? async (context) => {

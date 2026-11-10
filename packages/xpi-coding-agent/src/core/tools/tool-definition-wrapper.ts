@@ -1,5 +1,5 @@
 import type { Static, TSchema } from "typebox";
-import type { AgentTool, AgentToolResult, AgentToolUpdateCallback } from "xpi-agent-core";
+import type { AgentTool, AgentToolResult, AgentToolUpdateCallback, ToolEffect } from "xpi-agent-core";
 import type { ExtensionToolContext, ToolDefinition } from "../extensions/types.ts";
 
 /**
@@ -20,6 +20,11 @@ export type TypeBoxAgentTool<TParams extends TSchema = TSchema, TDetails = any> 
 	) => Promise<AgentToolResult<TDetails>>;
 };
 
+/** The effective effect of a tool: its declared effect, else `exec`. */
+export function resolveToolEffect(tool: { effect?: ToolEffect } | undefined): ToolEffect {
+	return tool?.effect ?? "exec";
+}
+
 /** Creates the context for one tool call. */
 export type ToolContextFactory = (toolCallId: string, signal: AbortSignal | undefined) => ExtensionToolContext;
 
@@ -37,6 +42,7 @@ export function wrapToolDefinition<TDetails = unknown>(
 		constrainedSampling: definition.constrainedSampling,
 		prepareArguments: definition.prepareArguments,
 		executionMode: definition.executionMode,
+		effect: definition.effect,
 		execute: (toolCallId, params, signal, onUpdate, ctx?: ExtensionToolContext) =>
 			definition.execute(
 				toolCallId,
@@ -72,6 +78,7 @@ export function createToolDefinitionFromAgentTool(tool: AgentTool<any>): ToolDef
 		constrainedSampling: tool.constrainedSampling,
 		prepareArguments: tool.prepareArguments,
 		executionMode: tool.executionMode,
+		effect: tool.effect,
 		execute: async (toolCallId, params, signal, onUpdate) => tool.execute(toolCallId, params, signal, onUpdate),
 	};
 }

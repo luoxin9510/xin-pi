@@ -127,6 +127,7 @@ export type {
 	MessageRenderOptions,
 	MessageStartEvent,
 	MessageUpdateEvent,
+	MessageUpdateEventResult,
 	ModelSelectEvent,
 	ModelSelectSource,
 	NormalizedBuildSystemPromptOptions,
@@ -174,6 +175,7 @@ export type {
 	SetLabelHandler,
 	SetModelHandler,
 	SetThinkingLevelHandler,
+	StreamInterruptedEvent,
 	TerminalInputHandler,
 	ThinkingLevelSelectEvent,
 	ToolAnnotations,
@@ -182,9 +184,10 @@ export type {
 	ToolCallEventResult,
 	// Tools
 	ToolDefinition,
+	// Tool effect and execution mode
+	ToolEffect,
 	// Events - Tool Execution
 	ToolExecutionEndEvent,
-	// Tool execution mode
 	ToolExecutionMode,
 	ToolExecutionStartEvent,
 	ToolExecutionUpdateEvent,

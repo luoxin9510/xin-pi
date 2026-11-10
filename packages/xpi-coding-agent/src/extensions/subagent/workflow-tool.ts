@@ -56,6 +56,7 @@ export function workflowTool(
 	return {
 		name: "Workflow",
 		label: "Workflow",
+		effect: "exec" as const,
 		exposure: "codemode" as const,
 		description,
 		parameters,

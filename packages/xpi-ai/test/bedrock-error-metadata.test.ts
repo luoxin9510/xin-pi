@@ -117,7 +117,7 @@ describe("bedrock failure diagnostics", () => {
 		expect(Object.keys(diagnostic ?? {}).sort()).toEqual(["details", "timestamp", "type"]);
 	});
 
-	it("leaves errorMessage untouched so retry classification is unaffected", async () => {
+	it("prefixes the message with the SDK exception name", async () => {
 		bedrockMock.send = {
 			kind: "reject",
 			error: makeServiceException("ValidationException", {
@@ -126,7 +126,7 @@ describe("bedrock failure diagnostics", () => {
 			}),
 		};
 
-		expect((await runBedrock()).errorMessage).toBe(`Validation error: ${VALIDATION_MESSAGE}`);
+		expect((await runBedrock()).errorMessage).toBe(`ValidationException: ${VALIDATION_MESSAGE}`);
 	});
 
 	it("reports only the request id for a modeled mid-stream exception", async () => {

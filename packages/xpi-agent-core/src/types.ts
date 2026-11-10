@@ -47,6 +47,12 @@ export type StreamFn = (
 export type ToolExecutionMode = "sequential" | "parallel";
 
 /**
+ * What a tool does: `read` looks and changes nothing, `write` changes files or agent state, `exec` runs arbitrary
+ * code or processes. A tool that declares no effect counts as `exec`.
+ */
+export type ToolEffect = "read" | "write" | "exec";
+
+/**
  * Controls how many queued user messages are injected when the agent loop reaches a queue drain point.
  *
  * - "all": drain and inject every queued message at that point.
@@ -269,6 +275,15 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
 	 * replace the runtime values for this and later requests in the run. This hook does not poll queues.
 	 */
 	prepareRequest?: PrepareRequest;
+
+	/**
+	 * Called right before each provider request with a function that aborts only that request.
+	 * The aborted attempt ends with stopReason "aborted" and the run ends as after any aborted
+	 * response, but the run's own signal is untouched. The function does nothing once the request
+	 * has finished. If the provider still delivers a complete response after the request was
+	 * aborted, the loop marks it "aborted", so none of its tool calls run.
+	 */
+	onRequestStart?: (abortRequest: () => void) => void;
 
 	/**
 	 * Called after `turn_end` when the loop will continue, immediately before the next turn starts.
@@ -508,6 +523,8 @@ export interface AgentTool<TParameters extends object = object, TDetails = any> 
 	 * If omitted, the default execution mode applies.
 	 */
 	executionMode?: ToolExecutionMode;
+	/** What the tool does. Undeclared counts as `exec`. */
+	effect?: ToolEffect;
 }
 
 /** Context snapshot passed into the low-level agent loop. */

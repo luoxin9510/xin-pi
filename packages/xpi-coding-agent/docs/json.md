@@ -158,6 +158,16 @@ If compaction was aborted, `result` is absent and `aborted` is true. If it faile
 
 See [Compaction and Branch Summaries](compaction.md) for result semantics.
 
+## Stream interrupt events
+
+When a `message_update` extension handler interrupts a response (see `extensions.md`), the session emits after hiding the abandoned attempt and before requesting the turn again:
+
+```json
+{"type":"stream_interrupted","message":{"role":"assistant","stopReason":"aborted"},"inject":"Do not say BAD.","count":1,"limit":3}
+```
+
+`message` is the abandoned assistant message (abridged here), `count` the interrupts used for the current user prompt, `limit` the cap (3). The following `agent_end` has `willRetry: true`.
+
 ## Retry events
 
 Assistant-turn retry emits:

@@ -16,11 +16,13 @@ import type {
 	AgentToolResult,
 	AgentToolUpdateCallback,
 	ThinkingLevel,
+	ToolEffect,
 	ToolExecutionMode,
 } from "xpi-agent-core";
 import type {
 	AnyModel,
 	Api,
+	AssistantMessage,
 	AssistantMessageEvent,
 	AssistantMessageEventStream,
 	ClassifierApi,
@@ -105,7 +107,7 @@ import type { ModelRoute, ModelRouteRequest, VirtualModelDefinition } from "../v
 
 export type { ExecOptions, ExecResult } from "../exec.ts";
 export type { BuildSystemPromptOptions, NormalizedBuildSystemPromptOptions } from "../system-prompt.ts";
-export type { AgentToolResult, AgentToolUpdateCallback, ToolExecutionMode };
+export type { AgentToolResult, AgentToolUpdateCallback, ToolEffect, ToolExecutionMode };
 export type { AppKeybinding, KeybindingsManager } from "../keybindings.ts";
 
 // ============================================================================
@@ -661,6 +663,13 @@ export interface ToolDefinition<TParams extends TSchema = TSchema, TDetails = un
 	annotations?: ToolAnnotations;
 
 	/**
+	 * What the tool does: `read` (changes nothing), `write` (changes files or agent state) or `exec` (runs
+	 * arbitrary code or processes). Static per tool. Extensions read it from `tool_call` events and
+	 * `getAllTools()`. Undeclared counts as `exec`.
+	 */
+	effect?: ToolEffect;
+
+	/**
 	 * Whether registering the tool activates it. Default: `true` for `direct` and `model-only` tools;
 	 * other exposures are never activated on registration. A tool with `defaultActive: false` is
 	 * activated by naming it in `--tools` or the `defaultTools` setting, or with `setActiveTools()`.
@@ -1121,6 +1130,34 @@ export interface MessageUpdateEvent {
 	assistantMessageEvent: AssistantMessageEvent;
 }
 
+/**
+ * Returned by a `message_update` handler. `interrupt` aborts the current model request (not the run),
+ * hides the abandoned attempt from the model, appends `inject` as a hidden custom message and
+ * requests the same turn again. See docs/extensions.md.
+ */
+export interface MessageUpdateEventResult {
+	interrupt?: {
+		/** Reminder text the model sees on the retry. Stored as a custom message with `display: false`. */
+		inject: string;
+	};
+}
+
+/**
+ * Fired when a `message_update` handler interrupted a streaming response, after the abandoned attempt
+ * was hidden and the reminder appended, right before the turn is requested again.
+ */
+export interface StreamInterruptedEvent {
+	type: "stream_interrupted";
+	/** The abandoned assistant message (stopReason "aborted"). It stays in the session file. */
+	message: AssistantMessage;
+	/** The reminder that was appended. */
+	inject: string;
+	/** Interrupts used for the current user prompt, including this one. */
+	count: number;
+	/** Interrupts allowed per user prompt. */
+	limit: number;
+}
+
 /** Fired when a message ends */
 export interface MessageEndEvent {
 	type: "message_end";
@@ -1237,6 +1274,8 @@ interface ToolCallEventBase {
 	toolCallId: string;
 	/** Set when another tool (for example a codemode script) issued this call. */
 	parentToolCallId?: string;
+	/** The effect of the tool being called: its declared effect, else `exec`. */
+	effect: ToolEffect;
 }
 
 export interface BashToolCallEvent extends ToolCallEventBase {
@@ -1462,6 +1501,7 @@ export type ExtensionEvent =
 	| TurnEndEvent
 	| MessageStartEvent
 	| MessageUpdateEvent
+	| StreamInterruptedEvent
 	| MessageEndEvent
 	| ToolExecutionStartEvent
 	| ToolExecutionUpdateEvent
@@ -1713,7 +1753,8 @@ export interface ExtensionAPI {
 	on(event: "turn_start", handler: ExtensionHandler<TurnStartEvent>): () => void;
 	on(event: "turn_end", handler: ExtensionHandler<TurnEndEvent, TurnEndEventResult>): () => void;
 	on(event: "message_start", handler: ExtensionHandler<MessageStartEvent>): () => void;
-	on(event: "message_update", handler: ExtensionHandler<MessageUpdateEvent>): () => void;
+	on(event: "message_update", handler: ExtensionHandler<MessageUpdateEvent, MessageUpdateEventResult>): () => void;
+	on(event: "stream_interrupted", handler: ExtensionHandler<StreamInterruptedEvent>): () => void;
 	on(event: "message_end", handler: ExtensionHandler<MessageEndEvent, MessageEndEventResult>): () => void;
 	on(event: "tool_execution_start", handler: ExtensionHandler<ToolExecutionStartEvent>): () => void;
 	on(event: "tool_execution_update", handler: ExtensionHandler<ToolExecutionUpdateEvent>): () => void;
@@ -2189,6 +2230,8 @@ export type ToolInfo = Pick<
 	"name" | "description" | "parameters" | "promptGuidelines" | "reachesTools"
 > & {
 	exposure: ToolExposure;
+	/** The tool's effect: its declared effect, else `exec`. */
+	effect: ToolEffect;
 	namespace?: ToolNamespace;
 	annotations?: ToolAnnotations;
 	sourceInfo: SourceInfo;

@@ -26,6 +26,7 @@ import {
 	formatThrownValue,
 } from "../utils/diagnostics.ts";
 import { formatProviderError, normalizeProviderError } from "../utils/error-body.ts";
+import { classifyProviderError, isRetryableErrorKind } from "../utils/error-kind.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { headersToRecord } from "../utils/headers.ts";
 import { getIdentityHeaders } from "../utils/identity.ts";
@@ -124,56 +125,49 @@ function assertSuccessfulOutput(output: AssistantMessage): asserts output is Suc
 // Retry Helpers
 // ============================================================================
 
-function isTerminalRateLimitError(errorText: string): boolean {
-	return /GoUsageLimitError|FreeUsageLimitError|Monthly usage limit reached|available balance|insufficient_quota|out of budget|quota exceeded|billing/i.test(
-		errorText,
-	);
+/** A failed HTTP response from the Codex backend. Carries what `classifyProviderError` reads. */
+class CodexHttpError extends Error {
+	readonly status: number;
+	readonly headers: Headers;
+	/** `error.code` or `error.type` of the JSON body, when it has one. */
+	readonly code?: string;
+	/** Raw response body, for the classifier's text step. Not part of the display message. */
+	readonly rawBody: string;
+
+	constructor(message: string, options: { status: number; headers: Headers; code?: string; rawBody: string }) {
+		super(message);
+		this.name = "CodexHttpError";
+		this.status = options.status;
+		this.headers = options.headers;
+		this.code = options.code;
+		this.rawBody = options.rawBody;
+	}
 }
 
-function isRetryableError(status: number, errorText: string): boolean {
-	if (status === 429 && isTerminalRateLimitError(errorText)) {
-		return false;
-	}
-	if (status === 429 || status === 500 || status === 502 || status === 503 || status === 504) {
-		return true;
-	}
-	return /rate.?limit|overloaded|service.?unavailable|upstream.?connect|connection.?refused/i.test(errorText);
+/** Classify a Codex failure. The raw body of an HTTP failure counts as text, the display message may be friendlier. */
+function classifyCodexError(error: unknown, text: string) {
+	return classifyProviderError(error, { text: error instanceof CodexHttpError ? `${text}\n${error.rawBody}` : text });
 }
 
-function getRetryAfterDelayMs(headers: Headers): number | undefined {
-	const retryAfterMs = headers.get("retry-after-ms");
-	if (retryAfterMs !== null) {
-		const millis = Number(retryAfterMs);
-		if (Number.isFinite(millis)) {
-			return Math.max(0, millis);
-		}
-	}
+/** The provider asked for a longer wait than allowed. Keeps the status and the wait so the classifier still sees them. */
+class RetryDelayExceededError extends Error {
+	readonly status: number | undefined;
+	readonly headers: Headers;
 
-	const retryAfter = headers.get("retry-after");
-	if (!retryAfter) {
-		return undefined;
+	constructor(message: string, status: number | undefined, delayMs: number) {
+		super(message);
+		this.status = status;
+		this.headers = new Headers({ "retry-after-ms": String(delayMs) });
 	}
-
-	const seconds = Number(retryAfter);
-	if (Number.isFinite(seconds)) {
-		return Math.max(0, seconds * 1000);
-	}
-
-	const date = Date.parse(retryAfter);
-	if (!Number.isNaN(date)) {
-		return Math.max(0, date - Date.now());
-	}
-
-	return undefined;
 }
 
-class RetryDelayExceededError extends Error {}
-
-function validateRetryDelayMs(delayMs: number, options?: StreamOptions): number {
+function validateRetryDelayMs(delayMs: number, options: StreamOptions | undefined, status: number | undefined): number {
 	const maxRetryDelayMs = options?.maxRetryDelayMs ?? DEFAULT_MAX_RETRY_DELAY_MS;
 	if (maxRetryDelayMs > 0 && delayMs > maxRetryDelayMs) {
 		throw new RetryDelayExceededError(
 			`Server requested ${Math.ceil(delayMs / 1000)}s retry delay (max: ${Math.ceil(maxRetryDelayMs / 1000)}s)`,
+			status,
+			delayMs,
 		);
 	}
 	return delayMs;
@@ -440,24 +434,18 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 					}
 
 					const errorText = await response.text();
-					if (attempt < maxRetries && isRetryableError(response.status, errorText)) {
-						const retryAfterDelayMs = getRetryAfterDelayMs(response.headers);
-						const delayMs =
-							retryAfterDelayMs === undefined
-								? BASE_DELAY_MS * 2 ** attempt
-								: validateRetryDelayMs(retryAfterDelayMs, options);
-
-						await sleep(delayMs, options?.signal);
-						continue;
-					}
-
 					// Parse error for friendly message on final attempt or non-retryable error
 					const fakeResponse = new Response(errorText, {
 						status: response.status,
 						statusText: response.statusText,
 					});
 					const info = await parseErrorResponse(fakeResponse);
-					throw new Error(info.friendlyMessage || info.message);
+					throw new CodexHttpError(info.friendlyMessage || info.message, {
+						status: response.status,
+						headers: response.headers,
+						code: info.code,
+						rawBody: errorText,
+					});
 				} catch (error) {
 					if (error instanceof Error) {
 						if (error.name === "AbortError" || error.message === "Request was aborted") {
@@ -465,13 +453,16 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 						}
 					}
 					lastError = error instanceof Error ? error : new Error(String(error));
-					// Network errors are retryable
+					const classification = classifyCodexError(lastError, lastError.message);
 					if (
 						attempt < maxRetries &&
 						!(lastError instanceof RetryDelayExceededError) &&
-						!lastError.message.includes("usage limit")
+						isRetryableErrorKind(classification.kind)
 					) {
-						const delayMs = BASE_DELAY_MS * 2 ** attempt;
+						const delayMs =
+							classification.retryAfterMs === undefined
+								? BASE_DELAY_MS * 2 ** attempt
+								: validateRetryDelayMs(classification.retryAfterMs, options, classification.status);
 						await sleep(delayMs, options?.signal);
 						continue;
 					}
@@ -503,6 +494,12 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 		} catch (error) {
 			output.stopReason = options?.signal?.aborted ? "aborted" : "error";
 			output.errorMessage = formatProviderError(normalizeProviderError(error));
+			if (output.stopReason === "error") {
+				const { kind, status, retryAfterMs } = classifyCodexError(error, output.errorMessage);
+				output.errorKind = kind;
+				if (status !== undefined) output.errorStatus = status;
+				if (retryAfterMs !== undefined) output.retryAfterMs = retryAfterMs;
+			}
 			stream.push({ type: "error", reason: output.stopReason, error: output });
 			stream.end();
 		}
@@ -1614,10 +1611,13 @@ async function processWebSocketStream(
 // Error Handling
 // ============================================================================
 
-async function parseErrorResponse(response: Response): Promise<{ message: string; friendlyMessage?: string }> {
+async function parseErrorResponse(
+	response: Response,
+): Promise<{ message: string; friendlyMessage?: string; code?: string }> {
 	const raw = await response.text();
 	let message = raw || response.statusText || "Request failed";
 	let friendlyMessage: string | undefined;
+	let bodyCode: string | undefined;
 
 	try {
 		const parsed = JSON.parse(raw) as {
@@ -1626,6 +1626,7 @@ async function parseErrorResponse(response: Response): Promise<{ message: string
 		const err = parsed?.error;
 		if (err) {
 			const code = err.code || err.type || "";
+			bodyCode = code || undefined;
 			if (/usage_limit_reached|usage_not_included|rate_limit_exceeded/i.test(code) || response.status === 429) {
 				const plan = err.plan_type ? ` (${err.plan_type.toLowerCase()} plan)` : "";
 				const mins = err.resets_at
@@ -1638,7 +1639,7 @@ async function parseErrorResponse(response: Response): Promise<{ message: string
 		}
 	} catch {}
 
-	return { message, friendlyMessage };
+	return { message, friendlyMessage, code: bodyCode };
 }
 
 // ============================================================================

@@ -325,6 +325,7 @@ export function createToolSearchToolDefinition(
 	return {
 		name: TOOL_SEARCH_TOOL_NAME,
 		label: TOOL_SEARCH_TOOL_NAME,
+		effect: "read",
 		description: TOOL_SEARCH_DESCRIPTION,
 		promptSnippet: "Search for tools that are not loaded yet and load the matches",
 		parameters: toolSearchSchema,

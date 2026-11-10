@@ -64,6 +64,7 @@ export function registerStructuredOutput(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: STRUCTURED_OUTPUT_TOOL,
 		label: STRUCTURED_OUTPUT_TOOL,
+		effect: "read",
 		description:
 			"Return your final result. Call it exactly once, as your last action, with the result as its arguments.",
 		parameters: schema as never,

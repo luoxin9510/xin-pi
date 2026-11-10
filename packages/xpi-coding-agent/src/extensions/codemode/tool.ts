@@ -428,6 +428,7 @@ export function createCodemodeToolDefinition(
 	return {
 		name: CODEMODE_TOOL_NAME,
 		label: CODEMODE_TOOL_NAME,
+		effect: "exec",
 		// Replaced with the declarations of the callable tools when the tool is activated.
 		description: createCodemodeDescription([], { models: options.models === true }),
 		promptSnippet: codemodeToolSystemPromptContribution.snippet,
