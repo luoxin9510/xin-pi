@@ -628,6 +628,28 @@ return "TOK-" + (6 * 7) + " " + r.status;`;
 		},
 	},
 	{
+		name: "parent asks a named agent one more thing",
+		kind: "parent",
+		async run(signal) {
+			const cwd = fixture({ "notes.txt": "first: KIWI-31\nsecond: PLUM-58\n" });
+			const r = await runParent(
+				cwd,
+				"This run is non-interactive, so pass run_in_background: false on Agent calls. Step 1: in a codemode script, start an Explore subagent named `reviewer` and have it read notes.txt and tell you the value of `first`. Step 2: in a second, separate codemode script, ask the reviewer agent one more thing: the value of `second` in the file it already read. Do not start another agent for step 2. Reply with both values, comma-separated, nothing else.",
+				signal,
+			);
+			return {
+				cost: r.cost,
+				checks: [
+					check("parent finished", !r.timedOut && r.code === 0, { timedOut: r.timedOut, code: r.code }),
+					check("started one agent", r.tools.filter((t) => t === "Agent").length === 1, r.tools),
+					check("used SendMessage", r.tools.includes("SendMessage"), r.tools),
+					check("answers both values", r.text.includes("KIWI-31") && r.text.includes("PLUM-58"), r.text),
+					parentOnHaiku(r.models),
+				],
+			};
+		},
+	},
+	{
 		name: "isolated agent keeps a worktree only when it changes files",
 		kind: "direct",
 		async run(signal) {

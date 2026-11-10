@@ -137,6 +137,7 @@ export function describeAgents({ agents }: Discovery, backgroundScripts: boolean
 		"write a complete task. The result's `output` is the agent's final message; filter it before returning it.",
 		"Run independent agents in parallel with Promise.all.",
 		'Pass `schema` (a JSON Schema with type "object") to get the result as a value in `structured` instead of prose.',
+		"Pass `name` to reach the agent later by that name: `resume: name`, or SendMessage({ to: name, message }).",
 		"Script helpers over this tool: `agent(prompt, { label?, schema?, type?, model?, effort?, isolation? })` resolves to",
 		"the output text (with `schema`, the value) and rejects when the agent failed; `parallel([fn or promise...])` and",
 		"`pipeline(items, (item, i) => ...)` run all at once and resolve to results in order, null for a failed one;",

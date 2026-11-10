@@ -13,6 +13,7 @@ import { bindHost, limitConcurrency } from "./exchange.ts";
 import { installPanel } from "./panel.ts";
 import { registry } from "./registry.ts";
 import { scriptHelpers } from "./script-helpers.ts";
+import { sendMessageTool } from "./send-message-tool.ts";
 import { registerStructuredOutput } from "./structured-output.ts";
 import { subagentsCommand } from "./subagents-command.ts";
 import { startWorkflowCommand, workflowStartText } from "./workflow-run.ts";
@@ -185,9 +186,9 @@ export default function subagent(pi: ExtensionAPI) {
 		});
 		const warnings = [...registry.rebuild(parentContext(ctx)), ...registerWorkflows(ctx)];
 		const discovery = discoverAgents(ctx.cwd);
-		pi.registerTool(
-			agentTool(() => config!, describeAgents(discovery, config.backgroundScripts, ctx.hasUI), deliver),
-		);
+		const agent = agentTool(() => config!, describeAgents(discovery, config.backgroundScripts, ctx.hasUI), deliver);
+		pi.registerTool(agent);
+		pi.registerTool(sendMessageTool(agent));
 		if (ctx.hasUI) {
 			installPanel(
 				() => current!,

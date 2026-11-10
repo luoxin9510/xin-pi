@@ -1,6 +1,6 @@
 # 03: Agent names and `SendMessage`
 
-Status: ready-for-agent (owner approved Grill 1 on 2026-11-10)
+Status: done (2026-11-10, `issues/03-names-and-messages.md`)
 
 ## Problem
 
