@@ -1,4 +1,4 @@
-# 03: `/commit` command
+# 02: `/commit` built-in extension
 
 Status: draft, waiting for Grill 1 (`decisions.md`). No code until the owner approves.
 
@@ -14,7 +14,8 @@ applies it consistently.
 
 ## Solution
 
-An extension command `/commit` in the package. It reads the staged diff, asks a small model for a message through
+A new built-in extension `builtin:commit` (`src/extensions/commit/`, next to `relay` and `subagent`) with one command
+`/commit`. It can be turned off like the other built-in extensions. It reads the staged diff, asks a small model for a message through
 `ctx.complete` with a schema, shows the message in an editor for the owner to accept or change, and runs
 `git commit`. No subagent and no main-model turn.
 
@@ -37,7 +38,7 @@ An extension command `/commit` in the package. It reads the staged diff, asks a 
 - `ctx.complete({ model, schema, purpose: "commit" })`, schema `{ type, scope?, summary, body? }`; the message is
   assembled as `type(scope): summary` plus body. When the repo convention says otherwise the model follows it and puts
   the whole subject in `summary` with `type` "custom".
-- Model: setting `reviewCommit.commitModel`, default `haiku`.
+- Model: setting `commit.model`, default `haiku` (in the settings schema).
 - Confirmation: `ctx.ui.editor` with the message; empty or cancel aborts. Without a UI (print mode) `/commit` prints the
   message and commits only with `--yes`.
 - Commit: `pi.exec("git", ["commit", "-F", <temp file>])`; never `--no-verify`, `--amend` or push. A failing hook's
