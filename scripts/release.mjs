@@ -1,163 +1,117 @@
 #!/usr/bin/env node
 /**
- * Release script for pi-mono
+ * xin-pi releases, in two steps that keep main's rule of one PR per change:
  *
- * Usage:
- *   node scripts/release.mjs <major|minor|patch>
- *   node scripts/release.mjs <x.y.z>
+ *   node scripts/release.mjs bump <patch|minor|major|x.y.z>
+ *     On an up-to-date main: puts every package on the new version (one version for all), refreshes the lockfile
+ *     and the coding-agent install lock, commits on a new branch release-vX.Y.Z, pushes it and opens a PR.
  *
- * Steps:
- * 1. Check for uncommitted changes
- * 2. Verify every public workspace package is registered on npm,
- *    pin the newest model catalog for Nix, and build with it
- * 3. Bump version via npm run version:xxx or set an explicit version
- * 4. Update CHANGELOG.md files: [Unreleased] -> [version] - date
- * 5. Regenerate release artifacts
- * 6. Run checks and tests
- * 7. Commit and tag the release
- * 8. Add new [Unreleased] section to changelogs
- * 9. Commit next-cycle changelog updates
- * 10. Push main and the tag to trigger CI publication and verified pi.dev announcement
+ *   node scripts/release.mjs tag
+ *     After that PR is merged and CI on main passed: tags main's head vX.Y.Z (the version in its package.json)
+ *     and pushes only that tag. The tag starts .github/workflows/release.yml, which builds the binaries and
+ *     publishes the GitHub Release.
+ *
+ * npm is not published by either step or by CI: the owner runs `npm publish` by hand (2FA); the tag step prints
+ * the command.
  */
 
-import { execSync, spawnSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { findPackageDirectories } from "./package-workspaces.mjs";
+import { execFileSync } from "node:child_process";
+import { readFileSync, writeFileSync } from "node:fs";
 import { getPublicWorkspacePackages } from "./release-packages.mjs";
-import { hydrateModelCatalogBytes, updateModelCatalogPin } from "./update-model-catalog-pin.mjs";
 
-const RELEASE_TARGET = process.argv[2];
 const BUMP_TYPES = new Set(["major", "minor", "patch"]);
 const SEMVER_RE = /^\d+\.\d+\.\d+$/;
+const CODING_AGENT_PACKAGE = "packages/xpi-coding-agent/package.json";
+const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 
-if (!RELEASE_TARGET || (!BUMP_TYPES.has(RELEASE_TARGET) && !SEMVER_RE.test(RELEASE_TARGET))) {
-	console.error("Usage: node scripts/release.mjs <major|minor|patch|x.y.z>");
+function usage() {
+	console.error("Usage: node scripts/release.mjs bump <patch|minor|major|x.y.z>\n       node scripts/release.mjs tag");
 	process.exit(1);
 }
 
-function run(cmd, options = {}) {
-	console.log(`$ ${cmd}`);
+function fail(message) {
+	console.error(`Error: ${message}`);
+	process.exit(1);
+}
+
+function run(command, args, options = {}) {
+	console.log(`$ ${[command, ...args].join(" ")}`);
+	return execFileSync(command, args, { encoding: "utf8", stdio: "inherit", ...options });
+}
+
+function read(command, args) {
+	return execFileSync(command, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+}
+
+function succeeds(command, args) {
 	try {
-		return execSync(cmd, { encoding: "utf-8", stdio: options.silent ? "pipe" : "inherit", ...options });
-	} catch (e) {
-		if (!options.ignoreError) {
-			console.error(`Command failed: ${cmd}`);
-			process.exit(1);
-		}
-		return null;
+		read(command, args);
+		return true;
+	} catch {
+		return false;
 	}
 }
 
-function getVersion() {
-	const pkg = JSON.parse(readFileSync("packages/xpi-ai/package.json", "utf-8"));
-	return pkg.version;
+function currentVersion() {
+	return JSON.parse(readFileSync(CODING_AGENT_PACKAGE, "utf8")).version;
 }
 
-function assertPackagesAreRegisteredWithNpm() {
-	const packageNames = getPublicWorkspacePackages().map((pkg) => pkg.name);
-	const unregisteredPackages = [];
-
-	console.log("Checking npm package registration...");
-	for (const packageName of packageNames) {
-		const result = spawnSync(process.platform === "win32" ? "npm.cmd" : "npm", ["view", packageName, "version", "--json"], {
-			encoding: "utf8",
-			stdio: ["ignore", "pipe", "pipe"],
-		});
-
-		if (result.status === 0 && result.stdout.trim()) {
-			console.log(`  ${packageName}`);
-			continue;
-		}
-
-		const output = [result.stdout, result.stderr, result.error?.message].filter(Boolean).join("\n");
-		if (output.includes("E404") || output.includes("404 Not Found")) {
-			unregisteredPackages.push(packageName);
-			continue;
-		}
-
-		throw new Error(output ? `Failed to query npm registration for ${packageName}\n${output}` : `Failed to query npm registration for ${packageName}`);
-	}
-
-	if (unregisteredPackages.length > 0) {
-		throw new Error(`The following public workspace packages are not registered on npm:\n${unregisteredPackages.map((packageName) => `  ${packageName}`).join("\n")}\nRegister them before running a release.`);
-	}
-
-	console.log("  All public workspace packages are registered on npm\n");
-}
-
-const MODEL_CATALOG_PIN = "nix/model-catalog.json";
-
-// Release tags are immutable, so the tagged Nix pin must already build the
-// release. Pin the newest catalog unconditionally (`--if-stale` only avoids pin
-// churn on main), then run the Nix build's steps: hydrate the checkout's model
-// data from it and build offline. This catches e.g. source that references a
-// model the catalog lacks. On failure, restore the committed pin so the
-// worktree is clean for a rerun.
-async function pinAndBuildWithNewestModelCatalog() {
-	const root = process.cwd();
-	const committedPin = readFileSync(MODEL_CATALOG_PIN, "utf8");
-	const restored = `${MODEL_CATALOG_PIN} was restored. Run \`npm run generate:models\` to restore local model data, then rerun the release.`;
-	let revision;
-	let result;
-	try {
-		const pin = await updateModelCatalogPin(root);
-		revision = pin.revision;
-		console.log(`  Pinned model catalog ${revision}`);
-		hydrateModelCatalogBytes(root, pin.bytes);
-		console.log("$ npm run build:offline");
-		const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-		result = spawnSync(npm, ["run", "build:offline"], { stdio: "inherit" });
-	} finally {
-		if (result?.status !== 0) writeFileSync(MODEL_CATALOG_PIN, committedPin);
-	}
-	// Only a build that ran and exited non-zero says anything about the catalog.
-	if (result.error || result.signal) {
-		const cause = result.error ? result.error.message : `it was stopped by ${result.signal}`;
-		console.error(`Error: npm run build:offline did not complete: ${cause}.\n${restored}`);
-		process.exit(1);
-	}
-	if (result.status !== 0) {
-		console.error(
-			`Error: the build with the newest published model catalog ${revision} failed; the Nix build of the release tag would fail too.\n` +
-				"If the errors concern model IDs, types, or APIs, the catalog predates main: upstream pi publishes it, so wait for a newer one.\n" +
-				"Otherwise fix the build (e.g. run `npm ci --ignore-scripts` if node_modules is out of date).\n" +
-				restored,
-		);
-		process.exit(1);
-	}
+// owner/repo of origin, for gh.
+function originRepo() {
+	const url = read("git", ["remote", "get-url", "origin"]);
+	const match = url.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
+	if (!match) fail(`origin is not a GitHub repository: ${url}`);
+	return match[1];
 }
 
 function compareVersions(a, b) {
 	const aParts = a.split(".").map(Number);
 	const bParts = b.split(".").map(Number);
-
 	for (let i = 0; i < 3; i++) {
-		const diff = (aParts[i] || 0) - (bParts[i] || 0);
-		if (diff !== 0) {
-			return diff;
-		}
+		const diff = aParts[i] - bParts[i];
+		if (diff !== 0) return diff;
 	}
-
 	return 0;
 }
 
-function shellQuote(value) {
-	return `'${value.replace(/'/g, `'\\''`)}'`;
+function nextVersion(version, target) {
+	if (SEMVER_RE.test(target)) return target;
+	const [major, minor, patch] = version.split(".").map(Number);
+	if (target === "major") return `${major + 1}.0.0`;
+	if (target === "minor") return `${major}.${minor + 1}.0`;
+	return `${major}.${minor}.${patch + 1}`;
 }
 
-function removeStaleWorkspaceLockEntries() {
-	const workspaceVersions = new Map(
-		getPublicWorkspacePackages().map((pkg) => [pkg.name, pkg.version]),
-	);
-	const lockPath = "package-lock.json";
-	const lock = JSON.parse(readFileSync(lockPath, "utf8"));
-	let removed = 0;
+// Releases start from main as it is on origin, with nothing uncommitted.
+function requireCleanMain() {
+	if (read("git", ["status", "--porcelain"])) fail("the working tree has uncommitted changes.");
+	if (read("git", ["branch", "--show-current"]) !== "main") fail("check out main first.");
+	run("git", ["fetch", "origin", "main", "--quiet"]);
+	if (read("git", ["rev-parse", "HEAD"]) !== read("git", ["rev-parse", "origin/main"])) {
+		fail("main is not the same as origin/main; pull or push first.");
+	}
+}
 
+function requireOneVersion() {
+	const versions = [...new Set(getPublicWorkspacePackages().map((pkg) => pkg.version))];
+	if (versions.length !== 1) fail(`the packages are not on one version: ${versions.join(", ")}`);
+	return versions[0];
+}
+
+function tagExists(tag) {
+	return (
+		succeeds("git", ["rev-parse", "--verify", "--quiet", `refs/tags/${tag}`]) ||
+		read("git", ["ls-remote", "--tags", "origin", `refs/tags/${tag}`]) !== ""
+	);
+}
+
+// npm version can leave lock entries for the previous workspace versions; drop them so the refresh is clean.
+function removeStaleWorkspaceLockEntries() {
+	const workspaceVersions = new Map(getPublicWorkspacePackages().map((pkg) => [pkg.name, pkg.version]));
+	const lock = JSON.parse(readFileSync("package-lock.json", "utf8"));
+	let removed = 0;
 	for (const [path, pkg] of Object.entries(lock.packages)) {
-		if (!path.startsWith("packages/") || pkg.link === true) {
-			continue;
-		}
+		if (!path.startsWith("packages/") || pkg.link === true) continue;
 		for (const [name, version] of workspaceVersions) {
 			if (path.endsWith(`/node_modules/${name}`) && pkg.version !== version) {
 				delete lock.packages[path];
@@ -166,175 +120,84 @@ function removeStaleWorkspaceLockEntries() {
 			}
 		}
 	}
-
-	if (removed > 0) {
-		writeFileSync(lockPath, `${JSON.stringify(lock, null, "\t")}\n`);
-		console.log(`Removed ${removed} stale workspace package lock ${removed === 1 ? "entry" : "entries"}.`);
-	}
+	if (removed > 0) writeFileSync("package-lock.json", `${JSON.stringify(lock, null, "\t")}\n`);
 }
 
-function stageChangedFiles() {
-	const output = run("git ls-files -m -o -d --exclude-standard", { silent: true });
-	const paths = [...new Set((output || "").split("\n").map((line) => line.trim()).filter(Boolean))];
-	if (paths.length === 0) {
-		return;
-	}
+function bump(target) {
+	if (!target || (!BUMP_TYPES.has(target) && !SEMVER_RE.test(target))) usage();
+	requireCleanMain();
+	const from = requireOneVersion();
+	const version = nextVersion(from, target);
+	if (compareVersions(version, from) <= 0) fail(`${version} is not newer than ${from}.`);
+	const tag = `v${version}`;
+	if (tagExists(tag)) fail(`${tag} already exists.`);
+	const branch = `release-${tag}`;
+	if (succeeds("git", ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`])) fail(`branch ${branch} already exists.`);
 
-	run(`git add -- ${paths.map(shellQuote).join(" ")}`);
-}
-
-function bumpOrSetVersion(target) {
-	const currentVersion = getVersion();
-
-	if (BUMP_TYPES.has(target)) {
-		console.log(`Bumping version (${target})...`);
-		run(`npm run version:${target}`);
-	} else {
-		if (compareVersions(target, currentVersion) <= 0) {
-			console.error(`Error: explicit version ${target} must be greater than current version ${currentVersion}.`);
-			process.exit(1);
-		}
-
-		console.log(`Setting explicit version (${target})...`);
-		run(`npm version ${target} --workspaces --no-git-tag-version --no-workspaces-update && node scripts/sync-versions.js && npm install --package-lock-only --ignore-scripts`);
-	}
-
-	// npm version can temporarily install the previous workspace versions before
-	// sync-versions updates inter-package ranges. Remove those stale lock entries,
-	// refresh the lockfile, then hydrate from the final dependency graph.
+	run("git", ["checkout", "-b", branch]);
+	run(npm, ["version", version, "--workspaces", "--no-git-tag-version", "--no-workspaces-update"]);
+	run("node", ["scripts/sync-versions.js"]);
+	run(npm, ["install", "--package-lock-only", "--ignore-scripts"]);
 	removeStaleWorkspaceLockEntries();
-	run("npm install --package-lock-only --ignore-scripts");
-	run("npm ci --ignore-scripts");
-	return getVersion();
+	run(npm, ["install", "--package-lock-only", "--ignore-scripts"]);
+	run(npm, ["ci", "--ignore-scripts"]);
+	run(npm, ["run", "install-lock:coding-agent"]);
+	if (currentVersion() !== version) fail(`${CODING_AGENT_PACKAGE} is at ${currentVersion()}, not ${version}.`);
+
+	// Stage exactly the files the bump touched.
+	const changed = read("git", ["ls-files", "--modified", "--others", "--deleted", "--exclude-standard"])
+		.split("\n")
+		.filter(Boolean);
+	run("git", ["add", "--", ...new Set(changed)]);
+	// The pre-commit hook runs `npm run check`.
+	run("git", ["commit", "-m", `chore: release ${tag}`]);
+	run("git", ["push", "-u", "origin", branch]);
+	run("gh", [
+		"pr",
+		"create",
+		"--repo",
+		originRepo(),
+		"--base",
+		"main",
+		"--head",
+		branch,
+		"--title",
+		`chore: release ${tag}`,
+		"--body",
+		`Puts every package on ${version}. Once this is merged and CI on main passed, run \`npm run release:tag\` on main.`,
+	]);
+	console.log(`\nOpened the release PR for ${tag}. After it is merged: git checkout main && git pull && npm run release:tag`);
 }
 
-function getChangelogs() {
-	return findPackageDirectories()
-		.map((directory) => join(directory, "CHANGELOG.md"))
-		.filter((path) => existsSync(path));
-}
+function tag() {
+	requireCleanMain();
+	const version = requireOneVersion();
+	const tagName = `v${version}`;
+	if (tagExists(tagName)) fail(`${tagName} already exists: bump the version first (npm run release:patch).`);
 
-function updateChangelogsForRelease(version) {
-	const date = new Date().toISOString().split("T")[0];
-	const changelogs = getChangelogs();
-
-	for (const changelog of changelogs) {
-		const content = readFileSync(changelog, "utf-8");
-
-		if (!content.includes("## [Unreleased]")) {
-			console.log(`  Skipping ${changelog}: no [Unreleased] section`);
-			continue;
-		}
-
-		const updated = content.replace(
-			"## [Unreleased]",
-			`## [${version}] - ${date}`
-		);
-		writeFileSync(changelog, updated);
-		console.log(`  Updated ${changelog}`);
+	// Only a head that CI has passed is released.
+	const repo = originRepo();
+	const head = read("git", ["rev-parse", "HEAD"]);
+	const runs = JSON.parse(
+		read("gh", ["run", "list", "--repo", repo, "--workflow", "ci.yml", "--commit", head, "--json", "status,conclusion"]),
+	);
+	if (!runs.some((r) => r.status === "completed" && r.conclusion === "success")) {
+		fail(`CI has not passed on ${head.slice(0, 9)} yet (gh run list --repo ${repo} --workflow ci.yml --commit ${head}).`);
 	}
+
+	run("git", ["tag", "-a", tagName, "-m", `xpi ${tagName}`]);
+	// Only this tag: the local clone also holds upstream pi's tags.
+	run("git", ["push", "origin", `refs/tags/${tagName}`]);
+	console.log(`
+Pushed ${tagName}. The release workflow builds the binaries and publishes the GitHub Release:
+  gh run list --repo ${repo} --workflow release.yml
+  https://github.com/${repo}/releases/tag/${tagName}
+
+npm is published by hand (needs 2FA):
+  cd packages/xpi-coding-agent && npm publish --access public`);
 }
 
-function addUnreleasedSection() {
-	const changelogs = getChangelogs();
-	const unreleasedSection = "## [Unreleased]\n\n";
-
-	for (const changelog of changelogs) {
-		const content = readFileSync(changelog, "utf-8");
-
-		// Insert after "# Changelog\n\n"
-		const updated = content.replace(
-			/^(# Changelog\n\n)/,
-			`$1${unreleasedSection}`
-		);
-		writeFileSync(changelog, updated);
-		console.log(`  Added [Unreleased] to ${changelog}`);
-	}
-}
-
-// Main flow
-console.log("\n=== Release Script ===\n");
-
-// 1. Check for uncommitted changes
-console.log("Checking for uncommitted changes...");
-const status = run("git status --porcelain", { silent: true });
-if (status && status.trim()) {
-	console.error("Error: Uncommitted changes detected. Commit or stash first.");
-	console.error(status);
-	process.exit(1);
-}
-console.log("  Working directory clean\n");
-
-// 2. Verify npm package registration before modifying the worktree.
-assertPackagesAreRegisteredWithNpm();
-
-// Pin and verify the Nix model catalog before modifying versions, so the pin
-// lands in the release commit and a failure leaves the worktree clean.
-console.log("Pinning and building with the newest model catalog for Nix...");
-await pinAndBuildWithNewestModelCatalog();
-console.log();
-
-// 3. Bump or set version
-const version = bumpOrSetVersion(RELEASE_TARGET);
-console.log(`  New version: ${version}\n`);
-
-// 4. Update changelogs
-console.log("Updating CHANGELOG.md files...");
-updateChangelogsForRelease(version);
-console.log();
-
-// 5. Regenerate release artifacts
-console.log("Regenerating release artifacts...");
-run("npm run generate:models");
-run("npm run check:model-data");
-run("npm run install-lock:coding-agent");
-console.log();
-
-// 6. Run checks and tests
-console.log("Running checks...");
-run("npm run check");
-console.log();
-
-console.log("Building packages for tests...");
-run("npm run build:offline");
-console.log();
-
-// PI_RELEASE_SKIP_TESTS=1 skips the test suite, e.g. when it already passed in `npm run release:local`
-// and an overloaded machine makes timing-sensitive tests fail. Checks and the install check still run.
-if (process.env.PI_RELEASE_SKIP_TESTS === "1") {
-	console.log("Skipping tests (PI_RELEASE_SKIP_TESTS=1)\n");
-} else {
-	console.log("Running tests...");
-	run("./test.sh");
-	console.log();
-}
-
-console.log("Checking the packed coding-agent consumer install...");
-run("npm run check:package-install");
-console.log();
-
-// 7. Commit and tag
-console.log("Committing and tagging...");
-stageChangedFiles();
-run(`git commit -m "Release v${version}"`);
-run(`git tag v${version}`);
-console.log();
-
-// 8. Add new [Unreleased] sections
-console.log("Adding [Unreleased] sections for next cycle...");
-addUnreleasedSection();
-console.log();
-
-// 9. Commit
-console.log("Committing changelog updates...");
-stageChangedFiles();
-run(`git commit -m "Add [Unreleased] section for next cycle"`);
-console.log();
-
-// 10. Push
-console.log("Pushing to remote...");
-run("git push origin main");
-run(`git push origin v${version}`);
-console.log();
-
-console.log(`=== Prepared release v${version}; CI publication and pi.dev announcement start after the tag push ===`);
+const [command, target] = process.argv.slice(2);
+if (command === "bump") bump(target);
+else if (command === "tag" && target === undefined) tag();
+else usage();

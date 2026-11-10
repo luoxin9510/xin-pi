@@ -1,52 +1,57 @@
 ---
 name: release
-description: Prepare, publish, verify, and recover pi releases. Use for release preparation, local release smoke tests, publishing, and failed release CI.
+description: Prepare, publish, verify, and recover xin-pi releases (xpi). Use for release preparation, local release smoke tests, the release PR and tag, and failed release CI.
 ---
 
-# Releasing pi
+# Releasing xin-pi
 
 Run repository commands from the repo root (two directories above this skill), unless instructed otherwise.
 
-**Lockstep versioning**: all packages share one version; every release updates all together. `patch` = fixes + additions, `minor` = breaking changes. No major releases.
+**One version**: all `xpi-*` packages share one version, and the tag is `v<version>`. `patch` = fixes and additions, `minor` = breaking changes. Only `xpi-coding-agent` (the `xpi` CLI) is published to npm; its bundle includes the other packages.
 
-1. **Update CHANGELOGs**: ask the user whether they ran the `/cl` prompt on the latest commit on `main`. If not, they must run `/cl` first to audit and update each package's `[Unreleased]` section before releasing.
+**What does what**:
+- `npm run release:patch` / `release:minor` / `release:major` (or `node scripts/release.mjs bump x.y.z`): opens the version bump as a PR.
+- `npm run release:tag`: tags main once that PR is merged and CI on main passed.
+- `.github/workflows/release.yml` (on the tag): builds the source archive and the standalone `xpi` binaries, smoke-tests them on Linux, macOS and Windows, and publishes the GitHub Release with notes generated from the merged PRs.
+- npm: the owner publishes by hand (2FA). Never run `npm publish` unless the owner says so in that turn.
 
-2. **Local smoke test**: build an unpublished release and smoke test from outside the repo (so it can't resolve workspace files):
+1. **Local smoke test** (optional but recommended before a minor release): build an unpublished release and test it from outside the repo, so it cannot resolve workspace files:
    ```bash
-   npm run release:local -- --out /tmp/pi-local-release --force
+   npm run release:local -- --out /tmp/xpi-local-release --force
    cd /tmp
 
-   # Node package install smoke tests
-   /tmp/pi-local-release/node/pi --help
-   /tmp/pi-local-release/node/pi --version
-   /tmp/pi-local-release/node/pi --list-models
-   /tmp/pi-local-release/node/pi -p "Say exactly: ok"
-   /tmp/pi-local-release/node/pi
+   /tmp/xpi-local-release/node/xpi --help
+   /tmp/xpi-local-release/node/xpi --version
+   /tmp/xpi-local-release/node/xpi --list-models
+   /tmp/xpi-local-release/node/xpi -p "Say exactly: ok"
 
-   # Bun binary smoke tests
-   /tmp/pi-local-release/bun/pi --help
-   /tmp/pi-local-release/bun/pi --version
-   /tmp/pi-local-release/bun/pi --list-models
-   /tmp/pi-local-release/bun/pi -p "Say exactly: ok"
-   /tmp/pi-local-release/bun/pi
+   /tmp/xpi-local-release/bun/xpi --help
+   /tmp/xpi-local-release/bun/xpi --version
+   /tmp/xpi-local-release/bun/xpi -p "Say exactly: ok"
    ```
-   Verify both Node and Bun startup, model/account listing, interactive startup, and at least one real prompt with the intended default provider. The bare commands `/tmp/pi-local-release/node/pi` and `/tmp/pi-local-release/bun/pi` start interactive mode; run each in tmux, submit a prompt, and wait for the model reply before considering the interactive smoke test passed. Failures are release blockers unless the user explicitly accepts the risk.
+   The Bun binary build needs `bun` on PATH (`npx -y bun@1.4.4` works). For real prompts, use a temporary `XPI_CODING_AGENT_DIR` holding a copy of `auth.json`, never the real `~/.pi/agent`. Load [interactive-testing.md](interactive-testing.md) for the tmux workflow if the interactive mode needs a check.
 
-   Load and follow [interactive-testing.md](interactive-testing.md) for the tmux workflow. Start each release binary from `/tmp`, not the repo root.
-
-3. **Run the release script**:
+2. **Open the release PR** from an up-to-date main with a clean tree:
    ```bash
-   PI_ALLOW_LOCKFILE_CHANGE=1 npm_config_min_release_age=0 npm run release:patch    # fixes + additions
-   PI_ALLOW_LOCKFILE_CHANGE=1 npm_config_min_release_age=0 npm run release:minor    # breaking changes
+   npm run release:patch    # fixes + additions
+   npm run release:minor    # breaking changes
    ```
-   If the test suite already passed in `npm run release:local` and only fails from machine load, `PI_RELEASE_SKIP_TESTS=1` skips `./test.sh` in the release script; checks and the packed install check still run. Use it only with the user's approval.
+   It creates branch `release-vX.Y.Z`, sets every package to the new version, refreshes `package-lock.json` and `packages/xpi-coding-agent/install-lock`, commits `chore: release vX.Y.Z` (the pre-commit hook runs `npm run check`), pushes, and opens the PR. If a fresh lockfile refresh is blocked by npm's release-age gate, rerun with `npm_config_min_release_age=0`. Review the lockfile diff in the PR.
 
-   Use `npm_config_min_release_age=0` only for the release command. The repo's normal npm age gate can otherwise block the release lockfile refresh when the current workspace package version was published recently. Review any lockfile or install lock diffs the release creates before push.
+   A version already on main that was never tagged (for example after a manual bump) needs no PR: go to step 3.
 
-   The release script pins the newest published model catalog for Nix (`nix/model-catalog.json`) and builds the checkout with it as the Nix build does (it fails if that catalog predates main's model changes; publish one first), bumps all package versions, updates changelogs, regenerates release artifacts, runs `npm run check`, commits `Release vX.Y.Z`, tags `vX.Y.Z`, adds fresh `## [Unreleased]` changelog sections, commits `Add [Unreleased] section for next cycle`, then pushes `main` and the tag. Do not rerun the release script after a tag was pushed.
+3. **Tag** after the PR is merged and CI on main passed:
+   ```bash
+   git checkout main && git pull --ff-only
+   npm run release:tag
+   ```
+   It refuses when the tree is dirty, main differs from origin/main, the packages are not on one version, the tag exists, or CI has not passed on main's head. It pushes only the new tag (the local clone also holds upstream pi's tags; never `git push --tags`).
 
-4. **CI publishes the npm release**: pushing the `vX.Y.Z` tag triggers `.github/workflows/build-binaries.yml`. The `publish-npm` job uses npm trusted publishing through GitHub Actions OIDC with environment `npm-publish`; no local `npm publish`, `npm whoami`, OTP, or WebAuthn flow is required.
+4. **Watch the release workflow**: `gh run list --repo luoxin9510/xin-pi --workflow release.yml`. When it is green, the release is at `https://github.com/luoxin9510/xin-pi/releases/tag/vX.Y.Z`.
 
-5. **CI builds the Nix release**: the tag push also triggers `.github/workflows/nix.yml`, which builds the tagged flake on Linux and macOS and then fast-forwards the `stable` branch to the release commit. `nix run github:earendil-works/pi/stable` runs the latest release. If the Nix build fails, `stable` stays on the previous release; the tag cannot be fixed, so fix `main` and ship the fix in the next release.
+5. **npm**: tell the owner the release is ready and give them the command; they run it themselves:
+   ```bash
+   cd packages/xpi-coding-agent && npm publish --access public
+   ```
 
-6. **If CI publish fails**: inspect the failed job. The publish helper is idempotent and skips package versions already present on npm. Rerun the failed job or workflow after fixing CI or transient npm issues. Do not rerun `npm run release:patch` or `npm run release:minor` for the same version.
+6. **If the release workflow fails**: the tag cannot be moved. Read the failed job. A draft release left behind is deleted by the workflow. If the failure was transient, rerun the workflow (`gh run rerun <id> --failed`) or start it by hand with the tag (`gh workflow run release.yml -f tag=vX.Y.Z`). If the code was wrong, fix main and release the next patch version. A published release is never changed by the workflow.
