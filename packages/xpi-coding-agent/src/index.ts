@@ -176,6 +176,7 @@ export type {
 	ToolCallEvent,
 	ToolCallEventResult,
 	ToolDefinition,
+	ToolEffect,
 	ToolExecutionEndEvent,
 	ToolExecutionMode,
 	ToolExecutionStartEvent,

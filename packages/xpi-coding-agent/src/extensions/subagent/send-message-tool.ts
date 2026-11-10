@@ -35,6 +35,7 @@ export function sendMessageTool(agent: ReturnType<typeof agentTool>) {
 	return {
 		name: "SendMessage",
 		label: "SendMessage",
+		effect: "write" as const,
 		exposure: "codemode" as const,
 		description: SEND_MESSAGE_DESCRIPTION,
 		parameters,
