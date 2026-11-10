@@ -29,6 +29,9 @@ export const SETTINGS_DEFAULTS = {
 			maxRetryDelayMs: 60000,
 		},
 	},
+	commit: {
+		model: "haiku",
+	},
 	hideThinkingBlock: false,
 	staleEditGuard: true,
 	showCacheMissNotices: false,

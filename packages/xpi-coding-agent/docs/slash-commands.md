@@ -74,6 +74,22 @@ Added by the built-in `subagent` extension (see [Subagents](subagent.md)); absen
 | `/handback` | [Relay](relay.md): wake the lead now; the worker reports where things stand |
 | `/relay` | [Relay](relay.md): show who has the work, the round and the two models |
 
+## Commit
+
+| Command | Description |
+|---------|-------------|
+| `/commit [hint] [--yes]` | Draft a commit message for the staged changes with a small model, edit it, and commit (built-in `commit` extension) |
+
+`/commit` reads `git diff --cached`. With nothing staged it offers to stage tracked changes (`git add -u`); untracked
+files are never added. Lockfiles appear only in the `--stat` summary and the diff text is capped at about 60k
+characters; files beyond the cap are named. The model also gets the last 20 commit subjects, your `hint` (for example
+`fixes #12`) and the commit rules of the repo: the sections of `AGENTS.md` (else `CLAUDE.md`) at the repo root whose
+heading mentions "commit", or, when no heading does, the paragraphs that mention it. The message opens in an editor;
+an empty message or cancel commits nothing. Without a UI (print mode) it prints the message and commits only with
+`--yes`. The commit runs your hooks and is never `--no-verify`, `--amend` or pushed; when a hook fails its output is
+shown and nothing is retried. The model is the `commit.model` [setting](settings.md#commit) (default `haiku`); a
+failed model call shows its error kind and commits nothing.
+
 ## Commands added by resources
 
 - Extensions can register commands with their own arguments and completion behavior.

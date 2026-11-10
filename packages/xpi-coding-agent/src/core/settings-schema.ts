@@ -355,6 +355,19 @@ const RelaySettingsSchema = Type.Object(
 	{ additionalProperties: true, description: "Settings of the built-in relay extension (the relay/auto model)." },
 );
 
+const CommitSettingsSchema = Type.Object(
+	{
+		model: Type.Optional(
+			Type.String({
+				description:
+					'Model that drafts the message of /commit: an alias from the `models` setting, "provider/model", or "inherit" for the session model.',
+				default: SETTINGS_DEFAULTS.commit.model,
+			}),
+		),
+	},
+	{ additionalProperties: true, description: "Settings of the built-in commit extension (/commit)." },
+);
+
 export const SettingsSchema = Type.Object(
 	{
 		$schema: Type.Optional(Type.String({ description: "JSON Schema reference." })),
@@ -628,6 +641,7 @@ export const SettingsSchema = Type.Object(
 		),
 		subagent: Type.Optional(SubagentSettingsSchema),
 		relay: Type.Optional(RelaySettingsSchema),
+		commit: Type.Optional(CommitSettingsSchema),
 	},
 	{ additionalProperties: true },
 );
