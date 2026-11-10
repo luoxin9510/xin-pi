@@ -39,7 +39,9 @@ permissions:
 
 jobs:
   generate:
-    if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
+    # Only upstream pi publishes a catalog (pi.dev serves it from upstream's R2 bucket), and the check against the
+    # latest release needs the pi-ai package on npm. xin-pi has neither, so the jobs only run in the upstream repository.
+    if: ${{ github.repository == 'earendil-works/pi' && (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')) }}
     runs-on: ubuntu-latest
     env:
       SOURCE_REF: ${{ github.event.workflow_run.head_sha || inputs.source_ref || github.sha }}
