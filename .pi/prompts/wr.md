@@ -1,5 +1,5 @@
 ---
-description: Finish the current task end-to-end with changelog, commit, and push
+description: Finish the current task end-to-end with a final comment, commit, and push
 argument-hint: "[instructions]"
 ---
 Wrap it.
@@ -15,7 +15,7 @@ Rules for context detection:
 
 Unless I explicitly override something in this request, do the following in order:
 
-1. Add or update the relevant package changelog entry under `## [Unreleased]` using the repo changelog rules.
+1. Do not add a changelog entry: xin-pi keeps none (see `AGENTS.md`).
 2. If this task is tied to a GitHub issue or PR and a final issue or PR comment has not already been posted in this session, draft it in my tone, preview it, and post exactly one final comment. The comment must end with this exact standalone disclaimer line, with no variations:
 
    ```text
@@ -23,8 +23,8 @@ Unless I explicitly override something in this request, do the following in orde
    ```
 3. Commit only files you changed in this session.
 4. If this task is tied to exactly one GitHub issue, include `closes #<issue>` in the commit message. If it is tied to multiple issues, stop and ask which one to use. If it is not tied to any issue, do not include `closes #` or `fixes #` in the commit message.
-5. Check the current git branch. If it is not `main`, stop and ask what to do. Do not push from another branch unless I explicitly say so.
-6. Push the current branch.
+5. Check the current git branch. Changes reach `main` through a pull request: if the branch is `main`, stop and ask (create a branch first). Otherwise push the branch.
+6. Open a pull request only when I ask for one.
 7. If this task is tied to exactly one GitHub issue, explicitly close that issue with reason `completed` after the push. This applies to issues only, not PRs.
    - Inspect `gh issue view <issue> --json state,stateReason,labels`.
    - If the issue is open, run `gh issue close <issue> --reason completed`.
@@ -38,4 +38,3 @@ Constraints:
 - Do not open a PR unless I explicitly ask.
 - If this is not GitHub issue or PR work, do not post a GitHub comment.
 - If a final issue or PR comment was already posted in this session, do not post another one unless I explicitly ask.
-- Skip the changelog only when the work targets a branch other than `main`. Feature branches, worktrees, and PRs that target `main` get changelog entries.
