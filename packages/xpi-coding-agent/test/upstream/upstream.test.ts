@@ -176,10 +176,16 @@ test("U3: the CHANGELOG fallback gives up after the timeout with a clear error",
 			agentDir: join(dir, "agent"),
 			version: "1.0.0",
 			fetchTimeoutMs: 50,
+			// A request that never answers. The timeout's timer does not keep the process alive (AbortSignal.timeout
+			// is unref'd); a real request's socket does, so the stub holds a timer of its own until it is aborted.
 			fetch: (_url, init) =>
-				new Promise((_resolve, reject) =>
-					init?.signal?.addEventListener("abort", () => reject(init.signal?.reason)),
-				),
+				new Promise((_resolve, reject) => {
+					const pending = setInterval(() => {}, 1000);
+					init?.signal?.addEventListener("abort", () => {
+						clearInterval(pending);
+						reject(init.signal?.reason);
+					});
+				}),
 		}),
 		/could not fetch upstream CHANGELOG \(no answer within 0\.05s\)/,
 	);
