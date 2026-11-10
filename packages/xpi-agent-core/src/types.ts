@@ -47,6 +47,12 @@ export type StreamFn = (
 export type ToolExecutionMode = "sequential" | "parallel";
 
 /**
+ * What a tool does: `read` looks and changes nothing, `write` changes files or agent state, `exec` runs arbitrary
+ * code or processes. A tool that declares no effect counts as `exec`.
+ */
+export type ToolEffect = "read" | "write" | "exec";
+
+/**
  * Controls how many queued user messages are injected when the agent loop reaches a queue drain point.
  *
  * - "all": drain and inject every queued message at that point.
@@ -508,6 +514,8 @@ export interface AgentTool<TParameters extends object = object, TDetails = any> 
 	 * If omitted, the default execution mode applies.
 	 */
 	executionMode?: ToolExecutionMode;
+	/** What the tool does. Undeclared counts as `exec`. */
+	effect?: ToolEffect;
 }
 
 /** Context snapshot passed into the low-level agent loop. */

@@ -55,6 +55,7 @@ See [examples/extensions/](../examples/extensions/) for working implementations.
 - [State Management](#state-management)
 - [Custom Tools](#custom-tools)
   - [Tool Exposure](#tool-exposure)
+    - [Tool effects](#tool-effects)
   - [Calling Other Tools](#calling-other-tools)
   - [Dynamic Tool Loading](#dynamic-tool-loading)
 - [MCP Servers](#mcp-servers)
@@ -993,6 +994,7 @@ import { isToolCallEventType } from "xpi-coding-agent";
 pi.on("tool_call", async (event, ctx) => {
   // event.toolName - "bash", "read", "write", "edit", etc.
   // event.toolCallId
+  // event.effect - "read" | "write" | "exec": what the tool does (see Tool effects)
   // event.input - tool parameters (mutable)
 
   // Built-in tools: no type params needed
@@ -1918,6 +1920,7 @@ const all = pi.getAllTools();
 //   parameters: ...,
 //   promptGuidelines: ["Use read to examine files instead of cat or sed."],
 //   exposure: "direct",
+//   effect: "read",
 //   sourceInfo: { path: "builtin:read", source: "builtin", scope: "temporary", origin: "top-level" }
 // }, ...]
 // Tools shipped with Pi: core tools and tools from built-in extensions such as builtin:mcp
@@ -1928,7 +1931,7 @@ pi.setActiveTools([...new Set([...active, "my_custom_tool"])]); // Keep current 
 pi.setActiveTools(["read", "bash"]); // Only read and bash
 ```
 
-`pi.getAllTools()` returns `name`, `description`, `parameters`, `promptGuidelines`, `exposure`, `sourceInfo`, and, when set, `namespace`, `annotations`, and `reachesTools`.
+`pi.getAllTools()` returns `name`, `description`, `parameters`, `promptGuidelines`, `exposure`, `effect`, `sourceInfo`, and, when set, `namespace`, `annotations`, and `reachesTools`.
 
 Typical `sourceInfo` values:
 - `source: "builtin"` for tools shipped with Pi: core tools (`path: "builtin:<tool>"`) and tools registered by built-in extensions such as `builtin:mcp` (`path: "builtin:<extension>"`)
@@ -2308,6 +2311,7 @@ async execute(toolCallId, params) {
 
 | Field | Purpose |
 |---|---|
+| `effect` | `"read"`, `"write"` or `"exec"`: what the tool does; see [Tool effects](#tool-effects) |
 | `defaultActive` | Set `false` to register the tool inactive; `--tools`, the `defaultTools` setting, or `pi.setActiveTools()` activates it |
 | `exposure`, `namespace`, `annotations`, `reachesTools`, `prepareLoadout` | Control how the model and other tools reach the tool; see [Tool Exposure](#tool-exposure) |
 | `renderShell`, `renderCall`, `renderResult` | Custom rendering; see [Custom Rendering](#custom-rendering) |
@@ -2769,7 +2773,27 @@ When `search_tools` adds a match, the model receives the complete updated tool l
 
 `namespace: { name, aliases, description, instructions }` groups related tools, as MCP servers do. Codemode tools list a namespace under one heading with its `description`. `instructions` holds longer usage guidance; it is not listed, and codemode scripts read it with `describeNamespace(name)`. `aliases` are other names scripts may look the namespace up by, for example the server name `docs` for `mcp__docs`; a name and the same name as a script identifier (`my-docs`, `my_docs`) match alike.
 
-Registering a `direct` or `model-only` tool activates it unless it sets `defaultActive: false`; the other exposures are not activated on registration. The active set (`pi.getActiveTools()`, `pi.setActiveTools()`) is the set of tools declared to the model, except active tools whose declarations `prepareLoadout` hides. `pi.getAllTools()` reports each tool's `exposure`, `namespace`, `annotations`, and `reachesTools`.
+Registering a `direct` or `model-only` tool activates it unless it sets `defaultActive: false`; the other exposures are not activated on registration. The active set (`pi.getActiveTools()`, `pi.setActiveTools()`) is the set of tools declared to the model, except active tools whose declarations `prepareLoadout` hides. `pi.getAllTools()` reports each tool's `exposure`, `effect`, `namespace`, `annotations`, and `reachesTools`.
+
+#### Tool effects
+
+`effect` is a static declaration of what a tool does, so a package can gate tools without a list of names:
+
+- `read`: looks, changes nothing.
+- `write`: changes files or agent state.
+- `exec`: runs arbitrary code or processes.
+
+A tool that declares no effect counts as `exec`, so a forgotten declaration fails safe. Pi's tools declare it: `read`, `grep`, `find`, `ls` and `tool_search` are `read`; `edit`, `write` and `SendMessage` are `write`; `bash`, `powershell`, `Agent`, `Workflow` and `codemode` are `exec`. An MCP tool is `read` when its server sets `readOnlyHint: true`, otherwise `write`. The effect is per tool, not per call, so `bash` is always `exec`, even for `ls`.
+
+The `tool_call` event carries the effective effect as `event.effect`, and `pi.getAllTools()` lists it as `effect`. This blocks every call that is not read-only:
+
+```typescript
+pi.on("tool_call", async (event) => {
+  if (planMode && event.effect !== "read") {
+    return { block: true, reason: `${event.toolName} is not read-only` };
+  }
+});
+```
 
 `annotations` are hints about what a tool does, with the meaning of MCP tool annotations: `readOnlyHint`, `destructiveHint`, `idempotentHint`, and `openWorldHint`. MCP tools carry the hints their server declares. Missing hints take the MCP defaults: a tool is not read-only, and may be destructive and reach an open world. The hints are not verified, but a permission extension can use them to decide which calls to confirm. This confirms the calls Codex asks approval for:
 

@@ -357,6 +357,7 @@ export function agentTool(getConfig: () => Config, description: string, deliver:
 	const tool = {
 		name: "Agent",
 		label: "Agent",
+		effect: "exec" as const,
 		exposure: "codemode" as const,
 		description,
 		parameters,

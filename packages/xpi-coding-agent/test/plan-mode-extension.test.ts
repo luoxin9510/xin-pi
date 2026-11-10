@@ -53,6 +53,12 @@ function setup(options: { activeTools?: string[]; selectChoice?: string; editorT
 		},
 		getFlag: vi.fn(() => false),
 		getActiveTools: vi.fn(() => [...activeTools]),
+		getAllTools: vi.fn(() => [
+			{ name: "read", effect: "read" },
+			{ name: "bash", effect: "exec" },
+			{ name: "edit", effect: "write" },
+			{ name: "write", effect: "write" },
+		]),
 		setActiveTools,
 		sendMessage,
 		sendUserMessage,

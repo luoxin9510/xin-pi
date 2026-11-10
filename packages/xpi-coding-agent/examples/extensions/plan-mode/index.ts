@@ -2,7 +2,7 @@
  * Plan Mode Extension
  *
  * Read-only exploration mode for safe code analysis.
- * When enabled, built-in write tools are disabled.
+ * When enabled, tools whose effect is "write" are disabled.
  *
  * Features:
  * - /plan command or Ctrl+Alt+P to toggle
@@ -21,7 +21,6 @@ import { allStepsComplete, extractTodoItems, isSafeCommand, markCompletedSteps, 
 // Tools
 const PLAN_MODE_TOOLS = ["read", "bash", "grep", "find", "ls", "questionnaire"];
 const NORMAL_MODE_TOOLS = ["read", "bash", "edit", "write"];
-const PLAN_MODE_DISABLED_TOOLS = new Set<string>(["edit", "write"]);
 const PLAN_MANAGED_TOOLS = new Set<string>([...PLAN_MODE_TOOLS, ...NORMAL_MODE_TOOLS]);
 
 interface PlanModeState {
@@ -92,10 +91,14 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 	}
 
 	function getPlanModeTools(activeToolNames: string[]): string[] {
-		return uniqueToolNames([
-			...activeToolNames.filter((name) => !PLAN_MODE_DISABLED_TOOLS.has(name)),
-			...PLAN_MODE_TOOLS,
-		]);
+		// Tools whose effect is "write" (edit, write, and tools from other packages that declare it) are disabled.
+		const writeToolNames = new Set(
+			pi
+				.getAllTools()
+				.filter((tool) => tool.effect === "write")
+				.map((tool) => tool.name),
+		);
+		return uniqueToolNames([...activeToolNames.filter((name) => !writeToolNames.has(name)), ...PLAN_MODE_TOOLS]);
 	}
 
 	function getNormalModeTools(activeToolNames: string[]): string[] {
@@ -133,7 +136,7 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 
 		if (planModeEnabled) {
 			enablePlanModeTools();
-			ctx.ui.notify("Plan mode enabled. Built-in write tools disabled.");
+			ctx.ui.notify("Plan mode enabled. Write tools disabled.");
 		} else {
 			restoreNormalModeTools();
 			ctx.ui.notify("Plan mode disabled. Full access restored.");
@@ -215,7 +218,7 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 You are in plan mode - a read-only exploration mode for safe code analysis.
 
 Restrictions:
-- Built-in edit and write tools are disabled
+- Tools whose effect is "write" (edit, write, ...) are disabled
 - Other currently active tools remain available
 - Bash is restricted to an allowlist of read-only commands
 

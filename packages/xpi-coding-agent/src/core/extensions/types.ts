@@ -16,6 +16,7 @@ import type {
 	AgentToolResult,
 	AgentToolUpdateCallback,
 	ThinkingLevel,
+	ToolEffect,
 	ToolExecutionMode,
 } from "xpi-agent-core";
 import type {
@@ -105,7 +106,7 @@ import type { ModelRoute, ModelRouteRequest, VirtualModelDefinition } from "../v
 
 export type { ExecOptions, ExecResult } from "../exec.ts";
 export type { BuildSystemPromptOptions, NormalizedBuildSystemPromptOptions } from "../system-prompt.ts";
-export type { AgentToolResult, AgentToolUpdateCallback, ToolExecutionMode };
+export type { AgentToolResult, AgentToolUpdateCallback, ToolEffect, ToolExecutionMode };
 export type { AppKeybinding, KeybindingsManager } from "../keybindings.ts";
 
 // ============================================================================
@@ -659,6 +660,13 @@ export interface ToolDefinition<TParams extends TSchema = TSchema, TDetails = un
 
 	/** Hints about what the tool does, for example from an MCP server. */
 	annotations?: ToolAnnotations;
+
+	/**
+	 * What the tool does: `read` (changes nothing), `write` (changes files or agent state) or `exec` (runs
+	 * arbitrary code or processes). Static per tool. Extensions read it from `tool_call` events and
+	 * `getAllTools()`. Undeclared counts as `exec`.
+	 */
+	effect?: ToolEffect;
 
 	/**
 	 * Whether registering the tool activates it. Default: `true` for `direct` and `model-only` tools;
@@ -1237,6 +1245,8 @@ interface ToolCallEventBase {
 	toolCallId: string;
 	/** Set when another tool (for example a codemode script) issued this call. */
 	parentToolCallId?: string;
+	/** The effect of the tool being called: its declared effect, else `exec`. */
+	effect: ToolEffect;
 }
 
 export interface BashToolCallEvent extends ToolCallEventBase {
@@ -2189,6 +2199,8 @@ export type ToolInfo = Pick<
 	"name" | "description" | "parameters" | "promptGuidelines" | "reachesTools"
 > & {
 	exposure: ToolExposure;
+	/** The tool's effect: its declared effect, else `exec`. */
+	effect: ToolEffect;
 	namespace?: ToolNamespace;
 	annotations?: ToolAnnotations;
 	sourceInfo: SourceInfo;

@@ -193,6 +193,16 @@ alone (`createEditTool(cwd)`) have no store and are unguarded; the multi-tool fa
 Code's rule; upstream pi has no such check. User docs: `settings.md#edit-and-write-safety`.
 Tests: `test/stale-edit-guard.test.ts`, `test/suite/stale-edit-guard-session.test.ts`.
 
+## Core changes: tool effects
+
+Every tool has a static `effect` (`read` | `write` | `exec`; type `ToolEffect`, declared in `xpi-agent-core` on
+`AgentTool` and on the extension `ToolDefinition`, carried by `wrapToolDefinition`). `resolveToolEffect`
+(`coding-agent/src/core/tools/tool-definition-wrapper.ts`) is the one resolver: declared effect, else `exec`. The
+`tool_call` event (`AgentSession._beforeToolCall`) and `getAllTools()` use it. The MCP adapter
+(`src/extensions/mcp/tools.ts`) maps `readOnlyHint === true` to `read`, otherwise `write`. Upstream pi has no effects.
+The subagent extension's read-only agents (Plan, Explore, memory) still list tool names. User docs:
+`extensions.md#tool-effects`. Test: `test/suite/tool-effects.test.ts`.
+
 ## Testing
 
 Everything below runs from `packages/xpi-coding-agent/`. Tests assert on structure and side effects (result fields,

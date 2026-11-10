@@ -8,21 +8,30 @@ extension tools may declare it, MCP tools derive it from `readOnlyHint`, and an 
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** in review
 
-- [ ] `effect?: "read" | "write" | "exec"` on the extension `ToolDefinition` and on `AgentTool`, carried through the
+- [x] `effect?: "read" | "write" | "exec"` on the extension `ToolDefinition` and on `AgentTool`, carried through the
       definition wrapper; one exported `ToolEffect` type
-- [ ] Built-ins: `read` for read, grep, find, ls, tool_search; `write` for edit, write, SendMessage; `exec` for bash,
+- [x] Built-ins: `read` for read, grep, find, ls, tool_search; `write` for edit, write, SendMessage; `exec` for bash,
       powershell, Agent, Workflow, codemode
-- [ ] MCP tools: `annotations.readOnlyHint === true` → `read`, otherwise `write`
-- [ ] One resolver for the effective effect (declared, else `exec`), used by the `tool_call` event and `getAllTools()`
-- [ ] `tool_call` event gains `effect`; `ToolInfo` from `getAllTools()` gains `effect`
-- [ ] Examples plan-mode, protected-paths and permission-gate decide by effect where tool names were only a stand-in
+- [x] MCP tools: `annotations.readOnlyHint === true` → `read`, otherwise `write`
+- [x] One resolver for the effective effect (declared, else `exec`), used by the `tool_call` event and `getAllTools()`
+- [x] `tool_call` event gains `effect`; `ToolInfo` from `getAllTools()` gains `effect`
+- [x] Examples plan-mode, protected-paths and permission-gate decide by effect where tool names were only a stand-in
       for the effect
-- [ ] The subagent extension's read-only agents are not changed
-- [ ] Tests: an inline extension observes `effect` on `tool_call` for a built-in, an extension tool with and without a
+- [x] The subagent extension's read-only agents are not changed
+- [x] Tests: an inline extension observes `effect` on `tool_call` for a built-in, an extension tool with and without a
       declaration, and an MCP tool with and without `readOnlyHint`; `getAllTools()` lists effects
-- [ ] Docs: `packages/xpi-coding-agent/docs/extensions.md` (field, event, `ToolInfo`, default), the examples README if
+- [x] Docs: `packages/xpi-coding-agent/docs/extensions.md` (field, event, `ToolInfo`, default), the examples README if
       it describes the changed examples, `docs/xin-pi.md` if it lists xin-pi's differences from pi
 
 ## Comments
+
+- `ToolEffect` is declared in `xpi-agent-core` (next to `ToolExecutionMode`) and re-exported from `xpi-coding-agent`.
+  The resolver is `resolveToolEffect` in `core/tools/tool-definition-wrapper.ts`; the `tool_call` event looks the
+  definition up by tool name in the session's definition registry (unknown name: `exec`).
+- plan-mode now disables every active tool whose effect is `write` (looked up with `getAllTools()`), so its existing
+  test mock gained a `getAllTools`. permission-gate checks `effect === "exec"` plus a string `command` input, so it also
+  covers `powershell`. protected-paths checks `effect === "write"` plus a string `path` input.
+- MCP test is unit-level: tools from `createMcpToolDefinition` are registered by an inline extension and called through
+  the faux provider; no MCP server.

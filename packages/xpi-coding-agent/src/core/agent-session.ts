@@ -154,7 +154,7 @@ import {
 } from "./system-prompt.ts";
 import { type BashOperations, createLocalBashOperations } from "./tools/bash.ts";
 import { createAllToolDefinitions, FileStateStore } from "./tools/index.ts";
-import { createToolDefinitionFromAgentTool } from "./tools/tool-definition-wrapper.ts";
+import { createToolDefinitionFromAgentTool, resolveToolEffect } from "./tools/tool-definition-wrapper.ts";
 import { addUsageToTotals, combineUsage, createUsageTotals } from "./usage-totals.ts";
 import {
 	findLatestResponse,
@@ -738,6 +738,7 @@ export class AgentSession {
 				toolName: toolCall.name,
 				toolCallId: toolCall.id,
 				...(parentToolCallId ? { parentToolCallId } : {}),
+				effect: resolveToolEffect(this._toolDefinitions.get(toolCall.name)?.definition),
 				input: args as Record<string, unknown>,
 			});
 		} catch (err) {
@@ -1638,6 +1639,7 @@ export class AgentSession {
 			parameters: definition.parameters,
 			promptGuidelines: definition.promptGuidelines,
 			exposure: this._getToolExposure(definition.name),
+			effect: resolveToolEffect(definition),
 			...(definition.namespace ? { namespace: definition.namespace } : {}),
 			...(definition.annotations ? { annotations: { ...definition.annotations } } : {}),
 			...(definition.reachesTools ? { reachesTools: definition.reachesTools } : {}),
