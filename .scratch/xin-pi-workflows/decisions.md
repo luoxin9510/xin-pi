@@ -35,7 +35,7 @@ Order
 
 11. Specs for fork and for the inert agent-file fields are written after 1-3 have landed.
 
-## Grill 2 (2026-11-10): fork and the inert fields. PROPOSED, not answered yet
+## Grill 2 (2026-11-10): fork and the inert fields. All 9 accepted by the owner on 2026-11-10
 
 Each line is worded so "yes" accepts the proposal.
 

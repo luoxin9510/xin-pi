@@ -1,7 +1,7 @@
 # 04: Fork (a child that inherits main's conversation)
 
-Status: draft, NOT approved. Waiting for the owner's answers to Grill 2 (`decisions.md`), and for the two facts under
-"To verify before tickets".
+Status: approved by the owner on 2026-11-10 (Grill 2, `decisions.md`); the two facts under "To verify before tickets"
+come first.
 
 ## Problem
 

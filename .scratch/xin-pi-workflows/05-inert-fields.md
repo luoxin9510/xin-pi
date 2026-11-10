@@ -1,7 +1,6 @@
 # 05: Agent-file fields that have no effect today, and `--agents`
 
-Status: draft, NOT approved. Waiting for the owner's answers to Grill 2 (`decisions.md`). The roadmap says "only the
-ones the owner uses": the proposal below builds three and leaves the rest inert.
+Status: ready-for-agent (owner approved Grill 2 on 2026-11-10). Three fields are built, the rest stay inert.
 
 ## Problem
 
