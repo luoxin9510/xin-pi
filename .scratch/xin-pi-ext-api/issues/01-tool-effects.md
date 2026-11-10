@@ -35,3 +35,6 @@ extension tools may declare it, MCP tools derive it from `readOnlyHint`, and an 
   covers `powershell`. protected-paths checks `effect === "write"` plus a string `path` input.
 - MCP test is unit-level: tools from `createMcpToolDefinition` are registered by an inline extension and called through
   the faux provider; no MCP server.
+- Review: three tools outside the Grill list got effects: `StructuredOutput` is `read` (it only returns a value), relay's
+  handover and handback are `write` (they switch the model). Undeclared they would be `exec` and a read-only gate
+  would block a subagent's final answer.

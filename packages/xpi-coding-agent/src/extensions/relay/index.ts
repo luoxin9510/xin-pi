@@ -177,6 +177,7 @@ export default function relay(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: HANDOVER_TOOL,
 		label: "Handover",
+		effect: "write",
 		description:
 			"Relay mode, lead only: give the work to the worker model. Write a plan it can follow without you, the commands that must pass, and what you learned that must not be lost. The worker continues from here; you get a record back when it is done.",
 		promptGuidelines: LEAD_RULES,
@@ -227,6 +228,7 @@ export default function relay(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: HANDBACK_TOOL,
 		label: "Handback",
+		effect: "write",
 		description:
 			"Relay mode, worker only: give the work back to the lead, done or blocked, with a report. The acceptance commands of the handover are run after this call.",
 		defaultActive: false,

@@ -2783,7 +2783,7 @@ Registering a `direct` or `model-only` tool activates it unless it sets `default
 - `write`: changes files or agent state.
 - `exec`: runs arbitrary code or processes.
 
-A tool that declares no effect counts as `exec`, so a forgotten declaration fails safe. Pi's tools declare it: `read`, `grep`, `find`, `ls` and `tool_search` are `read`; `edit`, `write` and `SendMessage` are `write`; `bash`, `powershell`, `Agent`, `Workflow` and `codemode` are `exec`. An MCP tool is `read` when its server sets `readOnlyHint: true`, otherwise `write`. The effect is per tool, not per call, so `bash` is always `exec`, even for `ls`.
+A tool that declares no effect counts as `exec`, so a forgotten declaration fails safe. Pi's tools declare it: `read`, `grep`, `find`, `ls`, `tool_search` and `StructuredOutput` are `read`; `edit`, `write`, `SendMessage` and relay's handover and handback are `write`; `bash`, `powershell`, `Agent`, `Workflow` and `codemode` are `exec`. An MCP tool is `read` when its server sets `readOnlyHint: true`, otherwise `write`. The effect is per tool, not per call, so `bash` is always `exec`, even for `ls`.
 
 The `tool_call` event carries the effective effect as `event.effect`, and `pi.getAllTools()` lists it as `effect`. This blocks every call that is not read-only:
 

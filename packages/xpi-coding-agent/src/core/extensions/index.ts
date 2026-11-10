@@ -182,7 +182,7 @@ export type {
 	ToolCallEventResult,
 	// Tools
 	ToolDefinition,
-	// Tool execution mode
+	// Tool effect and execution mode
 	ToolEffect,
 	// Events - Tool Execution
 	ToolExecutionEndEvent,
