@@ -1,6 +1,7 @@
 # Relay: a strong model plans and reviews, a cheap model builds
 
-Status: draft, needs the owner's approval before any code.
+Status: approved by the owner on 2026-11-10 (open questions answered "as recommended"; real runs with Opus and Haiku
+allowed). Implemented in `src/extensions/relay/`; user docs in `docs/relay.md`.
 
 ## Problem
 
@@ -43,8 +44,9 @@ The worker's transcript (every file it read, every failed attempt, every test ru
 
 1. Hand back is a compaction, not a kept prefix. It is never more expensive, and every later lead request is cheaper.
 2. The lead's own note is kept word for word in the record. Haiku summarizes only its own work.
-3. No cache warming of the lead's conversation. Lead requests use the 1 hour cache lifetime, which covers the system
-   prompt and tools across a worker phase.
+3. No cache warming of the lead's conversation. Dropped while implementing: the 1 hour cache lifetime for the lead. It
+   makes every cache write of the lead's exploring cost 2x in place of 1.25x, which is more than the one rewrite of
+   the system prompt and tools it saves after a long worker phase.
 4. A built-in extension in `xpi-coding-agent` now; a package of its own once the interface has settled.
 5. The lead reads key code itself; wide searches may go to Haiku scouts.
 6. After a hand back the lead chooses: accept, write a correction and hand over again, or make a small fix itself.
@@ -126,12 +128,15 @@ The block is in the settings schema. A second virtual model for Fable needs no c
 
 ## Changes to core
 
-- `ModelRoute` gains an optional `cacheRetention`, so a router can ask for the 1 hour lifetime for the lead only.
-  Today the lifetime is process-wide (`XPI_CACHE_RETENTION`).
-- To verify while implementing, each with a test before anything is built on it:
-  - a compaction supplied by an extension can keep nothing after the summary;
-  - `agent_before_settle` may run commands for minutes and then continue the run;
-  - the existing cache warmer (`cacheWarming`) does not spend lead tokens during a worker phase.
+None. What the design needed already exists:
+
+- the summary request of a compaction is routed (`reason: "direct"`), so it goes to the worker;
+- `agent_before_settle` accepts a compaction draft with `firstKeptEntryId: null` (keep nothing) together with a message
+  and a continuation, which is the hand back in one step;
+- a tool result can end the run (`terminate`), which `handback` uses.
+
+Not verified: that the existing cache warmer (`cacheWarming`) spends no lead tokens during a long worker phase. It
+refreshes the cache of the last request's model, which is the worker then.
 
 ## Out of scope
 
@@ -153,11 +158,17 @@ The block is in the settings schema. A second virtual model for Fable needs no c
 `docs/relay.md` (new), `docs/virtual-models.md` (`cacheRetention`), `docs/settings.md`, `docs/docs.json`, the README
 feature list, `docs/xin-pi.md` (core changes).
 
-## Open questions for the owner
+## Answers to the open questions (owner, 2026-11-10: as recommended)
 
-1. A user message during a worker phase goes to the worker; only `/handback` reaches the lead. Yes?
-2. Acceptance commands run without asking, like the model's own `bash` calls. Yes?
-3. Real tests use Haiku in both roles; a real Opus or Fable run only when you say so. Yes?
-4. Names: extension `builtin:relay`, model `relay/auto`, settings block `relay`. Yes?
-5. Small tasks: the lead may finish without a handover (the prompt tells it to hand over when more than a few edits
-   remain). Yes?
+1. A user message during a worker phase goes to the worker; `/handback` reaches the lead.
+2. Acceptance commands run without asking.
+3. Real tests use Haiku in both roles by default; `RELAY_TEST_LEAD` names a real lead. Opus and Haiku may be used.
+4. Extension `builtin:relay`, model `relay/auto`, settings block `relay`.
+5. The lead may finish a small task without a handover.
+
+## Differences from the draft
+
+- The record also keeps the lead's replies to the user (without tool activity), not only the user's messages.
+- `handback` ends the worker's run at once (no extra worker request).
+- `/handback` tells the worker to stop and report; the hand back follows when its run ends.
+- The settings are read at each request.

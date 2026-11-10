@@ -25,6 +25,10 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
     (`/<name>`, `/workflows`), the `fork` agent type and `/subtask`, the panel, `/subagents`, the `--agents` flag. Settings namespace `subagent.*`, env `XPI_SUBAGENT_*`, branches `subagent/<id>`. It was the separate
     extension pi-pipipi. User docs: [subagent.md](../packages/xpi-coding-agent/docs/subagent.md); porting contracts:
     [subagent-porting.md](../packages/xpi-coding-agent/docs/subagent-porting.md).
+  - `relay` (`src/extensions/relay/`, off with `-builtin:relay`): the virtual model `relay/auto` (a lead model plans and
+    reviews, a worker model builds), the `handover` and `handback` tools, `/handover`, `/handback`, `/relay`. Settings
+    namespace `relay.*`. It uses the extension API only (a virtual model, the `agent_before_settle` boundary with a
+    compaction draft); no core change. User docs: [relay.md](../packages/xpi-coding-agent/docs/relay.md).
   - `upstream` (`src/extensions/upstream/`, off with `-builtin:upstream`): `/upstream`, see below.
 - `coding-agent/package.json`: `copy-assets` also copies `src/extensions/subagent/builtin/*.md` to
   `dist/extensions/subagent/builtin`.

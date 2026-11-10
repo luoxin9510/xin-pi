@@ -70,6 +70,9 @@ Added by the built-in `subagent` extension (see [Subagents](subagent.md)); absen
 | Command | Description |
 |---------|-------------|
 | `/upstream` | Report what upstream pi has that xin-pi does not (built-in `upstream` extension) |
+| `/handover [instructions]` | [Relay](relay.md): give the work to the worker model now, without a plan from the lead |
+| `/handback` | [Relay](relay.md): wake the lead now; the worker reports where things stand |
+| `/relay` | [Relay](relay.md): show who has the work, the round and the two models |
 
 ## Commands added by resources
 
