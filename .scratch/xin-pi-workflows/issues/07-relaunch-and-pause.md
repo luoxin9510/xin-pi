@@ -33,3 +33,8 @@ relaunch" applies only when every compared call completed.
 
 **The name takeover had to clear the claim too.** A name is held by the agent's record and by the claim it started
 under; dropping only the record's name left the claim, and the rerun call still failed on "name already used".
+
+2026-11-10, from the repo audit: **the run file is no longer rewritten for every call.** It holds every result, and it
+was written whole twice per `Agent` call: 2,000 writes of a growing file for a run of 1,000 agents. Changes within
+250 ms now go out together; the run's start and end are written at once. A process killed in between loses at most
+that much of the record, and a relaunch runs those calls again.

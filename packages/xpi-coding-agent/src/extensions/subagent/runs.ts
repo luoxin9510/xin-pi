@@ -47,7 +47,10 @@ interface Live {
 	position: number; // how many such calls this run has made
 	diverged: boolean;
 	earlierAgents: Set<string>; // agent ids of the relaunched run: a rerun call may take a name one of them holds
+	pending?: ReturnType<typeof setTimeout>; // a write of the run file is due
 }
+
+const WRITE_DELAY_MS = 250;
 
 // What an Agent call asks, as far as a relaunch compares it. `description` (the label) and `name` are not part of it.
 export function callKey(params: Record<string, unknown>): string {
@@ -100,10 +103,21 @@ class Runs {
 	}
 
 	private write(live: Live): void {
+		clearTimeout(live.pending);
+		live.pending = undefined;
 		const dir = this.dir(live.session);
 		if (!dir) return;
 		mkdirSync(dir, { recursive: true });
 		writeFileSync(join(dir, `${live.run.id}.json`), JSON.stringify(live.run));
+	}
+
+	// The file holds every result of the run, so it is not rewritten for each call: changes within WRITE_DELAY_MS go
+	// out together. The run's start and end are written at once. A process killed in between loses at most that much
+	// of the record, and a relaunch then runs those calls again.
+	private writeSoon(live: Live): void {
+		if (live.pending) return;
+		live.pending = setTimeout(() => this.write(live), WRITE_DELAY_MS);
+		live.pending.unref();
 	}
 
 	// The session's runs, newest first.
@@ -199,19 +213,19 @@ class Runs {
 				call.status = "completed";
 				call.result = before.result;
 				call.saved = live.run.relaunchOf;
-				this.write(live);
+				this.writeSoon(live);
 				return { saved: before.result, from: live.run.relaunchOf };
 			}
 			live.diverged = true; // this call runs, and so does every one after it
 		}
-		this.write(live);
+		this.writeSoon(live);
 		return {
 			done: ({ result, error }) => {
 				// A background call returns "running" at once; what it does later is not part of the script's flow.
 				call.status = result ? (result.status === "running" ? "completed" : result.status) : "failed";
 				if (result) call.result = result;
 				if (error !== undefined) call.error = error;
-				this.write(live);
+				this.writeSoon(live);
 			},
 		};
 	}
