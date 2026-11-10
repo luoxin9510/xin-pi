@@ -15,10 +15,19 @@ const CompactionModelOverrideSchema = Type.Object({
 	keepRecentTokens: Type.Optional(nonNegativeSafeInteger()),
 });
 
+const CompactionPruneSettingsSchema = Type.Object({
+	enabled: Type.Optional(Type.Boolean({ default: SETTINGS_DEFAULTS.compaction.prune.enabled })),
+	protectTokens: Type.Optional(nonNegativeSafeInteger({ default: SETTINGS_DEFAULTS.compaction.prune.protectTokens })),
+	minSavingsTokens: Type.Optional(
+		nonNegativeSafeInteger({ default: SETTINGS_DEFAULTS.compaction.prune.minSavingsTokens }),
+	),
+});
+
 const CompactionSettingsSchema = Type.Object({
 	enabled: Type.Optional(Type.Boolean({ default: SETTINGS_DEFAULTS.compaction.enabled })),
 	reserveTokens: Type.Optional(nonNegativeSafeInteger({ default: SETTINGS_DEFAULTS.compaction.reserveTokens })),
 	keepRecentTokens: Type.Optional(nonNegativeSafeInteger({ default: SETTINGS_DEFAULTS.compaction.keepRecentTokens })),
+	prune: Type.Optional(CompactionPruneSettingsSchema),
 	modelOverrides: Type.Optional(
 		Type.Record(Type.String(), CompactionModelOverrideSchema, {
 			description: 'Per-model overrides keyed by exact "provider/modelId" strings.',
@@ -278,6 +287,56 @@ const SubagentSettingsSchema = Type.Object(
 	{ additionalProperties: true, description: "Settings of the built-in subagent extension." },
 );
 
+const RelayThinkingLevel = () =>
+	Type.Union(["off", "minimal", "low", "medium", "high", "xhigh", "max"].map((level) => Type.Literal(level)));
+
+// The built-in relay extension's block (src/extensions/relay/config.ts validates it). Defaults are in the descriptions.
+const RelaySettingsSchema = Type.Object(
+	{
+		lead: Type.Optional(
+			Type.String({
+				description:
+					'The model that explores, plans and reviews, as "provider/model". Default "anthropic/claude-opus-5-5".',
+			}),
+		),
+		worker: Type.Optional(
+			Type.String({
+				description: 'The model that builds, as "provider/model". Default "anthropic/claude-haiku-5-5".',
+			}),
+		),
+		leadThinking: Type.Optional(
+			Type.Object(
+				{
+					plan: Type.Optional(RelayThinkingLevel()),
+					review: Type.Optional(RelayThinkingLevel()),
+				},
+				{
+					description:
+						'The lead\'s thinking level before the first handover ("plan", default "high") and after a hand back ("review", default "medium").',
+				},
+			),
+		),
+		workerThinking: Type.Optional(RelayThinkingLevel()),
+		maxRounds: Type.Optional(
+			Type.Integer({
+				minimum: 0,
+				description:
+					"Times failed acceptance commands go back to the worker before the lead is woken regardless. Default 3.",
+			}),
+		),
+		acceptanceTimeoutMs: Type.Optional(
+			Type.Integer({ minimum: 1000, description: "Time limit of one acceptance command. Default 600000." }),
+		),
+		diffChars: Type.Optional(
+			Type.Integer({
+				minimum: 0,
+				description: "How much of the diff goes into the hand-back record. Default 20000.",
+			}),
+		),
+	},
+	{ additionalProperties: true, description: "Settings of the built-in relay extension (the relay/auto model)." },
+);
+
 export const SettingsSchema = Type.Object(
 	{
 		$schema: Type.Optional(Type.String({ description: "JSON Schema reference." })),
@@ -323,6 +382,13 @@ export const SettingsSchema = Type.Object(
 		branchSummary: Type.Optional(BranchSummarySettingsSchema),
 		retry: Type.Optional(RetrySettingsSchema),
 		hideThinkingBlock: Type.Optional(Type.Boolean({ default: SETTINGS_DEFAULTS.hideThinkingBlock })),
+		staleEditGuard: Type.Optional(
+			Type.Boolean({
+				description:
+					"Make edit and write fail on a file that was not read in this session or changed since it was read.",
+				default: SETTINGS_DEFAULTS.staleEditGuard,
+			}),
+		),
 		showCacheMissNotices: Type.Optional(
 			Type.Boolean({
 				description: "Show cache cost and provider recovery notices.",
@@ -537,6 +603,7 @@ export const SettingsSchema = Type.Object(
 			Type.Boolean({ description: "Legacy setting migrated to transport.", deprecated: true }),
 		),
 		subagent: Type.Optional(SubagentSettingsSchema),
+		relay: Type.Optional(RelaySettingsSchema),
 	},
 	{ additionalProperties: true },
 );

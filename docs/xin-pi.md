@@ -25,6 +25,10 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
     (`/<name>`, `/workflows`), the `fork` agent type and `/subtask`, the panel, `/subagents`, the `--agents` flag. Settings namespace `subagent.*`, env `XPI_SUBAGENT_*`, branches `subagent/<id>`. It was the separate
     extension pi-pipipi. User docs: [subagent.md](../packages/xpi-coding-agent/docs/subagent.md); porting contracts:
     [subagent-porting.md](../packages/xpi-coding-agent/docs/subagent-porting.md).
+  - `relay` (`src/extensions/relay/`, off with `-builtin:relay`): the virtual model `relay/auto` (a lead model plans and
+    reviews, a worker model builds), the `handover` and `handback` tools, `/handover`, `/handback`, `/relay`. Settings
+    namespace `relay.*`. It uses the extension API only (a virtual model, the `agent_before_settle` boundary with a
+    compaction draft); no core change. User docs: [relay.md](../packages/xpi-coding-agent/docs/relay.md).
   - `upstream` (`src/extensions/upstream/`, off with `-builtin:upstream`): `/upstream`, see below.
 - `coding-agent/package.json`: `copy-assets` also copies `src/extensions/subagent/builtin/*.md` to
   `dist/extensions/subagent/builtin`.
@@ -174,6 +178,20 @@ preloaded skills, memory, working directory, date). The main agent's prompt has 
 - Tests: `test/system-prompt.test.ts`, `test/system-prompt-updates.test.ts`, `test/resource-loader.test.ts`,
   `test/args.test.ts`, `test/subagent/worktree/cache-layout.test.ts`, `test/subagent/faults/stagger.test.ts`; by hand
   on a real model: `npm run test:subagent:cache`.
+
+## Core changes: stale-edit guard
+
+`read`, `edit` and `write` share a per-session `FileStateStore` (`coding-agent/src/core/tools/file-state.ts`, created by
+`AgentSession` and passed through `ToolsOptions.fileState`). `read` records a fingerprint of each text file (SHA-256 of
+the content with trailing spaces, tabs and CR removed per line; a paged read fingerprints the whole file as it streams;
+an image read records nothing). `edit` and `write` over an existing file verify it inside the per-path mutation queue
+and throw `File <path> has not been read in this session. Read it before editing.` or `File <path> changed since you
+last read it. Read it again before editing.` (`write` ends `before overwriting it`); recording continues while the
+setting is off; a successful edit or write records the new content. Nothing is persisted,
+so resume, fork and subagent children start empty. Setting `staleEditGuard` (default true) turns it off. Tools made
+alone (`createEditTool(cwd)`) have no store and are unguarded; the multi-tool factories create one. This follows Claude
+Code's rule; upstream pi has no such check. User docs: `settings.md#edit-and-write-safety`.
+Tests: `test/stale-edit-guard.test.ts`, `test/suite/stale-edit-guard-session.test.ts`.
 
 ## Testing
 

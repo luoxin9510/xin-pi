@@ -10,6 +10,11 @@ export const SETTINGS_DEFAULTS = {
 		enabled: true,
 		reserveTokens: 16384,
 		keepRecentTokens: 20000,
+		prune: {
+			enabled: true,
+			protectTokens: 40000,
+			minSavingsTokens: 20000,
+		},
 	},
 	branchSummary: {
 		reserveTokens: 16384,
@@ -25,6 +30,7 @@ export const SETTINGS_DEFAULTS = {
 		},
 	},
 	hideThinkingBlock: false,
+	staleEditGuard: true,
 	showCacheMissNotices: false,
 	quietStartup: false,
 	defaultProjectTrust: "ask",

@@ -177,6 +177,8 @@ export interface ContextEditEntry extends SessionEntryBase {
 	targetId: string;
 	/** Null omits the target from model context. A value replaces only its content. */
 	replacement: { content: ContextEditableContent } | null;
+	/** Set on edits made by pre-compaction pruning, so compaction can tell them from other replacements. */
+	prune?: true;
 }
 
 /** Session entry - has id/parentId for tree structure (returned by "read" methods in SessionManager) */
@@ -1368,7 +1370,11 @@ export class SessionManager {
 	}
 
 	/** Append a branch-local edit to an earlier model-visible entry. */
-	appendContextEdit(targetId: string, replacement: ContextEditEntry["replacement"]): string {
+	appendContextEdit(
+		targetId: string,
+		replacement: ContextEditEntry["replacement"],
+		options?: { prune?: true },
+	): string {
 		if (
 			replacement !== null &&
 			(typeof replacement !== "object" ||
@@ -1403,6 +1409,7 @@ export class SessionManager {
 			timestamp: new Date().toISOString(),
 			targetId,
 			replacement: normalizedReplacement,
+			...(options?.prune ? { prune: true } : {}),
 		};
 		this._appendEntry(entry);
 		return entry.id;

@@ -15,6 +15,8 @@ to npm), environment variables are `XPI_*`, and two built-in extensions are adde
   conversation (`/subtask`), `SendMessage` to steer or continue one,
   background scripts, saved [workflows](packages/xpi-coding-agent/docs/subagent.md#workflows) run as `/name` or by the
   model (with relaunch from saved results, and pause), and a panel and full-screen view to watch and talk to subagents.
+- [relay](packages/xpi-coding-agent/docs/relay.md): the model `relay/auto`. A strong model explores, plans and reviews;
+  a cheap one builds; the strong model reads a record of the result instead of the cheap one's transcript.
 - `upstream`: `/upstream` reports what upstream pi has that is worth porting.
 
 xin-pi does not merge upstream; changes are ported by hand. The full list is in [docs/xin-pi.md](docs/xin-pi.md).
