@@ -148,7 +148,7 @@ export function describeAgents(
 		'Pass `schema` (a JSON Schema with type "object") to get the result as a value in `structured` instead of prose.',
 		"Pass `name` to reach the agent later by that name: `resume: name`, or SendMessage({ to: name, message }).",
 		"Script helpers over this tool: `agent(prompt, { label?, schema?, type?, model?, effort?, isolation? })` resolves to",
-		"the output text (with `schema`, the value) and rejects when the agent failed; `parallel([fn or promise...])` and",
+		"the output text (with `schema`, the value), or to null when the agent failed or was stopped; `parallel([fn or promise...])` and",
 		"`pipeline(items, (item, i) => ...)` run all at once and resolve to results in order, null for a failed one;",
 		"`phase(title, fn?)` names the agents started from there for the panel; `log(text)` shows a progress line.",
 		"",

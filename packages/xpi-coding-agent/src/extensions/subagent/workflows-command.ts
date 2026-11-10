@@ -1,6 +1,8 @@
 // `/workflows`: the saved workflows (name, description, where it is saved) and this session's workflow runs, newest
 // first. Enter on a workflow runs it with no args; on a run, it lists the run's agents and opens the one picked.
 
+import { homedir } from "node:os";
+import { dirname } from "node:path";
 import type { ExtensionCommandContext } from "../../core/extensions/types.ts";
 import { isStdoutTakenOver, writeRawStdout } from "../../core/output-guard.ts";
 import { type ScriptRecord, scripts } from "./background.ts";
@@ -8,7 +10,14 @@ import { label, registry } from "./registry.ts";
 import { openSubagentScreen } from "./subagent-screen.ts";
 import type { Workflow } from "./workflows.ts";
 
-export const workflowLine = (w: Workflow) => `/${w.meta.name} · ${w.meta.description} · ${w.source}`;
+// Where a workflow was read from, with the home directory as `~`.
+const directoryOf = (w: Workflow) => {
+	const dir = dirname(w.path);
+	return dir.startsWith(homedir()) ? `~${dir.slice(homedir().length)}` : dir;
+};
+
+export const workflowLine = (w: Workflow) =>
+	`/${w.meta.name} · ${w.meta.description} · ${w.source} · ${directoryOf(w)}`;
 
 const runLine = (s: ScriptRecord) =>
 	`${s.id} ${s.workflow} · ${s.state} · ${s.agents.length} agent${s.agents.length === 1 ? "" : "s"}${s.log ? ` · ${s.log}` : ""}`;
@@ -31,7 +40,7 @@ export async function workflowsCommand(
 		.reverse();
 	if (saved.length === 0 && runs.length === 0) {
 		return ctx.ui.notify(
-			"subagent: no saved workflows (.pi/workflows/<name>.js in the project, or workflows/ in the agent dir)",
+			"subagent: no saved workflows (.pi/workflows/<name>.js or .claude/workflows/<name>.js in the project, or workflows/ in the agent dir)",
 			"info",
 		);
 	}

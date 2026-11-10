@@ -91,6 +91,8 @@ class Registry {
 	private tails = new Map<string, Promise<void>>(); // per subagent: resolves when the last queued turn has ended
 	private queued = new Map<string, number>(); // per subagent: turns running or waiting
 	private stopping = new Set<string>(); // stop requested for the exchange in progress
+	private restarting = new Set<string>(); // restart requested for the exchange in progress
+	private firstRun = new Set<string>(); // running its first exchange (not a resume): the only one that can restart
 	private ranHere = new Set<string>(); // started an exchange in this process; only these linger in the panel
 	private listeners = new Set<() => void>();
 	private lives = new Map<string, LiveMessage>(); // the message each running child is writing
@@ -192,6 +194,44 @@ class Registry {
 		if (!this.handles.get(id)?.send({ type: "abort" })) return false;
 		this.stopping.add(id);
 		return true;
+	}
+
+	// Why this subagent cannot be restarted; undefined when it can. A restart starts the agent over with the prompt of
+	// the exchange in progress, so only a first run qualifies: a continued agent would lose its earlier conversation, and
+	// a fork's start is a copy of main taken once.
+	restartRefusal(id: string): string | undefined {
+		const r = this.records.get(id);
+		if (!r || r.status !== "running" || !this.handles.has(id)) return "the subagent is not running";
+		if (r.type === "fork") return "a fork cannot be restarted: it starts from a copy of the conversation";
+		if (!this.firstRun.has(id)) return "only an agent's first run can be restarted; this one was continued";
+		return undefined;
+	}
+
+	// Restart a running subagent: its child is stopped and the exchange starts it over (exchange.ts). Returns why not,
+	// when it cannot.
+	restart(id: string): string | undefined {
+		const refusal = this.restartRefusal(id);
+		if (refusal !== undefined) return refusal;
+		if (!this.handles.get(id)?.send({ type: "abort" })) return "the subagent is not running";
+		this.restarting.add(id);
+		return undefined;
+	}
+
+	// True once, if a restart was requested for the run that just ended.
+	restartRequested(id: string): boolean {
+		return this.restarting.delete(id);
+	}
+
+	// A run ended because of a restart: its turns and usage stay counted, and the child is gone until the next attach.
+	carry(id: string, run: RunResult): void {
+		const prior = this.prior.get(id)!;
+		const usage = structuredClone(prior.usage);
+		addUsage(usage, run.usage);
+		this.prior.set(id, { turns: prior.turns + run.turns, usage });
+		this.handles.delete(id);
+		this.lives.delete(id);
+		this.stopping.delete(id);
+		this.update(id, { turns: prior.turns + run.turns, usage, lastTool: undefined });
 	}
 
 	// Stop these subagents (those not running are skipped) and resolve when every one has ended. Each ends failed /
@@ -343,6 +383,8 @@ class Registry {
 		const old = this.records.get(start.id);
 		this.prior.set(start.id, { turns: old?.turns ?? 0, usage: old?.usage ?? emptyUsage() });
 		this.ranHere.add(start.id);
+		if (old) this.firstRun.delete(start.id);
+		else this.firstRun.add(start.id);
 		const record: SubagentRecord = {
 			...old,
 			...start,
@@ -385,6 +427,8 @@ class Registry {
 		this.handles.delete(id);
 		this.lives.delete(id);
 		this.stopping.delete(id);
+		this.restarting.delete(id);
+		this.firstRun.delete(id);
 		const record = this.update(id, {
 			status,
 			endedAt: Date.now(),
@@ -400,6 +444,8 @@ class Registry {
 		this.prior.clear();
 		this.lives.clear();
 		this.ranHere.clear();
+		this.restarting.clear();
+		this.firstRun.clear();
 		this.claims.clear();
 		this.listeners.clear(); // a fresh process has no screens or panels yet
 		this.watchers.clear();

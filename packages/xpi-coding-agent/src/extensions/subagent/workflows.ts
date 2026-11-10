@@ -1,8 +1,10 @@
-// Saved workflows: codemode scripts in `.pi/workflows/<name>.js` (project, closest wins) and `<agent dir>/workflows/`
-// (user), run as `/<name> args` (spec .scratch/xin-pi-workflows/02-workflows.md). The file format is Claude Code's: the
-// first statement is `export const meta = { name, description, phases? }`, a plain literal, then the script body.
+// Saved workflows: codemode scripts `<name>.js`, run as `/<name> args` (specs 02 and 06 in
+// .scratch/xin-pi-workflows/). They are read from `.pi/workflows/` and Claude Code's `.claude/workflows/` in the project
+// (closest wins), then `<agent dir>/workflows/` and `~/.claude/workflows/`. The file format is Claude Code's: the first
+// statement is `export const meta = { name, description, phases? }`, a plain literal, then the script body.
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { getAgentDir } from "../../config.ts";
 import { projectDirs } from "./discovery.ts";
@@ -190,13 +192,24 @@ function scan(dir: string, source: Workflow["source"], found: Map<string, Workfl
 	}
 }
 
-// Project workflows (`.pi/workflows` from cwd up to the repo root, closest wins) come first, and only in a trusted
-// project; then the user's (`<agent dir>/workflows`).
-export function discoverWorkflows(cwd: string, trusted: boolean, agentDir = getAgentDir()): WorkflowDiscovery {
+// Highest priority first, the same order as agent files: the project's `.pi/workflows` then `.claude/workflows` (each
+// from cwd up to the repo root, closest wins; only in a trusted project), then the user's `<agentDir>/workflows` and
+// `~/.claude/workflows`. A name found earlier hides the same name later.
+export function discoverWorkflows(
+	cwd: string,
+	trusted: boolean,
+	agentDir = getAgentDir(),
+	claudeDir = join(homedir(), ".claude"),
+): WorkflowDiscovery {
 	const workflows = new Map<string, Workflow>();
 	const warnings: string[] = [];
-	if (trusted) for (const dir of projectDirs(cwd)) scan(join(dir, ".pi", "workflows"), "project", workflows, warnings);
+	if (trusted) {
+		for (const config of [".pi", ".claude"]) {
+			for (const dir of projectDirs(cwd)) scan(join(dir, config, "workflows"), "project", workflows, warnings);
+		}
+	}
 	scan(join(agentDir, "workflows"), "user", workflows, warnings);
+	scan(join(claudeDir, "workflows"), "user", workflows, warnings);
 	return { workflows, warnings };
 }
 

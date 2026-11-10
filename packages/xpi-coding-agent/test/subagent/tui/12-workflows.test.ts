@@ -1,7 +1,7 @@
 // Specs 02 and 03 in real interactive xpi (pty + headless xterm), real haiku: a named agent's label, the phase title and
 // the log line in the panel; `s` on a script row saves the script as a workflow; `/name` then runs it with no model turn.
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { withPi } from "./harness.ts";
@@ -55,5 +55,35 @@ test("the panel shows the name, the phase and the log line; s saves the script; 
 		await pi.waitFor("Workflow saved-one started as background script S2", 30_000);
 		await pi.waitFor(/Background script S2 \(workflow saved-one\) failed/, 30_000);
 		await pi.waitFor('the name "kid" is already used by agent', 30_000);
+	});
+});
+
+const SLOW = `Use the codemode tool exactly once. Script:
+const r = await tools.Agent({ description: "stuck kid", prompt: "Run the bash command 'sleep 40' using a tool, then reply OK.", subagent_type: "general-purpose" });
+return "chk:" + r.status;
+If the tool says the script moved to the background, reply with the single word moved and stop.`;
+
+test("r on a running agent's row restarts it: the row stays running and the first start's session is kept aside", async () => {
+	await withPi({ lingerMs: 60000 }, async (pi) => {
+		await pi.waitFor("claude-haiku");
+		pi.submit(SLOW);
+		await pi.waitFor(/running · general-purpose\(stuck kid\) · [1-9]\d* turns · bash/, 90_000);
+		pi.press("down", "down"); // the script row, then its agent
+		await pi.waitFor((s) => /▸ .*general-purpose\(stuck kid\)/.test(s) && s.includes("r restart"));
+		pi.type("r");
+		const shelved = () => {
+			const root = join(pi.sessionDir, "subagents");
+			if (!existsSync(root)) return [];
+			return readdirSync(root).flatMap((d) => readdirSync(join(root, d)).filter((f) => f.includes(".restart-1.")));
+		};
+		for (const end = Date.now() + 30_000; shelved().length === 0; ) {
+			if (Date.now() > end) throw new Error("timed out waiting for the shelved session");
+			await new Promise((r) => setTimeout(r, 100));
+		}
+		// It is at work again, and nothing told main it had failed.
+		await pi.waitFor(/running · general-purpose\(stuck kid\) · [2-9]\d* turns · bash/, 60_000);
+		assert.doesNotMatch(pi.viewport(), /Background script S1 (failed|stopped)/);
+		pi.type("x");
+		await pi.waitFor(/(failed|stopped) · general-purpose\(stuck kid\)/, 30_000);
 	});
 });

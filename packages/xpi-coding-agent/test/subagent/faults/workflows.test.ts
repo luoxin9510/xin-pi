@@ -67,6 +67,34 @@ test("args: JSON when it parses, else the text, undefined when empty", () => {
 	assert.equal(parseArgs("42"), 42);
 });
 
+test("discovery: Claude Code's directories are read too, below the .pi ones of the same level", () => {
+	const s = sandbox();
+	const agentDir = join(s.root, "agent");
+	const claudeDir = join(s.root, "claude");
+	const sub = join(s.repo, "pkg");
+	s.write(join(s.repo, ".pi/workflows/both.js"), file("both", "return 'pi project'"));
+	s.write(join(sub, ".claude/workflows/both.js"), file("both", "return 'claude project, closer'"));
+	s.write(join(s.repo, ".claude/workflows/far.js"), file("far", "return 'repo root'"));
+	s.write(join(sub, ".claude/workflows/far.js"), file("far", "return 'closest'"));
+	s.write(join(agentDir, "workflows/mine.js"), file("mine", "return 'pi user'"));
+	s.write(join(claudeDir, "workflows/mine.js"), file("mine", "return 'claude user'"));
+	s.write(join(claudeDir, "workflows/theirs.js"), file("theirs", "return 'claude user only'"));
+	s.write(join(s.repo, ".claude/workflows/shadow.js"), file("shadow", "return 'project'"));
+	s.write(join(agentDir, "workflows/shadow.js"), file("shadow", "return 'user'"));
+	const found = discoverWorkflows(sub, true, agentDir, claudeDir).workflows;
+	const body = (name: string) => found.get(name)!.body.trim();
+	assert.deepEqual([...found.keys()].sort(), ["both", "far", "mine", "shadow", "theirs"]);
+	assert.equal(body("both"), "return 'pi project'", ".pi comes before .claude, whatever the distance");
+	assert.equal(body("far"), "return 'closest'", "among .claude directories the closest wins");
+	assert.equal(body("mine"), "return 'pi user'");
+	assert.equal(body("theirs"), "return 'claude user only'");
+	assert.equal(found.get("theirs")!.source, "user");
+	assert.equal(body("shadow"), "return 'project'", "a project workflow hides a user one");
+	const untrusted = discoverWorkflows(sub, false, agentDir, claudeDir).workflows;
+	assert.deepEqual([...untrusted.keys()].sort(), ["mine", "shadow", "theirs"]);
+	assert.equal(untrusted.get("shadow")!.body.trim(), "return 'user'");
+});
+
 test("discovery: project workflows (closest wins) before the user's; untrusted projects only get the user's", () => {
 	const s = sandbox();
 	const agentDir = join(s.root, "agent");
@@ -265,5 +293,12 @@ test("/workflows in print mode lists the saved workflows", async () => {
 	s.write(join(agentDir, "workflows/mine.js"), file("mine", "return 1", "My own"));
 	const r = await xpi(s.repo, agentDir, s.home, "/workflows");
 	assert.equal(r.code, 0, r.err);
-	assert.equal(r.out.trim(), "/audit · Audit the routes · project\n/mine · My own · user");
+	assert.deepEqual(
+		r.out
+			.trim()
+			.split("\n")
+			.map((l) => l.replace(/ · [^·]*$/, (dir) => (dir.endsWith("/workflows") ? " · <dir>" : dir))),
+		["/audit · Audit the routes · project · <dir>", "/mine · My own · user · <dir>"],
+	);
+	assert.match(r.out, /\.pi\/workflows\n/);
 });

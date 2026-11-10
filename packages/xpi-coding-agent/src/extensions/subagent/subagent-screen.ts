@@ -184,7 +184,11 @@ export class SubagentScreen implements Component, Focusable {
 		const command = text.split(/\s/)[0]!;
 		const arg = text.slice(command.length).trim();
 		if (command === "/stop") this.stop();
-		else if (command === "/model") void this.model(arg);
+		else if (command === "/restart") {
+			// It starts over with the same task; whoever waits for it keeps waiting.
+			this.notice = registry.restart(this.id) ?? "restarting from the start of its task...";
+			this.tui.requestRender();
+		} else if (command === "/model") void this.model(arg);
 		else if (text.startsWith("/")) this.notice = `${command} is not available on a subagent screen (/main goes back)`;
 		else if (text) this.say(text);
 	}
@@ -339,7 +343,7 @@ export class SubagentScreen implements Component, Focusable {
 		const scrolled = this.offset > 0 ? ` · ${this.offset} lines above the end` : "";
 		const hint = this.picking
 			? "↑↓ choose · enter apply · esc cancel"
-			: this.notice || `↑↓ pgup/pgdn scroll${scrolled} · /stop /model · esc or /main back to main`;
+			: this.notice || `↑↓ pgup/pgdn scroll${scrolled} · /stop /restart /model · esc or /main back to main`;
 		return [
 			head,
 			rule,

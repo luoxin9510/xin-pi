@@ -27,7 +27,7 @@ test("/model and /stop on the subagent screen", async () => {
 		pi.submit(script("screen stop"));
 		await pi.waitFor((s) => /running · general-purpose\(screen stop\) · [1-9]\d* turns · bash/.test(s), 90_000);
 		pi.press("down", "down", "enter");
-		await pi.waitFor((s) => /main › general-purpose\(screen stop\)/.test(s) && s.includes("/stop /model"));
+		await pi.waitFor((s) => /main › general-purpose\(screen stop\)/.test(s) && s.includes("/stop /restart /model"));
 
 		// a model named in the command
 		pi.submit("/model anthropic/claude-haiku-4-5");

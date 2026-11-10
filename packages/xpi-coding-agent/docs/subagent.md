@@ -243,21 +243,27 @@ format. Every script that can call `Agent` has these helpers over it, so a scrip
 
 | Helper | Meaning |
 |---|---|
-| `agent(prompt, opts?)` | One subagent. `opts`: `label` (the `description`; default: the prompt's first words), `schema`, `type` (`subagent_type`), `model`, `effort`, `isolation`; `stallMs` is accepted and unused. Resolves to the output text, or with `schema` to the value. Rejects when the agent failed; awaited directly, that ends the script with the error. |
-| `parallel(tasks)` | Functions returning promises, or promises; all run at once. Resolves to their results in order, `null` for one that failed. |
+| `agent(prompt, opts?)` | One subagent. `opts`: `label` (the `description`; default: the prompt's first words), `schema`, `type` (`subagent_type`), `model`, `effort`, `isolation`; `stallMs` is accepted and unused. Resolves to the output text, or with `schema` to the value; to `null` when the agent failed or was stopped, as in Claude Code (check `if (!r)`). It rejects only when a `schema` was never met (after 5 invalid attempts, or no structured answer), and for a wrong call. |
+| `parallel(tasks)` | Functions returning promises, or promises; all run at once. Resolves to their results in order, `null` for one that failed. At most 4096 tasks. |
 | `pipeline(items, fn)` | `fn(item, index)` for every item at once (`maxConcurrent` queues the agents). Results in order, `null` for a failed item. At most 4096 items. |
 | `phase(title, fn?)` | Names the agents started from here (or inside `fn`) for the panel, whether a script starts them with `agent()` or with `tools.Agent`. Phases are sequential: concurrent `phase()` calls share one current title. |
 | `log(text)` | A progress line on the script's row in the panel. |
 | `args` | The run's input; `undefined` in an ad hoc script. |
 
-`tools.Agent` stays available for the full result. Unlike Claude Code, `Date.now()`, `Math.random()` and `new Date()`
+`tools.Agent` stays available for the full result (`status`, `error`, usage). Unlike Claude Code, `Date.now()`, `Math.random()` and `new Date()`
 work (there is no replay of a run). One script run may start at most `subagent.maxAgentsPerScript` agents (default
 1000): the next `Agent` call throws.
 
 ### Saved workflows
 
-`<name>.js` in `.pi/workflows/` (from the cwd up to the repository root, closest wins; trusted projects only) or in
-`~/.pi/agent/workflows/`. The first statement is `export const meta = { name, description, phases? }`, a plain literal
+`<name>.js` files, read from four places, highest priority first (the same order as agent files):
+
+1. `.pi/workflows/` in the project (from the cwd up to the repository root, closest wins; trusted projects only)
+2. `.claude/workflows/` in the project (same walk): Claude Code's workflow files run unchanged
+3. `~/.pi/agent/workflows/`
+4. `~/.claude/workflows/`
+
+A name found earlier hides the same name later. The first statement is `export const meta = { name, description, phases? }`, a plain literal
 (read, never run; `name` equals the file name, lowercase letters, digits and dashes); the rest is the script body, with
 its line numbers kept in errors. A file with a missing or malformed `meta`, or with `import`, is skipped with a warning.
 
@@ -284,10 +290,11 @@ return audits.filter(Boolean)
   is skipped with a warning.
 - The model runs one with `tools.Workflow({ name, args })` (offered when at least one workflow can run; its
   description lists them). It returns the script id at once, and the result arrives as a message.
-- `/workflows` lists the saved workflows and this session's workflow runs. Enter runs a workflow (no args) or lists a
+- `/workflows` lists the saved workflows (with the directory each was read from) and this session's workflow runs. Enter runs a workflow (no args) or lists a
   run's agents to open one.
 - `s` on a script row in the panel saves that script: it asks for a name, a description and where (project or user),
-  confirms an overwrite, and writes the script with a `meta` statement. The new workflow is a command at once.
+  confirms an overwrite, and writes the script with a `meta` statement into `.pi/workflows/` or
+  `~/.pi/agent/workflows/` (never into `.claude/`). The new workflow is a command at once.
 
 The panel shows a workflow's run as `workflow <name> (S<n>)` with its last `log()` line, and its agents under their
 `phase()` titles.
@@ -381,9 +388,11 @@ drops out; running rows stay. Only subagents that ran in this pi process show as
 | `↓` / `↑` | move the selection (`↑` on the first row, or `Esc`, goes back to the editor) |
 | `Enter` | open the selected subagent's screen |
 | `x` | stop the selected subagent (nothing happens on a row that is not running) |
+| `r` | restart the selected running subagent: it starts over with the same task (see Restart below) |
+| `s` | on a script row: save the script as a workflow |
 | `shift+x` | stop everything of the session: every background script and every running subagent |
 
-While the panel has focus it takes `↑ ↓ Enter x shift+x Esc`. Any other key (ctrl+c, ctrl+d, text) goes to pi as usual and gives the
+While the panel has focus it takes `↑ ↓ Enter x r s shift+x Esc` (`r` and `s` only on a row they apply to). Any other key (ctrl+c, ctrl+d, text) goes to pi as usual and gives the
 focus back to the editor. In an in-memory session (`xpi --no-session`) the panel lists no rows, only a one-line notice that
 subagents cannot be viewed.
 
@@ -406,6 +415,7 @@ that something was added (not on a timer). There is one input line at the bottom
 | `Esc` or `/main` | back to main |
 | text + `Enter` | talk to the subagent (below) |
 | `/stop` | stop the subagent |
+| `/restart` | restart the running subagent from the start of its task |
 | `/model` | pick a model from a list drawn on the screen (`↑↓`, `Enter`, `Esc`); `/model provider/id` names one |
 | any other `/command` | says it is not available here |
 
@@ -423,6 +433,14 @@ holds the other way round. A waiting resume does not hold one of the `maxConcurr
 **Stop.** `x` in the panel or `/stop` on the screen aborts a running subagent. The script's `Agent` call gets a
 result, not an exception: `status: "failed"`, `error: "stopped by user"`. Turns and cost so far are kept. The
 subagent is not lost: main can resume it with `resume`, or you can type to it.
+
+**Restart.** `r` in the panel or `/restart` on the screen is for an agent that is stuck. Its child is stopped and
+started again with the same prompt, agent type, model, schema and worktree. The agent keeps its id, name and row, and
+turns and cost add up across the starts. The `Agent` call that waits for it keeps waiting and gets the last start's
+result, so a script does not see a failure (a stop does count as one). The conversation of the earlier start is kept
+next to the session as `<agentId>.restart-<n>.jsonl.bak`. Only an agent's first run can be restarted: a continued agent
+(`resume`, `SendMessage`, typing to it) would lose its earlier conversation, and a fork starts from a copy of main
+taken once. Changes the earlier start made to files stay.
 
 **`/model`.** Changes the model of that subagent's conversation. A running subagent switches at once; the choice is
 kept in its meta file for later exchanges. The agent definition file is not touched. Only models pi lists as available

@@ -1,6 +1,6 @@
 # 06: Workflows, second part (Claude Code's workflow files, restarting an agent)
 
-Status: ready-for-agent (owner approved Grill 3 on 2026-11-10).
+Status: done (2026-11-10, `issues/06-workflows-2.md`).
 
 ## Problem
 
@@ -74,7 +74,7 @@ ends with an error in xpi instead of taking its own branch.
 ### Restart a running agent
 
 - `r` on a running agent's row in the panel, and `/restart` on its screen: the child is stopped, its session so far is
-  kept as `<id>.restart-<n>.jsonl` next to it, and the agent starts over with the same prompt, type, model, schema and
+  kept as `<id>.restart-<n>.jsonl.bak` next to it, and the agent starts over with the same prompt, type, model, schema and
   worktree. It keeps its id, name, row and place in its phase. Turns and cost add up across restarts.
 - The `Agent` call that started it keeps waiting and gets the result of the last start. Nothing is reported to main
   for the restart itself.
