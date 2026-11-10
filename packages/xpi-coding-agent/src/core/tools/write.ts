@@ -2,10 +2,11 @@ import { mkdir as fsMkdir, readFile as fsReadFile, writeFile as fsWriteFile } fr
 import { dirname } from "path";
 import { type Static, Type } from "typebox";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
-import { withFileMutationQueue } from "./file-mutation-queue.ts";
+import { withFileMutationQueue, withUrlMutationQueue } from "./file-mutation-queue.ts";
 import { type FileStateStore, fingerprintText } from "./file-state.ts";
 import { resolveToCwd } from "./path-utils.ts";
 import { writeRenderers } from "./renderers/write.ts";
+import type { SchemeResolver } from "./scheme-resolver.ts";
 import { type TypeBoxAgentTool, wrapToolDefinition } from "./tool-definition-wrapper.ts";
 
 const writeSchema = Type.Object({
@@ -56,6 +57,11 @@ export interface WriteToolOptions {
 	 * any file, as before.
 	 */
 	fileState?: FileStateStore;
+	/**
+	 * Resolves `name://...` paths of registered schemes (`registerScheme`). A file-backed scheme writes the
+	 * located file like any path; a virtual one writes through the handler's `write`, one call per URL at a time.
+	 */
+	schemes?: SchemeResolver;
 }
 
 export function createWriteToolDefinition(
@@ -64,6 +70,7 @@ export function createWriteToolDefinition(
 ): ToolDefinition<typeof writeSchema, undefined> {
 	const ops = options?.operations ?? defaultWriteOperations;
 	const fileState = options?.fileState;
+	const schemes = options?.schemes;
 	return {
 		name: "write",
 		label: "write",
@@ -81,7 +88,36 @@ export function createWriteToolDefinition(
 			_onUpdate?,
 			ctx?: ExtensionContext,
 		) {
-			const absolutePath = resolveToCwd(path, ctx?.cwd || cwd);
+			const target = await schemes?.resolve(path, ctx);
+			if (schemes && target) schemes.assertWritable(target);
+			if (schemes && target?.kind === "virtual") {
+				return withUrlMutationQueue(target.url, async () => {
+					// As below: checking after each await keeps the queue locked until the handler has settled.
+					const throwIfAborted = (): void => {
+						if (signal?.aborted) throw new Error("Operation aborted");
+					};
+					throwIfAborted();
+					if (fileState?.enabled) {
+						let existing: string | undefined;
+						try {
+							existing = await schemes.read(target, ctx);
+						} catch {
+							// A resource the handler cannot resolve does not exist yet: this write creates it.
+						}
+						throwIfAborted();
+						if (existing !== undefined)
+							fileState.verifyUrl(target.url, fingerprintText(existing), "overwriting it");
+					}
+					await schemes.write(target, content, ctx);
+					fileState?.recordUrl(target.url, fingerprintText(content));
+					throwIfAborted();
+					return {
+						content: [{ type: "text" as const, text: `Successfully wrote to ${path}` }],
+						details: undefined,
+					};
+				});
+			}
+			const absolutePath = resolveToCwd(target?.kind === "file" ? target.path : path, ctx?.cwd || cwd);
 			const dir = dirname(absolutePath);
 			return withFileMutationQueue(absolutePath, async () => {
 				// Do not reject from an abort event listener here: that would release the

@@ -6,6 +6,7 @@ import { ensureTool } from "../../utils/tools-manager.ts";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
 import { pathExists, resolveToCwd } from "./path-utils.ts";
 import { findRenderers } from "./renderers/find.ts";
+import type { SchemeResolver } from "./scheme-resolver.ts";
 import { type TypeBoxAgentTool, wrapToolDefinition } from "./tool-definition-wrapper.ts";
 import { DEFAULT_MAX_BYTES, formatSize, type TruncationResult, truncateHead } from "./truncate.ts";
 
@@ -62,6 +63,8 @@ const defaultFindOperations: FindOperations = {
 };
 
 export interface FindToolOptions {
+	/** Resolves `name://...` paths of registered schemes (`registerScheme`): a file-backed one is searched at its located path, a virtual one fails. */
+	schemes?: SchemeResolver;
 	/** Custom operations for find. Default: local filesystem plus fd */
 	operations?: FindOperations;
 }
@@ -71,6 +74,7 @@ export function createFindToolDefinition(
 	options?: FindToolOptions,
 ): ToolDefinition<typeof findSchema, FindToolDetails | undefined> {
 	const customOps = options?.operations;
+	const schemes = options?.schemes;
 	return {
 		name: "find",
 		label: "find",
@@ -108,7 +112,10 @@ export function createFindToolDefinition(
 
 				(async () => {
 					try {
-						const searchPath = resolveToCwd(searchDir || ".", ctx?.cwd || cwd);
+						const searchPath = resolveToCwd(
+							schemes ? await schemes.searchPath(searchDir || ".", ctx) : searchDir || ".",
+							ctx?.cwd || cwd,
+						);
 						// fd treats --max-results 0 as unlimited, so a limit below 1 means 1.
 						const effectiveLimit = Math.max(1, Math.floor(limit ?? DEFAULT_LIMIT));
 						const ops = customOps ?? defaultFindOperations;

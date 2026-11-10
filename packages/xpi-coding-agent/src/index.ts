@@ -153,6 +153,8 @@ export type {
 	ResolvedCommand,
 	ResourcesDiscoverEvent,
 	ResourcesDiscoverResult,
+	SchemeContent,
+	SchemeHandler,
 	SessionBeforeCompactEvent,
 	SessionBeforeCompactResult,
 	SessionBeforeForkEvent,
@@ -254,6 +256,7 @@ export type {
 export { DefaultPackageManager } from "./core/package-manager.ts";
 export type { ResourceCollision, ResourceDiagnostic, ResourceLoader } from "./core/resource-loader.ts";
 export { DefaultResourceLoader, loadProjectContextFiles } from "./core/resource-loader.ts";
+export type { RegisteredScheme } from "./core/schemes.ts";
 // SDK for programmatic usage
 export {
 	AgentSessionRuntime,
@@ -394,6 +397,8 @@ export {
 	type ReadToolDetails,
 	type ReadToolInput,
 	type ReadToolOptions,
+	SchemeResolver,
+	type SchemeTarget,
 	type ToolsOptions,
 	type TruncationOptions,
 	type TruncationResult,

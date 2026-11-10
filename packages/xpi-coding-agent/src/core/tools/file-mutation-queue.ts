@@ -30,8 +30,18 @@ async function getMutationQueueKey(filePath: string): Promise<string> {
  * Operations for different files still run in parallel.
  */
 export async function withFileMutationQueue<T>(filePath: string, fn: () => Promise<T>): Promise<T> {
+	return withMutationQueueKey(() => getMutationQueueKey(filePath), fn);
+}
+
+/** Serialize mutations of one virtual resource (see `registerScheme`), keyed by its URL. */
+export async function withUrlMutationQueue<T>(url: string, fn: () => Promise<T>): Promise<T> {
+	// Real keys are absolute paths, so the prefix keeps the two apart.
+	return withMutationQueueKey(async () => `url:${url}`, fn);
+}
+
+async function withMutationQueueKey<T>(getKey: () => Promise<string>, fn: () => Promise<T>): Promise<T> {
 	const registration = registrationQueue.then(async () => {
-		const key = await getMutationQueueKey(filePath);
+		const key = await getKey();
 		const currentQueue = fileMutationQueues.get(key) ?? Promise.resolve();
 
 		let releaseNext!: () => void;

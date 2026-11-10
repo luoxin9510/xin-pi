@@ -253,6 +253,36 @@ footer. Changes:
 User docs: `extensions.md#ctxcompleteoptions`, `settings.md`, `subagent.md`. Tests: `test/suite/ctx-complete.test.ts`,
 `test/subagent/faults/model-aliases.test.ts`.
 
+## Core changes: path schemes
+
+`pi.registerScheme(name, handler)` lets an extension own `name://...` paths in the file tools. Problem: a package that
+exposes a resource (a pull request, a skill) needed its own tool; `read pr://1` was the relative path `<cwd>/pr:/1` and
+failed. Changes:
+
+- Types: `SchemeHandler`, `SchemeContent` (`core/extensions/types.ts`). `core/schemes.ts`: `SchemeRegistry`
+  (`ExtensionRuntime.schemes`, filled on commit like `mcpServers`), `validateScheme` (trust boundary: name regex,
+  reserved `http`/`https`/`file`/`data`, exactly one of `resolve`/`locate`, `write` not with `locate`), the one-line
+  `describe`. `loader.ts` `registerScheme` throws for a taken name, naming both extension paths; a failed load commits
+  nothing.
+- `core/tools/scheme-resolver.ts`: `SchemeResolver` (registry + context factory). `resolve(path)` returns undefined for
+  an unregistered scheme (the path is untouched), `{ kind: "file", path }` after `locate`, or `{ kind: "virtual" }`.
+  It is injected like the file-state store: `ToolsOptions.schemes` is wired into read, write, edit, grep, find and ls by
+  `withFileState`, and `AgentSession._buildRuntime` creates one over `runtime.schemes`.
+- Per tool: `read`, `write`, `edit` resolve first; a file target replaces the path (stale guard, mutation queue and the
+  rest unchanged). `read` on a virtual target runs `selectLinesFromBuffer` on the resolved text and the shared
+  `formatTextRead` (extracted from the file branch; no bash hint when `shellPath` is undefined). `edit` shares
+  `applyEdits` (BOM, line endings, diff) between files and virtual text. `write`/`edit` run under
+  `withUrlMutationQueue(url)` (same queue map, key `url:<url>`), call `SchemeResolver.assertWritable` first
+  (`<scheme>:// is read-only`), then `handler.write`. `grep`, `find`, `ls` call `SchemeResolver.searchPath`: located path
+  or `<url> is a virtual resource; use read`.
+- Stale guard: `FileStateStore.recordUrl`/`verifyUrl` key virtual resources by `url:<url>`; the fingerprint is of the
+  full resolved text. `write` over a virtual resource whose `resolve` throws counts as a new resource.
+- System prompt: `BuildSystemPromptOptions.schemes` renders a `schemes` section (one line `name:// — describe` each,
+  registration order, plus a bash note), also with a custom prompt. `_rebuildSystemPrompt` reads the registry.
+
+Out of scope: built-in schemes, images from virtual schemes, schemes inside bash. User docs:
+`extensions.md#path-schemes`. Tests: `test/path-schemes.test.ts`, `test/suite/path-schemes-session.test.ts`.
+
 ## Testing
 
 Everything below runs from `packages/xpi-coding-agent/`. Tests assert on structure and side effects (result fields,

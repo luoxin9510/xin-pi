@@ -10,10 +10,11 @@ import {
 	generateEditDiff,
 	normalizeToLF,
 } from "./edit-diff.ts";
-import { withFileMutationQueue } from "./file-mutation-queue.ts";
+import { withFileMutationQueue, withUrlMutationQueue } from "./file-mutation-queue.ts";
 import { type FileStateStore, fingerprintText } from "./file-state.ts";
 import { resolveToCwd } from "./path-utils.ts";
 import { type EditRenderState, editRenderers } from "./renderers/edit.ts";
+import type { SchemeResolver } from "./scheme-resolver.ts";
 import { type TypeBoxAgentTool, wrapToolDefinition } from "./tool-definition-wrapper.ts";
 
 const replaceEditSchema = Type.Object(
@@ -99,6 +100,11 @@ export interface EditToolOptions {
 	 * or that changed since it was. Without a store the tool edits any file, as before.
 	 */
 	fileState?: FileStateStore;
+	/**
+	 * Resolves `name://...` paths of registered schemes (`registerScheme`). A file-backed scheme edits the
+	 * located file like any path; a virtual one reads through the handler's `resolve` and writes through `write`.
+	 */
+	schemes?: SchemeResolver;
 }
 
 function prepareEditArguments(input: unknown): EditToolInput {
@@ -141,12 +147,36 @@ function validateEditInput(input: EditToolInput): { path: string; edits: Edit[] 
 	return { path: input.path, edits: input.edits };
 }
 
+/** Apply replacements to file or resource text: the new text (BOM and line endings kept) and the diff details. */
+function applyEdits(
+	rawContent: string,
+	edits: Edit[],
+	displayPath: string,
+): { finalContent: string; details: EditToolDetails } {
+	// Strip BOM before matching. The model will not include an invisible BOM in oldText.
+	const { bom, text: content } = splitBom(rawContent);
+	const normalizedContent = normalizeToLF(content);
+	const { baseContent, newContent, replacements } = applyEditsToNormalizedContent(
+		normalizedContent,
+		edits,
+		displayPath,
+	);
+	// Diff before writing, so diff computation cannot fail after the write.
+	const details = generateEditDiff(displayPath, baseContent, newContent, replacements);
+	// Splice into the original text, so untouched lines keep their line endings. Without any CR
+	// the original is the normalized text, and the normalized result is already final.
+	const finalContent =
+		bom + (content === normalizedContent ? newContent : applyReplacementsToOriginal(content, replacements));
+	return { finalContent, details };
+}
+
 export function createEditToolDefinition(
 	cwd: string,
 	options?: EditToolOptions,
 ): ToolDefinition<typeof editSchema, EditToolDetails | undefined, EditRenderState> {
 	const ops = options?.operations ?? defaultEditOperations;
 	const fileState = options?.fileState;
+	const schemes = options?.schemes;
 	return {
 		name: "edit",
 		label: "edit",
@@ -161,7 +191,31 @@ export function createEditToolDefinition(
 		prepareArguments: prepareEditArguments,
 		async execute(_toolCallId, input: EditToolInput, signal?: AbortSignal, _onUpdate?, ctx?: ExtensionContext) {
 			const { path, edits } = validateEditInput(input);
-			const absolutePath = resolveToCwd(path, ctx?.cwd || cwd);
+			const target = await schemes?.resolve(path, ctx);
+			if (schemes && target) schemes.assertWritable(target);
+			if (schemes && target?.kind === "virtual") {
+				return withUrlMutationQueue(target.url, async () => {
+					const throwIfAborted = (): void => {
+						if (signal?.aborted) throw new Error("Operation aborted");
+					};
+					throwIfAborted();
+					const rawContent = await schemes.read(target, ctx);
+					throwIfAborted();
+					fileState?.verifyUrl(target.url, fingerprintText(rawContent), "editing");
+					const { finalContent, details } = applyEdits(rawContent, edits, path);
+					throwIfAborted();
+					await schemes.write(target, finalContent, ctx);
+					fileState?.recordUrl(target.url, fingerprintText(finalContent));
+					throwIfAborted();
+					return {
+						content: [
+							{ type: "text" as const, text: `Successfully replaced ${edits.length} block(s) in ${path}.` },
+						],
+						details,
+					};
+				});
+			}
+			const absolutePath = resolveToCwd(target?.kind === "file" ? target.path : path, ctx?.cwd || cwd);
 
 			return withFileMutationQueue(absolutePath, async () => {
 				// Do not reject from an abort event listener here: that would release the
@@ -195,22 +249,9 @@ export function createEditToolDefinition(
 					throwIfAborted();
 				}
 
-				// Strip BOM before matching. The model will not include an invisible BOM in oldText.
-				const { bom, text: content } = splitBom(rawContent);
-				const normalizedContent = normalizeToLF(content);
-				const { baseContent, newContent, replacements } = applyEditsToNormalizedContent(
-					normalizedContent,
-					edits,
-					path,
-				);
-				// Diff before writing, so diff computation cannot fail after the write.
-				const editDiff = generateEditDiff(path, baseContent, newContent, replacements);
+				const { finalContent, details: editDiff } = applyEdits(rawContent, edits, path);
 				throwIfAborted();
 
-				// Splice into the original text, so untouched lines keep their line endings. Without any CR
-				// the original is the normalized text, and the normalized result is already final.
-				const finalContent =
-					bom + (content === normalizedContent ? newContent : applyReplacementsToOriginal(content, replacements));
 				await ops.writeFile(absolutePath, finalContent);
 				await fileState?.record(absolutePath, fingerprintText(finalContent));
 				throwIfAborted();

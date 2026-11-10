@@ -24,6 +24,8 @@ export interface BuildSystemPromptOptions {
 	toolSnippets?: Record<string, string>;
 	/** Guideline bullets contributed by each tool, keyed by tool name. */
 	toolGuidelines?: Record<string, string[]>;
+	/** Path schemes extensions registered, in registration order: one line each in the `schemes` section. */
+	schemes?: Array<{ name: string; describe: string }>;
 	/** Additional guideline bullets appended to the default system prompt rules. */
 	promptGuidelines?: string[];
 	/** Text appended from user configuration before project context, skills, and cwd. */
@@ -55,6 +57,7 @@ export type NormalizedBuildSystemPromptOptions = BuildSystemPromptOptions & {
 	hiddenTools: string[];
 	toolSnippets: Record<string, string>;
 	toolGuidelines: Record<string, string[]>;
+	schemes: Array<{ name: string; describe: string }>;
 	promptGuidelines: string[];
 	appendSystemPrompt: string;
 	sections: Record<string, string>;
@@ -81,6 +84,7 @@ export function normalizeBuildSystemPromptOptions(input: BuildSystemPromptOption
 		toolGuidelines: Object.fromEntries(
 			Object.entries(input.toolGuidelines ?? {}).map(([name, guidelines]) => [name, [...guidelines]]),
 		),
+		schemes: (input.schemes ?? []).map((scheme) => ({ ...scheme })),
 		promptGuidelines: [...(input.promptGuidelines ?? [])],
 		appendSystemPrompt: input.appendSystemPrompt ?? "",
 		sections: { ...(input.sections ?? {}) },
@@ -132,6 +136,13 @@ function renderProjectContext(
 	].join("\n\n");
 }
 
+function renderSchemes(schemes: Array<{ name: string; describe: string }>): string {
+	return [
+		"These paths work in the read, write, edit, ls, grep and find tools. Bash does not understand them.",
+		...schemes.map(({ name, describe }) => `${name}:// \u2014 ${describe}`),
+	].join("\n");
+}
+
 function buildRules(
 	selectedTools: string[],
 	toolGuidelines: Record<string, string[]>,
@@ -180,6 +191,7 @@ export function buildSystemPromptSections(input: BuildSystemPromptOptions): Syst
 		hiddenTools,
 		toolSnippets,
 		toolGuidelines,
+		schemes,
 		promptGuidelines,
 		appendSystemPrompt,
 		sections: customSections,
@@ -218,6 +230,8 @@ export function buildSystemPromptSections(input: BuildSystemPromptOptions): Syst
 - Before implementing harness changes, read the relevant docs and examples in full, following related cross-references.`;
 	}
 
+	// Listed even with a custom prompt: the model cannot guess these paths.
+	if (schemes.length > 0) promptSections.schemes = renderSchemes(schemes);
 	if (appendSystemPrompt) promptSections.addendum = appendSystemPrompt;
 	if (contextFiles.length > 0) promptSections.project_context = renderProjectContext(contextFiles, cwd, projectRoot);
 	// A hidden reader is still reachable through another tool, so skills stay but the hint names no tool.

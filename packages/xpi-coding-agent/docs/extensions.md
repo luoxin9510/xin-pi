@@ -59,6 +59,7 @@ See [examples/extensions/](../examples/extensions/) for working implementations.
   - [Calling Other Tools](#calling-other-tools)
   - [Dynamic Tool Loading](#dynamic-tool-loading)
 - [MCP Servers](#mcp-servers)
+- [Path Schemes](#path-schemes)
 - [Custom UI](#custom-ui)
 - [Error Handling](#error-handling)
 - [Mode Behavior](#mode-behavior)
@@ -2251,6 +2252,10 @@ Register a selectable catalog entry that routes each request to a physical model
 
 Register an MCP server for the current session. See [MCP Servers](#mcp-servers).
 
+### pi.registerScheme(name, handler)
+
+Own `name://...` paths in the file tools. See [Path Schemes](#path-schemes).
+
 ### pi.registerToolRenderer(resolver)
 
 Choose how calls to any tool are drawn, including tools that are not registered yet, such as MCP tools in a resumed session before their server connected. The resolver receives the tool name and `next()`, which returns what the remaining resolvers (in extension load order), then the registered tool, would use, so `next() ?? mine` only fills in.
@@ -2963,6 +2968,49 @@ pi.unregisterMcpServer("jira");
 Servers registered while the extension loads connect when the session starts, together with the `mcp.json` servers; servers registered later connect right away, and `pi.unregisterMcpServer()` closes the connection and makes the server's tools unreachable. Registrations are not saved: register again on every load, for example based on the extension's own settings. A server in `mcp.json` with the same name takes precedence, and `/mcp` shows the override. Registering the same name again replaces the extension's earlier registration; names registered by another extension, invalid names, and invalid configs throw.
 
 The built-in MCP support connects registered servers. When nothing does, because another extension replaced it (see [MCP](mcp.md#replace-the-built-in-mcp-support)), each registration is reported as an extension error. Other MCP extensions can connect registered servers too: read them with `pi.getMcpServers()` on `session_start` and handle the `mcp_servers_change` event for later changes.
+
+## Path Schemes
+
+`pi.registerScheme(name, handler)` lets an extension own `name://...` paths in the built-in `read`, `write`, `edit`, `ls`, `grep` and `find` tools. The model reaches a resource (a pull request, a skill, a note) with the file tools it already knows, so the extension needs no tool of its own.
+
+```typescript
+pi.registerScheme("note", {
+  describe: "a note in the vault, note://<name>",
+  resolve: async (url, ctx) => ({ content: await loadNote(url), contentType: "text/markdown" }),
+  write: async (url, content, ctx) => saveNote(url, content),
+});
+
+pi.registerScheme("skill", {
+  describe: "the SKILL.md of an installed skill, skill://<name>",
+  locate: async (url, ctx) => skillFile(url.slice("skill://".length)), // absolute path
+});
+```
+
+`SchemeHandler` has these fields. Exactly one of `resolve` and `locate` must be set; that decides the kind of scheme.
+
+| Field | Meaning |
+|---|---|
+| `describe` | One line for the system prompt. Required, no line breaks. |
+| `resolve(url, ctx)` | Virtual scheme. Returns `{ content, contentType? }`, the current text of `url`. |
+| `locate(url, ctx)` | File-backed scheme. Returns the absolute path of the real file `url` stands for. |
+| `write(url, content, ctx)` | Virtual scheme only. Accepts new content for `url`. |
+| `readOnly` | Refuse `write` and `edit`. Also allowed on a file-backed scheme. |
+
+`url` is the path as the model gave it (a leading `@` is dropped). `ctx` is the [`ExtensionContext`](#extensioncontext).
+
+**Virtual schemes.** `read` pages the content like a file: the same `offset`, `limit`, 2000-line and 50KB truncation, and continuation hints (a hint never suggests `sed` or bash for a virtual path). Images are not supported. `write` calls `handler.write`; `edit` reads the current content with `resolve`, applies the replacements the way it does for files, and calls `handler.write` with the result. Calls that write one URL run one at a time. A scheme with `readOnly: true` or without `write` fails `write` and `edit` with `<scheme>:// is read-only`. `grep`, `find` and `ls` fail with `<url> is a virtual resource; use read`.
+
+**File-backed schemes.** The tool replaces the URL with the located path and proceeds as if the model had given that path: all six tools work, with the stale-edit guard and the per-file mutation queue, and a plain path to the same file shares the guard. `locate` must return an absolute path; a relative one fails the call. `write` is not allowed here (writes go to the file); `readOnly: true` still refuses `write` and `edit`.
+
+**Stale-edit guard.** A virtual resource is keyed by its URL. `read` records a fingerprint of the content `resolve` returned (the whole resource, also for a paged read); `edit` resolves again and fails when the resource was not read or differs (`Resource <url> has not been read in this session...`, `Resource <url> changed since you last read it...`). `write` over a resource `resolve` can return is checked the same way; when `resolve` throws, the resource counts as new and the write creates it. A successful `edit` or `write` records the written content, so the next edit needs no read. The [`staleEditGuard`](settings.md#edit-and-write-safety) setting turns it off.
+
+**System prompt.** Registered schemes are listed in a `schemes` section, one line per scheme in registration order, `name:// — describe`, after a note that the paths work in the file tools and that bash does not understand them. The section is rebuilt with the prompt, so a scheme registered after load appears the next time the prompt is rebuilt.
+
+**Codemode.** `tools.read({ path: "note://x" })` in a [codemode](codemode.md) script goes through the same tools.
+
+**Registration errors.** Registration happens while the extension loads and throws, failing the load, for: a name that does not start with a lowercase letter or has characters other than lowercase letters, digits, `+`, `.` and `-`; the reserved names `http`, `https`, `file` and `data`; a handler with both or neither of `resolve` and `locate`, a `describe` that is empty or has a line break, or `write` together with `locate`; and a name that is already registered, which names both extensions (`Scheme "note" registered by extension "b" is already registered by extension "a"`). Registrations are not saved: register again on every load. A path whose scheme is not registered (`x://file.txt`) stays an ordinary relative path.
+
+A handler that throws fails the tool call with its message. Tools made alone (`createReadTool(cwd)`) resolve schemes only when you pass `{ schemes }` (a `SchemeResolver`); the session's tools and the multi-tool factories take `ToolsOptions.schemes`.
 
 <a id="interact-with-the-user"></a>
 
