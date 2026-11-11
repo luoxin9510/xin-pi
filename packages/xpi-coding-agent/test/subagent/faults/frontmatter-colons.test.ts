@@ -25,3 +25,9 @@ test("YAML that is broken for another reason still skips the file with the parse
 	assert.ok(!r.ok);
 	assert.match(r.reason, /^invalid YAML: /);
 });
+
+test("such a value keeps the rest of the line, '#' included", () => {
+	const r = parse("name: x\ndescription: Use when: issue #12 is open");
+	assert.ok(r.ok, r.ok ? "" : r.reason);
+	assert.equal(r.def.description, "Use when: issue #12 is open");
+});

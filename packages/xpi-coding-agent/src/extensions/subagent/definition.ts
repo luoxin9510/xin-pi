@@ -102,6 +102,7 @@ function quotePlainValues(yaml: string): string {
 		.map((line) => {
 			const match = /^([A-Za-z_][\w-]*):[ \t]+(.+?)[ \t]*$/.exec(line);
 			if (!match) return line;
+			// The rest of the line is the value, "#" included: a description that mentions "issue #12" keeps it.
 			const value = match[2];
 			if (!value.includes(": ") || /^["'[{|>&*!]/.test(value)) return line;
 			return `${match[1]}: ${JSON.stringify(value)}`;

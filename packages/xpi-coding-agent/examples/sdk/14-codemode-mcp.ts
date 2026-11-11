@@ -4,9 +4,9 @@
  * The CLI loads `codemode`, `tool_search`, and MCP as built-in extensions. SDK sessions add
  * them to the resource loader's extension factories.
  *
- * `codemode` and `tool_search` are registered inactive. Enable them through the `defaultTools` setting
- * (`tools` would also restrict the session to the named tools, which hides MCP tools), or let the
- * MCP extension activate them: `codemode` for servers with `codemode` exposure, `tool_search` for
+ * `codemode` is one of the default tools, so it is active once its extension is added. `tool_search`
+ * is registered inactive. Enable it through the `defaultTools` setting (`tools` would also restrict
+ * the session to the named tools, which hides MCP tools), or let the MCP extension activate it for
  * servers with `deferred` exposure.
  */
 
@@ -37,7 +37,7 @@ await resourceLoader.reload();
 
 const settingsManager = SettingsManager.create(cwd);
 // `+name` adds to the configured default tools instead of replacing them.
-settingsManager.applyOverrides({ defaultTools: ["+codemode", "+tool_search"] });
+settingsManager.applyOverrides({ defaultTools: ["+tool_search"] });
 
 const { session } = await createAgentSession({
 	resourceLoader,

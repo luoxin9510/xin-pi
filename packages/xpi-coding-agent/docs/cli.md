@@ -124,7 +124,8 @@ See [Settings](settings.md#tools) for configuring the default tool selection.
 - `-xt`, `--exclude-tools <list>`<br>
   Disables comma-separated tool names or patterns after all other selection options, MCP tools included.
 - `-nbt`, `--no-builtin-tools`<br>
-  Disables default built-in tools while retaining extension and custom tools.
+  Disables the default tools while retaining extension and custom tools. `codemode` is one of the default tools, so it is
+  off too unless named with `--tools`.
 - `-nt`, `--no-tools`<br>
   Starts with all built-in, extension, custom, and MCP tools disabled.
 
@@ -153,7 +154,7 @@ The MCP resource tools (`list_mcp_resources`, `list_mcp_resource_templates`, `re
 
 Extensions can add `name://...` paths that these file tools (all but `bash` and `powershell`) accept; see [Path Schemes](extensions.md#path-schemes).
 
-Built-in extensions add two more tools. They are off by default; the MCP extension turns them on when an MCP server needs them (see [MCP](mcp.md#control-tool-exposure)). To enable them yourself, name them in `--tools` or `defaultTools`.
+Built-in extensions add two more tools. `codemode` is on by default (it is in the default tool selection); `tool_search` is off. The MCP extension turns them on when an MCP server needs them (see [MCP](mcp.md#control-tool-exposure)). To change them yourself, name them in `--tools` or `defaultTools`.
 
 | Built-in extension | Purpose |
 |---|---|
@@ -176,7 +177,9 @@ This keeps `read`, `bash`, `edit`, and `write`. For one invocation, remove it wi
 pi --tools -codemode
 ```
 
-A `--tools` list of plain names leaves `codemode` out unless it names it.
+With either, an MCP server with `codemode` exposure turns it on again; set `"autoEnableCodemode": false` next to
+`mcpServers` to keep it off (see [MCP](mcp.md#control-tool-exposure)), or exclude it with `--exclude-tools codemode`. A
+`--tools` list of plain names leaves `codemode` out unless it names it, and MCP cannot turn it on then.
 
 Codemode is useful without MCP: scripts can run several tool calls in parallel, filter large output before it reaches the model, call classifier models such as TypeSafe's Jev through `models.classify()` (see [Classifier models](models.md#use-classifier-models)), and generate images through `models.generateImages()` (see [Image models](models.md#use-image-models)).
 

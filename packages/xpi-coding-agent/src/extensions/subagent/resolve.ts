@@ -180,7 +180,7 @@ function resolveTools(
 	config: Config,
 	codemode: boolean,
 	structured: boolean,
-	configured: () => string[], // the configured MCP server names, read only for an agent with `mcpServers`
+	configured: () => string[], // the configured MCP server names, read only when needed (`mcpServers`, direct tools)
 ): { args: string[]; warnings: string[]; memoryReadOnly: boolean } {
 	const toolMap = { ...BUILTIN_TOOL_MAP, ...config.toolMap };
 	const warnings: string[] = [];
@@ -235,10 +235,16 @@ function resolveTools(
 		// A --tools list does not drop MCP tools unless an entry starts with mcp__; an agent must not get unlisted ones.
 		if (!allow.some((t) => t.startsWith("mcp__"))) deny.push("mcp__*");
 	} else {
-		if (codemode || structured) {
-			const added = [...(codemode ? ["codemode"] : []), ...(structured ? [STRUCTURED_OUTPUT_TOOL] : [])];
-			args.push("--tools", added.map((t) => `+${t}`).join(","));
-		}
+		// codemode is one of the child's default tools. A child on direct tools takes it out. When the child has MCP
+		// servers it is only taken out of the selection: the child's MCP extension turns it on again for servers whose
+		// tools are reachable only from scripts. Without servers it is excluded, so nothing can turn it on.
+		const hasServers = servers !== undefined ? servers.length > 0 : configured().length > 0;
+		const changes = [
+			...(codemode ? ["+codemode"] : hasServers ? ["-codemode"] : []),
+			...(structured ? [`+${STRUCTURED_OUTPUT_TOOL}`] : []),
+		];
+		if (changes.length > 0) args.push("--tools", changes.join(","));
+		if (!codemode && !hasServers) deny.push("codemode");
 		// No tool list to add to: the servers it does not name are taken away instead (all of MCP when it names none).
 		if (servers !== undefined) deny.push(...(servers.length === 0 ? ["mcp__*"] : otherServers.map(serverTools)));
 	}

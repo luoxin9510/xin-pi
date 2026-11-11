@@ -75,3 +75,32 @@ test("a name that is not configured warns and is left out", async () => {
 	assert.equal(r.tools, "codemode,read,mcp__docs__*");
 	assert.deepEqual(r.warnings, ['mcpServers: server "ghost" is not configured in mcp.json']);
 });
+
+test("a direct-tools agent: codemode is taken out, and left to MCP only when the child has servers", async () => {
+	// Servers configured: MCP may turn codemode on again, for tools reachable only from scripts.
+	const direct = await run("codemode: false");
+	assert.equal(direct.tools, "-codemode");
+	assert.equal(direct.exclude, undefined);
+	const named = await run("codemode: false\nmcpServers: [docs]");
+	assert.equal(named.tools, "-codemode");
+	assert.equal(named.exclude, "mcp__my_slack__*,mcp__jira__*");
+	// No servers for this child: excluded, so nothing turns it on.
+	const none = await run("codemode: false\nmcpServers: []");
+	assert.equal(none.tools, undefined);
+	assert.equal(none.exclude, "codemode,mcp__*");
+	// A tools list never contains codemode, so MCP cannot turn it on there.
+	const listed = await run("codemode: false\ntools: Read\nmcpServers: []");
+	assert.equal(listed.tools, "read");
+	assert.equal(listed.exclude, "mcp__*");
+	const codemodeOnly = await run("model: haiku");
+	assert.equal(codemodeOnly.tools, "+codemode");
+});
+
+test('childCodemode "inherit": a child without a tools list gets direct tools and no codemode', async () => {
+	const s = sandbox();
+	s.scenario({ lines: [ev.session(), ev.assistant("ok"), ev.turnEnd(), ev.settled()] });
+	const t = await loadTool({ childCodemode: "inherit" }, { cwd: s.repo });
+	await t.run({});
+	assert.equal(flag(s.record().argv, "--tools"), undefined);
+	assert.equal(flag(s.record().argv, "--exclude-tools"), "codemode");
+});
