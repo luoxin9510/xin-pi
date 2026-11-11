@@ -382,7 +382,7 @@ pseudo-terminals, so they keep running after the terminal that started them clos
 The commands outside `daemon` start the agent directory's daemon when it is not running; `daemon ...` never starts one. A session is named by its id, a
 unique id prefix or its name. An unknown command exits with `2`.
 
-After an upgrade the running daemon still has the old code, and the commands outside `daemon` (and `xpi --bg`) warn about it until it is restarted:
+After an upgrade the running daemon still has the old code, and `xpi roost` commands other than `hub`, `daemon logs` and `daemon stop` (and `xpi --bg`) warn about it until it is restarted:
 run `xpi roost daemon stop --keep-workers`, then `xpi roost respawn --all`.
 
 Requirements:

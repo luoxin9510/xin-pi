@@ -248,7 +248,8 @@ starts a session on a file another xpi has open.
   is not running say how to reinstall it.
 
 After an upgrade, a running daemon still has the old code: run `xpi roost daemon stop --keep-workers`, then
-`xpi roost respawn --all`. `xpi roost` and `xpi --bg` say so when the versions differ.
+`xpi roost respawn --all`. `xpi --bg` and the `xpi roost` commands other than `hub`, `daemon logs` and
+`daemon stop` say so when the versions differ.
 
 ## Not in this version
 
