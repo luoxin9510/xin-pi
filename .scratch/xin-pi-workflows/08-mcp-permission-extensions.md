@@ -102,10 +102,12 @@ Facts above that turned out wrong, and how the build differs from the decisions 
   script cannot reach one (the fact on codemode/deferred exposure holds only without a list). A `plan` child therefore
   has no extension tools; extensions' event handlers still run. It also runs with `--no-mcp` (`mcp__*` alone missed the
   resource tools), and memory brings `read`.
-- Decision 4 (#60): a missing `-e` path and an extension that throws while loading are already errors that stop the
-  start; only a failed package install was a warning. `--strict-extensions` makes that an error. A project agent file
-  with `extensions` in an untrusted project makes the call fail instead of skipping them: skipping would run a guarded
-  agent unguarded, which this decision exists to prevent.
+- Decision 4 (#61): a missing `-e` path and an extension that throws while loading are already errors that stop the
+  start; a failed package install was a warning, and a source skipped in offline mode or not read as a source
+  (`github:owner/repo`) loaded nothing silently. `--strict-extensions` makes every explicit source that loads no
+  extension an error. A missing local path in an agent file is kept (the child fails on it) instead of dropped, and a
+  project agent file with `extensions` in an untrusted project makes the call fail instead of skipping them: either
+  would run a guarded agent unguarded, which this decision exists to prevent.
 
 ## Out of scope
 

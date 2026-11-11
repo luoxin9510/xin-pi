@@ -32,10 +32,11 @@ test("parsing: a list or a comma string; local paths absolute against the file's
 		join(s.repo, ".pi/agents/guards/no-bash.ts"),
 		"npm:some-guard",
 	]);
+	// A missing file is kept, so the child fails on it instead of the agent running without its guard.
 	const missing = parse("extensions: [./guards/nope.ts, npm:some-guard]");
-	assert.deepEqual(missing.extensions, ["npm:some-guard"]);
+	assert.deepEqual(missing.extensions, [join(s.repo, ".pi/agents/guards/nope.ts"), "npm:some-guard"]);
 	assert.deepEqual(missing.warnings, [
-		`extensions: "./guards/nope.ts" skipped: ${join(s.repo, ".pi/agents/guards/nope.ts")} does not exist`,
+		`extensions: "./guards/nope.ts" not found (${join(s.repo, ".pi/agents/guards/nope.ts")}): this agent's calls will fail until it exists`,
 	]);
 	assert.equal(parse("model: x").extensions, undefined);
 	const bad = parseDefinition(file, agentFile("name: x\ndescription: d\nextensions: 5"));

@@ -352,7 +352,9 @@ Upstream pi starts without an `-e` package (`npm:`, `git:`) that fails to instal
 or an extension that throws while loading is already an error that stops the start. xin-pi adds `--strict-extensions`
 (`src/cli/args.ts`, passed by `main.ts` as `DefaultResourceLoaderOptions.strictExtensions`). With it the resource
 loader (`src/core/resource-loader.ts`, `reload()` and the pre-trust pass) reports install failures of
-`additionalExtensionPaths` as extension errors instead of warnings, so the start stops. The subagent extension passes
+`additionalExtensionPaths` as extension errors instead of warnings, and any such source that yields no extension
+resource (skipped offline, not an extension, or a string the package manager does not read as a source), so the start
+stops. The subagent extension passes
 it to a child whose agent has `extensions`. User docs: `cli.md#resource-options`, `subagent.md#extensions-as-hooks`.
 Tests: `test/strict-extensions.test.ts`.
 

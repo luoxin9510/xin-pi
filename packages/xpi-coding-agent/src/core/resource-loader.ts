@@ -27,6 +27,7 @@ import type {
 import { findGitPaths } from "./footer-data-provider.ts";
 import {
 	DefaultPackageManager,
+	isOfflineModeEnabled,
 	type PackageInstallFailure,
 	type PathMetadata,
 	type ResolvedResource,
@@ -636,8 +637,21 @@ export class DefaultResourceLoader implements ResourceLoader {
 		const extensionsResult = await this.loadFinalExtensionSet(extensionPaths, preTrustExtensions);
 		mergeExtensionWarnings(extensionsResult, [...installWarnings, ...packageWarnings]);
 		if (this.strictExtensions) {
-			for (const failure of cliExtensionPaths.installFailures ?? []) {
+			const failures = cliExtensionPaths.installFailures ?? [];
+			for (const failure of failures) {
 				extensionsResult.errors.push({ path: failure.source, error: describePackageInstallFailure(failure) });
+			}
+			// A source that gave no extension and no failure: skipped in offline mode, a package or directory without
+			// an extension, or a source string the package manager does not read as one (such as `github:owner/repo`).
+			for (const source of this.additionalExtensionPaths) {
+				if (source.startsWith(BUILTIN_PATH_PREFIX)) continue;
+				if (isLocalPath(source) && !existsSync(this.resolveResourcePath(source))) continue; // reported below
+				if (failures.some((failure) => failure.source === source)) continue;
+				if (cliExtensionPaths.extensions.some((resource) => resource.metadata.source === source)) continue;
+				extensionsResult.errors.push({
+					path: source,
+					error: `no extension loaded from it${isOfflineModeEnabled() ? " (offline mode: packages are not installed)" : ""}`,
+				});
 			}
 		}
 		for (const p of this.additionalExtensionPaths) {

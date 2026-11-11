@@ -207,7 +207,7 @@ See [Configuration](configuration.md) for conventional directories and project t
 - `-ne`, `--no-extensions`<br>
   Disables discovered, configured, and built-in extensions. Explicit `-e` paths still load, so `pi -ne -e builtin:mcp` keeps only the built-in MCP support.
 - `--strict-extensions`<br>
-  An `-e` package (`npm:`, `git:`) that fails to install stops the start with the error, instead of a warning and a session without it. A missing `-e` path and an extension that throws while loading stop the start either way. Subagents pass it to a child whose agent has [`extensions`](subagent.md#extensions-as-hooks).
+  An `-e` source that loads no extension stops the start with the error, instead of a warning (or nothing) and a session without it: a package (`npm:`, `git:`) that fails to install, one skipped in offline mode, a directory or package without an extension, or a string that is not a source (such as `github:owner/repo`). A missing `-e` path and an extension that throws while loading stop the start either way. Subagents pass it to a child whose agent has [`extensions`](subagent.md#extensions-as-hooks).
 - `--no-mcp`<br>
   Disables the built-in MCP support for this run: no servers connect, and there are no MCP tools or `/mcp`. It does not affect an extension that replaces the built-in MCP support.
 - `--skill <path>`<br>

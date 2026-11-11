@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -14,9 +14,13 @@ describe("--strict-extensions", () => {
 		vi.unstubAllEnvs();
 	});
 
-	async function load(strictExtensions: boolean) {
+	async function load(
+		strictExtensions: boolean,
+		sources: (cwd: string) => string[] = () => ["npm:broken-package"],
+		offline = false,
+	) {
 		// vitest.config.ts sets offline mode, which skips installs; the install itself is mocked below.
-		vi.stubEnv("XPI_OFFLINE", "");
+		vi.stubEnv("XPI_OFFLINE", offline ? "1" : "");
 		const root = mkdtempSync(join(tmpdir(), "pi-strict-ext-"));
 		dirs.push(root);
 		const cwd = join(root, "project");
@@ -27,7 +31,7 @@ describe("--strict-extensions", () => {
 			cwd,
 			agentDir,
 			settingsManager: SettingsManager.create(cwd, agentDir),
-			additionalExtensionPaths: ["npm:broken-package"],
+			additionalExtensionPaths: sources(cwd),
 			strictExtensions,
 			noSkills: true,
 			noPromptTemplates: true,
@@ -60,5 +64,36 @@ describe("--strict-extensions", () => {
 			{ path: "npm:broken-package", error: expect.stringContaining("failed to install") },
 		]);
 		expect(result.warnings ?? []).toEqual([]);
+	});
+
+	it("with it, a source that loads no extension is an error: offline, not an extension, or not a source it reads", async () => {
+		const offline = await load(true, () => ["npm:uncached-package"], true);
+		expect(offline.errors).toEqual([
+			{
+				path: "npm:uncached-package",
+				error: "no extension loaded from it (offline mode: packages are not installed)",
+			},
+		]);
+		const unread = await load(true, () => ["github:acme/guard"]);
+		expect(unread.errors).toEqual([{ path: "github:acme/guard", error: "no extension loaded from it" }]);
+		const empty = await load(true, (cwd) => {
+			mkdirSync(join(cwd, "empty-dir"));
+			return ["./empty-dir"];
+		});
+		// A directory without an extension already fails to load: one error, not a second one.
+		expect(empty.errors).toEqual([
+			{ path: expect.stringContaining("empty-dir"), error: expect.stringContaining("Failed to load extension") },
+		]);
+		// The same sources without the flag: nothing reported, as before.
+		expect((await load(false, () => ["github:acme/guard"])).errors).toEqual([]);
+	});
+
+	it("with it, a local extension that loads is fine", async () => {
+		const result = await load(true, (cwd) => {
+			writeFileSync(join(cwd, "guard.ts"), "export default function () {}\n");
+			return ["./guard.ts"];
+		});
+		expect(result.errors).toEqual([]);
+		expect(result.extensions.some((extension) => extension.path.endsWith("guard.ts"))).toBe(true);
 	});
 });

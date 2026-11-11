@@ -128,8 +128,9 @@ function mcpServersField(
 }
 
 // `extensions`: a list or a comma-separated string, as `tools`. A local path (the loader's isLocalPath) is resolved
-// against `baseDir` and passed absolute, since the child's cwd may be a worktree; a missing one is dropped with a
-// warning. npm:, git: and builtin: sources pass as given.
+// against `baseDir` and passed absolute, since the child's cwd may be a worktree. A missing one warns at discovery and
+// is kept: the child (--strict-extensions) then fails on it, so a guarded agent never runs without its guard. npm:,
+// git: and builtin: sources pass as given.
 function extensionsField(value: unknown, baseDir: string, warnings: string[]): string[] | undefined {
 	const entries = nameList(value, "extensions");
 	if (entries === undefined) return undefined;
@@ -137,8 +138,7 @@ function extensionsField(value: unknown, baseDir: string, warnings: string[]): s
 	for (const entry of entries) {
 		const resolved = isLocalPath(entry) ? resolvePath(entry, baseDir) : entry;
 		if (isLocalPath(entry) && !existsSync(resolved)) {
-			warnings.push(`extensions: "${entry}" skipped: ${resolved} does not exist`);
-			continue;
+			warnings.push(`extensions: "${entry}" not found (${resolved}): this agent's calls will fail until it exists`);
 		}
 		if (!out.includes(resolved)) out.push(resolved);
 	}

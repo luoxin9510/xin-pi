@@ -123,6 +123,11 @@ test("extensions: one that throws while loading stops the child; the result is f
 	const r = await t.result({ subagent_type: "x", prompt: REPLY_OK });
 	assert.equal(r.status, "failed");
 	assert.match(r.error ?? "", /guard-broke-4471/);
+	// A missing file is no different: the child stops, the agent does not run without it.
+	s.write(join(s.repo, ".pi/agents/y.md"), agentFile("name: y\ndescription: d\nextensions: [./not-there.js]"));
+	const missing = await t.result({ subagent_type: "y", prompt: REPLY_OK });
+	assert.equal(missing.status, "failed");
+	assert.match(missing.error ?? "", /not-there\.js/);
 });
 
 test("background: true returns at once; the result arrives as a message", async () => {

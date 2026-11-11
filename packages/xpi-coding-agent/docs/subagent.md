@@ -467,11 +467,14 @@ export default function (pi) {
   the agent going. Calls a codemode script makes go through the same handlers.
 - Each entry is one `-e` for the child. A local path is resolved against the agent file's directory (for
   [`--agents`](#agents-on-the-command-line), against the working directory) and passed absolute, so it also works in a
-  [worktree](#worktree-isolation). `npm:`, `git:` and `builtin:` sources are passed as given. A local path that does
-  not exist is dropped with a warning at discovery.
+  [worktree](#worktree-isolation). `npm:`, `git:` and `builtin:` sources are passed as given. Use the list form for a
+  path that contains a comma. A local path that does not exist warns at discovery and is still passed, so the call
+  fails until it exists.
 - The child runs with [`--strict-extensions`](cli.md#resource-options): an extension that cannot load (a failed
-  install, a missing file, an error while loading) stops it, and the result is `failed` with the error. A guarded agent
-  never runs without its guard.
+  install, a missing file, an error while loading, a source that yields no extension, a package not installed in
+  offline mode) stops it, and the result is `failed` with the error. A guarded agent never runs without its guard.
+- Their event handlers always run. Tools they register appear only for an agent without a `tools` list: a `tools`
+  list (and [`plan`](#permission-mode-plan)) names exactly the tools the child has.
 - Trust: a project agent file's extensions load only in a [trusted](security.md#understand-project-trust) project.
   In an untrusted one the call fails with the reason instead of running without them. Those of user agent files,
   `--agents` and built-ins always load.
