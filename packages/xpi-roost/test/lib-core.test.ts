@@ -11,9 +11,10 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readJson, writeFileAtomic, writeJsonAtomic } from "../src/lib/atomic.ts";
+import { DaemonClient, daemonEnv } from "../src/lib/client.ts";
 import { newJobId, newToken } from "../src/lib/ids.ts";
 import {
 	acquireDaemonLock,
@@ -26,6 +27,7 @@ import {
 import { TEST_DIR_PREFIX } from "../src/lib/orphans.ts";
 import {
 	agentDirKey,
+	checkLevels,
 	daemonLockPath,
 	daemonSocketPath,
 	ensureDirs,
@@ -35,6 +37,7 @@ import {
 	roostEnvironment,
 	roostHome,
 	runtimeDir,
+	runtimeLevels,
 	withoutRoostLocation,
 } from "../src/lib/paths.ts";
 import { isAlive, processStartToken, sameProcess } from "../src/lib/proc.ts";
@@ -150,11 +153,75 @@ describe("paths by agent directory (decision 14)", () => {
 		expect(runtimeDir()).toBe(runtimeDir(a));
 		delete process.env.ROOST_AGENT_DIR;
 		expect(() => roostHome()).toThrow(/no agent directory/);
-		// the overrides win
+		// the overrides: this process's own roost only (no agent directory given)
 		process.env.ROOST_HOME = home;
 		process.env.ROOST_RUNTIME_DIR = rt;
+		expect(roostHome()).toBe(home);
+		expect(runtimeDir()).toBe(rt);
+	});
+
+	it("a session's location variables never redirect another agent directory", () => {
+		const a = bare();
+		const b = bare();
+		const bHome = roostHome(b);
+		const bRuntime = runtimeDir(b);
+		// what a host gives its session (decision 7)
+		Object.assign(process.env, { ROOST_AGENT_DIR: a, ROOST_HOME: home, ROOST_RUNTIME_DIR: rt });
+		expect(roostHome(b)).toBe(bHome);
+		expect(runtimeDir(b)).toBe(bRuntime);
+		expect(daemonSocketPath(b)).toBe(join(bRuntime, "daemon.sock"));
+		const env = daemonEnv({ agentDir: b, daemonEntry: "/d.ts", hostEntry: "/h.ts" });
+		expect(env).toMatchObject({ ROOST_AGENT_DIR: b, ROOST_HOME: bHome, ROOST_RUNTIME_DIR: bRuntime });
+		// the session's own agent directory, however it is written, is its roost
 		expect(roostHome(a)).toBe(home);
-		expect(runtimeDir(a)).toBe(rt);
+		expect(runtimeDir(`${a}/.`)).toBe(rt);
+		expect(roostHome(relative(process.cwd(), a))).toBe(home);
+		expect(roostHome()).toBe(home);
+	});
+
+	it("a relative agent directory is made absolute everywhere it travels", () => {
+		const a = bare();
+		const rel = relative(process.cwd(), a);
+		expect(rel.startsWith("/")).toBe(false);
+		expect(roostHome(rel)).toBe(join(a, "xpi-roost"));
+		expect(agentDirKey(rel)).toBe(agentDirKey(a));
+		expect(runtimeDir(rel)).toBe(runtimeDir(a));
+		const env = daemonEnv({ agentDir: rel, daemonEntry: "d.ts", hostEntry: "h.ts" });
+		expect(env.ROOST_AGENT_DIR).toBe(a);
+		expect(env.ROOST_HOME).toBe(join(a, "xpi-roost"));
+		expect(env.ROOST_HOST_ENTRY).toBe(join(process.cwd(), "h.ts"));
+		expect(roostEnvironment(env as Record<string, string>).XPI_CODING_AGENT_DIR).toBe(a);
+		process.env.ROOST_AGENT_DIR = rel;
+		expect(roostHome()).toBe(join(a, "xpi-roost"));
+	});
+
+	it("before a connect, every level of the runtime directory must be the user's own directory, never a link", async () => {
+		const a = bare();
+		expect(runtimeLevels(a)).toEqual([`/tmp/xpi-roost-${uid}`, runtimeDir(a)]);
+		// the outer level as a link
+		const target = mkdtempSync("/tmp/xrt-");
+		madeRuntime.push(target);
+		const outer = `${target}-outer`;
+		madeRuntime.push(outer);
+		symlinkSync(target, outer);
+		expect(() => checkLevels([outer, join(outer, "key")])).toThrow(/symlink/);
+		// a directory of another user (root's)
+		if (process.getuid?.() !== 0) expect(() => checkLevels(["/usr"])).toThrow(/not owned by the current user/);
+		// missing levels pass: nothing listens there
+		expect(() => checkLevels([join(target, "none"), join(target, "none", "key")])).not.toThrow();
+		expect(() => checkLevels([target])).not.toThrow();
+		// end to end: a client refuses before it connects
+		process.env.ROOST_AGENT_DIR = a;
+		process.env.ROOST_RUNTIME_DIR = outer;
+		await expect(DaemonClient.connect()).rejects.toThrow(/symlink/);
+		await expect(
+			DaemonClient.connectOrStart({ agentDir: a, daemonEntry: "/nope.ts", hostEntry: "/nope.ts" }),
+		).rejects.toMatchObject({ code: "unsafe_runtime_dir" });
+		delete process.env.ROOST_AGENT_DIR;
+		delete process.env.ROOST_RUNTIME_DIR;
+		// no location at all: a rejected promise, not a throw
+		const p = DaemonClient.connect();
+		await expect(p).rejects.toMatchObject({ code: "no_roost" });
 	});
 
 	it("XDG_RUNTIME_DIR when its socket paths fit, /tmp otherwise", () => {

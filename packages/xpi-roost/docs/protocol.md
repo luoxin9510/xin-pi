@@ -10,12 +10,22 @@ board, no schedules and no concierge (see `port-inventory.md`).
 Each agent directory has its own roost. Its state is in `<agent dir>/xpi-roost/` and its
 sockets are in a runtime directory keyed by the agent directory:
 `$XDG_RUNTIME_DIR/xpi-roost-<key>`, or `/tmp/xpi-roost-<uid>/<key>`, where `<key>` is the
-first 12 hex digits of the SHA-256 of the agent directory's real path. `ROOST_HOME` and
-`ROOST_RUNTIME_DIR` override both. The daemon's socket is `daemon.sock` in the runtime
-directory; each host's is `host-<id>.sock`.
+first 12 hex digits of the SHA-256 of the agent directory's real path (made absolute
+first). `ROOST_HOME` and `ROOST_RUNTIME_DIR` override both, but only for this process's own
+roost: when no agent directory is asked for, or the one asked for is `ROOST_AGENT_DIR`. A
+process inside a session that asks for another agent directory gets that directory's roost,
+never its session's. The daemon's socket is `daemon.sock` in the runtime directory; each
+host's is `host-<id>.sock`.
+
+Before connecting, a client checks each level of the runtime directory that exists (both
+under `/tmp`): a directory, not a link, owned by the user; otherwise it refuses. The daemon
+holds two locks: `daemon.lock` in the runtime directory and `daemon.lock` in the state
+directory, so two clients of one agent directory that work out different runtime
+directories (one with `XDG_RUNTIME_DIR`, one without) never start two daemons over one
+state; the second client is told where the running daemon is.
 
 The client that starts the daemon gives it its location in the environment:
-`ROOST_AGENT_DIR`, `ROOST_HOME` and `ROOST_RUNTIME_DIR` (when set), and `ROOST_HOST_ENTRY`,
+`ROOST_AGENT_DIR`, `ROOST_HOME`, `ROOST_RUNTIME_DIR` (always, as the client worked them out) and `ROOST_HOST_ENTRY`,
 the host's entry file. The daemon passes them to each host, and a host to its session,
 with `XPI_CODING_AGENT_DIR` set to the same agent directory, whatever the session's
 environment lists allow or deny. A session's own `/agents` therefore reaches the daemon

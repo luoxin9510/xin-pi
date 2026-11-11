@@ -2,8 +2,10 @@ import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { connect, type Socket } from "node:net";
+import { resolve } from "node:path";
 import { JOB_ENV_NAMES } from "./identity.ts";
-import { daemonSocketPath, ensureDirs, roostHome, runtimeDir } from "./paths.ts";
+import { readStateLock } from "./locks.ts";
+import { checkRuntimeDir, daemonSocketPath, ensureDirs, roostHome, runtimeDir } from "./paths.ts";
 import { type ArgsOf, type Event, encodeLine, LineReader, type Op, type Response, type ResultOf } from "./protocol.ts";
 
 export class DaemonError extends Error {
@@ -81,12 +83,14 @@ export function daemonEnv(start: DaemonStart, env: NodeJS.ProcessEnv = process.e
 	// The first client may be a worker: its job identity must not leak into the daemon.
 	const out = { ...env };
 	for (const key of JOB_ENV_NAMES) delete out[key];
+	// the location of the roost asked for: never the caller's own roost's (a session carries that one)
+	const agentDir = resolve(start.agentDir);
 	return {
 		...out,
-		ROOST_AGENT_DIR: start.agentDir,
-		ROOST_HOME: roostHome(start.agentDir),
-		ROOST_RUNTIME_DIR: runtimeDir(start.agentDir),
-		ROOST_HOST_ENTRY: start.hostEntry,
+		ROOST_AGENT_DIR: agentDir,
+		ROOST_HOME: roostHome(agentDir),
+		ROOST_RUNTIME_DIR: runtimeDir(agentDir),
+		ROOST_HOST_ENTRY: resolve(start.hostEntry),
 	};
 }
 
@@ -125,8 +129,24 @@ export class DaemonClient {
 		sock.on("close", () => fail(new DaemonError("daemon connection closed", "closed")));
 	}
 
-	/** Connect to a running daemon; rejects when none is listening. */
-	static connect(socketPath = daemonSocketPath()): Promise<DaemonClient> {
+	/**
+	 * Connect to a running daemon; rejects when none is listening. Without a socket path,
+	 * this process's own roost's (its location variables), its runtime directory checked first.
+	 */
+	static async connect(socketPath?: string): Promise<DaemonClient> {
+		let path = socketPath;
+		if (path === undefined) {
+			try {
+				checkRuntimeDir();
+				path = daemonSocketPath();
+			} catch (err) {
+				throw new DaemonError((err as Error).message, "no_roost");
+			}
+		}
+		return DaemonClient.connectTo(path);
+	}
+
+	private static connectTo(socketPath: string): Promise<DaemonClient> {
 		return new Promise((resolve, reject) => {
 			const sock = connect(socketPath);
 			sock.once("connect", () => {
@@ -145,29 +165,54 @@ export class DaemonClient {
 	 * entry in its environment (it hands them to every host and session).
 	 */
 	static async connectOrStart(start: DaemonStart, timeoutMs = 3000): Promise<DaemonClient> {
-		const socket = daemonSocketPath(start.agentDir);
+		const agentDir = resolve(start.agentDir);
 		try {
-			return await DaemonClient.connect(socket);
+			checkRuntimeDir(agentDir);
+		} catch (err) {
+			throw new DaemonError((err as Error).message, "unsafe_runtime_dir");
+		}
+		const socket = daemonSocketPath(agentDir);
+		try {
+			return await DaemonClient.connectTo(socket);
 		} catch {
 			// not running (or a stale socket): start one below
 		}
-		ensureDirs(start.agentDir);
+		ensureDirs(agentDir);
+		const elsewhere = () => {
+			const holder = readStateLock(agentDir);
+			const rt = runtimeDir(agentDir);
+			return holder && typeof holder.runtimeDir === "string" && holder.runtimeDir !== rt
+				? new DaemonError(
+						`a daemon for ${agentDir} already runs with another runtime directory (${holder.runtimeDir}, pid ${holder.pid}); this client looks in ${rt}: start it with the same XDG_RUNTIME_DIR and ROOST_RUNTIME_DIR`,
+						"other_runtime_dir",
+					)
+				: undefined;
+		};
+		const before = elsewhere();
+		if (before) throw before;
 		if (!existsSync(start.daemonEntry))
 			throw new DaemonError(`daemon entry not found: ${start.daemonEntry}`, "not_built");
 		const child = spawn(process.execPath, [start.daemonEntry], {
 			detached: true,
 			stdio: "ignore",
-			env: daemonEnv(start),
+			env: daemonEnv({ ...start, agentDir }),
 			cwd: "/",
+		});
+		let exited = false;
+		child.once("exit", () => {
+			exited = true;
 		});
 		child.unref();
 		const deadline = Date.now() + timeoutMs;
 		for (;;) {
 			try {
-				const client = await DaemonClient.connect(socket);
+				const client = await DaemonClient.connectTo(socket);
 				await client.request("ping", {});
 				return client;
 			} catch (err) {
+				// the daemon that was started gave up: another one holds this agent directory's state
+				const other = exited ? elsewhere() : undefined;
+				if (other) throw other;
 				if (Date.now() > deadline) {
 					throw new DaemonError(`daemon did not start: ${(err as Error).message}`, "start_timeout");
 				}

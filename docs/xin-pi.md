@@ -392,8 +392,8 @@ token would leave the user's file with a dead refresh token. Send one message in
 `packages/xpi-roost` is tested on its own: its tests start real daemons, hosts and PTYs (shell commands and fake
 workers, no model), so the package has no `test` script and root `npm test`, `./test.sh` and CI's `test (other)` skip it.
 Run `npm run test:roost` in `packages/xpi-roost` (about a minute); CI runs it in the `test (roost)` job on Linux after
-`npm rebuild node-pty`. Leftover test processes are swept before and after the suite (they are marked by
-`ROOST_PARENT_PID` and a home under `<tmp>/xroost-*`).
+`npm rebuild node-pty`. The suite sweeps what a killed run leaves, before and after (test processes are marked by
+`ROOST_PARENT_PID` and a home under `<tmp>/xroost-*`); check for leftovers after a run anyway.
 
 The codemode controller is exercised through `codemodeStandIn` in `test/subagent/helpers.ts` (a stand-in `codemode` tool
 whose scripts are JS functions, driving `beginCodemodeScript` the way `executeCodemode` does) in the fault suite, and

@@ -1,7 +1,7 @@
 import { closeSync, mkdirSync, openSync, statSync, unlinkSync, writeSync } from "node:fs";
 import { dirname } from "node:path";
 import { readJson } from "./atomic.ts";
-import { daemonLockPath } from "./paths.ts";
+import { daemonLockPath, stateLockPath } from "./paths.ts";
 import { ownStartToken, sameProcess } from "./proc.ts";
 
 export interface LockOwner {
@@ -104,6 +104,27 @@ export function releaseDaemonLock(): void {
 
 export function readDaemonLock(): (LockOwner & Record<string, unknown>) | undefined {
 	return readOwner(daemonLockPath());
+}
+
+/**
+ * The daemon's lock in the state directory, next to the one in the runtime directory: two
+ * clients of one agent directory with different runtime directories (one with
+ * XDG_RUNTIME_DIR, one without) must not start two daemons over the same state.
+ */
+export function acquireStateLock(
+	extra: Record<string, unknown>,
+): { ok: true } | { ok: false; holder: LockOwner & Record<string, unknown> } {
+	return acquire(stateLockPath(), extra, false);
+}
+
+export function releaseStateLock(): void {
+	release(stateLockPath());
+}
+
+/** The state lock's holder when it is a live process (a stale lock reads as none). */
+export function readStateLock(agentDir?: string): (LockOwner & Record<string, unknown>) | undefined {
+	const h = readOwner(stateLockPath(agentDir));
+	return h && sameProcess(h.pid, h.token) ? h : undefined;
 }
 
 const writerLockPath = (file: string) => `${file}.lock`;

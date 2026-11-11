@@ -1,11 +1,12 @@
 // Decision 14: each agent directory has its own roost. Two daemons started for two agent
 // directories, with no ROOST_HOME or ROOST_RUNTIME_DIR, share no socket, no job and no
 // roster, and each reads the "roost" section of its own settings.json.
+import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DaemonClient } from "../src/lib/client.ts";
+import { DaemonClient, daemonEnv } from "../src/lib/client.ts";
 import { pidAlive, TEST_DIR_PREFIX } from "../src/lib/orphans.ts";
 import { daemonSocketPath, roostHome, runtimeDir } from "../src/lib/paths.ts";
 
@@ -20,6 +21,7 @@ const ENV_NAMES = [
 	"ROOST_REAP_CHECK_MS",
 	"ROOST_CLEANUP_CHECK_MS",
 	"ROOST_CLEANUP_DAYS",
+	"XDG_RUNTIME_DIR",
 ];
 
 const saved: Record<string, string | undefined> = {};
@@ -92,6 +94,65 @@ const job = (cwd: string, name: string, command: string[]) => ({
 });
 
 describe("decision 14: a roost per agent directory", () => {
+	it("from inside a session (its roost's location in the environment), another agent directory gets its own daemon", async () => {
+		const a = agentDir();
+		const b = agentDir();
+		const ca = await start(a);
+		const sa = await ca.request("status", {});
+		const bRuntime = runtimeDir(b);
+		// what a host gives the session it runs (decision 7)
+		Object.assign(process.env, {
+			ROOST_AGENT_DIR: a,
+			ROOST_HOME: roostHome(a),
+			ROOST_RUNTIME_DIR: sa.socketDir,
+			ROOST_HOST_ENTRY: HOST,
+		});
+		const cb = await start(b);
+		const sb = await cb.request("status", {});
+		expect(sb.pid).not.toBe(sa.pid);
+		expect(sb.socketDir).toBe(bRuntime);
+		await cb.request("dispatch", job(b, "in-b", ["/bin/sh", "-c", "sleep 30"]));
+		expect((await ca.request("list", {})).jobs).toEqual([]);
+		expect(existsSync(join(b, "xpi-roost", "jobs"))).toBe(true);
+		// stopping b's daemon leaves a's running
+		await cb.request("shutdown", {});
+		await waitFor(() => !pidAlive(sb.pid), 8000);
+		expect((await ca.request("ping", {})) !== undefined).toBe(true);
+		expect(pidAlive(sa.pid)).toBe(true);
+		// and the session's own roost is still its own
+		const again = await DaemonClient.connect();
+		clients.push(again);
+		expect((await again.request("status", {})).pid).toBe(sa.pid);
+	}, 30_000);
+
+	it("one daemon per state directory: a client with another runtime directory is told, not given a second daemon", async () => {
+		const a = agentDir();
+		const xdg = mkdtempSync("/tmp/xrt-");
+		made.push(xdg);
+		process.env.XDG_RUNTIME_DIR = xdg;
+		const first = await start(a);
+		const s1 = await first.request("status", {});
+		expect(s1.socketDir).toBe(join(xdg, basename(runtimeDir(a))));
+		delete process.env.XDG_RUNTIME_DIR;
+		const tmpRuntime = runtimeDir(a);
+		expect(tmpRuntime).not.toBe(s1.socketDir);
+		await expect(
+			DaemonClient.connectOrStart({ agentDir: a, daemonEntry: DAEMON, hostEntry: HOST }, 10_000),
+		).rejects.toMatchObject({ code: "other_runtime_dir", message: expect.stringContaining(s1.socketDir) });
+		// the daemon itself refuses too, whoever starts it
+		const env = daemonEnv({ agentDir: a, daemonEntry: DAEMON, hostEntry: HOST });
+		const d = spawn(process.execPath, [DAEMON], { env, stdio: ["ignore", "ignore", "pipe"] });
+		let err = "";
+		d.stderr.on("data", (c) => {
+			err += c;
+		});
+		const code = await new Promise<number | null>((r) => d.once("exit", (c) => r(c)));
+		expect(code).toBe(1);
+		expect(err).toContain("already runs with another runtime directory");
+		expect(pidAlive(s1.pid)).toBe(true);
+		expect(existsSync(join(tmpRuntime, "daemon.sock"))).toBe(false);
+	}, 30_000);
+
 	it("two agent directories: two daemons, no shared socket, job or roster", async () => {
 		const a = agentDir();
 		const b = agentDir();

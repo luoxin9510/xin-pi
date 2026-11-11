@@ -17,7 +17,13 @@ import { clipText, EventLog, type RoostEvent, stateMatters } from "../lib/events
 import { hostControl } from "../lib/hostclient.ts";
 import { JOB_ENV_NAMES, roostEnv } from "../lib/identity.ts";
 import { newJobId, newToken } from "../lib/ids.ts";
-import { acquireDaemonLock, readWriterLock, releaseDaemonLock } from "../lib/locks.ts";
+import {
+	acquireDaemonLock,
+	acquireStateLock,
+	readWriterLock,
+	releaseDaemonLock,
+	releaseStateLock,
+} from "../lib/locks.ts";
 import { OpError, str, taskText } from "../lib/op.ts";
 import { followedParent, pidAlive } from "../lib/orphans.ts";
 import {
@@ -101,6 +107,15 @@ process.on("SIGPIPE", () => {});
 ensureDirs();
 const lock = acquireDaemonLock({ version: ROOST_VERSION, socket: daemonSocketPath() });
 if (!lock.ok) process.exit(0);
+// one daemon per state directory, whatever its runtime directory (XDG_RUNTIME_DIR set or not)
+const stateLock = acquireStateLock({ version: ROOST_VERSION, runtimeDir: runtimeDir() });
+if (!stateLock.ok) {
+	const message = `a daemon for this agent directory already runs with another runtime directory (${String(stateLock.holder.runtimeDir ?? "unknown")}, pid ${stateLock.holder.pid})`;
+	log("error", "state locked", { holder: stateLock.holder });
+	console.error(message);
+	releaseDaemonLock();
+	process.exit(1);
+}
 
 const startedAt = Date.now();
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -658,7 +673,8 @@ function spawnHost(rec: JobRecord): number {
 	if (!entry)
 		throw new OpError("no_host", "the daemon was started without ROOST_HOST_ENTRY: it cannot start sessions");
 	const env = { ...process.env };
-	for (const k of JOB_ENV_NAMES) delete env[k];
+	// a job's identity never reaches a host (a daemon started from inside a session has one)
+	for (const k of Object.keys(env)) if (JOB_ENV_NAMES.includes(k) || k.startsWith("ROOST_JOB_")) delete env[k];
 	const child = spawn(process.execPath, [entry, rec.id], { detached: true, stdio: "ignore", cwd: rec.cwd, env });
 	child.on("error", (err) => log("error", "host spawn error", { id: rec.id, error: String(err) }));
 	child.on("exit", () => setImmediate(checkHosts));
@@ -1361,6 +1377,7 @@ async function shutdown(keepWorkers: boolean): Promise<void> {
 	// M35: the last group of durable writes reaches the disk before the process goes
 	await durable().catch(() => {});
 	releaseDaemonLock();
+	releaseStateLock();
 	server.close();
 	for (const c of conns) c.sock.destroy();
 	try {
@@ -1561,6 +1578,7 @@ server.on("error", (err) => {
 await new Promise<void>((res) => {
 	server.once("error", (err) => {
 		releaseDaemonLock();
+		releaseStateLock();
 		console.error(`daemon cannot listen: ${err}`);
 		process.exit(1);
 	});

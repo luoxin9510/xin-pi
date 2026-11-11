@@ -57,6 +57,19 @@ Notes on PR 1 (details the spec left open, settled while building it):
   `ROOST_HOST_ENTRY`; the host gives a session the same plus `XPI_CODING_AGENT_DIR` (a name, not an import), over
   whatever the session's own environment held. The runtime key is the first 12 hex digits of SHA-256 of the agent
   directory's real path; an XDG path too long for a socket falls back to `/tmp/xpi-roost-<uid>/<key>`.
+- `cleanable` (the `cleanupDays` removal) skips a session whose DM-5 restart is pending (`resumeAt` set), so a waiting
+  restart is never removed under it.
+- After the review of PR 1 (#65): `ROOST_HOME` and `ROOST_RUNTIME_DIR` apply only to this process's own roost (no agent
+  directory given, or the one given is `ROOST_AGENT_DIR`, compared by real path); an agent directory is made absolute
+  where it enters (`DaemonStart`, the path functions); every level of the runtime directory is checked (owner, not a
+  link) before any connect, not only before a start; the daemon takes a second lock in the state directory
+  (`<agent dir>/xpi-roost/daemon.lock`) and a client that works out another runtime directory gets `other_runtime_dir`
+  naming the running daemon's; `privateDir` creates the XDG directory's parents again (as pi-roost did); `spawnHost`
+  strips the `ROOST_JOB_*` prefix as well as `JOB_ENV_NAMES`; `DaemonClient.connect()` without a location rejects
+  (`no_roost`) instead of throwing.
+- Leftover processes: the suite's sweep clears what a killed run leaves (marked processes whose test run is gone), and
+  tests clean up their own daemons; an interrupted run can still leave processes until the next sweep, so a run is
+  followed by a `ps` check.
 - DM-5: a crashed agent process is restarted with pi-roost's delays and budget (`resumeAt`, `ROOST_RESUME_DELAYS_MS`,
   a pending restart taken up after a daemon restart); the `resume` event kind stays for these restarts. A host that is
   gone, or a run that was interrupted, ends the session. `autoResume` is gone.

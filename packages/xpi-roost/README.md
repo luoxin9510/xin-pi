@@ -28,7 +28,12 @@ const client = await DaemonClient.connectOrStart({ agentDir, daemonEntry, hostEn
 - State: `<agent dir>/xpi-roost/` (jobs, roster, the event feed, the daemon's log).
 - Sockets and the daemon's lock: `$XDG_RUNTIME_DIR/xpi-roost-<key>`, or `/tmp/xpi-roost-<uid>/<key>`, where `<key>` is
   a hash of the agent directory. A temporary agent directory therefore gets a daemon of its own.
-- `ROOST_HOME` and `ROOST_RUNTIME_DIR` override both. Only `ROOST_*` names are read.
+- `ROOST_HOME` and `ROOST_RUNTIME_DIR` override both, for this process's own roost only: when no agent directory is
+  given, or the one given is `ROOST_AGENT_DIR`. A process inside a session that asks for another agent directory gets
+  that directory's daemon, never its session's. Only `ROOST_*` names are read.
+- A client checks each level of the runtime directory (a directory of its own, not a link) before it connects. The
+  daemon also locks the state directory, so one agent directory never has two daemons (a client that works out another
+  runtime directory is told where the running one is).
 - Settings: the `"roost"` section of `<agent dir>/settings.json`, read by the daemon itself (`reapIdleMinutes`,
   `cleanupDays`, the environment keys, ...). `roost.json` is not read.
 
@@ -49,5 +54,7 @@ node-pty has no Linux prebuild). On macOS node-pty's prebuilt helper is used; th
 (`fixSpawnHelper`).
 
 Test processes are marked (`ROOST_PARENT_PID`, a home under `<tmp>/xroost-*`): a daemon or host whose test run is gone
-stops by itself, and the suite's global setup sweeps leftovers before and after (M78). No test starts another test
-runner, and none calls a model: sessions are shell commands and fake workers.
+stops by itself, and the suite's global setup sweeps what a killed run left before and after (M78). A test that is
+interrupted can still leave a process for a moment, so check after a run
+(`ps -axo pid,ppid,etime,command | grep -E "xroost|src/(daemon|host)/main"`). No test starts another test runner, and
+none calls a model: sessions are shell commands and fake workers.
