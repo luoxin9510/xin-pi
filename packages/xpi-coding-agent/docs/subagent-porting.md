@@ -40,6 +40,7 @@ and stderr as pipes and the parent's cwd.
 | `--no-context-files` | `omitClaudeMd` |
 | `--approve` / `--no-approve` | the child gets the parent's project trust |
 | `--session-dir <dir> --session-id <id>` | a persisted child session (or `--no-session` for an in-memory parent) |
+| `-e <path or source>`, `--strict-extensions` | the agent's `extensions`, one `-e` each (local paths absolute), and `--strict-extensions` with them so one that cannot load stops the child. Without `--strict-extensions` a failed package install only warns: the agent would run without its guard |
 | `-e <file>` | `src/extensions/subagent/child-codemode.ts` for codemode-only children (layer 4). Loaded as TypeScript source, as pi loads every extension (the subagent extension has no build step): your agent's extension loader must handle `.ts` |
 
 The environment is the parent's plus `XPI_SUBAGENT_DEPTH=1`. The extension does nothing when that variable is set, so

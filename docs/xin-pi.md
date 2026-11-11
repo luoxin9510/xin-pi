@@ -346,6 +346,16 @@ problem. `--agents` (subagent) and `--mcp-config` (MCP) use it.
 User docs: `extensions.md#piregisterflagname-options`. Tests: `test/extension-flag-validate.test.ts`,
 `test/subagent/faults/cli-agents.test.ts`.
 
+## Core changes: --strict-extensions
+
+Upstream pi starts without an `-e` package (`npm:`, `git:`) that fails to install and only warns; a missing `-e` path
+or an extension that throws while loading is already an error that stops the start. xin-pi adds `--strict-extensions`
+(`src/cli/args.ts`, passed by `main.ts` as `DefaultResourceLoaderOptions.strictExtensions`). With it the resource
+loader (`src/core/resource-loader.ts`, `reload()` and the pre-trust pass) reports install failures of
+`additionalExtensionPaths` as extension errors instead of warnings, so the start stops. The subagent extension passes
+it to a child whose agent has `extensions`. User docs: `cli.md#resource-options`, `subagent.md#extensions-as-hooks`.
+Tests: `test/strict-extensions.test.ts`.
+
 ## Testing
 
 Everything below runs from `packages/xpi-coding-agent/`. Tests assert on structure and side effects (result fields,

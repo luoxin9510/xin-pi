@@ -206,6 +206,8 @@ See [Configuration](configuration.md) for conventional directories and project t
   Loads an extension file or directory, or a built-in extension such as `builtin:mcp`, and is repeatable.
 - `-ne`, `--no-extensions`<br>
   Disables discovered, configured, and built-in extensions. Explicit `-e` paths still load, so `pi -ne -e builtin:mcp` keeps only the built-in MCP support.
+- `--strict-extensions`<br>
+  An `-e` package (`npm:`, `git:`) that fails to install stops the start with the error, instead of a warning and a session without it. A missing `-e` path and an extension that throws while loading stop the start either way. Subagents pass it to a child whose agent has [`extensions`](subagent.md#extensions-as-hooks).
 - `--no-mcp`<br>
   Disables the built-in MCP support for this run: no servers connect, and there are no MCP tools or `/mcp`. It does not affect an extension that replaces the built-in MCP support.
 - `--skill <path>`<br>

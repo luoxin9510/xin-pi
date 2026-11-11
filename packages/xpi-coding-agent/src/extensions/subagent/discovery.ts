@@ -150,7 +150,7 @@ export function setCliAgents(value: string | undefined, cwd: string): string[] {
 			warnings.push(`skipped --agents entry "${name}": it is a reserved agent type`);
 			continue;
 		}
-		const result = definitionFromFields(CLI_SOURCE, { ...fields, name }, (prompt ?? "").trim(), "cli");
+		const result = definitionFromFields(CLI_SOURCE, { ...fields, name }, (prompt ?? "").trim(), "cli", cwd);
 		if (result.ok) cliAgents.push(result.def);
 		else warnings.push(`skipped --agents entry "${name}": ${result.reason}`);
 	}

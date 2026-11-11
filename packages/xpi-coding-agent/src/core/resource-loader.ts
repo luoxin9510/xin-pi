@@ -314,6 +314,11 @@ export interface DefaultResourceLoaderOptions {
 	additionalThemePaths?: string[];
 	extensionFactories?: InlineExtension[];
 	noExtensions?: boolean;
+	/**
+	 * An `additionalExtensionPaths` package (npm:, git:) that fails to install is an error, which stops the CLI's start,
+	 * instead of a warning. A missing path and an extension that throws while loading are errors either way.
+	 */
+	strictExtensions?: boolean;
 	/** Built-in extensions not to load, by name (such as `mcp`), even when settings or `-e` enable them. */
 	disabledBuiltinExtensions?: string[];
 	noSkills?: boolean;
@@ -357,6 +362,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 	private extensionFactories: InlineExtension[];
 	private builtinExtensions: Map<string, BuiltinExtension>;
 	private noExtensions: boolean;
+	private strictExtensions: boolean;
 	private disabledBuiltinExtensions: Set<string>;
 	private noSkills: boolean;
 	private noPromptTemplates: boolean;
@@ -425,6 +431,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		this.additionalPromptTemplatePaths = options.additionalPromptTemplatePaths ?? [];
 		this.additionalThemePaths = options.additionalThemePaths ?? [];
 		this.noExtensions = options.noExtensions ?? false;
+		this.strictExtensions = options.strictExtensions ?? false;
 		this.disabledBuiltinExtensions = new Set(options.disabledBuiltinExtensions);
 		this.noSkills = options.noSkills ?? false;
 		this.noPromptTemplates = options.noPromptTemplates ?? false;
@@ -571,7 +578,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		});
 		const installWarnings = collectPackageInstallWarnings(
 			resolvedPaths.installFailures,
-			cliExtensionPaths.installFailures,
+			this.strictExtensions ? undefined : cliExtensionPaths.installFailures,
 		);
 		// Kept on the instance so post-reload passes (extendResources) can still resolve package metadata.
 		this.resourceMetadataByPath = new Map();
@@ -628,6 +635,11 @@ export class DefaultResourceLoader implements ResourceLoader {
 		const packageWarnings = collectExtensionPackageWarnings(extensionPaths, metadataByPath);
 		const extensionsResult = await this.loadFinalExtensionSet(extensionPaths, preTrustExtensions);
 		mergeExtensionWarnings(extensionsResult, [...installWarnings, ...packageWarnings]);
+		if (this.strictExtensions) {
+			for (const failure of cliExtensionPaths.installFailures ?? []) {
+				extensionsResult.errors.push({ path: failure.source, error: describePackageInstallFailure(failure) });
+			}
+		}
 		for (const p of this.additionalExtensionPaths) {
 			if (isLocalPath(p)) {
 				const resolved = this.resolveResourcePath(p);
@@ -741,9 +753,10 @@ export class DefaultResourceLoader implements ResourceLoader {
 			]),
 		);
 		const packageWarnings = collectExtensionPackageWarnings(extensionPaths, metadataByPath);
+		// With strictExtensions the final pass reports these failures as errors (reload).
 		const installWarnings = collectPackageInstallWarnings(
 			resolvedPaths.installFailures,
-			cliExtensionPaths.installFailures,
+			this.strictExtensions ? undefined : cliExtensionPaths.installFailures,
 		);
 		const extensionsResult = await loadExtensionsCached(extensionPaths, this.cwd, this.eventBus);
 		mergeExtensionWarnings(extensionsResult, [...installWarnings, ...packageWarnings]);

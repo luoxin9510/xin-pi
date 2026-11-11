@@ -1,7 +1,10 @@
 // Parse one Claude Code agent file (spec 4.1). A boundary: bad files yield a skip reason, never a throw.
 
+import { existsSync } from "node:fs";
+import { dirname } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { type McpServerConfig, validateMcpServerConfig } from "../../core/mcp-servers.ts";
+import { isLocalPath, resolvePath } from "../../utils/paths.ts";
 
 export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 export type Effort = (typeof EFFORTS)[number];
@@ -44,6 +47,8 @@ export interface AgentDefinition {
 	isolation?: "worktree"; // run in its own git worktree (the Agent call's isolation wins)
 	background?: boolean; // true: a call without run_in_background runs this agent in the background
 	permissionMode?: PermissionMode; // only "plan" changes anything: read-only tools, no MCP, read-only memory
+	// Extensions loaded only into this agent's child, one `-e` each: absolute paths, or npm:, git:, builtin: sources.
+	extensions?: string[];
 	// Names of MCP servers (configured in mcp.json, or defined inline): the agent gets their tools and no other server's.
 	mcpServers?: string[];
 	// The inline definitions among them, by name (validated as mcp.json entries); the child gets them with --mcp-config.
@@ -60,7 +65,7 @@ export type ParseResult = { ok: true; def: AgentDefinition } | { ok: false; reas
 // Claude Code fields with no effect here, and why.
 const INERT_REASONS: Record<string, string> = {
 	autoCompactWindow: "xpi compacts by reserve tokens (the compaction.* settings), not by a window size",
-	hooks: "xpi has no hooks; extensions do that work",
+	hooks: "Claude Code's hook commands do not run in xpi; list extensions in the agent's `extensions` field instead (their tool_call and tool_result handlers do what hooks do)",
 	initialPrompt: "it applies to an agent run as the main session, which xpi does not have",
 	experimental: "it is ignored by Claude Code too",
 };
@@ -122,6 +127,24 @@ function mcpServersField(
 	return { names, ...(inline.size > 0 ? { inline: Object.fromEntries(inline) } : {}) };
 }
 
+// `extensions`: a list or a comma-separated string, as `tools`. A local path (the loader's isLocalPath) is resolved
+// against `baseDir` and passed absolute, since the child's cwd may be a worktree; a missing one is dropped with a
+// warning. npm:, git: and builtin: sources pass as given.
+function extensionsField(value: unknown, baseDir: string, warnings: string[]): string[] | undefined {
+	const entries = nameList(value, "extensions");
+	if (entries === undefined) return undefined;
+	const out: string[] = [];
+	for (const entry of entries) {
+		const resolved = isLocalPath(entry) ? resolvePath(entry, baseDir) : entry;
+		if (isLocalPath(entry) && !existsSync(resolved)) {
+			warnings.push(`extensions: "${entry}" skipped: ${resolved} does not exist`);
+			continue;
+		}
+		if (!out.includes(resolved)) out.push(resolved);
+	}
+	return out;
+}
+
 // The agent name becomes a directory name and a line in .git/info/exclude.
 const isMemoryName = (name: string) => name !== "" && !name.startsWith(".") && !/[\\/\0\r\n*?[\]!#]/.test(name);
 
@@ -159,6 +182,7 @@ function quotePlainValues(yaml: string): string {
 
 // `scope` is where the file was found (discovery passes it); it decides what its inline MCP servers may do.
 // Without one, the file counts as a project's: the scope that may do the least.
+// Local `extensions` entries are relative to the file's directory.
 export function parseDefinition(source: string, text: string, scope: AgentScope = "project"): ParseResult {
 	const lines = text.replace(/^﻿/, "").split(/\r?\n/);
 	if (lines[0]?.trim() !== "---") return { ok: false, reason: "file does not start with --- frontmatter" };
@@ -183,7 +207,7 @@ export function parseDefinition(source: string, text: string, scope: AgentScope 
 		.slice(end + 1)
 		.join("\n")
 		.trim();
-	return definitionFromFields(source, fm as Record<string, unknown>, body, scope);
+	return definitionFromFields(source, fm as Record<string, unknown>, body, scope, dirname(source));
 }
 
 // A definition from its fields (an agent file's frontmatter, or an entry of `--agents`) and its system prompt.
@@ -192,6 +216,7 @@ export function definitionFromFields(
 	f: Record<string, unknown>,
 	prompt: string,
 	scope: AgentScope = "project",
+	baseDir: string = process.cwd(), // where a local `extensions` entry is resolved: the agent file's directory
 ): ParseResult {
 	const name = f.name;
 	if (name === undefined || name === null) return { ok: false, reason: 'missing "name"' };
@@ -235,6 +260,7 @@ export function definitionFromFields(
 			warnings.push('mcpServers is ignored with permissionMode "plan": MCP tools can change things');
 		}
 		const servers = plan ? {} : mcpServersField(f.mcpServers, scope, warnings);
+		const extensions = extensionsField(f.extensions, baseDir, warnings);
 		const def: AgentDefinition = {
 			name,
 			description: f.description.trim(),
@@ -267,6 +293,7 @@ export function definitionFromFields(
 			isolation: optional<"worktree">(f.isolation, "isolation", (v) => v === "worktree", "worktree"),
 			background: optional<boolean>(f.background, "background", (v) => typeof v === "boolean", "true or false"),
 			...(permissionMode !== undefined ? { permissionMode } : {}),
+			...(extensions !== undefined ? { extensions } : {}),
 			mcpServers: servers.names,
 			...(servers.inline ? { inlineMcpServers: servers.inline } : {}),
 			source,

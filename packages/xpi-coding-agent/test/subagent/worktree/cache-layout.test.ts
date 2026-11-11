@@ -92,3 +92,13 @@ test("inline MCP servers are part of the prefix key: their tools come before the
 	assert.equal(a.prefixKey, same.prefixKey);
 	assert.notEqual(a.prefixKey, other.prefixKey);
 });
+
+test("an agent's extensions are part of the prefix key: the tools they register come before the system prompt", () => {
+	const t = setup();
+	const a = t.resolve("a", "extensions: [npm:guard-one]", "BODY");
+	const same = t.resolve("b", "extensions: [npm:guard-one]", "OTHER-BODY");
+	const other = t.resolve("c", "extensions: [npm:guard-two]", "BODY");
+	assert.equal(a.prefixKey, same.prefixKey);
+	assert.notEqual(a.prefixKey, other.prefixKey);
+	assert.notEqual(a.prefixKey, t.resolve("d", "", "BODY").prefixKey);
+});

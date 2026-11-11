@@ -89,6 +89,42 @@ test("permissionMode plan: asked to write a file, the agent cannot, and says so"
 	for (const name of ["write", "edit", "bash"]) assert.ok(!tools.includes(name), `${name} in ${tools}`);
 });
 
+// Spec 08: an agent's own extension is its hook. This one blocks bash in the child (from a codemode script too).
+const BASH_GUARD = `export default function (pi) {
+  pi.on("tool_call", (event) => {
+    if (event.toolName === "bash") return { block: true, reason: "bash is blocked by the guard extension" };
+  });
+}
+`;
+
+test("extensions: the agent's guard extension blocks bash in its child, and the agent reports the block", async () => {
+	const s = sandbox();
+	s.write(join(s.repo, ".pi/agents/guards/no-bash.js"), BASH_GUARD);
+	s.write(join(s.repo, ".pi/agents/x.md"), agentFile("name: x\ndescription: d\nextensions: [./guards/no-bash.js]"));
+	const t = await loadTool({}, { cwd: s.repo, persist: join(s.root, "sessions") });
+	const r = await t.result({
+		subagent_type: "x",
+		prompt:
+			"Run the shell command `echo hi` with the bash tool. If the call is refused, reply with BLOCKED followed by the reason you were given.",
+	});
+	assert.equal(r.status, "completed", r.error ?? "");
+	assert.match(r.output, /BLOCKED/);
+	assert.match(r.output, /guard extension/);
+});
+
+test("extensions: one that throws while loading stops the child; the result is failed with the error", async () => {
+	const s = sandbox();
+	s.write(
+		join(s.repo, ".pi/agents/broken.js"),
+		'export default function () { throw new Error("guard-broke-4471"); }\n',
+	);
+	s.write(join(s.repo, ".pi/agents/x.md"), agentFile("name: x\ndescription: d\nextensions: [./broken.js]"));
+	const t = await loadTool({}, { cwd: s.repo, persist: join(s.root, "sessions") });
+	const r = await t.result({ subagent_type: "x", prompt: REPLY_OK });
+	assert.equal(r.status, "failed");
+	assert.match(r.error ?? "", /guard-broke-4471/);
+});
+
 test("background: true returns at once; the result arrives as a message", async () => {
 	const s = sandbox();
 	s.write(join(s.repo, ".pi/agents/bg.md"), agentFile("name: bg\ndescription: d\nbackground: true"));
