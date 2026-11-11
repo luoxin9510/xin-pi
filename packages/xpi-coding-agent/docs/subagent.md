@@ -112,7 +112,7 @@ Values:
 | `haiku` (default) | `anthropic/claude-haiku-5-5` |
 | `sonnet` | `anthropic/claude-sonnet-5-5` |
 | `opus` | `anthropic/claude-opus-5-5` |
-| `fable` | `anthropic/claude-fable-5-1` |
+| `fable` | `anthropic/claude-fable-5-2` |
 | `inherit` | the parent session's current model. Only used when written explicitly. |
 | anything else | passed to `pi --model` as is (`provider/id` or a pattern pi resolves) |
 
