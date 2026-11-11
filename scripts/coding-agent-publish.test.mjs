@@ -31,6 +31,10 @@ function fixture() {
 	);
 	write(join(stage, "dist", "core", "deep.d.ts"), 'import type { Model } from "xpi-ai";\nexport declare const m: Model;\n');
 	write(
+		join(stage, "dist", "core", "messages.d.ts"),
+		'declare module "xpi-tui" {\n\tinterface Tui {\n\t\tcustom: true;\n\t}\n}\nexport {};\n',
+	);
+	write(
 		join(packages, "xpi-ai", "package.json"),
 		JSON.stringify({
 			name: "xpi-ai",
@@ -73,6 +77,11 @@ test("vendorWorkspaceTypes copies the referenced packages' declarations and rewr
 			'export type { Model } from "./vendor/xpi-ai/dist/index.js";\nexport { getRetry } from "./vendor/xpi-ai/dist/utils/retry.js";\nexport type Tui = import("./vendor/xpi-tui/dist/index.js").Tui;\n',
 		);
 		assert.match(readFileSync(join(stage, "dist", "core", "deep.d.ts"), "utf8"), /from "\.\.\/vendor\/xpi-ai\/dist\/index\.js"/);
+		// A module augmentation is rewritten too, or a consumer silently loses it.
+		assert.match(
+			readFileSync(join(stage, "dist", "core", "messages.d.ts"), "utf8"),
+			/^declare module "\.\.\/vendor\/xpi-tui\/dist\/index\.js" \{/,
+		);
 		// Transitive: xpi-ai refers to xpi-schema.
 		assert.match(
 			readFileSync(join(stage, "dist", "vendor", "xpi-ai", "dist", "index.d.ts"), "utf8"),
@@ -91,6 +100,16 @@ test("vendorWorkspaceTypes refuses a subpath the package does not export", () =>
 	try {
 		write(join(stage, "dist", "bad.d.ts"), 'export type { X } from "xpi-ai/nowhere";\n');
 		assert.throws(() => vendorWorkspaceTypes(stage, packages), /unresolved workspace type imports:\n {2}dist\/bad\.d\.ts: xpi-ai\/nowhere/);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("vendorWorkspaceTypes refuses a workspace specifier in a form it does not rewrite", () => {
+	const { root, packages, stage } = fixture();
+	try {
+		write(join(stage, "dist", "ref.d.ts"), '/// <reference types="xpi-tui" />\nexport {};\n');
+		assert.throws(() => vendorWorkspaceTypes(stage, packages), /workspace specifiers left in declarations:\n {2}dist\/ref\.d\.ts: "xpi-tui"/);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}

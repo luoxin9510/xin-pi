@@ -15,8 +15,12 @@ import { execNpmSync } from "./npm-command.mjs";
 export const codingAgentPackageName = "xpi-coding-agent";
 const bundleEntry = "./dist/bundle/index.js";
 const vendorDir = join("dist", "vendor");
-// "xpi-ai", "xpi-ai/utils/retry", in `from "…"`, `import("…")` and `import "…"`.
-const specifierPattern = /(\bfrom\s*|\bimport\s*\(\s*|\bimport\s+)(["'])(xpi-[a-z0-9-]+)(\/[^"']*)?\2/g;
+// "xpi-ai", "xpi-ai/utils/retry", in `from "…"`, `import("…")`, `import "…"` and `declare module "…"` (a module
+// augmentation, such as the custom message roles added to xpi-agent-core's AgentMessage).
+const specifierPattern =
+	/(\bfrom\s*|\bimport\s*\(\s*|\bimport\s+|\bdeclare\s+module\s+)(["'])(xpi-[a-z0-9-]+)(\/[^"']*)?\2/g;
+// Any workspace specifier left in a staged declaration after the rewrite (other than the package itself).
+const leftoverPattern = /["']xpi-(?!coding-agent["'/])[a-z0-9-]+(\/[^"']*)?["']/;
 
 function walk(directory, predicate, out = []) {
 	for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -112,6 +116,16 @@ export function vendorWorkspaceTypes(stageDir, packagesDir) {
 		if (rewritten !== text) writeFileSync(file, rewritten);
 	}
 	if (unresolved.length > 0) throw new Error(`unresolved workspace type imports:\n  ${unresolved.join("\n  ")}`);
+	// A form of reference the pattern does not know would leave a bare specifier no consumer can resolve.
+	const leftovers = walk(join(stageDir, "dist"), isDeclaration).flatMap((file) => {
+		// Comments do not resolve anything; `/// <reference …/>` directives do, so they stay.
+		const code = readFileSync(file, "utf8")
+			.replace(/\/\*[\s\S]*?\*\//g, "")
+			.replace(/^\s*\/\/(?!\/\s*<reference).*$/gm, "");
+		const match = leftoverPattern.exec(code);
+		return match ? [`${relative(stageDir, file)}: ${match[0]}`] : [];
+	});
+	if (leftovers.length > 0) throw new Error(`workspace specifiers left in declarations:\n  ${leftovers.join("\n  ")}`);
 	return [...vendored].sort();
 }
 
@@ -143,7 +157,8 @@ export function packCodingAgent({ packageDir, packagesDir, destination }) {
 		)[0];
 		const stage = join(work, "stage");
 		mkdirSync(stage);
-		execFileSync("tar", ["-xzf", join(work, first.filename), "-C", stage]);
+		// Relative paths: a GNU tar on Windows reads "C:\\…" as a remote host.
+		execFileSync("tar", ["-xzf", first.filename, "-C", "stage"], { cwd: work });
 		const stageDir = join(stage, "package");
 		useBundleEntry(stageDir);
 		const vendored = vendorWorkspaceTypes(stageDir, packagesDir);

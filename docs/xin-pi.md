@@ -57,8 +57,9 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
   `dist/vendor/<package>/` with every `xpi-*` specifier in the `.d.ts` files rewritten to a relative path. The repository's
   own `package.json` keeps the unbundled `dist/index.js`, so workspace consumers (`xpi-evals`, tests) are unchanged.
   `npm run xpi:pack` and `npm run release:local` both pack this way; `release:local` imports the SDK from an isolated
-  npm install. Type checking a consumer needs `skipLibCheck: true`, or the type packages of the provider SDKs the
-  declarations name (`openai`, `@anthropic-ai/sdk`, `@google/genai`, `marked`). Development alternative: `npm link` in
+  npm install. Type checking a consumer needs `skipLibCheck: true`: the declarations also refer to packages that are not
+  installed (provider SDKs, the MCP SDK, `marked`) and import JSON without import attributes. Checked with a clean
+  consumer (`module: nodenext`, `strict`), including the custom message roles that `declare module` adds. Development alternative: `npm link` in
   `packages/xpi-coding-agent` after `npm run build`. Verified with a private prefix (`npm i -g --prefix <tmp> <tarball>`, then `<tmp>/bin/xpi --version`,
   `--help`, `--list-models` from another directory with `XPI_CODING_AGENT_DIR` set to a temp dir).
 - `npm run build` removes `packages/xpi-coding-agent/dist` first, so files of deleted sources are never packed.
