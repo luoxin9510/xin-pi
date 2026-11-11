@@ -17,6 +17,15 @@ A script may start with an options line. It must be the first line; an options l
 
 The result starts with `Script completed` or `Script failed`, the wall time, and the output. Text and image items appear in order, each on its own line. When the output has more than one text item (from `text()` or `return`), each starts with a `==> text N/M <==` line. `console` calls follow in one `<console_output>` block with one line per call. A failed script keeps its partial output, followed by `Script error:` and the error. Tool calls are real: calls made before a failure are not undone. Calls still running when the script ends are cancelled, and unawaited promises are discarded.
 
+## Run in the background
+
+The tool input has two optional fields next to `code`:
+
+- `run_in_background: true` returns at once with `Script S1 (<description>) started in the background ...`; the script keeps running and its result arrives later as a message that starts a turn (a result over 8 KB goes to a file). The model is told to use it for commands that take more than about 30 seconds and whose result it does not need this turn (builds, full test suites, installs), never for a process that does not end (a dev server, watch mode, since its result would never come), and to have the script return a filtered result (failures, a summary) instead of the whole log.
+- `description` (a few words) names the script in the subagent panel and in its end message ("Script S1 (build and test) completed").
+
+A background script is listed in the panel and has a script screen (Enter on its row), see [The script screen](subagent.md#the-script-screen). The flag is ignored, and the call waits, when background runs are unavailable: the `subagent` extension is off, `subagent.backgroundScripts` is `false`, or xpi runs in print mode (`-p`). See [Background work](subagent.md#background-work).
+
 ## Globals
 
 | Global | Purpose |

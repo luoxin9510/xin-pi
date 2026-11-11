@@ -167,6 +167,8 @@ test("end message and script rows name the workflow", () => {
 			pinned: false,
 			agents: [],
 			phases: {},
+			calls: [],
+			logs: [],
 			startedAt: 0,
 		},
 		"completed",

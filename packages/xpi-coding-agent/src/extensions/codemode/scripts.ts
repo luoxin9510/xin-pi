@@ -21,6 +21,27 @@ export interface CodemodeScriptInfo {
 	sessionId: string;
 	startedAt: number;
 	state: CodemodeScriptState;
+	/** The `description` the model gave the call (a few words), when it did. */
+	description?: string;
+	/** The script's source, as the call gave it. */
+	code?: string;
+}
+
+/** What begins a script: the optional label and source the script screen shows. */
+export interface CodemodeScriptStart {
+	description?: string;
+	code?: string;
+}
+
+/**
+ * Whoever can take a script into the background and bring its result back (the subagent extension). `codemode` calls
+ * with `run_in_background` only move when one of these allows it for their session; otherwise they wait.
+ */
+export interface CodemodeBackgroundProvider {
+	/** The session this provider serves, undefined while it has none. */
+	sessionId(): string | undefined;
+	/** False while background scripts are off (a setting, or print mode). */
+	enabled(): boolean;
 }
 
 export interface CodemodeScriptEnd {
@@ -57,6 +78,10 @@ export interface CodemodeScripts {
 	/** Stop every running script of the session (session shutdown). */
 	stopAll(sessionId: string): Promise<void>;
 	subscribe(listener: CodemodeScriptListener): () => void;
+	/** Register a provider that takes scripts to the background. Returns the disposer. */
+	provideBackground(provider: CodemodeBackgroundProvider): () => void;
+	/** Whether a provider serves the session and is enabled: a `run_in_background` call is honoured. */
+	canBackground(sessionId: string): boolean;
 }
 
 const DEFAULT_BACKGROUND_TEXT = (id: string) =>
@@ -83,7 +108,17 @@ class CodemodeScriptRegistry implements CodemodeScripts {
 		{ info: CodemodeScriptInfo; move: (text?: string) => void; abort: () => void; settled: boolean }
 	>();
 	private readonly listeners = new Set<CodemodeScriptListener>();
+	private readonly providers = new Set<CodemodeBackgroundProvider>();
 	private counter = 0;
+
+	provideBackground(provider: CodemodeBackgroundProvider): () => void {
+		this.providers.add(provider);
+		return () => this.providers.delete(provider);
+	}
+
+	canBackground(sessionId: string): boolean {
+		return [...this.providers].some((p) => p.sessionId() === sessionId && p.enabled());
+	}
 
 	owner(nestedToolCallId: string): CodemodeScriptInfo | undefined {
 		return [...this.runs.values()].reverse().find((run) => nestedToolCallId.startsWith(`${run.info.toolCallId}/`))
@@ -124,7 +159,12 @@ class CodemodeScriptRegistry implements CodemodeScripts {
 	}
 
 	/** Called by `executeCodemode`: register a script that starts now. */
-	begin(toolCallId: string, sessionId: string, mainSignal: AbortSignal | undefined): CodemodeScriptRun {
+	begin(
+		toolCallId: string,
+		sessionId: string,
+		mainSignal: AbortSignal | undefined,
+		start: CodemodeScriptStart = {},
+	): CodemodeScriptRun {
 		const own = new AbortController();
 		const info: CodemodeScriptInfo = {
 			id: `S${++this.counter}`,
@@ -132,6 +172,8 @@ class CodemodeScriptRegistry implements CodemodeScripts {
 			sessionId,
 			startedAt: Date.now(),
 			state: "foreground",
+			...(start.description ? { description: start.description } : {}),
+			...(start.code === undefined ? {} : { code: start.code }),
 		};
 		const abortOwn = () => own.abort(mainSignal?.reason);
 		let resolveMoved!: (text: string) => void;
@@ -195,6 +237,7 @@ export function beginCodemodeScript(
 	toolCallId: string,
 	sessionId: string,
 	mainSignal: AbortSignal | undefined,
+	start?: CodemodeScriptStart,
 ): CodemodeScriptRun {
-	return registry.begin(toolCallId, sessionId, mainSignal);
+	return registry.begin(toolCallId, sessionId, mainSignal, start);
 }

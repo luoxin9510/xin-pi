@@ -32,7 +32,7 @@ import { combineUsage } from "../../core/usage-totals.ts";
 import { writeOutputFile } from "../../utils/output-files.ts";
 import { Bm25Ranker, createToolSearchDocument, DEFAULT_TOOL_SEARCH_LIMIT } from "../tool-search/tool.ts";
 import { codemodeAddons } from "./addons.ts";
-import { beginCodemodeScript } from "./scripts.ts";
+import { beginCodemodeScript, type CodemodeScriptInfo, codemodeScripts } from "./scripts.ts";
 import {
 	CODEMODE_DOCS_PATH,
 	CODEMODE_STORE_ENTRY_TYPE,
@@ -668,6 +668,12 @@ async function runCodemode(
 	};
 }
 
+/** What the model reads when its `run_in_background` call returns at once. */
+function backgroundText(script: CodemodeScriptInfo): string {
+	const what = script.description ? ` (${script.description})` : "";
+	return `Script ${script.id}${what} started in the background and keeps running. Its result arrives as a message when it ends. Do not wait or poll; end your turn or do other work.`;
+}
+
 /**
  * Run one script. The script is registered with `codemodeScripts`: a caller may move it to the background, which
  * returns this call early (`details.background`) while the script keeps running, detached from `signal` (the turn's
@@ -683,7 +689,12 @@ export async function executeCodemode(
 ): Promise<AgentToolResult<CodemodeToolDetails>> {
 	// Without a session there is nobody to move or stop the script.
 	if (!ctx) return runCodemode(toolCallId, input, signal, onUpdate, undefined, options);
-	const script = beginCodemodeScript(toolCallId, ctx.sessionManager.getSessionId(), signal);
+	const sessionId = ctx.sessionManager.getSessionId();
+	const description = input.description?.trim();
+	const script = beginCodemodeScript(toolCallId, sessionId, signal, {
+		...(description ? { description } : {}),
+		code: input.code,
+	});
 	let latest: CodemodeToolDetails = { calls: [] };
 	const run = runCodemode(
 		toolCallId,
@@ -707,6 +718,11 @@ export async function executeCodemode(
 			return "done" as const;
 		},
 	);
+	// `run_in_background` moves the script at once. It is ignored (the call waits) when nothing can take scripts to the
+	// background: subagent extension off, subagent.backgroundScripts: false, print mode.
+	if (input.run_in_background === true && codemodeScripts.canBackground(sessionId)) {
+		codemodeScripts.background(script.info.id, backgroundText(script.info));
+	}
 	const first = await Promise.race([finished, script.moved]);
 	if (first === "done") {
 		try {

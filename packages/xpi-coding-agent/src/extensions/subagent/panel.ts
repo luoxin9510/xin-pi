@@ -5,10 +5,11 @@
 import { isKeyRelease, matchesKey, truncateToWidth } from "xpi-tui";
 import type { ExtensionContext } from "../../core/extensions/types.ts";
 import type { Theme } from "../../modes/interactive/theme/theme.ts";
-import { type ScriptRecord, scripts } from "./background.ts";
+import { type ScriptRecord, scriptLabel, scripts } from "./background.ts";
 import { tint } from "./color.ts";
 import type { Config } from "./config.ts";
-import { COLORS, ICONS, label, registry, type SubagentRecord, type SubagentStatus } from "./registry.ts";
+import { COLORS, ICONS, label, registry, type SubagentRecord } from "./registry.ts";
+import { elapsed, openScriptScreen, scriptStatus } from "./script-screen.ts";
 import { stopEverything } from "./stop-all.ts";
 import { openSubagentScreen } from "./subagent-screen.ts";
 
@@ -16,6 +17,7 @@ export interface PanelOptions {
 	lingerMs: number; // finished rows drop out this long after they ended
 	viewable: boolean; // false for an in-memory session: subagents cannot be viewed, so no rows, only a notice
 	save?: (script: ScriptRecord) => void; // `s` on a script row: save it as a workflow
+	openScript?: (script: ScriptRecord) => void; // enter on a script row: its screen
 }
 
 // One selectable row: a script, or a subagent (indented when it belongs to a script row shown above it; `phase` is the
@@ -23,13 +25,6 @@ export interface PanelOptions {
 type Row =
 	| { kind: "script"; script: ScriptRecord }
 	| { kind: "agent"; record: SubagentRecord; indent: boolean; phase?: string };
-
-const scriptStatus = (s: ScriptRecord): SubagentStatus =>
-	s.state === "foreground" || s.state === "background" ? "running" : s.state;
-const elapsed = (ms: number) =>
-	ms < 60_000
-		? `${Math.floor(ms / 1000)}s`
-		: `${Math.floor(ms / 60_000)}m${String(Math.floor((ms % 60_000) / 1000)).padStart(2, "0")}s`;
 
 export class Panel {
 	private focused = false;
@@ -147,7 +142,8 @@ export class Panel {
 		else if (matchesKey(data, "down")) this.selected = Math.min(this.selected + 1, rows.length - 1);
 		else if (matchesKey(data, "enter")) {
 			const row = rows[this.selected]!;
-			if (row.kind === "agent") this.open(row.record); // a script has no screen
+			if (row.kind === "agent") this.open(row.record);
+			else this.options.openScript?.(row.script);
 		} else if (
 			matchesKey(data, "p") &&
 			rows[this.selected]?.kind === "script" &&
@@ -211,13 +207,20 @@ export class Panel {
 				const agents = s.agents.map((id) => registry.get(id)).filter((a) => a !== undefined);
 				const cost = agents.reduce((sum, a) => sum + a.usage.cost.total, 0);
 				const running = agents.filter((a) => a.status === "running").length;
+				const label = scriptLabel(s);
+				const call = s.calls.findLast((c) => c.status === "running");
 				parts = [
 					t.fg(COLORS[status], `${ICONS[status]} ${s.paused ? "paused" : s.state}`),
-					s.workflow ? `workflow ${s.workflow} (${s.id}${s.run ? `, ${s.run}` : ""})` : `script ${s.id}`,
-					t.fg("muted", `${running} agents running`),
-					t.fg("muted", elapsed((s.endedAt ?? Date.now()) - s.startedAt)),
-					t.fg("muted", `$${cost.toFixed(4)}`),
+					s.workflow
+						? `workflow ${s.workflow} (${s.id}${s.run ? `, ${s.run}` : ""})`
+						: label
+							? `${label} (${s.id})`
+							: `script ${s.id}`,
 				];
+				if (agents.length > 0) parts.push(t.fg("muted", `${running} agents running`));
+				parts.push(t.fg("muted", elapsed((s.endedAt ?? Date.now()) - s.startedAt)));
+				if (call) parts.push(t.fg("muted", `${call.name}${call.label ? ` ${call.label}` : ""}`));
+				if (agents.length > 0) parts.push(t.fg("muted", `$${cost.toFixed(4)}`));
 				if (s.saved) parts.push(t.fg("muted", `${s.saved} from saved results`));
 				if (s.log) parts.push(t.fg("muted", s.log));
 			} else {
@@ -301,6 +304,7 @@ export function installPanel(
 				{
 					lingerMs: config.panelLingerMs,
 					viewable,
+					openScript: (script) => void openScriptScreen(current, script),
 					...(save ? { save } : {}),
 				},
 			);

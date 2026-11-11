@@ -25,7 +25,7 @@
 - Use only erasable TypeScript syntax (Node strip-only mode) in code checked by the root config (`packages/*/src`, `packages/*/test`, `packages/xpi-coding-agent/examples`): no parameter properties, `enum`, `namespace`/`module`, `import =`, `export =`, or other constructs needing JS emit. Use explicit fields with constructor assignments.
 - Always ask before removing functionality or code that appears intentional.
 - Do not preserve backward compatibility unless the user asks for it.
-- Never hardcode key checks (e.g. `matchesKey(keyData, "ctrl+x")`). Add defaults to `DEFAULT_EDITOR_KEYBINDINGS` or `DEFAULT_APP_KEYBINDINGS` so they stay configurable. Exception: the subagent panel and subagent screen (`src/extensions/subagent/panel.ts`, `subagent-screen.ts`) use fixed keys, listed in `docs/subagent.md`; they act only while the panel or the screen has the keyboard.
+- Never hardcode key checks (e.g. `matchesKey(keyData, "ctrl+x")`). Add defaults to `DEFAULT_EDITOR_KEYBINDINGS` or `DEFAULT_APP_KEYBINDINGS` so they stay configurable. Exception: the subagent panel, subagent screen and script screen (`src/extensions/subagent/panel.ts`, `subagent-screen.ts`, `script-screen.ts`) use fixed keys, listed in `docs/subagent.md`; they act only while the panel or a screen has the keyboard.
 - Never modify `packages/xpi-ai/src/models.generated.ts` directly; update the catalog definitions in `packages/xpi-ai/catalog/` instead (see its README), then regenerate. Including the resulting `models.generated.ts` diff is always OK, even if regeneration includes unrelated upstream model metadata changes. The generated model data in `packages/xpi-ai/src/providers/data/` is gitignored: never stage it, and don't look for it in git history.
 
 ## Commands

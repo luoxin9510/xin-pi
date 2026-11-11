@@ -57,6 +57,6 @@ test("coloured rows, model and effort on the screen, and shift+x stops every run
 			(s) => s.includes("■ stopped · tinted(slow one)") && s.includes("■ stopped · tinted(slow two)"),
 			30_000,
 		);
-		await pi.waitFor("Background script S1 stopped", 30_000); // the script goes with its agents
+		await pi.waitFor(/Background script S1 (\([^)]*\) )?stopped/, 30_000); // the script goes with its agents
 	});
 });

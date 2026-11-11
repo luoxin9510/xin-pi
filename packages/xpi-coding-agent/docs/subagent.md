@@ -27,7 +27,8 @@ return [a.output, b.output].join("\n---\n");
 - Per-agent options: [Worktree isolation](#worktree-isolation), [Agent memory](#agent-memory), [MCP](#mcp),
   [Codemode-only children](#codemode-only-children)
 - Scripts: [Workflows](#workflows) (saved workflows, runs and relaunch, pause and resume)
-- Interactive xpi: [Watching and talking to subagents](#watching-and-talking-to-subagents) (the panel, the subagent screen)
+- Interactive xpi: [Watching and talking to subagents](#watching-and-talking-to-subagents) (the panel, the subagent screen,
+  the script screen)
 - Reference: [Config](#config), [Cost, caching and limits](#cost-caching-and-limits), [Development](#development),
   [Porting to another pi-based agent](#porting-to-another-pi-based-agent)
 
@@ -198,11 +199,20 @@ a file whose path the message gives (in the parent session's `subagents/<session
 | `false` | the script stays in the foreground (and is pinned there for its later calls), so main can use the result in the same turn |
 | `true` | the call returns `status: "running"` with its `agentId` at once and the script is not moved; main gets a message when that agent ends |
 
+**`run_in_background` on a `codemode` call** moves the script to the background as it starts, whether or not it starts an
+agent, with an optional `description` (a few words) that names it ("Script S1 (build and test) started in the background
+..."). Use it for a long command whose result main does not need this turn; the script should return a filtered result.
+See [Run in the background](codemode.md#run-in-the-background). With `subagent.backgroundScripts: false`, in print mode,
+or without this extension, the flag is ignored and the call waits.
+
 **ctrl+b** moves a running foreground script to the background (for example a slow script that starts no agent). It
 works only when the editor is empty; with text in the editor, or with no script running, ctrl+b stays cursor-left.
 
-**Panel.** Each background script is a row (`S1`, state, agents running, elapsed, cost) with its agents indented below.
-Finished rows linger like agent rows. `x` on a script row stops the script and all its agents (their calls return
+**Panel.** Each background script is a row with its agents indented below, for example
+`● background · build and test (S1) · 1m12s · bash npm test`: state, the script's name, elapsed time and the tool call it
+is running now. The name is its `description`, else its first `bash` command, else `script S1`; a workflow row reads
+`workflow <name> (S1, R2)`. The agent count (`N agents running`) and the cost appear only when the script has agents.
+Enter opens [the script screen](#the-script-screen). Finished rows linger like agent rows. `x` on a script row stops the script and all its agents (their calls return
 `failed` / "stopped by user"; main gets the usual end message with the state `stopped`). `x` on an agent row stops only
 that agent, and the script carries on. Several scripts can run at once; their agents share the `maxConcurrent` limit.
 
@@ -598,7 +608,7 @@ drops out; running rows stay. Only subagents that ran in this pi process show as
 |---|---|
 | `↓` on an empty editor | focus the panel |
 | `↓` / `↑` | move the selection (`↑` on the first row, or `Esc`, goes back to the editor) |
-| `Enter` | open the selected subagent's screen |
+| `Enter` | open the selected subagent's screen, or on a script row the [script screen](#the-script-screen) |
 | `x` | stop the selected subagent (nothing happens on a row that is not running) |
 | `r` | restart the selected running subagent: it starts over with the same task (see **Restart** under [The subagent screen](#the-subagent-screen)) |
 | `s` | on a script row: save the script as a workflow |
@@ -658,6 +668,30 @@ taken once. Changes the earlier start made to files stay.
 **`/model`.** Changes the model of that subagent's conversation. A running subagent switches at once; the choice is
 kept in its meta file for later exchanges. The agent definition file is not touched. Only models pi lists as available
 are accepted.
+
+### The script screen
+
+Enter on a script row opens the script's screen, for a background `codemode` script, a workflow run and a script that
+started agents alike. Like the subagent screen it covers the terminal, is a view only, and main keeps running underneath.
+The header shows the script's name, its id (and run id), its state and elapsed time. Below, in order:
+
+- **Calls**: the tool calls the script made, in order, with a status icon (`●` running, `✓` done, `✗` failed), the tool
+  and its main argument (the `bash` command, an `Agent` description, a path) and the duration. Agent calls show too.
+- **Log**: the script's `log()` lines.
+- **Code**: the script's source (the first 20 lines).
+- **Output of ...**: the live output of the call that runs now, else the last call: the last 200 lines it reported.
+- **Result**, **Error** or **Stopped**: what the script returned or threw, once it ended.
+
+It follows the live end and updates while the script runs. Calls and their output are kept in memory only, for the
+session: nothing is added to the session file, and a script row that dropped out of the panel is gone from the screen.
+
+| Key | Effect |
+|---|---|
+| `↑` / `↓`, `PgUp` / `PgDn`, `Home` / `End` | scroll (`End` follows the live end) |
+| `x` | stop the script (and its agents), like `x` on its row |
+| `Esc` | back to main |
+
+These keys are fixed, like the panel's and the subagent screen's.
 
 ## Config
 

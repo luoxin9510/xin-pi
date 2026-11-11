@@ -214,6 +214,10 @@ export default function subagent(pi: ExtensionAPI) {
 	});
 	pi.on("agent_start", track);
 	pi.on("agent_end", track);
+	// The tool calls a script makes are kept on its record, for the script screen.
+	pi.on("tool_execution_start", (event) => scripts.nested(event));
+	pi.on("tool_execution_update", (event) => scripts.nested(event));
+	pi.on("tool_execution_end", (event) => scripts.nested(event));
 
 	// Quit, reload, /new, resume and fork all emit session_shutdown before the runtime is torn down. Everything of this
 	// session still running in the background stops (agents end stopped, resumable) and main hears nothing about it.

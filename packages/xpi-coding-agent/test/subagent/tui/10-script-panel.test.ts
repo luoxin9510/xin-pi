@@ -20,22 +20,22 @@ test("a script with agents shows a script row with its agent indented; x on the 
 		pi.submit(AGENT_SCRIPT);
 		const v = await pi.waitFor(
 			(s) =>
-				/● background · script S1 · 1 agents running/.test(s) &&
+				/● background · (?:script S1|.+ \(S1\)) · 1 agents running/.test(s) &&
 				/running · general-purpose\(panel kid\) · [1-9]\d* turns · bash/.test(s),
 			90_000,
 		);
 		const lines = v.split("\n");
-		const script = lines.findIndex((l) => l.includes("script S1 ·"));
+		const script = lines.findIndex((l) => /(script S1|\(S1\)) ·/.test(l));
 		const agent = lines.findIndex((l) => l.includes("general-purpose(panel kid) ·"));
 		assert.ok(agent === script + 1, "the agent sits right below its script");
 		assert.ok(lines[agent]!.search(/\S/) > lines[script]!.search(/\S/), "and is indented");
 
 		pi.press("down");
-		await pi.waitFor((s) => /▸ .*● background · script S1/.test(s));
+		await pi.waitFor((s) => /▸ .*● background · (?:script S1|.+ \(S1\))/.test(s));
 		pi.type("x");
-		await pi.waitFor("Background script S1 stopped", 30_000);
+		await pi.waitFor(/Background script S1 (\([^)]*\) )?stopped/, 30_000);
 		await pi.waitFor(
-			(s) => s.includes("■ stopped · script S1") && /■ stopped · general-purpose\(panel kid\)/.test(s),
+			(s) => /■ stopped · (?:script S1|.+ \(S1\))/.test(s) && /■ stopped · general-purpose\(panel kid\)/.test(s),
 			20_000,
 		);
 	});
@@ -45,11 +45,11 @@ test("ctrl+b on an empty editor sends a slow foreground script to the background
 	await withPi({ lingerMs: 60000 }, async (pi) => {
 		await pi.waitFor("claude-haiku");
 		pi.submit(SLOW_SCRIPT);
-		await pi.waitFor((s) => /● foreground · script S1/.test(s), 60_000);
+		await pi.waitFor((s) => /● foreground · (?:script S1|.+ \(S1\))/.test(s), 60_000);
 		pi.press("ctrlB");
 		await pi.waitFor("moved to the background (id S1)", 30_000);
-		await pi.waitFor((s) => /● background · script S1/.test(s));
-		await pi.waitFor("Background script S1 completed", 60_000);
+		await pi.waitFor((s) => /● background · (?:script S1|.+ \(S1\))/.test(s));
+		await pi.waitFor(/Background script S1 (\([^)]*\) )?completed/, 60_000);
 		await pi.waitFor("chk:42");
 	});
 });
@@ -58,13 +58,13 @@ test("ctrl+b with text in the editor moves the cursor and does not background th
 	await withPi({ lingerMs: 60000 }, async (pi) => {
 		await pi.waitFor("claude-haiku");
 		pi.submit(SLOW_SCRIPT);
-		await pi.waitFor((s) => /● foreground · script S1/.test(s), 60_000);
+		await pi.waitFor((s) => /● foreground · (?:script S1|.+ \(S1\))/.test(s), 60_000);
 		pi.type("abc");
 		await pi.waitFor((s) => /^abc\s*$/m.test(s));
 		pi.press("ctrlB");
 		pi.type("X");
 		await pi.waitFor((s) => /^abXc\s*$/m.test(s));
-		assert.match(pi.viewport(), /● foreground · script S1/);
+		assert.match(pi.viewport(), /● foreground · (?:script S1|.+ \(S1\))/);
 		assert.ok(!pi.screen().includes("background (id S1)"), "the script stayed in the foreground");
 	});
 });
