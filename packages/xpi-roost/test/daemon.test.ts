@@ -349,6 +349,8 @@ describe("daemon", () => {
 			const log = readFileSync(join(home, "daemon.log"), "utf8");
 			expect(log, log).toMatch(/host did not stop, killing/);
 			expect(log).toContain(`"hostPid":${hostPid}`);
+			// the session is killed by the daemon, not only by the hangup a dead host's PTY sends it
+			expect(log).toContain(`"workerPid":${workerPid}`);
 		} finally {
 			try {
 				process.kill(hostPid, "SIGCONT");

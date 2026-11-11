@@ -521,7 +521,8 @@ export class AgentView implements Component {
 				clearInterval(this.resync);
 				this.client = undefined;
 				this.listed = false;
-				this.connectError = "reconnecting…";
+				// the title says it is reconnecting; an error line comes only if reconnecting fails
+				this.connectError = undefined;
 				this.render0();
 				setTimeout(() => void this.connect(), 500).unref?.();
 			});
@@ -2687,7 +2688,6 @@ export class AgentView implements Component {
 		// no groups before the first list: "0 working" and empty groups would say there are no sessions
 		const sections = this.everListed ? this.sections() : [];
 		const list = items(sections);
-		if (!this.everListed) out.push(t.fg("dim", truncateToWidth("connecting…", w)));
 		this.nameWidth = Math.max(
 			1,
 			Math.min(28, Math.floor(w / 3), Math.max(8, ...all.map((r) => visibleWidth(oneLine(r.name))))),

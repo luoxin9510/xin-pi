@@ -161,7 +161,8 @@ use.
    three seconds), without the job identity in its environment. Every second it checks the hosts. `shutdown` without
    `keepWorkers` (and `rm`) terminates hosts and waits six seconds; a host still there then is killed with SIGKILL, and
    its session with it, but only while the host's pid is still that host (its start token, or this daemon's child
-   before the token was read) and the session's is that host's child; the daemon log says so. `dispatch` refuses a
+   before the token was read) and the session's is that host's child; the daemon log says so. A session whose host
+   is already gone (an orphan) is not killed by the daemon. `dispatch` refuses a
    relative or missing directory, an empty command, a relative session file, and a file that is locked or already run
    by a job (`locked`); a taken name gets ` (2)`. Each job gets a random token, given to its worker by the host.
 9. **The command line** (`src/cli.ts`): `ls`/`list` (`--all`, `--cwd`, `--json`), `logs`, `log` (`-n`, `--follow`),
@@ -306,7 +307,7 @@ user-only keys. `roost.json` is not read.
 | Frame size | 16 MiB | `lib/framing.ts` `MAX_FRAME` |
 | Host scrollback | 1000 lines | `host/main.ts` |
 | Terminate | SIGTERM, then SIGKILL after 5 s | `host/main.ts` |
-| A stop waits for a host | 6 s, then SIGKILL | `daemon/main.ts` `WAIT_MS` |
+| A stop waits for a host | 6 s; then `shutdown` and `rm` SIGKILL it (a restart answers busy) | `daemon/main.ts` `WAIT_MS` |
 | Starting a daemon | 3 s of pings | `lib/client.ts` `connectOrStart` |
 | Host check | every 1 s | `daemon/main.ts` `checkHosts` |
 | Reaping check | every 30 s | `REAP_CHECK_MS` |
