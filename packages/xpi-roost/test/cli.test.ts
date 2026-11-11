@@ -384,6 +384,13 @@ describe("phase 2: xpi roost schedule", () => {
 		const json = await roost("schedule", "list", "--json");
 		expect(JSON.parse(json.out)[0]).toMatchObject({ name: "nightly", task: "check the build" });
 		await expect(DaemonClient.connect()).rejects.toThrow();
+		// a file that does not parse: said, and left for the daemon to move aside
+		writeFileSync(join(roostHome(agentDir), "schedules.json"), "[{");
+		const bad = await roost("schedule", "list");
+		expect(bad.code).toBe(0);
+		expect(bad.out).toBe("no schedules\n");
+		expect(bad.err).toContain("schedules.json could not be read");
+		expect(readFileSync(join(roostHome(agentDir), "schedules.json"), "utf8")).toBe("[{");
 	});
 
 	it("add, list, run, pause, resume, edit, rm through a real daemon", async () => {
@@ -435,6 +442,14 @@ describe("phase 2: xpi roost schedule", () => {
 		}[];
 		expect(json.find((x) => x.name === "nightly")?.task).toBe("check it all");
 		expect(json.find((x) => x.name === "ask")?.thinking).toBe("high");
+		// `default` drops the stored value: the launch is built with the settings' (none here)
+		launches = [];
+		await roost("schedule", "edit", "ask", "--model", "default", "--thinking", "default");
+		expect(launches).toEqual([
+			{ cwd: process.cwd(), task: "look", model: undefined, thinking: undefined, name: "ask" },
+		]);
+		const cleared = JSON.parse((await roost("schedule", "list", "--json")).out) as { name: string; model: unknown }[];
+		expect(cleared.find((x) => x.name === "ask")?.model).toBeNull();
 		expect((await roost("schedule", "rm", "mon")).out).toContain("removed · mon");
 		const gone = await roost("schedule", "run", "mon");
 		expect(gone.code).toBe(1);
@@ -444,7 +459,13 @@ describe("phase 2: xpi roost schedule", () => {
 	it("refuses bad input as usage; add refuses a missing directory", async () => {
 		const floor = await roost("schedule", "add", "x", "every", "1m", "task");
 		expect(floor.code).toBe(2);
-		expect(floor.err).toContain("every: five minutes at least");
+		// the message and a one-line hint, not the whole usage
+		expect(floor.err).toMatch(/^xpi roost: every: five minutes at least\nwhen: "every 30m".*\(xpi roost --help\)\n$/);
+		expect(floor.err).not.toContain("usage:");
+		const never = await roost("schedule", "add", "x", "cron", "0 9 31 2 *", "task");
+		expect(never.code).toBe(2);
+		expect(never.err).toContain("never matches");
+		expect((await roost("schedule", "add", "x", "hourly", "task")).err).not.toContain("usage:");
 		expect((await roost("schedule", "add", "x", "hourly", "task")).code).toBe(2);
 		expect((await roost("schedule", "add", "../x", "every", "1h", "task")).code).toBe(2);
 		expect((await roost("schedule", "add", "x", "every", "1h", "task", "--frob")).err).toContain(

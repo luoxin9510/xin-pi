@@ -3,6 +3,7 @@
  * tick that starts a run when its slot comes due (or once for missed slots, decision 4), the skips (decision 7), the
  * retention of ended runs (decision 6) and the ops. Ports are narrow; time is the Clock's.
  */
+import { randomUUID } from "node:crypto";
 import { type Clock, systemClock, type Timer } from "./clock.ts";
 import type { RoostEvent } from "./events.ts";
 import { OpError } from "./op.ts";
@@ -21,35 +22,51 @@ import {
 	scheduleRow,
 	type When,
 } from "./schedule.ts";
+import { taskArg } from "./store.ts";
 
 /** A run as the retention needs it. */
 export interface ScheduleRun {
 	id: string;
-	schedule: string;
+	/** The schedule's id (Schedule.id), not its name. */
+	scheduleId: string;
 	createdAt: number;
-	/** Done, failed or stopped, and not working, starting or waiting to restart. */
-	ended: boolean;
+	/**
+	 * "ended": done, failed or stopped, and not working, starting or waiting to restart, with no reply waiting.
+	 * "asking": it ended on a question and has no process (reaped or exited), no reply waiting, no restart waiting.
+	 * "running": anything else (working, a live worker that waits, a reply on its way).
+	 */
+	state: "ended" | "asking" | "running";
+	/** Its host still runs (an ended run whose worker waits idle until reaped). */
+	live: boolean;
 	pinned: boolean;
 }
 
 /** The jobs: sessions the daemon runs. */
 export interface SchedulesJobsPort {
 	/** Starts a run (its record carries the schedule's name). */
-	dispatch(launch: DispatchArgs, extra: { schedule: string }): Promise<{ id: string; name: string }>;
+	dispatch(
+		launch: DispatchArgs,
+		extra: { schedule: string; scheduleId: string },
+	): Promise<{ id: string; name: string }>;
 	/** Decision 7: whether a run is working, starting or waiting to restart after a crash (not one waiting for an answer). */
 	stillRunning(id: string | undefined): boolean;
 	/** The daemon is going down: a tick starts nothing. */
 	shuttingDown(): boolean;
-	/** Every job a schedule started (its record's `schedule`). */
+	/** Every job a schedule started (its record's `scheduleId`). */
 	runs(): ScheduleRun[];
+	/** Whether idle workers are stopped after a while (reapIdleMinutes): an ended run's live worker then goes by itself. */
+	reaping(): boolean;
 	/** Removes a job's record, as `rm` does. */
 	remove(id: string): Promise<void>;
 }
 
 /** The file the schedules live in (the daemon writes it atomically and durably under the roost's home). */
 export interface SchedulesStore {
+	/** The file's content; undefined when there is none; throws when it cannot be read or parsed. */
 	read(): unknown;
 	write(v: unknown): void;
+	/** Moves an unreadable file aside (so a save does not overwrite it); where it went. */
+	setAside(): string | undefined;
 }
 
 export interface SchedulesDeps {
@@ -108,37 +125,81 @@ export function createSchedules(deps: SchedulesDeps): Schedules {
 	const startingRuns = new Set<string>();
 	let ticker: Timer | null = null;
 	let pruning = false;
+	/** Entries of the file this daemon cannot run (bad, or from a newer xpi): written back as they were. */
+	const kept: unknown[] = [];
+	/** Why the file was not read (it was moved aside), for `schedules`. */
+	let problem: string | undefined;
 
 	function load(): void {
-		const saved = store.read();
-		if (!Array.isArray(saved)) return;
-		for (const s of saved as Schedule[]) {
+		let saved: unknown;
+		try {
+			saved = store.read();
+			if (saved !== undefined && !Array.isArray(saved)) throw new Error("not a list");
+		} catch (err) {
+			// never overwritten by the next save: moved aside, and the daemon starts with none
+			let where: string | undefined;
 			try {
-				if (!s || !SCHEDULE_NAME.test(s.name)) throw new Error("name");
+				where = store.setAside();
+			} catch (e) {
+				log("error", "schedules file not moved aside", { error: String(e) });
+			}
+			problem = `schedules.json could not be read (${(err as Error).message})${where ? `; it was moved to ${where}` : ""}; no schedules were loaded`;
+			log("warn", "schedules file unreadable", { error: String(err), movedTo: where ?? null });
+			return;
+		}
+		if (!Array.isArray(saved)) return;
+		let made = false;
+		for (const raw of saved) {
+			try {
+				if (schedules.size >= SCHEDULES_MAX) throw new Error(`${SCHEDULES_MAX} schedules at most`);
+				const s = structuredClone(raw) as Schedule;
+				if (!s || typeof s !== "object" || !SCHEDULE_NAME.test(s.name)) throw new Error("name");
+				if (schedules.has(s.name)) throw new Error(`a second schedule named ${s.name}`);
 				const when = parseWhen(s.when);
 				checkTemplate(s.launch);
 				checkTask(s.task);
 				// a file edited by hand: what is missing or not a number is made good
 				const now = clock.now();
+				if (typeof s.id !== "string" || !s.id) {
+					s.id = randomUUID();
+					made = true;
+				}
 				if (!Number.isFinite(s.createdAt)) s.createdAt = now;
 				if (!Number.isFinite(s.anchor)) s.anchor = s.createdAt;
 				s.paused = s.paused === true;
 				if (s.paused || "manual" in when) s.nextAt = null;
 				else if (!Number.isFinite(s.nextAt)) s.nextAt = nextRun(when, now, s.anchor);
-				if (schedules.size >= SCHEDULES_MAX) throw new Error(`${SCHEDULES_MAX} schedules at most`);
 				schedules.set(s.name, s);
 			} catch (err) {
-				log("warn", "schedule dropped", { name: s?.name, error: String(err) });
+				kept.push(raw);
+				log("warn", "schedule not loaded (kept in the file)", {
+					name: (raw as { name?: unknown } | null)?.name,
+					error: String(err),
+				});
 			}
 		}
+		if (made) save();
 	}
 
 	function save(): void {
 		try {
-			store.write([...schedules.values()]);
+			store.write([...schedules.values(), ...kept]);
 		} catch (err) {
 			log("error", "schedules not saved", { error: String(err) });
 		}
+	}
+
+	/** The task argument of a launch's command (after `--`), as `buildLaunch` writes it. */
+	function launchTask(l: DispatchArgs): string | undefined {
+		const i = l.command.indexOf("--");
+		return i >= 0 ? l.command[i + 1] : undefined;
+	}
+
+	/** A launch whose first prompt is not the schedule's task would run something the list does not show. */
+	function checkSameTask(l: DispatchArgs, task: string | undefined): void {
+		const arg = launchTask(l);
+		if (task === undefined ? arg !== undefined && arg !== "" : arg !== taskArg(task))
+			throw new OpError("bad_request", "launch: its task is not the schedule's task");
 	}
 
 	const row = scheduleRow;
@@ -162,8 +223,8 @@ export function createSchedules(deps: SchedulesDeps): Schedules {
 	 * run works, or when its directory, executable or entry is gone.
 	 */
 	async function run(s: Schedule, now: number, why: Why): Promise<string> {
-		if (startingRuns.has(s.name)) throw new OpError("busy", "a run of it is starting");
-		if (jobs.stillRunning(s.lastJob)) throw skip(s, now, STILL_WORKING, "busy");
+		// a run being started (run now, or a slot) is a previous run still working: a skip like any
+		if (startingRuns.has(s.name) || jobs.stillRunning(s.lastJob)) throw skip(s, now, STILL_WORKING, "busy");
 		const l = s.launch;
 		if (!deps.isDir(l.cwd)) throw skip(s, now, `directory not found: ${l.cwd}`, "bad_request");
 		const missing = l.command.slice(0, 2).find((p) => !deps.exists(p));
@@ -178,7 +239,7 @@ export function createSchedules(deps: SchedulesDeps): Schedules {
 		try {
 			const r = await jobs.dispatch(
 				{ ...runLaunch(l, runSlot(now)), name: s.name, requestId: undefined },
-				{ schedule: s.name },
+				{ schedule: s.name, scheduleId: s.id },
 			);
 			s.lastRunAt = now;
 			s.lastJob = r.id;
@@ -233,23 +294,34 @@ export function createSchedules(deps: SchedulesDeps): Schedules {
 		void prune().catch((err: unknown) => log("error", "schedule retention failed", { error: String(err) }));
 	}
 
-	/** Decision 6: the ended, unpinned runs past the newest RUNS_KEPT of each schedule go, as `rm` does. */
+	/**
+	 * Decision 6: of each schedule's ended, unpinned runs, the newest RUNS_KEPT stay; older ones go, as `rm` does. A run
+	 * that ended on a question counts as ended once it has no process, unless it is the schedule's last run. Only the
+	 * schedules there are: a removed schedule's runs stay until removed by hand. An old run whose worker still waits
+	 * idle goes once that worker has exited (idle reaping stops it), or at once when nothing reaps.
+	 */
 	async function prune(): Promise<void> {
 		if (pruning) return;
 		pruning = true;
 		try {
+			const byId = new Map<string, Schedule>();
+			for (const s of schedules.values()) byId.set(s.id, s);
 			const by = new Map<string, ScheduleRun[]>();
 			for (const r of jobs.runs()) {
-				if (!r.ended || r.pinned) continue;
-				const list = by.get(r.schedule) ?? [];
+				const s = byId.get(r.scheduleId);
+				if (!s || r.pinned) continue;
+				if (r.state === "running" || (r.state === "asking" && r.id === s.lastJob)) continue;
+				const list = by.get(s.id) ?? [];
 				list.push(r);
-				by.set(r.schedule, list);
+				by.set(s.id, list);
 			}
-			for (const [name, list] of by) {
+			const reaping = jobs.reaping();
+			for (const [id, list] of by) {
 				if (list.length <= RUNS_KEPT) continue;
 				list.sort((a, b) => b.createdAt - a.createdAt);
 				for (const r of list.slice(RUNS_KEPT)) {
-					log("info", "schedule run removed", { schedule: name, id: r.id });
+					if (r.live && reaping) continue;
+					log("info", "schedule run removed", { schedule: byId.get(id)?.name, id: r.id });
 					await jobs.remove(r.id);
 				}
 			}
@@ -283,19 +355,30 @@ export function createSchedules(deps: SchedulesDeps): Schedules {
 		const now = clock.now();
 		switch (name) {
 			case "schedules":
-				return { schedules: [...schedules.values()].sort((a, b) => a.name.localeCompare(b.name)).map(row) };
+				return {
+					schedules: [...schedules.values()].sort((a, b) => a.name.localeCompare(b.name)).map(row),
+					...(problem ? { problem } : {}),
+					...(kept.length > 0 ? { unread: kept.length } : {}),
+				};
 			case "schedule-add": {
 				const sname = args?.name;
 				if (typeof sname !== "string" || !SCHEDULE_NAME.test(sname))
 					throw new OpError("bad_request", "name: 1-40 of A-Z a-z 0-9 _ . -, starting with a letter or digit");
 				if (schedules.has(sname)) throw new OpError("exists", `a schedule named ${sname} exists (remove it first)`);
+				if (kept.some((k) => (k as { name?: unknown } | null)?.name === sname))
+					throw new OpError(
+						"exists",
+						`schedules.json has an entry named ${sname} this xpi cannot read (from a newer xpi, or edited by hand): pick another name`,
+					);
 				if (schedules.size >= SCHEDULES_MAX) throw new OpError("limit", `${SCHEDULES_MAX} schedules at most`);
 				const when = badRequest(() => parseWhen(String(args?.when ?? "")));
 				const task = badRequest(() => checkTask(args?.task));
 				badRequest(() => checkTemplate(args?.launch));
 				if (!deps.isDir(args.launch.cwd))
 					throw new OpError("bad_request", `cwd is not a directory: ${args.launch.cwd}`);
+				checkSameTask(args.launch, task);
 				const s: Schedule = {
+					id: randomUUID(),
 					name: sname,
 					when: String(args.when).trim().replace(/\s+/g, " "),
 					launch: args.launch,
@@ -321,6 +404,7 @@ export function createSchedules(deps: SchedulesDeps): Schedules {
 						"bad_request",
 						`a schedule's directory cannot change (${s.launch.cwd}): remove it and add it again there`,
 					);
+				checkSameTask(args.launch, task ?? s.task);
 				s.launch = args.launch;
 				if (task !== undefined) s.task = task;
 				if (when) {
@@ -341,6 +425,8 @@ export function createSchedules(deps: SchedulesDeps): Schedules {
 			}
 			case "schedule-pause": {
 				const s = get(args?.name);
+				// resuming one that is not paused changes nothing (its rhythm stays)
+				if (args?.paused !== true && !s.paused) return row(s);
 				s.paused = args?.paused === true;
 				// resumed: counted from now (an `every` does not fire at once for the time it was paused)
 				if (!s.paused) s.anchor = now;

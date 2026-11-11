@@ -146,13 +146,22 @@ records it as a `schedule` event (`who`: the schedule, `why`: `due`, `catch-up` 
 not as a `dispatch`. A slot missed by more than two ticks (the daemon was off, the machine
 slept) runs once as a `catch-up` if one fell within the last 7 days; `nextAt` then moves
 to the first slot after now. A slot is skipped while the schedule's last run is working,
-starting or waiting to restart after a crash (not while it waits for an answer); a
+starting (also a `schedule-run` still starting) or waiting to restart after a crash (not while it waits for an
+answer); a
 directory, executable or entry that is gone, or a start that fails, skips it too. A skip
 is kept in the schedule's `lastSkip` and recorded as a `schedule` event with `why: "skip"`
 and the reason in `text`. `schedule-run` starts a run at once, also for a paused or
 `manual` schedule, without moving `nextAt`; while the last run works it answers `busy`.
 The daemon keeps 3 ended, unpinned runs per schedule and removes older ones' records as
-`rm` does.
+`rm` does. A run that ended on a question counts as ended once it has no process, unless it
+is the schedule's last run; one with a reply or a restart waiting does not. Runs belong to a
+schedule by its id (a job record's `scheduleId`), so a schedule removed and added again
+under its name does not take the old runs. A rule that never matches a date is refused, and
+a launch whose task (the argument after `--`) is not the schedule's task is refused.
+
+When `schedules.json` cannot be read, the daemon moves it to `schedules.json.bad-<time>`,
+starts with none and says so in the `problem` of `schedules`. Entries it cannot run are kept
+in the file as they are (`unread` counts them).
 
 An older daemon answers these ops with `bad_request: unknown op` (the protocol version
 stays 1).
@@ -648,6 +657,8 @@ Result:
 | Field | Type | Required | |
 |---|---|---|---|
 | `schedules` | `ScheduleRow[]` | yes |  |
+| `problem` | `string` | no | The file could not be read when the daemon started: where it was moved; the daemon started with none. |
+| `unread` | `number` | no | Entries of the file this daemon cannot run (bad, or from a newer xpi): kept in the file as they are. |
 
 ### `schedule-add`
 

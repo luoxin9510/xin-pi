@@ -29,6 +29,11 @@ Haiku check when it changes what a session does, and the user docs for what it a
       Done: `xpi roost schedule list|add|run|pause|resume|edit|rm` in `src/cli.ts` (`list` uses `DaemonClient.connect()` and falls back to the file with a note on stderr); the wrapper's `scheduleLaunch` (`buildLaunch`, `sessionTrust(dir, [], undefined, agentDir)`, `launchSettings`, session dir from the env, else settings, else default, `argv` = executable and entry only); add/edit/run refuse with `ROOST_JOB_ID`; edit fetches the stored task/model/thinking and rebuilds the launch.
 - [x] S7 docs: `roost.md`, `cli.md`; tests per decision 15
       Done: `roost.md` (Schedules section, state file, "Not in this version"), `cli.md` (schedule rows, which commands start the daemon), `packages/xpi-roost/docs/protocol.md`. Tests per decision 15 except the real Haiku check and the hub/service ones (later PRs); new tests checked to fail with each guard removed.
+      Review round 1 (PR #76): runs that ended on a question count as ended once they have no process (not the latest);
+      runs matched by `scheduleId`; old runs with a live idle worker wait for reaping; an unreadable `schedules.json` is
+      moved to `.bad-<time>`, unknown entries kept; a cron rule that never matches refused; resume of a running schedule
+      a no-op; a slot during a starting run-now recorded as a skip; task and launch kept consistent; `--model default`
+      / `--thinking default`; rule errors print the message and a one-line hint; DST notes in roost.md.
 
 ## PR 2: schedules in the hub (branch `roost-schedules-hub`)
 

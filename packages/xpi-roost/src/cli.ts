@@ -119,6 +119,8 @@ usage:
 }
 
 class UsageError extends Error {}
+/** A value that is not good (a rule, a name, a task): its message and a one-line hint, not the whole usage. */
+class InputError extends Error {}
 
 // A finished turn still has a live worker to attach to; only the process matters.
 const isLive = (row: JobRow) => row.pid !== null;
@@ -378,17 +380,24 @@ export async function runRoostCli(argv: string[], opts: RoostCliOptions): Promis
 				if (client) {
 					try {
 						await warnOnce(client);
-						rows = (await client.request("schedules", {})).schedules;
+						const r = await client.request("schedules", {});
+						rows = r.schedules;
+						if (r.problem) note += `${r.problem}\n`;
+						if (r.unread)
+							note += `${r.unread} entr${r.unread === 1 ? "y" : "ies"} of schedules.json this xpi cannot run (from a newer xpi, or edited by hand) left as they are\n`;
 					} finally {
 						client.close();
 					}
 				} else {
-					const saved = readJson<unknown>(join(roostHome(), "schedules.json"));
+					const file = join(roostHome(), "schedules.json");
+					const saved = readJson<unknown>(file);
+					if (saved === undefined && existsSync(file))
+						note += "schedules.json could not be read; the daemon moves it aside when it starts\n";
 					rows = (Array.isArray(saved) ? (saved as Schedule[]) : [])
 						.filter((x) => x && typeof x.name === "string" && x.launch && typeof x.launch.cwd === "string")
 						.map(scheduleRow)
 						.sort((a, b) => a.name.localeCompare(b.name));
-					note =
+					note +=
 						"the background service is not running: no schedule runs until it does (any xpi roost command but daemon and schedule list starts it)\n";
 				}
 				if (json) stdout.write(`${JSON.stringify(rows, null, 2)}\n`);
@@ -402,22 +411,29 @@ export async function runRoostCli(argv: string[], opts: RoostCliOptions): Promis
 				const [name, ...words] = rest;
 				if (!name || words.length === 0) throw new UsageError("schedule add <name> <when> <task>");
 				if (!SCHEDULE_NAME.test(name))
-					throw new UsageError(
+					throw new InputError(
 						`not a schedule name: ${name} (a letter or digit, then up to 39 of A-Z a-z 0-9 _ . -)`,
 					);
 				const split = splitArgsWhen(words);
-				if (!split) throw new UsageError(`schedule add <name> <when> <task>; when: ${WHEN_HELP}`);
+				if (!split) throw new InputError(`not a rule: ${words.join(" ")}`);
 				const task = split.task;
 				if (!task.trim()) throw new UsageError("schedule add needs a task");
 				parseWhenOrUsage(split.when);
 				try {
 					checkTask(task);
 				} catch (err) {
-					throw new UsageError((err as Error).message);
+					throw new InputError((err as Error).message);
 				}
 				const cwd = resolvePath(values.cwd ?? process.cwd());
 				if (!isDirectory(cwd)) throw new DaemonError(`no directory ${cwd}`, "bad_request");
-				const launch = launchFor({ cwd, task, model: values.model, thinking: values.thinking, name });
+				const chosen = (v: string | undefined) => (v === "default" ? undefined : v);
+				const launch = launchFor({
+					cwd,
+					task,
+					model: chosen(values.model),
+					thinking: chosen(values.thinking),
+					name,
+				});
 				const row = await withDaemon((c) => c.request("schedule-add", { name, when: split.when, task, launch }));
 				stdout.write(`added · ${row.name} · ${row.when} · ${nextText(row)}\n`);
 				return;
@@ -436,7 +452,7 @@ export async function runRoostCli(argv: string[], opts: RoostCliOptions): Promis
 					try {
 						checkTask(values.task);
 					} catch (err) {
-						throw new UsageError((err as Error).message);
+						throw new InputError((err as Error).message);
 					}
 				}
 				const row = await withDaemon(async (c) => {
@@ -447,8 +463,9 @@ export async function runRoostCli(argv: string[], opts: RoostCliOptions): Promis
 					const launch = launchFor({
 						cwd: cur.cwd,
 						task,
-						model: values.model ?? cur.model ?? undefined,
-						thinking: values.thinking ?? cur.thinking ?? undefined,
+						// `default`: the stored one is dropped, the roost settings' (or xpi's) is used
+						model: values.model === "default" ? undefined : (values.model ?? cur.model ?? undefined),
+						thinking: values.thinking === "default" ? undefined : (values.thinking ?? cur.thinking ?? undefined),
 						name,
 					});
 					return c.request("schedule-edit", {
@@ -584,6 +601,12 @@ export async function runRoostCli(argv: string[], opts: RoostCliOptions): Promis
 				throw new UsageError(`unknown command: ${cmd}`);
 		}
 	} catch (err) {
+		if (err instanceof InputError) {
+			stderr.write(
+				`xpi roost: ${err.message}\nwhen: ${WHEN_HELP}; name: a letter or digit, then up to 39 of A-Z a-z 0-9 _ . - (xpi roost --help)\n`,
+			);
+			return 2;
+		}
 		if (err instanceof UsageError) {
 			stderr.write(`xpi roost: ${err.message}\n\n${usage}\n`);
 			return 2;
@@ -605,7 +628,7 @@ function parseWhenOrUsage(when: string): void {
 	try {
 		parseWhen(when);
 	} catch (err) {
-		throw new UsageError((err as Error).message);
+		throw new InputError((err as Error).message);
 	}
 }
 

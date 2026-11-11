@@ -380,7 +380,15 @@ export const ResultSchemas = {
 	rename: obj({ id: str(), name: str() }),
 	reorder: Empty,
 	events: obj({ events: arr(domain<RoostEvent>("RoostEvent", "An event of the feed (events.ts).")), cursor: num() }),
-	schedules: obj({ schedules: arr(ScheduleRowSchema) }),
+	schedules: obj({
+		schedules: arr(ScheduleRowSchema),
+		problem: opt(
+			str("The file could not be read when the daemon started: where it was moved; the daemon started with none."),
+		),
+		unread: opt(
+			num("Entries of the file this daemon cannot run (bad, or from a newer xpi): kept in the file as they are."),
+		),
+	}),
 	"schedule-add": ScheduleRowSchema,
 	"schedule-edit": ScheduleRowSchema,
 	"schedule-rm": obj({ name: str() }),

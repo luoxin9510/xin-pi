@@ -21,10 +21,11 @@ const T0 = Date.UTC(2026, 0, 5, 10, 0, 0);
 const XPI = "/opt/xpi/node";
 const CLI = "/opt/xpi/cli.js";
 
-const template = (over: Partial<DispatchArgs> = {}): DispatchArgs => ({
+/** A launch as buildLaunch makes one: its task after `--` (none: no task). */
+const template = (over: Partial<DispatchArgs> = {}, task?: string): DispatchArgs => ({
 	cwd: "/work",
 	sessionFile: "/sessions/{{run}}.jsonl",
-	command: [XPI, CLI, "--session", "/sessions/{{run}}.jsonl", "--no-approve", "--", "check"],
+	command: [XPI, CLI, "--session", "/sessions/{{run}}.jsonl", "--no-approve", ...(task ? ["--", task] : [])],
 	env: { PATH: "/made/here", KEY: "k1" },
 	name: "x",
 	origin: "dispatch",
@@ -41,10 +42,11 @@ function setup(opts: { initial?: unknown; tickMs?: number; startAt?: number; sto
 		write: (v) => {
 			saved = JSON.parse(JSON.stringify(v));
 		},
+		setAside: () => undefined,
 	};
 	const events: Omit<RoostEvent, "seq" | "at">[] = [];
 	const logs: Log[] = [];
-	const dispatched: { launch: DispatchArgs; extra: { schedule: string } }[] = [];
+	const dispatched: { launch: DispatchArgs; extra: { schedule: string; scheduleId: string } }[] = [];
 	const running = new Set<string>();
 	const runs: ScheduleRun[] = [];
 	const removed: string[] = [];
@@ -56,6 +58,7 @@ function setup(opts: { initial?: unknown; tickMs?: number; startAt?: number; sto
 		gate: null as Promise<void> | null,
 		n: 0,
 		tickThrows: false,
+		reaping: true,
 	};
 	const make = (): Schedules =>
 		createSchedules({
@@ -77,6 +80,7 @@ function setup(opts: { initial?: unknown; tickMs?: number; startAt?: number; sto
 				},
 				runs: () => runs.filter((r) => !removed.includes(r.id)),
 				remove: async (id) => void removed.push(id),
+				reaping: () => state.reaping,
 			},
 			store,
 			record: (e) => void events.push(e),
@@ -105,6 +109,7 @@ function setup(opts: { initial?: unknown; tickMs?: number; startAt?: number; sto
 }
 
 const saved = (over: Record<string, unknown> = {}) => ({
+	id: "id-nightly",
 	name: "nightly",
 	when: "every 1h",
 	launch: template(),
@@ -126,7 +131,7 @@ describe("Schedules: ops", () => {
 		const row = await s.op("schedule-add", {
 			name: "hourly",
 			when: " every  1h ",
-			launch: template({ model: "m1", thinking: "low" }),
+			launch: template({ model: "m1", thinking: "low" }, "check the build"),
 			task: "check the build",
 		});
 		expect(row).toEqual({
@@ -200,6 +205,10 @@ describe("Schedules: ops", () => {
 			code: "bad_request",
 			message: "cwd is not a directory: /nowhere",
 		});
+		await expect(add({ name: "g", task: "check", launch: template({}, "other") })).rejects.toMatchObject({
+			code: "bad_request",
+			message: "launch: its task is not the schedule's task",
+		});
 		await expect(add({ name: "f", task: "x".repeat(64 * 1024 + 1) })).rejects.toMatchObject({
 			code: "bad_request",
 			message: "task: 64 KiB at most",
@@ -238,7 +247,13 @@ describe("Schedules: ops", () => {
 			nextAt: T0 + 30 * M + H,
 		});
 		expect(t.saved()[0]).toMatchObject({ anchor: T0 + 30 * M, paused: false });
-		expect(await s.op("schedule-pause", { name: "hourly" })).toMatchObject({ paused: false });
+		// resuming one that is not paused changes nothing: its anchor and next run stay
+		t.advance(10 * M);
+		expect(await s.op("schedule-pause", { name: "hourly" })).toMatchObject({
+			paused: false,
+			nextAt: T0 + 30 * M + H,
+		});
+		expect(t.saved()[0]).toMatchObject({ anchor: T0 + 30 * M });
 		expect(await s.op("schedule-rm", { name: "hourly" })).toEqual({ name: "hourly" });
 		expect(t.saved()).toEqual([]);
 		expect(t.logs.at(-1)).toEqual({ level: "info", msg: "schedule removed", extra: { name: "hourly" } });
@@ -265,12 +280,12 @@ describe("Schedules: ops", () => {
 	it("edit: a new launch (environment too) and task; a new rule moves the anchor and nextAt; the directory stays", async () => {
 		const t = setup();
 		const s = t.make();
-		await s.op("schedule-add", { name: "e", when: "every 1h", launch: template(), task: "one" });
+		await s.op("schedule-add", { name: "e", when: "every 1h", launch: template({}, "one"), task: "one" });
 		t.advance(20 * M);
 		// no new rule: nextAt kept
 		const kept = (await s.op("schedule-edit", {
 			name: "e",
-			launch: template({ env: { PATH: "/edited", KEY: "k2" }, model: "m2" }),
+			launch: template({ env: { PATH: "/edited", KEY: "k2" }, model: "m2" }, "one"),
 		})) as Row;
 		expect(kept).toMatchObject({ task: "one", model: "m2", nextAt: T0 + H });
 		expect(t.saved()[0]!.launch.env).toEqual({ PATH: "/edited", KEY: "k2" });
@@ -279,7 +294,7 @@ describe("Schedules: ops", () => {
 			name: "e",
 			when: "every 2h",
 			task: "two",
-			launch: template(),
+			launch: template({}, "two"),
 		})) as Row;
 		expect(ruled).toMatchObject({ when: "every 2h", task: "two", nextAt: T0 + 20 * M + 2 * H });
 		expect(t.saved()[0]!.anchor).toBe(T0 + 20 * M);
@@ -293,9 +308,23 @@ describe("Schedules: ops", () => {
 			code: "bad_request",
 			message: "launch: missing",
 		});
+		// the task and the launch's first prompt stay one: a launch with another task is refused
+		await expect(s.op("schedule-edit", { name: "e", launch: template({}, "something else") })).rejects.toMatchObject({
+			code: "bad_request",
+			message: "launch: its task is not the schedule's task",
+		});
+		await expect(
+			s.op("schedule-edit", { name: "e", task: "three", launch: template({}, "two") }),
+		).rejects.toMatchObject({ message: "launch: its task is not the schedule's task" });
+		await expect(
+			s.op("schedule-edit", { name: "e", task: "x".repeat(64 * 1024 + 1), launch: template({}, "two") }),
+		).rejects.toMatchObject({ message: "task: 64 KiB at most" });
+		expect(t.saved()[0]!.task).toBe("two");
 		// a paused schedule's new rule leaves it paused
 		await s.op("schedule-pause", { name: "e", paused: true });
-		expect(await s.op("schedule-edit", { name: "e", when: "daily 03:00", launch: template() })).toMatchObject({
+		expect(
+			await s.op("schedule-edit", { name: "e", when: "daily 03:00", launch: template({}, "two") }),
+		).toMatchObject({
 			paused: true,
 			nextAt: null,
 		});
@@ -316,6 +345,7 @@ describe("Schedules: ops", () => {
 				write: () => {
 					throw new Error("disk full");
 				},
+				setAside: () => undefined,
 			},
 		});
 		const s = t.make();
@@ -337,7 +367,8 @@ describe("Schedules: runs", () => {
 		const r = await s.op("schedule-run", { name: "check" });
 		expect(r).toEqual({ name: "check", id: "job1" });
 		const d = t.dispatched[0]!;
-		expect(d.extra).toEqual({ schedule: "check" });
+		expect(d.extra).toEqual({ schedule: "check", scheduleId: t.saved()[0]!.id });
+		expect(t.saved()[0]!.id).toMatch(/^[0-9a-f-]{36}$/);
 		expect(d.launch).toMatchObject({
 			name: "check",
 			requestId: undefined,
@@ -420,9 +451,28 @@ describe("Schedules: runs", () => {
 		const res = await both;
 		expect(res.filter((r) => r.status === "fulfilled")).toHaveLength(1);
 		expect(res.find((r) => r.status === "rejected")).toMatchObject({
-			reason: { code: "busy", message: "a run of it is starting" },
+			reason: { code: "busy", message: STILL_WORKING },
 		});
 		expect(t.dispatched).toHaveLength(1);
+	});
+
+	it("a slot that comes while a run-now is still starting is skipped and recorded", async () => {
+		const t = setup({ initial: [saved({ nextAt: T0 + 10_000 })] });
+		const s = t.make();
+		let open!: () => void;
+		t.state.gate = new Promise<void>((r) => {
+			open = r;
+		});
+		const now = s.op("schedule-run", { name: "nightly" });
+		s.start();
+		t.advance(15_000);
+		await flush();
+		expect(t.saved()[0]!.lastSkip).toEqual({ at: T0 + 15_000, why: STILL_WORKING });
+		expect(t.events.at(-1)).toMatchObject({ why: "skip", text: STILL_WORKING });
+		open();
+		await now;
+		expect(t.dispatched).toHaveLength(1);
+		s.stop();
 	});
 
 	it("a dispatch that fails is said in lastSkip, logged and recorded; the next try is not held", async () => {
@@ -705,9 +755,10 @@ describe("Schedules: missed slots (decision 4)", () => {
 describe("Schedules: retention (decision 6)", () => {
 	const run = (id: string, createdAt: number, over: Partial<ScheduleRun> = {}): ScheduleRun => ({
 		id,
-		schedule: "nightly",
+		scheduleId: "id-nightly",
 		createdAt,
-		ended: true,
+		state: "ended",
+		live: false,
 		pinned: false,
 		...over,
 	});
@@ -719,65 +770,164 @@ describe("Schedules: retention (decision 6)", () => {
 			run("r2", 2),
 			run("r3", 3, { pinned: true }),
 			run("r4", 4),
-			run("r5", 5, { ended: false }),
+			run("r5", 5, { state: "running" }),
 			run("r6", 6),
 			run("r7", 7),
-			run("o1", 1, { schedule: "other" }),
 		);
 		const s = t.make();
 		s.start();
 		await flush();
-		// ended and unpinned: r7 r6 r4 kept, r2 r1 go; r3 (pinned), r5 (running) and the other schedule's stay
+		// ended and unpinned: r7 r6 r4 kept, r2 r1 go; r3 (pinned) and r5 (running) stay
 		expect(t.removed).toEqual(["r2", "r1"]);
 		s.stop();
 	});
 
 	it("a restarted run counts as running until it ends again", async () => {
 		const t = setup({ initial: [saved({ nextAt: T0 + D })] });
-		t.runs.push(run("r1", 1), run("r2", 2), run("r3", 3), run("r4", 4, { ended: false }));
+		t.runs.push(run("r1", 1), run("r2", 2), run("r3", 3), run("r4", 4, { state: "running" }));
 		const s = t.make();
 		s.start();
 		await flush();
 		expect(t.removed).toEqual([]);
-		t.runs[3]!.ended = true;
+		t.runs[3]!.state = "ended";
 		t.advance(15_000);
 		await flush();
 		expect(t.removed).toEqual(["r1"]);
 		s.stop();
 	});
+
+	it("runs that ended on a question and have no process count as ended, except the schedule's last run", async () => {
+		const t = setup({ initial: [saved({ nextAt: T0 + D, lastJob: "q5" })] });
+		t.runs.push(
+			run("q1", 1, { state: "asking" }),
+			run("q2", 2, { state: "asking" }),
+			run("q3", 3, { state: "asking" }),
+			run("q4", 4, { state: "asking" }),
+			run("q5", 5, { state: "asking" }),
+		);
+		const s = t.make();
+		s.start();
+		await flush();
+		// q5 is the last run (the list's Needs input): it stays and does not count; q4 q3 q2 kept, q1 goes
+		expect(t.removed).toEqual(["q1"]);
+		s.stop();
+	});
+
+	it("only the schedules there are, by id: a removed schedule's runs stay, a new one of its name does not take them", async () => {
+		const t = setup({ initial: [saved({ nextAt: T0 + D })] });
+		for (let i = 1; i <= 5; i++) t.runs.push(run(`r${i}`, i));
+		const s = t.make();
+		await s.op("schedule-rm", { name: "nightly" });
+		await s.op("schedule-add", { name: "nightly", when: "manual", launch: template() });
+		expect(t.saved()[0]!.id).not.toBe("id-nightly");
+		s.start();
+		await flush();
+		expect(t.removed).toEqual([]);
+		s.stop();
+	});
+
+	it("an old run whose worker still waits idle goes once it has exited; at once when nothing reaps", async () => {
+		const t = setup({ initial: [saved({ nextAt: T0 + D })] });
+		t.runs.push(run("r1", 1, { live: true }), run("r2", 2), run("r3", 3), run("r4", 4), run("r5", 5));
+		const s = t.make();
+		s.start();
+		await flush();
+		expect(t.removed).not.toContain("r1");
+		expect(t.removed).toEqual(["r2"]);
+		t.runs[0]!.live = false;
+		t.advance(15_000);
+		await flush();
+		expect(t.removed).toEqual(["r2", "r1"]);
+		s.stop();
+		const u = setup({ initial: [saved({ nextAt: T0 + D })] });
+		u.state.reaping = false;
+		u.runs.push(run("r1", 1, { live: true }), run("r2", 2), run("r3", 3), run("r4", 4));
+		const v = u.make();
+		v.start();
+		await flush();
+		expect(u.removed).toEqual(["r1"]);
+		v.stop();
+	});
 });
 
 describe("Schedules: start and the file", () => {
-	it("a bad entry in the file is dropped with a warning; the good ones stay", async () => {
-		const t = setup({
-			initial: [
-				saved({ name: "good" }),
-				saved({ name: "badwhen", when: "hourly" }),
-				saved({ name: "floor", when: "every 1m" }),
-				saved({ name: "badlaunch", launch: { cwd: "/work" } }),
-				saved({ name: "../evil" }),
-				null,
-			],
-		});
+	it("an entry this daemon cannot run is not loaded, logged, and kept in the file as it was", async () => {
+		const unknown = [
+			saved({ name: "badwhen", when: "hourly" }),
+			saved({ name: "floor", when: "every 1m" }),
+			saved({ name: "badlaunch", launch: { cwd: "/work" } }),
+			saved({ name: "../evil" }),
+			null,
+			{ name: "future", when: "fortnightly", launch: template(), something: "new" },
+		];
+		const t = setup({ initial: [saved({ name: "good" }), ...unknown] });
 		const s = t.make();
-		expect((await rows(s)).map((x) => x.name)).toEqual(["good"]);
+		const list = (await s.op("schedules", {})) as { schedules: Row[]; unread?: number };
+		expect(list.schedules.map((x) => x.name)).toEqual(["good"]);
+		expect(list.unread).toBe(6);
 		expect(t.logs.filter((l) => l.level === "warn").map((w) => w.extra?.name)).toEqual([
 			"badwhen",
 			"floor",
 			"badlaunch",
 			"../evil",
 			undefined,
+			"future",
 		]);
+		// a save writes them back unchanged
+		await s.op("schedule-pause", { name: "good", paused: true });
+		expect(t.saved().slice(1)).toEqual(unknown);
+		// a name one of them has is not taken
+		await expect(s.op("schedule-add", { name: "future", when: "manual", launch: template() })).rejects.toMatchObject({
+			code: "exists",
+			message: expect.stringContaining("cannot read"),
+		});
 	});
 
-	it("a file that is not a list is ignored; one with more than 50 keeps 50", async () => {
-		expect(
-			await setup({ initial: { schedules: [] } })
-				.make()
-				.op("schedules", {}),
-		).toEqual({ schedules: [] });
-		const t = setup({ initial: Array.from({ length: 52 }, (_, i) => saved({ name: `s${i}` })) });
-		expect(await rows(t.make())).toHaveLength(50);
+	it("a file that cannot be read or is not a list is moved aside, said in the list and the log; the daemon starts with none", async () => {
+		for (const read of [
+			() => {
+				throw new SyntaxError("Unexpected token } in JSON");
+			},
+			() => ({ schedules: [] }),
+		]) {
+			const asides: string[] = [];
+			let written: unknown;
+			const t = setup({
+				store: {
+					read,
+					write: (v) => {
+						written = v;
+					},
+					setAside: () => {
+						asides.push("x");
+						return "/home/schedules.json.bad-T";
+					},
+				},
+			});
+			const s = t.make();
+			const list = (await s.op("schedules", {})) as { schedules: Row[]; problem?: string };
+			expect(list.schedules).toEqual([]);
+			expect(list.problem).toMatch(
+				/^schedules\.json could not be read \(.+\); it was moved to \/home\/schedules\.json\.bad-T; no schedules were loaded$/,
+			);
+			expect(asides).toHaveLength(1);
+			expect(written).toBeUndefined();
+			expect(t.logs).toContainEqual(expect.objectContaining({ level: "warn", msg: "schedules file unreadable" }));
+		}
+	});
+
+	it("more than 50 in the file: 50 are loaded, the rest kept", async () => {
+		const t = setup({ initial: Array.from({ length: 52 }, (_, i) => saved({ name: `s${i}`, id: `id${i}` })) });
+		const s = t.make();
+		expect(await rows(s)).toHaveLength(50);
+		await s.op("schedule-pause", { name: "s0", paused: true });
+		expect(t.saved()).toHaveLength(52);
+	});
+
+	it("an entry without an id gets one, saved", async () => {
+		const t = setup({ initial: [{ name: "old", when: "every 1h", launch: template() }] });
+		t.make();
+		expect(t.saved()[0]!.id).toMatch(/^[0-9a-f-]{36}$/);
 	});
 
 	it("an entry edited by hand is made good: missing times, flags", async () => {

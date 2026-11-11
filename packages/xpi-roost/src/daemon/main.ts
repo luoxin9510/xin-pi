@@ -4,7 +4,7 @@
 // (client.ts), with its agent directory, state and runtime directories and the host's
 // entry in its environment.
 import { spawn } from "node:child_process";
-import { appendFileSync, chmodSync, existsSync, readFileSync, statSync, unlinkSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, readFileSync, renameSync, statSync, unlinkSync } from "node:fs";
 import { createRequire } from "node:module";
 import type { Server, Socket } from "node:net";
 import { createServer } from "node:net";
@@ -714,7 +714,10 @@ function isDir(p: string): boolean {
 const requestIdOf = (v: unknown): string | undefined =>
 	typeof v === "string" && /^[A-Za-z0-9_.:-]{1,64}$/.test(v) ? v : undefined;
 
-async function dispatch(a: DispatchArgs, extra: { schedule?: string } = {}): Promise<{ id: string; name: string }> {
+async function dispatch(
+	a: DispatchArgs,
+	extra: { schedule?: string; scheduleId?: string } = {},
+): Promise<{ id: string; name: string }> {
 	if (!a || typeof a !== "object") throw new OpError("bad_request", "missing args");
 	// M36: the same request again (its answer was lost): the job it made, not a second one
 	const rid = requestIdOf(a.requestId);
@@ -779,6 +782,7 @@ async function dispatch(a: DispatchArgs, extra: { schedule?: string } = {}): Pro
 		roostVersion: ROOST_VERSION,
 		...(rid ? { requestId: rid } : {}),
 		...(extra.schedule ? { schedule: extra.schedule } : {}),
+		...(extra.scheduleId ? { scheduleId: extra.scheduleId } : {}),
 	};
 	createJob(rec, {
 		state: "working",
@@ -1643,15 +1647,17 @@ function runStillWorking(id: string | undefined): boolean {
 	return st?.state === "working" && (roster.has(id) || typeof st.resumeAt === "number");
 }
 
-/** Decision 6: a run that has ended (and has nothing waiting to start it again). */
-function runEnded(id: string): boolean {
-	if (!recs.has(id) || runStillWorking(id) || stopping.has(id) || removing.has(id)) return false;
+/**
+ * Decision 6, for the retention: "ended" (done, failed or stopped, nothing waiting to start it again); "asking" (it
+ * ended on a question and has no process, no reply and no restart waiting); else "running".
+ */
+function runState(id: string): ScheduleRun["state"] {
+	if (!recs.has(id) || runStillWorking(id) || stopping.has(id) || removing.has(id)) return "running";
 	const st = readState(id);
-	return (
-		!!st &&
-		(st.state === "done" || st.state === "failed" || st.state === "stopped") &&
-		pendingReplies(id).length === 0
-	);
+	if (!st || pendingReplies(id).length > 0 || typeof st.resumeAt === "number") return "running";
+	if (st.state === "done" || st.state === "failed" || st.state === "stopped") return "ended";
+	if (st.state === "blocked" && !roster.has(id)) return "asking";
+	return "running";
 }
 
 const schedulesPath = join(roostHome(), "schedules.json");
@@ -1663,26 +1669,33 @@ const schedules = createSchedules({
 		runs: () => {
 			const out: ScheduleRun[] = [];
 			for (const r of recs.values()) {
-				if (!r.schedule) continue;
+				if (!r.scheduleId) continue;
 				out.push({
 					id: r.id,
-					schedule: r.schedule,
+					scheduleId: r.scheduleId,
 					createdAt: r.createdAt,
-					ended: runEnded(r.id),
+					state: runState(r.id),
+					live: roster.has(r.id),
 					pinned: readState(r.id)?.pinned === true,
 				});
 			}
 			return out;
 		},
+		reaping: () => (Number(roostEnv("REAP_MINUTES")) || settings().reapIdleMinutes) > 0,
 		remove: async (id) => {
 			// asked again: anything may have changed since the list
-			if (!runEnded(id) || readState(id)?.pinned === true) return;
+			if (runState(id) === "running" || readState(id)?.pinned === true) return;
 			await removeRecord(id);
 		},
 	},
 	store: {
-		read: () => readJson<unknown>(schedulesPath),
+		read: () => (existsSync(schedulesPath) ? JSON.parse(readFileSync(schedulesPath, "utf8")) : undefined),
 		write: (v) => writeJsonAtomic(schedulesPath, v),
+		setAside: () => {
+			const to = `${schedulesPath}.bad-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+			renameSync(schedulesPath, to);
+			return to;
+		},
 	},
 	record,
 	log,

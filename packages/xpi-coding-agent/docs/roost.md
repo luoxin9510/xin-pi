@@ -136,7 +136,7 @@ xpi roost schedule list
 | `xpi roost schedule list [--json]` | Every schedule: its rule, next run, last run (or why it was skipped), directory and task |
 | `xpi roost schedule run <name>` | Run it now, also when it is paused or `manual`; its next run does not move |
 | `xpi roost schedule pause <name>` / `resume <name>` | Stop and start its slots; a resumed `every` counts from now |
-| `xpi roost schedule edit <name> [--when <when>] [--task <task>] [--model <m>] [--thinking <t>]` | Change it; what you leave out keeps its value |
+| `xpi roost schedule edit <name> [--when <when>] [--task <task>] [--model <m>] [--thinking <t>]` | Change it; what you leave out keeps its value, and `--model default` or `--thinking default` goes back to the settings' |
 | `xpi roost schedule rm <name>` | Remove it; its runs stay in the list until you remove them |
 
 Rules are in local time:
@@ -153,7 +153,11 @@ Rules are in local time:
 Two runs are never less than five minutes apart: `every` under `5m` is refused, and so is a cron rule with two times
 of day under five minutes apart (`*/2 * * * *`, or `1,58 0,23 * * *`, whose 23:58 and 00:01 are three minutes apart). Names are a letter or
 digit, then up to 39 of letters, digits, `_`, `.` and `-`. A task is at most 64 KiB, and there are at most 50
-schedules.
+schedules. A cron rule that never matches a date (`0 9 31 2 *`) is refused.
+
+Clock changes follow local time: on the day clocks go back, a rule for a time in the repeated hour (`daily 01:30`)
+may run twice; on the day they go forward, one for a time in the skipped hour (`daily 02:30`) does not run that day.
+`every 1d` is 24 hours, so it moves by an hour against the clock across a change; `daily HH:MM` keeps the time.
 
 **What a run is.** A new session named after the schedule (`standup`, `standup (2)`), with a new session file in the
 session directory xpi would use for that folder; `xpi roost ls` shows it as `standup (2) ← standup`. It starts with
@@ -177,7 +181,16 @@ in the list waiting). A slot is also skipped when the directory is gone, or when
 
 **Old runs.** Each schedule keeps its three newest ended runs that are not pinned; older ones are removed as
 `xpi roost rm` would. Their session files stay, and `/resume` finds them when the schedule uses the default session
-directory. A run you start again by replying counts as running until it ends again.
+directory. A run that ended on a question counts as ended once its process is gone (it was reaped, or it exited),
+unless it is the schedule's latest run, which stays in the list as Needs input. A run you start again by replying, or
+one with a reply or a crash restart waiting, counts as running until it ends again. An old run whose worker still
+waits idle is removed once idle reaping has stopped it (at once when `reapIdleMinutes` is `0`). A removed schedule's
+runs stay until you remove them; a schedule added again under the same name does not take them over.
+
+**The schedules file.** The daemon keeps the schedules in `<agent dir>/xpi-roost/schedules.json`. When it cannot read
+the file, it moves it to `schedules.json.bad-<time>`, starts with none and says so in `schedule list` and its log.
+Entries it cannot run (edited by hand, or from a newer xpi) are left in the file as they are, and `schedule list`
+counts them.
 
 **Inside a background session**, `xpi roost schedule add`, `edit` and `run` refuse (the session's environment has
 `ROOST_JOB_ID`); `list`, `pause`, `resume` and `rm` work. This keeps a model from adding schedules by accident, not on

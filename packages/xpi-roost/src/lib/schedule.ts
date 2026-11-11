@@ -10,6 +10,8 @@ import type { DispatchArgs, ScheduleRow } from "./protocol.ts";
 export const RUN_SLOT = "{{run}}";
 
 export interface Schedule {
+	/** Who it is, for its runs: a schedule removed and added again under its name does not take the old runs. */
+	id: string;
 	name: string;
 	/** As the user wrote it (`every 2h`, `daily 09:00`, `cron 0 9 * * 1-5`). */
 	when: string;
@@ -194,6 +196,8 @@ export function parseWhen(text: string): When {
 	m = /^cron\s+(.+)$/i.exec(s);
 	if (m) {
 		const cron = parseCron(m[1]!.replace(/^["']|["']$/g, ""));
+		// a rule that never matches (31 February) would never run
+		if (nextCron(cron, Date.now()) === null) throw new Error("cron: this rule never matches a date");
 		const gap = closestMinutes(cron);
 		if (gap < 5)
 			throw new Error(`cron: two of its times are ${gap} minute${gap === 1 ? "" : "s"} apart; five at least`);

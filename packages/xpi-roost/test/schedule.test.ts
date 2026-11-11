@@ -91,6 +91,10 @@ describe("schedule rules", () => {
 		expect(show(nextRun(mon, at(2026, 11, 9, 9)))).toBe("2026-11-16 9:00 (1)");
 		expect("cron" in parseWhen('cron "0 9 * * 1"')).toBe(true);
 		expect(parseWhen("manual")).toEqual({ manual: true });
+		// a rule that never matches a date would never run
+		expect(() => parseWhen('cron "0 9 31 2 *"')).toThrow(/never matches/);
+		expect(() => parseWhen('cron "0 9 30 2 *"')).toThrow(/never matches/);
+		expect(() => parseWhen('cron "0 9 29 2 *"')).not.toThrow();
 		for (const bad of [
 			"every 0m",
 			"every 5s",

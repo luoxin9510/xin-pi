@@ -1,5 +1,14 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -9,7 +18,7 @@ import { TEST_DIR_PREFIX } from "../src/lib/orphans.ts";
 import { daemonSocketPath, jobDir } from "../src/lib/paths.ts";
 import { isAlive, processStartToken } from "../src/lib/proc.ts";
 import type { Event, JobRow } from "../src/lib/protocol.ts";
-import { listJobIds, readJob, readState } from "../src/lib/store.ts";
+import { listJobIds, readJob, readState, updateState } from "../src/lib/store.ts";
 
 const DAEMON = resolve("src/daemon/main.ts");
 const HOST = resolve("src/host/main.ts");
@@ -1209,7 +1218,7 @@ describe("DM-5: a crashed run carries on; a session whose host is gone ends", ()
 
 describe("phase 2: schedules in the daemon", () => {
 	/** A launch as the CLI builds one: an executable and an entry that exist, `{{run}}` in the session file. */
-	function launch(script: string) {
+	function launch(script: string, task?: string) {
 		const entry = join(work, "fake-xpi.sh");
 		writeFileSync(entry, `${script}\n`);
 		const sessionFile = join(work, "runs", "{{run}}.jsonl");
@@ -1217,7 +1226,7 @@ describe("phase 2: schedules in the daemon", () => {
 		return {
 			cwd: work,
 			sessionFile,
-			command: ["/bin/sh", entry, "--session", sessionFile, "--no-approve", "--", "the task"],
+			command: ["/bin/sh", entry, "--session", sessionFile, "--no-approve", ...(task ? ["--", task] : [])],
 			env: { PATH: process.env.PATH ?? "/usr/bin:/bin", SCHEDULE_KEY: "from-the-maker" },
 			name: "x",
 			origin: "dispatch" as const,
@@ -1235,7 +1244,7 @@ describe("phase 2: schedules in the daemon", () => {
 			name: "nightly",
 			when: "manual",
 			task: "the task",
-			launch: launch('echo "$SCHEDULE_KEY"; sleep 0.3'),
+			launch: launch('echo "$SCHEDULE_KEY"; sleep 0.3', "the task"),
 		});
 		expect(added).toMatchObject({ name: "nightly", when: "manual", nextAt: null, cwd: work });
 		// the store: the daemon's, 0600, environment kept
@@ -1338,5 +1347,76 @@ describe("phase 2: schedules in the daemon", () => {
 		expect((await runsOf(client, "due")).map((j) => j.id).sort()).toEqual([due.id, ...later.slice(1)].sort());
 		// logged as such
 		expect(readFileSync(join(home, "daemon.log"), "utf8")).toContain("schedule run removed");
+	});
+
+	it("retention on the real daemon: a run that ended on a question counts once it has no process, unless it is the last; a reply or a restart waiting keeps a run", async () => {
+		process.env.ROOST_SCHEDULE_TICK_MS = "100";
+		const { client } = await startDaemon();
+		await client.request("schedule-add", { name: "q", when: "manual", launch: launch("sleep 0.5") });
+		const asking = {
+			state: "blocked" as const,
+			status: "waiting" as const,
+			waitingFor: "question" as const,
+			summary: "which one?",
+			question: "which one?",
+			choices: [],
+			tool: null,
+			error: null,
+			name: null,
+			model: null,
+		};
+		/** A run that asks and then exits: blocked, no process. */
+		const askingRun = async () => {
+			const { id } = await client.request("schedule-run", { name: "q" });
+			await waitFor(async () => (await find(client, id))?.pid);
+			const w = await DaemonClient.connect();
+			clients.push(w);
+			await w.request("report", { id, token: readState(id)?.jobToken as string, report: asking });
+			await waitFor(async () => (await find(client, id))?.endedAt);
+			expect((await find(client, id))?.state).toBe("blocked");
+			return id;
+		};
+		const settle = () => new Promise((r) => setTimeout(r, 500));
+		const ids = [await askingRun(), await askingRun(), await askingRun(), await askingRun()];
+		await settle();
+		// three that are not the last: none goes (the last, waiting for its answer, does not count)
+		expect((await runsOf(client, "q")).map((j) => j.id).sort()).toEqual([...ids].sort());
+		ids.push(await askingRun());
+		await waitFor(async () => !(await find(client, ids[0]!)));
+		expect((await runsOf(client, "q")).map((j) => j.id).sort()).toEqual(ids.slice(1).sort());
+
+		// "d": runs that end done; a reply waiting or a restart waiting keeps a run out of the count
+		await client.request("schedule-add", { name: "d", when: "manual", launch: launch("true") });
+		const doneRun = async () => {
+			const { id } = await client.request("schedule-run", { name: "d" });
+			await waitFor(async () => (await find(client, id))?.state === "done");
+			return id;
+		};
+		const d = [await doneRun(), await doneRun()];
+		updateState(d[0]!, { resumeAt: Date.now() + 3600_000 });
+		updateState(d[1]!, { pendingReplies: [{ seq: 1, text: "later" }] });
+		d.push(await doneRun(), await doneRun());
+		await settle();
+		expect((await runsOf(client, "d")).length).toBe(4);
+		updateState(d[0]!, { resumeAt: undefined });
+		updateState(d[1]!, { pendingReplies: [] });
+		await waitFor(async () => !(await find(client, d[0]!)));
+		expect((await runsOf(client, "d")).map((j) => j.id).sort()).toEqual(d.slice(1).sort());
+	}, 40_000);
+
+	it("a schedules.json that does not parse is moved aside, not overwritten; the list and the log say so", async () => {
+		writeFileSync(join(home, "schedules.json"), '[{"name": "half');
+		const { client } = await startDaemon();
+		const r = await client.request("schedules", {});
+		expect(r.schedules).toEqual([]);
+		expect(r.problem).toMatch(
+			/^schedules\.json could not be read \(.+\); it was moved to .+schedules\.json\.bad-.+; no schedules were loaded$/,
+		);
+		const bad = readdirSync(home).filter((f) => f.startsWith("schedules.json.bad-"));
+		expect(bad).toHaveLength(1);
+		expect(readFileSync(join(home, bad[0]!), "utf8")).toBe('[{"name": "half');
+		await client.request("schedule-add", { name: "fresh", when: "manual", launch: launch("true") });
+		expect(readFileSync(join(home, bad[0]!), "utf8")).toBe('[{"name": "half');
+		expect(readFileSync(join(home, "daemon.log"), "utf8")).toContain("schedules file unreadable");
 	});
 });

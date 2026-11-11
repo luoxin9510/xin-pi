@@ -379,7 +379,7 @@ pseudo-terminals, so they keep running after the terminal that started them clos
 | `xpi roost schedule list [--json]` | The schedules with their rule, next run and last run or skip. Does not start a daemon: without one it reads the schedules from the state directory and says nothing runs until the daemon does |
 | `xpi roost schedule run <name>` | Run it now, also when paused or `manual`; refused while its previous run works |
 | `xpi roost schedule pause\|resume <name>` | Stop or start its slots |
-| `xpi roost schedule edit <name> [--when <when>] [--task <task>] [--model <m>] [--thinking <t>]` | Change it; the launch (environment, xpi, trust decision, session directory) is built again in this terminal, the directory stays |
+| `xpi roost schedule edit <name> [--when <when>] [--task <task>] [--model <m>] [--thinking <t>]` | Change it; the launch (environment, xpi, trust decision, session directory) is built again in this terminal, the directory stays; `default` as the model or thinking level goes back to the settings' |
 | `xpi roost schedule rm <name>` | Remove it; its runs stay listed |
 | `xpi roost daemon status` | The daemon's pid, version, socket directory and whether it can load node-pty; does not start a daemon |
 | `xpi roost daemon logs` | Print the daemon's log |
