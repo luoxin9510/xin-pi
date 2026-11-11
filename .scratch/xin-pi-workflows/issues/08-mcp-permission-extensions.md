@@ -2,7 +2,7 @@
 
 Spec: `../08-mcp-permission-extensions.md`. One branch per PR.
 
-**Status:** PR 1 in review
+**Status:** PR 1 merged (#57); PR 2 in review
 
 ## PR 1: inline MCP servers and `--mcp-config` (branch `subagent-inline-mcp`)
 
@@ -27,16 +27,18 @@ Spec: `../08-mcp-permission-extensions.md`. One branch per PR.
 
 ## PR 2: `permissionMode` (branch `subagent-permission-mode`)
 
-- [ ] T4 `definition.ts`: `permissionMode` parsed (`default`, `manual`, `acceptEdits`, `auto`, `dontAsk`,
+- [x] T4 `definition.ts`: `permissionMode` parsed (`default`, `manual`, `acceptEdits`, `auto`, `dontAsk`,
       `bypassPermissions`, `plan`); unknown value skips the file; values other than `plan` give one discovery warning;
       no longer inert
-- [ ] T5 `resolve.ts`: `plan` as an allowlist (`read`, `grep`, `find`, `ls`, `codemode` for codemode-only children,
+- [x] T5 `resolve.ts`: `plan` as an allowlist (`read`, `grep`, `find`, `ls`, `codemode` for codemode-only children,
       `StructuredOutput` with a schema; intersected with a `tools` list) plus `--exclude-tools`
       `write,edit,bash,powershell,mcp__*`; `mcpServers` ignored with a warning; memory read-only through
       `memoryReadOnly` with plan wording; read-only line in the prompt tail; `disallowedTools` still applies
-- [ ] Offline tests (argv for each combination: tools list, none, codemode-only, schema, memory, mcpServers), real
+- [x] Offline tests (argv for each combination: tools list, none, codemode-only, schema, memory, mcpServers), real
       Haiku: a `plan` agent asked to write a file cannot, and says so
-- [ ] Docs: `docs/subagent.md`
+- [x] Docs: `docs/subagent.md`
+- Implementation note: a direct-tools (`codemode: false`) plan child also gets `codemode` excluded, so the MCP extension
+  cannot turn it on and reach extension tools from scripts; a codemode-only plan child keeps it (spec: allowed).
 
 ## PR 3: `extensions` (branch `subagent-extensions`)
 

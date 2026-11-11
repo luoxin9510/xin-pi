@@ -25,7 +25,7 @@ return [a.output, b.output].join("\n---\n");
 - Calling agents: [The Agent tool](#the-agent-tool), [Background work](#background-work),
   [Structured output](#structured-output), [Names and SendMessage](#names-and-sendmessage), [Fork](#fork)
 - Per-agent options: [Worktree isolation](#worktree-isolation), [Agent memory](#agent-memory), [MCP](#mcp),
-  [Codemode-only children](#codemode-only-children)
+  [Permission mode plan](#permission-mode-plan), [Codemode-only children](#codemode-only-children)
 - Scripts: [Workflows](#workflows) (saved workflows, runs and relaunch, pause and resume)
 - Interactive xpi: [Watching and talking to subagents](#watching-and-talking-to-subagents) (the panel, the subagent screen)
 - Reference: [Config](#config), [Cost, caching and limits](#cost-caching-and-limits), [Development](#development),
@@ -82,7 +82,8 @@ continued on indented lines is still invalid: quote it or use a `|` block.
 | `memory` | `user`, `project` or `local` gives the agent a persistent directory. See [Agent memory](#agent-memory). |
 | `mcpServers` | MCP servers for this agent: names of servers configured in `mcp.json`, inline definitions (a mapping with the server name as key, in `mcp.json`'s shape), or a list mixing both. The agent gets those servers' tools and no other server's; `[]` means no MCP. An unknown name warns in the result. See [MCP](#mcp). |
 | `background` | `true`: a call for this agent without `run_in_background` returns at once with `status: "running"`, and the result arrives as a message. The call's own `run_in_background` wins; print mode waits. |
-| `autoCompactWindow`, `permissionMode`, `hooks`, `initialPrompt`, `experimental` | Accepted, no effect; the warning says why (xpi compacts by reserve tokens, has no permission modes and no hooks, and has no agent-as-main-session for `initialPrompt`). |
+| `permissionMode` | `plan` makes the agent read-only; see [Permission mode plan](#permission-mode-plan). Claude Code's other values (`default`, `manual`, `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`) are accepted and change nothing: xpi never asks for permission, so they run as `bypassPermissions` (one warning at discovery). Any other value skips the file. |
+| `autoCompactWindow`, `hooks`, `initialPrompt`, `experimental` | Accepted, no effect; the warning says why (xpi compacts by reserve tokens, has no hooks, and has no agent-as-main-session for `initialPrompt`). |
 
 ### An agent file or a skill
 
@@ -405,6 +406,25 @@ mcpServers:
   before the system prompt.
 - A child has no UI, so an inline HTTP server cannot run an OAuth sign-in. It uses what `mcp.json` would: `headers`, or
   tokens `/mcp` already stored for a server with the same name and URL.
+
+## Permission mode plan
+
+`permissionMode: plan` is Claude Code's read-only exploration mode. xpi has no permission prompts, so it is done with
+the child's tools:
+
+- The agent gets `read`, `grep`, `find` and `ls` (and `codemode` when it is codemode-only, `StructuredOutput` for a
+  call with `schema`). A `tools` list narrows that set: `tools: Read, Write, Grep` gives `read` and `grep`. If nothing
+  is left, the call fails with "has no usable tools".
+- `write`, `edit`, `bash`, `powershell` and every MCP tool (`mcp__*`) are excluded, so they never register and a
+  codemode script cannot reach them either. MCP tools are out because they can change things; `mcpServers` is ignored
+  with a warning at discovery.
+- `disallowedTools` still applies.
+- Agent [memory](#agent-memory) is read-only: the prompt says so, and no write tool comes with it.
+- The prompt tail tells the agent it is a read-only planning agent.
+
+Tools that extensions register in the child are not policed: an extension is the agent author's own code. A
+codemode-only child can call such a tool from a script when its exposure is `codemode` or `deferred`. (Fork does not
+read agent fields, so `plan` does not apply to it.)
 
 ## Codemode-only children
 

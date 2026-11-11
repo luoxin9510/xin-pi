@@ -10,6 +10,19 @@ export type Effort = (typeof EFFORTS)[number];
 export const AGENT_COLORS = ["red", "blue", "green", "yellow", "purple", "orange", "pink", "cyan"] as const;
 export type AgentColor = (typeof AGENT_COLORS)[number];
 
+// Claude Code's permission modes (`manual` is an alias for `default`). xpi never asks for permission, so every mode but
+// `plan` runs as `bypassPermissions` does; `plan` makes the agent read-only (resolve.ts).
+export const PERMISSION_MODES = [
+	"default",
+	"manual",
+	"acceptEdits",
+	"auto",
+	"dontAsk",
+	"bypassPermissions",
+	"plan",
+] as const;
+export type PermissionMode = (typeof PERMISSION_MODES)[number];
+
 // Where a definition came from: a project's .pi/agents or .claude/agents, the user's (~/.pi/agent/agents,
 // ~/.claude/agents), `--agents`, or the built-ins. Inline MCP servers of a `project` agent load only in a trusted project.
 export type AgentScope = "project" | "user" | "cli" | "builtin";
@@ -30,6 +43,7 @@ export interface AgentDefinition {
 	memory?: "user" | "project" | "local"; // persistent memory directory (Claude Code's paths)
 	isolation?: "worktree"; // run in its own git worktree (the Agent call's isolation wins)
 	background?: boolean; // true: a call without run_in_background runs this agent in the background
+	permissionMode?: PermissionMode; // only "plan" changes anything: read-only tools, no MCP, read-only memory
 	// Names of MCP servers (configured in mcp.json, or defined inline): the agent gets their tools and no other server's.
 	mcpServers?: string[];
 	// The inline definitions among them, by name (validated as mcp.json entries); the child gets them with --mcp-config.
@@ -46,7 +60,6 @@ export type ParseResult = { ok: true; def: AgentDefinition } | { ok: false; reas
 // Claude Code fields with no effect here, and why.
 const INERT_REASONS: Record<string, string> = {
 	autoCompactWindow: "xpi compacts by reserve tokens (the compaction.* settings), not by a window size",
-	permissionMode: "xpi has no permission modes",
 	hooks: "xpi has no hooks; extensions do that work",
 	initialPrompt: "it applies to an agent run as the main session, which xpi does not have",
 	experimental: "it is ignored by Claude Code too",
@@ -202,7 +215,22 @@ export function definitionFromFields(
 		if (rawColor !== undefined && rawColor !== null && color === undefined) {
 			warnings.push(`unknown color ${JSON.stringify(rawColor)} ignored (use ${AGENT_COLORS.join(", ")})`);
 		}
-		const servers = mcpServersField(f.mcpServers, scope, warnings);
+		const permissionMode = optional<PermissionMode>(
+			f.permissionMode,
+			"permissionMode",
+			(v) => PERMISSION_MODES.includes(v as PermissionMode),
+			PERMISSION_MODES.join(" | "),
+		);
+		if (permissionMode !== undefined && permissionMode !== "plan") {
+			warnings.push(
+				`permissionMode "${permissionMode}" has no effect: xpi never asks for permission; runs as bypassPermissions`,
+			);
+		}
+		const plan = permissionMode === "plan";
+		if (plan && f.mcpServers !== undefined && f.mcpServers !== null) {
+			warnings.push('mcpServers is ignored with permissionMode "plan": MCP tools can change things');
+		}
+		const servers = plan ? {} : mcpServersField(f.mcpServers, scope, warnings);
 		const def: AgentDefinition = {
 			name,
 			description: f.description.trim(),
@@ -234,6 +262,7 @@ export function definitionFromFields(
 			),
 			isolation: optional<"worktree">(f.isolation, "isolation", (v) => v === "worktree", "worktree"),
 			background: optional<boolean>(f.background, "background", (v) => typeof v === "boolean", "true or false"),
+			...(permissionMode !== undefined ? { permissionMode } : {}),
 			mcpServers: servers.names,
 			...(servers.inline ? { inlineMcpServers: servers.inline } : {}),
 			source,

@@ -1,6 +1,7 @@
 // Spec 05 on real haiku: `mcpServers` in an agent file narrows the child's MCP tools to the named servers, and
 // `background: true` makes a plain call return at once with the result arriving as a message.
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -69,6 +70,23 @@ test("an inline mcpServers definition: the child starts the server and the agent
 	assert.equal(r.status, "completed", r.error ?? "");
 	assert.deepEqual(r.warnings, []);
 	assert.match(r.output, /zebra-4417/);
+});
+
+// Spec 08: permissionMode plan leaves the child no tool that writes, from a script either.
+test("permissionMode plan: asked to write a file, the agent cannot, and says so", async () => {
+	const s = sandbox();
+	s.write(join(s.repo, ".pi/agents/x.md"), agentFile("name: x\ndescription: d\npermissionMode: plan"));
+	const t = await loadTool({}, { cwd: s.repo, persist: join(s.root, "sessions") });
+	const r = await t.result({
+		subagent_type: "x",
+		prompt:
+			"Create the file out.txt in the working directory with the content hi. If you have no way to create it, reply with the single word CANNOT.",
+	});
+	assert.equal(r.status, "completed", r.error ?? "");
+	assert.ok(!existsSync(join(s.repo, "out.txt")), "the file was not written");
+	assert.match(r.output, /CANNOT/);
+	const tools = childSetup(t.sessionDir!, r.agentId).tools;
+	for (const name of ["write", "edit", "bash"]) assert.ok(!tools.includes(name), `${name} in ${tools}`);
 });
 
 test("background: true returns at once; the result arrives as a message", async () => {
