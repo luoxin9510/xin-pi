@@ -3,7 +3,17 @@
 // registers (it answers "echo: <the prompt>"), so nothing reaches a provider.
 // - `xpi roost hub`: start a session, peek, reply, attach, detach, stop and delete; a shell command; Ctrl+C twice exits.
 // - A foreground xpi: the left arrow on its empty prompt hands the conversation to the daemon and opens the hub on it.
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import xterm from "@xterm/headless";
@@ -83,7 +93,16 @@ afterEach(async () => {
 				}),
 			]);
 			clearTimeout(timer);
-			if (!ended()) proc.kill("SIGKILL");
+			if (ended()) return;
+			// a killed xpi has ended only when node-pty says so: until then it may still start a daemon or write
+			proc.kill("SIGKILL");
+			await Promise.race([
+				done,
+				new Promise<void>((r) => {
+					timer = setTimeout(r, 2_000);
+				}),
+			]);
+			clearTimeout(timer);
 		}),
 	);
 	// this agent directory's daemon, and its sessions with it
@@ -119,9 +138,61 @@ afterEach(async () => {
 		if (saved.home === undefined) delete process.env.ROOST_HOME;
 		else process.env.ROOST_HOME = saved.home;
 	}
-	// a session the daemon ran may still be writing as it ends
-	rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
-}, 30_000);
+	await removeWhenQuiet(root);
+	// waiting for xpi (5 s), the daemon and its jobs (10 s) and the removal (15 s): more than 30 s at worst
+}, 45_000);
+
+/**
+ * Remove the test's directory, retrying for 15 s while something still writes into it. When it takes over a second the
+ * test warns, and when it cannot the error says, what is left in it and which processes may be writing (in CI a writer
+ * that should have ended is a finding even when the removal succeeds in the end).
+ */
+async function removeWhenQuiet(dir: string): Promise<void> {
+	const started = Date.now();
+	const deadline = started + 15_000;
+	let report = "";
+	for (;;) {
+		try {
+			rmSync(dir, { recursive: true, force: true });
+			if (report) console.warn(`removing ${dir} took ${Date.now() - started} ms; what was in it then:\n${report}`);
+			return;
+		} catch (err) {
+			const code = (err as NodeJS.ErrnoException).code;
+			if (code !== "ENOTEMPTY" || Date.now() > deadline) {
+				throw new Error(`${(err as Error).message}\n${whatIsLeft(dir)}`);
+			}
+			if (!report && Date.now() - started > 1_000) report = whatIsLeft(dir);
+			await new Promise((r) => setTimeout(r, 200));
+		}
+	}
+}
+
+/** The files left in dir (size, modification time) and the processes that may write there, both bounded. */
+function whatIsLeft(dir: string): string {
+	const left: string[] = [];
+	const walk = (d: string) => {
+		for (const name of existsSync(d) ? readdirSync(d) : []) {
+			if (left.length >= 80) return;
+			const p = join(d, name);
+			try {
+				const st = statSync(p);
+				left.push(
+					`${p.slice(dir.length)} ${st.isDirectory() ? "dir" : st.size} ${new Date(st.mtimeMs).toISOString()}`,
+				);
+				if (st.isDirectory()) walk(p);
+			} catch {
+				// gone meanwhile
+			}
+		}
+	};
+	walk(dir);
+	const ps = spawnSync("ps", ["-eo", "pid,ppid,etime,args"], { encoding: "utf8" }).stdout ?? "";
+	const procs = ps
+		.split("\n")
+		.filter((l) => l.includes(dir) || /roost-(daemon|host)\.js|bundle\/cli\.js/.test(l))
+		.slice(0, 40);
+	return `left in it (${new Date().toISOString()}):\n${left.join("\n")}\nprocesses:\n${procs.join("\n")}`;
+}
 
 /**
  * The host and session pids of the jobs still running. An ended job's files keep pids the system may since have given
