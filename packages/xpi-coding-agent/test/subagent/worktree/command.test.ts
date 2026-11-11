@@ -84,7 +84,7 @@ test("declining the confirm, or cancelling the picker, removes nothing; an uncha
 	assert.equal(declined.seen.selects.length, 2, "after a declined confirm the list comes back");
 	assert.ok(existsSync(changed.path) && existsSync(idle.path));
 	const rows = declined.seen.selects[0]!.options;
-	const idleIndex = rows.findIndex((r) => r.includes("i1"));
+	const idleIndex = rows.findIndex((r) => r.startsWith("i1 · ")); // not includes: the temp dir in each row may contain "i1"
 	assert.match(rows[idleIndex]!, /no changes/);
 	const unchanged = fakeCtx(dir, [idleIndex, undefined], [true]);
 	await worktreesCommand(unchanged.ctx);
