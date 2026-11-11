@@ -59,7 +59,7 @@ usage:
   xpi roost stop <id|name>         stop it
   xpi roost rm <id|name>           stop it and delete its record
   xpi roost respawn <id|name>      start an ended session again (or restart a live one)
-  xpi roost respawn --all          restart live and reaped sessions (after an upgrade)
+  xpi roost respawn --all          restart running xpi sessions (after an upgrade)
   xpi roost daemon status|logs|stop [--keep-workers]
   xpi roost hub [dir]              the hub: every session, peek, reply, attach, start new ones
                                    (new sessions start in dir, default the current one)`;

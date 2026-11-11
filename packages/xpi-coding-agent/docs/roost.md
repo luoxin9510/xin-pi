@@ -76,7 +76,7 @@ session file. It does not start the daemon's session when roost cannot run here;
 | `xpi roost reply <id\|name> <text>` | Send a reply. A working session gets it as a follow-up once its turn ends; an idle one starts a turn |
 | `xpi roost attach <id\|name>` | Open the session's TUI in this terminal |
 | `xpi roost stop <id\|name>` / `rm <id\|name>` | Stop it; `rm` also deletes its record |
-| `xpi roost respawn <id\|name>` | Start an ended session again, or restart a running one; `--all` restarts every running and reaped one |
+| `xpi roost respawn <id\|name>` | Start an ended session again, or restart a running xpi session (a running shell session is left alone); `--all` restarts every running xpi session, and reaped ones load the new code when they start again |
 
 A session is named by its id, a unique prefix of it, or its name. The full list, with the daemon's own commands, is in
 [CLI](cli.md#background-session-commands).
@@ -153,7 +153,7 @@ it is doing or its last result, its model and context use, what it spent, and it
 | Alt+1…9 | Attach to row N of this directory |
 | Ctrl+S | Group by state or by directory (saved to your settings; the hub says when it cannot write them) |
 | Ctrl+F, `s:` `n:` `o:` | Filter by name, state or result |
-| Ctrl+L, Ctrl+P, Shift+Tab | The model for new sessions (in a peek: for that session), the next enabled model (Shift+Ctrl+P: the previous one), the next thinking level |
+| Ctrl+L, Ctrl+P, Shift+Tab | The model for new sessions (Ctrl+L in a peek: for that session), the next enabled model (Shift+Ctrl+P: the previous one), the next thinking level; Ctrl+P and Shift+Tab only outside a peek |
 | Tab | Complete: `/` the commands, `@` paths |
 | Ctrl+G, Ctrl+J | Write the task or reply in `$VISUAL` / `$EDITOR`; a new line |
 | ? | All keys |
@@ -183,7 +183,7 @@ The hub uses your keybindings for the detach key only; its other keys are fixed 
 |---|---|
 | `/bg [prompt]` (also `/background`) | Hand this conversation to the daemon and open the hub on it; you get a fresh session here |
 | `/bg-fork [prompt]` | Copy this conversation into a new background session; this one carries on |
-| the left arrow on an empty prompt | `/bg`; with no saved conversation yet, it just opens the hub |
+| the left arrow on an empty prompt | `/bg`; with no saved conversation yet, it just opens the hub (while the first turn still runs, `/bg` asks you to wait for the first reply) |
 
 When a turn is running, `/bg` waits up to ten seconds for a running tool to finish (the left arrow again skips the
 wait), interrupts the turn, and the session continues in the background with "Continue where you left off." and your

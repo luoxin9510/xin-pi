@@ -192,9 +192,10 @@ of the environment (`worker.ts`), so the tools the session runs do not inherit i
 3. **The daemon's `report`**: checks the token, binds the connection as the job's worker, clips every field.
 4. **How a session ends** (`finalize`): a shell job ends done on exit status 0, else failed, and its row goes after
    five minutes. A reaped session keeps its state, marked reaped. A stop → stopped. A host found dead at the daemon's
-   start: failed when it was working within 48 hours, else stopped. A host that vanished → failed. A crashed worker
+   start: a working session is failed when it reported within 48 hours, else stopped; any other keeps its state (a
+   blocked one not waiting on a question becomes done). A host that vanished → failed. A crashed worker
    that was working restarts with "Continue where you left off." after 1, 5 and 15 seconds, three times in a row at
-   most; a run that stays up for a minute resets the count (DM-5). Otherwise the worker's last word stands (failed, a
+   most; a worker that has run for over a minute and reports a state other than working resets the count (DM-5). Otherwise the worker's last word stands (failed, a
    question), else done.
 
 ### 3. Replies (M3, M28)
@@ -353,7 +354,7 @@ agent directory.
 
 ## Left out of phase 1
 
-Not copied, and not switched off: the code is not in xin-pi (decision 6). "Grill N" is the item in `decisions.md`.
+Not copied (rather than copied and switched off): the code is not in xin-pi (decision 6). "Grill N" is the item in `decisions.md`.
 
 | What | pi-roost | Decision |
 |---|---|---|
