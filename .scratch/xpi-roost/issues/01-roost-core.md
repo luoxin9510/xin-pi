@@ -1,77 +1,93 @@
 # 01: xpi-roost phase 1
 
 Spec: `../01-roost-core.md`. One branch per PR, merged in order. Source: `~/Developer/pi-roost` at main `890cbe9`.
+Every PR updates the docs it touches and lists them in its description.
 
 **Status:** not started (the spec waits for the owner's approval)
 
 ## Before PR 1
 
-- [ ] pi-roost 0.1.21: release PR with M79 and M80 and a README notice that the project continues in xin-pi; tag and
-      GitHub release; npm is the owner's
-- [ ] An inventory committed with PR 1 (`packages/xpi-roost/docs/port-inventory.md`): every pi-roost source and test
-      file, marked ported, cut (with the decision that cuts it) or split, so a reviewer can check the cut
+- [ ] pi-roost 0.1.21: release PR with what is on main and a README notice that the project continues in xin-pi; tag
+      and GitHub release; npm is the owner's
 
 ## PR 1: core processes (branch `roost-core`)
 
 - [ ] T1 `packages/xpi-roost`: package.json (private, version in step with the others), tsconfig, vitest config,
       workspace and root tsconfig wiring, `npm run check` covers it
-- [ ] T2 `lib/` for phase 1: client, protocol, framing, store, atomic, locks, events, job-events, dispatch,
-      dispatch-input, worker-state, view-model, term-modes, term-signals, attach, transcript, usage, config, schema,
-      protocol-schema and callers (rows of unported ops removed), orphans, heuristics, and what these import
-- [ ] T3 `host/main.ts` as it is
-- [ ] T4 `daemon/main.ts` with phase 1's ops only: the injected modules of the task board, workspaces, concierge,
-      orders, schedules, watches, comms, profiles, PR polling and telemetry are not wired and their ops are gone; an
-      unknown op answers as today
-- [ ] T5 Tests in scope moved; tests of cut features removed whole; each kept test file still fails when its subject
-      is broken (spot-checked by deleting a guard, as in M66 and M70)
-- [ ] T6 CI job `test (roost)` on Linux; the orphan sweep runs after the suite; no roost test starts a test runner
-- [ ] Docs: `docs/xin-pi.md` (the new package), the inventory, `packages/xpi-roost/README.md`
+- [ ] T2 `packages/xpi-roost/docs/port-inventory.md`: every pi-roost source and test file as ported, split or cut,
+      with the spec decision that cuts it
+- [ ] T3 `lib/` for phase 1. Moved whole: client, framing, atomic, locks, job-events, dispatch-input, worker-state,
+      term-modes, attach, transcript, usage, schema, orphans, heuristics, identity, paths, workspace-env. Split (the
+      kept part moves): protocol, protocol-schema, callers, config, dispatch, store, view-model, filter, events,
+      agent-client (`Reporter` and `jobIdentity` only). Not moved: everything decision 6 names, `term-signals.ts`
+      (profile jobs only), `pi-resolve.ts`, `pi-commands.ts`
+- [ ] T4 Paths: state in `<agent dir>/xpi-roost/`, the runtime directory keyed by the agent directory (short enough
+      for a unix socket), `ROOST_HOME` and `ROOST_RUNTIME_DIR` overrides, only the `ROOST_` prefix. The agent
+      directory and the two entry paths are given to the library by its caller, never found by importing xpi
+- [ ] T5 `host/main.ts` without telemetry and profile jobs
+- [ ] T6 `daemon/main.ts` with decision 4's ops: no task board, workspaces, concierge, orders, schedules, watches,
+      messages, peers, profiles, PR polling, worktree isolation, agent-definition dispatch or telemetry; crash
+      restart and reconciliation kept, with an interrupted session ending instead of resuming; settings read from the
+      `"roost"` section of `<agent dir>/settings.json`; an unknown op answers as today
+- [ ] T7 Tests in scope moved; tests of cut features removed whole; one deleted guard per kept test file shows the
+      test failing; a test that two daemons with different agent directories do not share a socket, jobs or roster
+- [ ] T8 CI: job `test (roost)` on Linux with `npm rebuild node-pty`; `xpi-roost` out of `test (other)` and of
+      `./test.sh`'s default walk; the orphan sweep after the suite; no roost test starts a test runner. `node-pty`,
+      `@xterm/headless` 6 and `@xterm/addon-serialize` as the package's own dependencies (the pin check and the
+      lockfile change reviewed in the PR)
+- [ ] Docs: `docs/xin-pi.md` (the new package, how it is tested), `packages/xpi-roost/README.md`, the inventory,
+      `packages/xpi-roost/docs/protocol.md` generated with the test that keeps it current
 
 ## PR 2: command line and packaging (branch `roost-cli`)
 
-- [ ] T7 `xpi roost <subcommand>` in `src/main.ts`: `hub` (answers "not yet" until PR 4), `ls`/`list`, `logs`,
-      `attach`, `reply`, `stop`, `rm`, `respawn`, internal `daemon`; help text; unknown subcommand is an error
-- [ ] T8 Bundle: entry files for the daemon and the host, started with the running Node; the entry-graph and
-      runtime-dependency checks know them
-- [ ] T9 `node-pty` as an optional dependency; `@xterm/*` bundled or declared; install-lock refreshed; the message
-      when `node-pty` does not load, when there is no Node runtime (standalone binary), and on Windows
-- [ ] T10 Settings: the `"roost"` section (global and project, the keys a project may not set), its schema and
-      `docs/settings.md`; `roost.json` is not read
-- [ ] T11 State under `<agent dir>/roost/`, following `XPI_CODING_AGENT_DIR`; a test that a temporary agent directory
-      isolates a daemon completely (socket, jobs, roster)
-- [ ] Tests: the CLI against a real daemon in a temporary agent directory; the packed npm tarball starts a daemon
-      and a shell-command session (`release:local` smoke); real Haiku not needed yet
-- [ ] Docs: `docs/cli.md`, `docs/settings.md`, `docs/xin-pi.md`
+- [ ] T9 `xpi roost <subcommand>` in `src/main.ts`: `ls`/`list` (`--json`), `logs`/`log`, `attach`, `reply`, `stop`,
+      `rm`, `respawn` (`--all`), `daemon status|logs|stop`, the internal command that runs the daemon; help text; an
+      unknown subcommand is an error; `hub` says it comes with the next version until PR 3
+- [ ] T10 Bundle: entry files for the daemon and the host (as `codemode-worker.js`), found by `xpi-coding-agent` and
+      handed to `xpi-roost`; the entry-graph and runtime-dependency checks know them; the version message when a
+      client meets a daemon of another version
+- [ ] T11 `node-pty` as an optional dependency of `xpi-coding-agent`, imported only when a host starts; the
+      install-lock allowlist entry with its reason; install-lock refreshed; the messages when `node-pty` does not
+      load, when there is no Node runtime (standalone binary), and on Windows
+- [ ] T12 Settings: the `"roost"` section (the keys of decision 9, the keys a project may not set), its schema;
+      `roost.json` is not read
+- [ ] Tests: the CLI against a real daemon in a temporary agent directory (a shell-command session started through
+      the client library); the packed npm tarball starts a daemon and a shell-command session (`release:local`)
+- [ ] Docs: `packages/xpi-coding-agent/docs/cli.md`, `settings.md`, `environment-variables.md`, `docs/xin-pi.md`
 
-## PR 3: `builtin:roost`, the session side (branch `roost-session`)
+## PR 3: the hub (branch `roost-hub`)
 
-- [ ] T12 The extension, listed in `src/extensions/index.ts`; does nothing in a subagent child (`XPI_SUBAGENT_DEPTH`)
-      and nothing when roost cannot run on this machine beyond the messages of T9
-- [ ] T13 Worker role: a session the daemon started reports state, waiting, dialogs, context and model
-      (`worker.ts`, the parts of `worker-extras.ts` in scope)
-- [ ] T14 `/bg` (alias `/background`) and `/bg-fork`; foreground registration (`foreground.ts`, without peers and
-      agent tools)
-- [ ] Tests: offline with a fake daemon where pi-roost has them; real Haiku: `xpi roost` starts a session, it
-      reports working then idle, `reply` gets an answer, `/bg` moves a foreground session to the daemon
-- [ ] Docs: `docs/roost.md` (first version), `docs/extensions.md` if the extension API is touched
-
-## PR 4: the hub (branch `roost-hub`)
-
-- [ ] T15 `hub/` on `xpi-tui`: agent view, overlay host, the log and usage overlays, the task editor used for a new
-      session's prompt; the tasks, workspaces, review, concierge, schedules and compare overlays are not ported and
-      their keys are gone from the help
-- [ ] T16 `/agents` in a session and `xpi roost hub [dir]` in a terminal; hub options from xpi (models, presets,
-      resume, the session's slash commands)
-- [ ] T17 Earlier history when entering a session (M53)
+- [ ] T13 `hub/` on `xpi-tui`: agent view (split: no board, concierge, schedule, pr, worktree, task or agent-definition
+      code), overlay host, the log and usage overlays, the editor for a new session's prompt; the tasks, workspaces,
+      review, concierge, schedules and compare overlays are not ported and their keys are gone from the help
+- [ ] T14 `xpi roost hub [dir]`; hub options from xpi (models, presets, resume, the session's slash commands read
+      from xpi, not from a copied table)
+- [ ] T15 New xpi sessions from the hub; attach with replay and several windows; earlier history when entering a
+      session (M53; its tests in `xpi-coding-agent` if they need the adapter)
+- [ ] T16 AGENTS.md: the hub's files in the key exemption list
 - [ ] Tests: the hub's tests in scope; a pty test of `xpi roost hub` (list, peek, reply, attach, detach); real Haiku:
       two sessions in parallel, reply to one from peek, attach to the other
-- [ ] Docs: `docs/roost.md` (the hub, keys), `docs/keybindings.md` if keys are configurable
+- [ ] Docs: `packages/xpi-coding-agent/docs/roost.md` (first version: the hub and its keys), `docs.json`
 
-## PR 5: docs and the porting document (branch `roost-docs`)
+## PR 4: `builtin:roost`, the session side (branch `roost-session`)
 
-- [ ] T18 `docs/roost.md` complete; README files; `docs/xin-pi.md`; `packages/xpi-roost/docs/porting.md` cut to phase
-      1; `packages/xpi-roost/docs/protocol.md` generated, with the test that keeps it current
-- [ ] T19 The inventory updated; the roadmap of what was left out, with the decision that left it
+- [ ] T17 The extension, listed in `src/extensions/index.ts`; does nothing in a subagent child
+      (`XPI_SUBAGENT_DEPTH`); where roost cannot run it only gives the messages of T11
+- [ ] T18 Worker role: a session the daemon started reports state, waiting, dialogs, context and model (`worker.ts`,
+      the parts of `worker-extras.ts` in scope)
+- [ ] T19 `/agents`; `xpi --bg "<task>"` and `--bg-name`; `/bg` (alias `/background`) and `/bg-fork`, opening the hub
+      after the hand-off; the left arrow on an empty editor behind `leftArrowOpensAgents` (AGENTS.md exemption)
+- [ ] Tests (in `xpi-coding-agent`): foreground, reply queue, reporter, worker wiring; real Haiku: `xpi --bg` starts a
+      session that reports working then idle, `xpi roost reply` gets an answer, `/bg` moves a foreground session to
+      the daemon and it appears in the hub
+- [ ] Docs: `roost.md` (sessions, `/bg`, `--bg`), `slash-commands.md`, `cli.md`, `extensions.md` if the extension API
+      is touched
+
+## PR 5: docs and release (branch `roost-docs`)
+
+- [ ] T20 `roost.md` complete; README files; `docs/xin-pi.md`; `packages/xpi-roost/docs/porting.md` cut to phase 1;
+      the inventory updated; what was left out and by which decision
+- [ ] T21 pi-roost: the README notice merged; the repository archived when the owner says so
 - [ ] Release (patch or minor, by what changed for users), Node smoke test including `xpi roost`
 
 ## After phase 1

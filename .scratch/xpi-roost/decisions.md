@@ -32,6 +32,7 @@ The owner's goal: a native xpi daemon that manages several agents running in par
 8. State stays in `<agent dir>/roost/` (it follows `XPI_CODING_AGENT_DIR`). Settings move from `roost.json` to a
    `"roost"` section of `settings.json`, as `"subagent"` has. No migration code: the format is unchanged, old sessions
    show in the history and cannot be resumed; deleting the old `roost/` directory gives a clean start.
+   (The directory was replaced by decision 14; the settings part stands.)
 9. macOS and Linux only. On Windows `xpi roost` says it is not supported.
 10. The daemon keeps its agent-neutral structure, but phase 1 runs two kinds of session only: xpi sessions and plain
     shell commands. Terminal-agent profiles and the protocol client are not ported.
@@ -43,3 +44,29 @@ The owner's goal: a native xpi daemon that manages several agents running in par
 13. After the owner approves the spec, the PRs are built without stopping to ask, each with an independent Claude Opus
     review and green CI before its merge; work stops only for a fact that contradicts the spec. Mechanical moves go to
     cheaper models; judgement and review stay with the lead.
+
+## Grill 3 (2026-11-11): after the independent review of the spec. Accepted by the owner on 2026-11-11
+
+The review found facts the first draft had missed: the daemon's socket is not under the state directory; `reply` and
+`respawn` run the command stored in an old job record; a foreground session becomes known only through the peer
+mechanism that is not ported; `xpi --bg` was missing and pi-roost's `--agents` flag collides with xpi's; the hub uses
+fixed keys, which AGENTS.md forbids outside an exemption list; `node-pty` runs install scripts, which the install-lock
+check does not allow.
+
+14. State is in a new directory, `<agent dir>/xpi-roost/`; pi-roost's `roost/` is never read, so its sessions do not
+    appear and cannot be respawned. The runtime directory (sockets) is keyed by the agent directory, so a temporary
+    daemon never meets the owner's. This replaces the directory of decision 8.
+15. The hub lists the sessions the daemon runs. A foreground xpi is not in it until `/bg` hands it over.
+16. A background session is started from the command line with `xpi --bg "<task>"` and `--bg-name <name>`. `--agent`,
+    `--worktree`, `--agents` and `--agents-cwd` are not ported; the hub from a terminal is `xpi roost hub`.
+17. Starting a session from an agent definition (`<agent> <prompt>` in the hub, M18) is not in phase 1. A new session
+    is a plain xpi session with a model and a launch preset.
+18. The hub keeps fixed keys and its files join AGENTS.md's exemption list. The left arrow on an empty editor opens
+    the hub, behind a `"roost"` setting that is on by default.
+19. `node-pty` may run its install scripts: it is added to the install-lock check's allowlist (it compiles on Linux
+    and fixes the mode of its helper on macOS).
+
+In the spec these are decisions 4 to 6, 8, 9 and 11; the spec's own numbering differs from this record's.
+
+Changed by the author after the review, without a question to the owner (each PR must work on its own when merged):
+the hub is PR 3 and `builtin:roost` is PR 4, the reverse of decision 12, because `/bg` opens the hub after a hand-off.

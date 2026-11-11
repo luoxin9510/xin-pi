@@ -1,143 +1,227 @@
 # 01: xpi-roost, phase 1: the daemon, the host, `xpi roost` and the hub
 
-Status: draft for the owner's approval (2026-11-11). Decisions: `decisions.md` (Grill 1 and 2, all accepted). Tickets:
-`issues/01-roost-core.md`.
+Status: draft for the owner's approval (2026-11-11). Decisions: `decisions.md` (Grill 1, 2 and 3, all accepted).
+Tickets: `issues/01-roost-core.md`.
 
 ## Goal
 
 A native xpi daemon that manages several main sessions running in parallel, and an interface for them, as Claude Code
 has: sessions keep running without a terminal, one overview lists them, and attaching to one shows its whole TUI. The
-code comes from pi-roost (`~/Developer/pi-roost`, main `890cbe9`: v0.1.20 plus M79 and M80), which is frozen after one
-last release.
+code comes from pi-roost (`~/Developer/pi-roost`, main `890cbe9`: v0.1.20 plus M79, M80 and a follow-up to M78), which
+is frozen after one last release.
 
 ## Terms
 
-From pi-roost's `GLOSSARY.md`, kept as they are:
+From pi-roost's `GLOSSARY.md`, with one change (a Session):
 
-- **Daemon**: one process per user. It runs and keeps sessions, and everything else talks to it over a unix socket
-  (JSON lines).
+- **Daemon**: one process per user and agent directory. It runs and keeps sessions, and everything else talks to it
+  over a unix socket (JSON lines).
 - **Host**: one process per session. It holds the session's PTY and its screen, so the session outlives every terminal.
-- **Session**: a job the daemon runs (an xpi in a PTY, or a shell command), or a foreground xpi that registered itself.
+- **Session**: a job the daemon runs: an xpi in a PTY, or a shell command. (In pi-roost a foreground pi registered as
+  a peer is a Session too; here it is not, see decision 5.)
 - **Hub**: the TUI overview of the sessions (pi-roost's "agent view"), inside an xpi session (`/agents`) or in a
   terminal of its own (`xpi roost hub`).
 - **Person**: the user, through the hub or the CLI.
 
 ## Facts this builds on
 
-Checked on 2026-11-11 against both repositories.
+Checked on 2026-11-11 against both repositories, and again by the independent review of this spec.
 
 pi-roost:
 
-- About 26,000 source lines: `lib/` 11,700, `daemon/main.ts` 3,170, `hub/` 5,200, `adapters/pi/` 5,200, `host/main.ts`
-  550, `bin/pi-roost.ts` 430. 77 test files, about 22,000 lines (vitest, real PTYs and sockets).
-- The daemon, the host, the CLI and `lib/` do not import pi. `adapters/pi/` imports `@earendil-works/pi-coding-agent`
-  and `pi-tui`; `hub/` imports `pi-tui` only.
+- Source lines: `lib/` 11,679, `daemon/main.ts` 3,170, `hub/` 5,224 (`agent-view.ts` alone 3,686), `adapters/pi/`
+  5,167, `host/main.ts` 546, `bin/pi-roost.ts` 431. Tests: 70 `*.test.ts` files and 7 support files, about 22,000
+  lines (vitest, real PTYs and sockets). Also `evals/`, `stress/`, `spikes/`, `sdk/python/`, `scripts/`.
+- The daemon, the host and the CLI do not import pi. `lib/` does not either, except `lib/pi-resolve.ts`, which finds
+  the installed pi and loads its packages at run time for the standalone hub. `adapters/pi/` imports
+  `@earendil-works/pi-coding-agent` and `pi-tui`; `hub/` imports `pi-tui` only. The 20 names they import from `pi-tui`
+  all exist in `xpi-tui` (names checked, behaviour not).
 - The daemon is started on demand by the first client: `spawn(process.execPath, [daemonEntry], { detached: true })`
-  (`lib/client.ts`). A host is a Node process too. So both need a Node runtime and an entry file on disk.
-- The host needs `node-pty` (native) and `@xterm/headless` with `@xterm/addon-serialize`. `node-pty` 1.1.0 has prebuilt
-  binaries for macOS and Windows only; on Linux it compiles at install.
-- The task board and workspaces (`workspace.ts`, `board.ts`, `task-*.ts`, `worktree.ts`, `workspace-*.ts`), the
-  concierge (`concierge*.ts`), schedules, watches, messages between sessions, profiles and the protocol client are
-  separate modules in `lib/` (the architecture work of M63 to M77), wired into the daemon by injection.
-- Who may call which op is one table (`lib/callers.ts`); every op has a schema (`lib/protocol-schema.ts`) that the
-  daemon checks at its entry and from which `docs/protocol.md` is generated.
-- State is in `~/.pi/agent/roost/` (`jobs/`, `roster.json`, `events.jsonl`, `daemon.log`); settings in
-  `~/.pi/agent/roost.json` and `<cwd>/.pi/roost.json`. No Windows support (unix sockets, POSIX signals).
-- Slash commands it registers in pi: `/agents`, `/bg` (alias `/background`), `/bg-fork`, `/subagents`, `/tasks`.
+  (`lib/client.ts`), where the entry is `<package root>/dist/daemon/main.js`; the host entry is found the same way
+  (`PI_ROOST_HOST_ENTRY` overrides it). Both need a Node runtime and an entry file on disk.
+- The host needs `node-pty` 1.1.0 (native; prebuilt for macOS and Windows only, compiled by its install script on
+  Linux; the script also fixes the mode of its `spawn-helper`), `@xterm/headless` 6.0.0 and `@xterm/addon-serialize`
+  0.14.0. It also imports `lib/telemetry.ts` and `store.isProfileJob`.
+- Where things are on disk (`lib/paths.ts`, `lib/config.ts`):
+  - State: `~/.pi/agent/roost/` (`jobs/`, `roster.json`, `events.jsonl`, `daemon.log`, `scratch/`), or `ROOST_HOME`.
+  - The daemon's socket and lock, and each host's socket: a runtime directory, `$XDG_RUNTIME_DIR/pi-roost` or
+    `/tmp/pi-roost-<uid>`, or `ROOST_RUNTIME_DIR`. It does not depend on the state directory.
+  - Settings: `roost.json` in `ROOST_CONFIG_DIR`, else `~/.config/roost/` when that file exists, else `~/.pi/agent/`;
+    per project `<cwd>/.pi/roost.json` or `<cwd>/.roost/roost.json`. The daemon reads settings itself
+    (`cleanupDays`, `reapIdleMinutes`, `autoResume`).
+  - Environment names are read with either prefix, `ROOST_` or `PI_ROOST_` (`roostEnv`).
+- How features are wired: the concierge, schedules, watches and workspaces are modules created with injected ports.
+  The task board's claim, release, done, drop and assign, the messages between sessions (`send`, `spawn`, peers), PR
+  polling, profiles and worktree isolation are written directly in `daemon/main.ts`. The daemon's restart of a
+  crashed session and its reconciliation at start are in the same code as resume after an interruption (M38,
+  `autoResume`).
+- Kept modules import cut ones: `protocol.ts` (board, concierge), `protocol-schema.ts` (board, comms, concierge, pr,
+  schedule), `config.ts` (concierge, profiles), `dispatch.ts` (worktree, profiles, agents), `store.ts` (profiles),
+  `view-model.ts` and `filter.ts` (pr). `hub/agent-view.ts` imports board, concierge, schedule, pr, worktree, task-git,
+  task-diff and agents, with about 300 lines of their handling in the file itself; `adapters/pi/hub-options.ts` has
+  concierge, profiles and fan-out groups.
+- A session reports its state with `Reporter` and `jobIdentity`, which live in `lib/agent-client.ts` next to the
+  protocol client class (`RoostAgent`, M31).
+- A foreground pi becomes known to the daemon only through `peer_register` (M9, `adapters/pi/peer-link.ts`).
+  `adapters/pi/foreground.ts` holds `/bg`, `/bg-fork` and the left-arrow key; after a hand-off it opens the hub.
+- Ops: `hello`, `report`, `ack`, `ping`, `list`, `resolve`, `status`, `dispatch`, `subscribe`, `stop`, `rm`,
+  `respawn`, `pin`, `rename`, `reorder`, `reply`, `shutdown`, `events`, `handback`; `peer_register`, `peer_ack`,
+  `send`, `spawn`, `watch`; `schedules`, `schedule-*`; `concierge*`; `task` with its actions. Who may call which is
+  one table (`lib/callers.ts`); every op has a schema (`lib/protocol-schema.ts`) that the daemon checks at its entry
+  and from which `docs/protocol.md` is generated.
+- `reply` to an ended session respawns it, and `respawn` runs the command stored in the job record.
+- In pi it registers the slash commands `/agents`, `/bg` (alias `/background`), `/bg-fork`, `/subagents`, `/tasks`,
+  and the flags `--bg`, `--bg-name`, `--agent`, `--worktree`, `--agents` (boolean) and `--agents-cwd`. The CLI has
+  `hub`, `list`/`ls` (with `--json`, `--subagents`), `logs`/`log`, `attach`, `reply`, `stop`, `rm`, `respawn`,
+  `review`, `schedule(s)`, and `daemon status|logs|stop`. The hub and `foreground.ts` use fixed keys.
+- `lib/pi-commands.ts` holds pi 1.5.0's slash-command table for the hub's peek.
 
 xin-pi:
 
 - Nine `xpi-*` workspace packages; only `xpi-coding-agent` is published, and its bundle inlines the others
-  (`scripts/build-coding-agent-bundle.mjs`, which rejects unexpected external imports). GitHub Releases also carry
-  standalone binaries compiled with bun, which have no Node runtime to start a daemon with.
+  (`scripts/build-coding-agent-bundle.mjs`, which rejects unexpected external imports). A separate worker entry in the
+  bundle already exists (`codemode-worker.js`, found through `src/config.ts`). GitHub Releases also carry standalone
+  binaries compiled with bun, which have no Node runtime to start a daemon with.
 - Built-in extensions are listed in `src/extensions/index.ts` (`builtin:<name>`, disabled with `-builtin:<name>`).
   Subcommands (`xpi mcp`, `xpi auth`) are dispatched in `src/main.ts` before a session starts.
-- The agent directory is `~/.pi/agent` unless `XPI_CODING_AGENT_DIR` says otherwise. `node-pty` and `@xterm/headless`
-  are devDependencies of `xpi-coding-agent` today (the TUI test harness).
-- No slash command named `agents`, `bg`, `background` or `bg-fork` exists. `/subagents` is the built-in subagent
-  extension's.
-- Extensions written for upstream pi (`@earendil-works/*` imports) do not load in xpi, so the pi-roost package still
-  listed in the owner's settings is not running. No pi-roost daemon is running on the owner's machine.
+- The agent directory is `~/.pi/agent` unless `XPI_CODING_AGENT_DIR` says otherwise. `node-pty` 1.1.0 and
+  `@xterm/headless` 5.5.0 are devDependencies of `xpi-coding-agent` (the TUI test harness); `@xterm/addon-serialize`
+  is not in the repository.
+- CI installs with `npm ci --ignore-scripts`, so `node-pty` is not compiled there. The `test (other)` job runs the
+  `test` script of every workspace except the coding agent, and `./test.sh` walks `packages/*`. The install-lock check
+  (`scripts/generate-coding-agent-install-lock.mjs`) allows no package to run install scripts, and a lockfile change
+  needs `PI_ALLOW_LOCKFILE_CHANGE=1`.
+- No slash command named `agents`, `bg`, `background` or `bg-fork` exists; `/subagents` is the built-in subagent
+  extension's. The subagent extension registers a string flag `--agents`. No flag named `--bg` or `--bg-name` exists.
+- AGENTS.md forbids hardcoded key checks, with an exemption for the subagent panel's files.
+- Extensions written for upstream pi do not load in xpi, the owner's settings list no pi-roost package, and no
+  pi-roost daemon runs on the owner's machine. `~/.pi/agent/roost.json` exists and holds only `summaryModel`.
 
-Not checked yet, to settle in the PR that meets it (a contradiction with a decision stops the work, decision 13):
+Not known yet; settled in the PR that meets it, and a contradiction with a decision stops the work (decision 16):
 
-- Whether `xpi-tui` differs from the `pi-tui` the hub was written against (xin-pi forked at pi 1.5.0, the version
+- Whether `xpi-tui` behaves as the `pi-tui` the hub was written against (xin-pi forked at pi 1.5.0, the version
   pi-roost was tested with).
-- How the bundle should carry two more Node entry points (the daemon, the host) and an optional native dependency.
-- Which of pi-roost's tests cover only phase 1's scope after the cut.
+- Whether the host's `@xterm/headless` 6 and `@xterm/addon-serialize` are best bundled into the host entry or declared,
+  given the pinned 5.5.0 the TUI tests use.
+- Whether the hub reads `events` or `handback` for anything in scope (they are kept only if it does).
 
 ## Decisions
 
 1. **Where the code lives.** `packages/xpi-roost` holds `lib/`, `daemon/`, `host/`, `hub/`, the CLI and their tests.
    It may import `xpi-tui` (the hub) and nothing else of xpi. The adapter is the built-in extension `builtin:roost`,
-   `packages/xpi-coding-agent/src/extensions/roost/`, which may import `xpi-roost`. Both ship in the `xpi-coding-agent`
-   bundle; `xpi-roost` is not published on its own.
+   `packages/xpi-coding-agent/src/extensions/roost/`, which may import `xpi-roost`; its tests are in
+   `xpi-coding-agent`. Both ship in the `xpi-coding-agent` bundle; `xpi-roost` is not published on its own.
 2. **What a session is.** A real `xpi` in a PTY held by a host process, as in pi-roost. Attaching shows the session's
    own TUI, with its own subagent panel and screens.
 3. **The daemon manages main sessions only.** The hub lists sessions, never their subagents. Nothing in roost reads
    the subagent extension's records. pi-roost's subagent panel, its lifecycle handling and its transcript view (M12,
-   M13, M19) and its `/subagents` command are not ported.
+   M13, M19), its `/subagents` command and `list --subagents` are not ported.
 4. **Phase 1 scope.**
-   - Daemon ops kept: starting a session (an xpi session or a shell command), listing, reading a session's log and
-     screen, reply (with steer and follow-up, M28), stop, remove, respawn, rename, attach, resume of an earlier
-     session and the model choice (M23), usage (M24), multi-select and batch actions (M25), launch presets (M27),
-     session reports (state, waiting, dialog, context, model), foreground registration, the event stream the hub
-     reads, request ids with resend (M36, M51).
-   - Hub: the list, peek with the reply editor and the session's own slash commands (M48, M61), attach, new session,
-     stop, rename, resume, model, usage, the log overlay, earlier history when entering a session (M53).
-   - In a session: `/agents` opens the hub; `/bg` (alias `/background`) sends the current session to the background
-     and `/bg-fork` a copy of it.
-   - CLI: `xpi roost hub [dir]`, `ls` (alias `list`), `logs`, `attach`, `reply`, `stop`, `rm`, `respawn`, and the
-     internal `daemon`.
-5. **Left out of phase 1**, with the code not copied (not copied and disabled):
-   - Phase 2: schedules (M39, M40) and resume after an interruption (M38).
-   - With agent teams, later: messages between sessions and peers (M9, M50), watches (M43), `roost_*` agent tools.
-   - Only if the owner asks: the task board and workspaces (M47, M52, M54 to M60, M64 to M66), the concierge and
-     standing orders (M44 to M46), worktree isolation for dispatched sessions (M10), pull request status (M16),
-     fan-out and `/compare` (M26), terminal-agent profiles and the protocol client (M30, M31), the Python SDK,
-     pi-mobile (M11), telemetry (M34), the summary model.
-   The caller table and the op schemas lose the rows of ops that are not ported; the `Concierge` caller kind goes with
-   its ops.
-6. **Entry points.** `xpi roost <subcommand>` in `src/main.ts`, next to `xpi mcp`. No `pi-roost` executable. The
-   daemon starts on demand, as today, from an entry file in the bundle run with the Node that runs xpi.
-7. **Native dependency.** `node-pty` becomes an `optionalDependencies` entry of `xpi-coding-agent`; `@xterm/headless`
-   and `@xterm/addon-serialize` are bundled or ordinary dependencies, whichever the bundle check allows. When `node-pty`
-   cannot be loaded, `xpi roost` commands, `/agents` and `/bg` say why and how to fix it, and the rest of xpi is
-   unaffected. A standalone binary (no Node runtime) says roost needs the npm installation.
-8. **State and settings.** State in `<agent dir>/roost/`, where the agent directory follows `XPI_CODING_AGENT_DIR`.
-   Settings are the `"roost"` section of `settings.json` (global and project, read through xpi's settings), with the
-   keys of `roost.json` that still apply and the same rule for keys a project may not set. `roost.json` is not read. No
-   migration code: the state format is unchanged, so earlier sessions show in the history; they cannot be resumed.
-9. **Platforms.** macOS and Linux. On Windows `xpi roost`, `/agents` and `/bg` say roost is not supported there.
-10. **Names.** `ROOST_*` environment variables, op names, the socket and file layouts stay as they are: they are
-    internal, and keeping them keeps the diff against pi-roost readable. User-facing text says `xpi` and `xpi roost`.
-    The generated op reference becomes `packages/xpi-roost/docs/protocol.md`.
-11. **Tests and CI.** Tests whose subject is in scope move to `packages/xpi-roost/test` and keep running on vitest
-    with real PTYs and sockets. A CI job `test (roost)` runs them on Linux (where `node-pty` compiles) and they are
-    not part of the existing coding-agent job. The orphan sweep (M78) comes along, and a roost test never runs another
-    test command. A cut must not leave a test that passes while asserting nothing: tests of removed features are
-    removed, not emptied.
-12. **Real-model check.** Before each merge that changes behaviour a session can see: on real Haiku, start a
-    background session, reply to it, attach and detach, with a temporary agent directory (a copy of `auth.json` only).
-13. **pi-roost's last release.** 0.1.21 with M79 and M80, then a README notice that the project continues in xin-pi.
-    npm is published by the owner. `docs/porting.md` moves to `packages/xpi-roost/docs/porting.md` and is cut to phase
-    1's scope in the last PR.
+   - Sessions: an xpi session or a shell command, started from the hub, with `xpi --bg "<task>"` (and
+     `--bg-name <name>`), or by `/bg` and `/bg-fork` in a foreground session. A new session is a plain xpi session
+     with a model and thinking level, optionally from a launch preset (M27).
+   - Ops kept: `hello`, `report`, `ack`, `ping`, `list`, `resolve`, `status`, `dispatch`, `subscribe`, `stop`, `rm`,
+     `respawn`, `pin`, `rename`, `reorder`, `reply` (with steer and follow-up, M28), `shutdown`; `events` and
+     `handback` only if something in scope reads them. Request ids with resend (M36, M51) stay.
+   - The daemon keeps: restart of a session whose host crashed and reconciliation at its own start (DM-5), the session
+     write lock (DM-8), the shell environment a session gets (M20: `inheritEnv`, the allow and deny lists,
+     `workspaceEnv`), cleanup of old sessions (`cleanupDays`) and reaping of idle ones (`reapIdleMinutes`).
+   - Hub: the list with pin, reorder, grouping and the filter; peek with the reply editor and the session's own slash
+     commands (M48, M61), taken from xpi's commands, not from a copied table; attach (replay, M21, and several
+     windows, M22); new session; stop; remove; rename; resume of an earlier session and the model choice (M23);
+     usage (M24); multi-select and batch actions (M25); the log overlay; earlier history when entering a session (M53).
+   - In a session: `/agents` opens the hub; `/bg` (alias `/background`) hands the session to the daemon and
+     `/bg-fork` a copy of it; the left arrow on an empty editor opens the hub when the `leftArrowOpensAgents` setting
+     is on (the default).
+   - CLI: `xpi roost hub [dir]`, `ls`/`list` (`--json`), `logs`/`log`, `attach`, `reply`, `stop`, `rm`, `respawn`
+     (`--all`), `daemon status|logs|stop`. The command that runs the daemon itself is internal and not listed in help.
+5. **A foreground session is not in the hub.** The hub lists the sessions the daemon runs. An xpi started in a
+   terminal appears there once it is handed over with `/bg`. `peer_register` and `peer-link.ts` are not ported.
+6. **Left out of phase 1.** The code is not copied (not copied and switched off):
+   - Phase 2: schedules (M39, M40) and resume after an interruption (M38). Until then an interrupted session is shown
+     as ended, and the `autoResume` setting does not exist.
+   - With agent teams, later: messages between sessions and peers (M9, M50), watches (M43), the `roost_*` agent tools,
+     and with them the limits on agents starting agents (`agentMax*`).
+   - Only if the owner asks: the task board and workspaces (M47, M52, M54 to M60, M64 to M66; `review` in the CLI,
+     `/tasks`), the concierge and standing orders (M44 to M46), worktree isolation for started sessions (M10,
+     `--worktree`), pull request status (M16), fan-out and `/compare` (M26), starting a session from an agent
+     definition (M18: `--agent`, `dispatchAgent`, `<agent> <prompt>` in the hub, the `a:` filter), terminal-agent
+     profiles and the protocol client class (M30, M31), the Python SDK, pi-mobile (M11), telemetry (M34), the summary
+     model, `--agents` and `--agents-cwd` (the hub from a terminal is `xpi roost hub`), `defaultToAgentsView`.
+   - Not ported at all: `lib/pi-resolve.ts` (the hub imports `xpi-tui` directly), `lib/pi-commands.ts`, the
+     `extensions/index.ts` shim, `spikes/`, `evals/` and `stress/` (xin-pi's own real-model checks cover phase 1).
+   A module that phase 1 keeps and that imports a cut one is split: the kept part moves, the cut part does not. That
+   holds for `protocol.ts`, `protocol-schema.ts`, `callers.ts`, `config.ts`, `dispatch.ts`, `store.ts`,
+   `view-model.ts`, `filter.ts`, `agent-client.ts` (only `Reporter` and `jobIdentity` move), the host (without
+   telemetry and profile jobs), `hub/agent-view.ts` and the hub options. The caller table and the op schemas lose the
+   rows of ops that are not ported; the `Concierge` caller kind goes with its ops.
+7. **Entry points.** `xpi roost <subcommand>` in `src/main.ts`, next to `xpi mcp`. No `pi-roost` executable. The
+   daemon and the host are two more entry files in the bundle, as `codemode-worker.js` is. `xpi-coding-agent` finds
+   them and hands their paths to `xpi-roost` (which cannot import xpi's config): the client starts the daemon with the
+   running Node and the daemon entry, and the daemon starts hosts with the host entry it was given. A client and a
+   daemon of different versions: the client says so and how to restart the daemon (`xpi roost daemon stop`), as
+   pi-roost's version warning does.
+8. **Native dependency.** `node-pty` becomes an `optionalDependencies` entry of `xpi-coding-agent`, and the
+   install-lock check allows it to run its install scripts (Grill 3, with the reason recorded where the allowlist is).
+   It is imported only when a host starts, never at the top of the extension, so an xpi without it loads. When it
+   cannot be loaded, `xpi roost` commands, `/agents`, `/bg` and `--bg` say why and how to fix it, and the rest of xpi
+   is unaffected. A standalone binary (no Node runtime) says roost needs the npm installation.
+9. **State, runtime directory and settings.**
+   - State: `<agent dir>/xpi-roost/`, where the agent directory follows `XPI_CODING_AGENT_DIR`. pi-roost's
+     `~/.pi/agent/roost/` is never read, so its sessions do not appear and cannot be respawned.
+   - Runtime directory (sockets, lock): `$XDG_RUNTIME_DIR/xpi-roost-<key>` or `/tmp/xpi-roost-<uid>/<key>`, where
+     `<key>` is a short hash of the resolved agent directory. Each agent directory has its own daemon, and a temporary
+     one (tests, real-model checks) never meets the owner's. The path stays short enough for a unix socket.
+   - `ROOST_HOME` and `ROOST_RUNTIME_DIR` still override both (the tests use them). Only the `ROOST_` prefix is read;
+     `PI_ROOST_*` is gone.
+   - Settings: the `"roost"` section of `settings.json`, global and project, with the keys that still apply
+     (`leftArrowOpensAgents`, `reapIdleMinutes`, `cleanupDays`, `dispatchModel`, `dispatchThinking`, `inheritEnv`,
+     `envAllowList`, `envDenyList`, `workspaceEnv`, `groupBy`, `fullscreen`, `rowDetails`, `notify`, `presets`) and the
+     same rule for keys a project may not set. The extension and the hub read it through xpi's settings; the daemon
+     reads the section itself from `<agent dir>/settings.json`. No `roost.json` is read.
+10. **Platforms.** macOS and Linux. On Windows `xpi roost`, `/agents`, `/bg` and `--bg` say roost is not supported.
+11. **Keys.** The hub is a full-screen component with fixed keys, as the subagent panel is; AGENTS.md's exemption list
+    gains the hub's files and the left-arrow check. Nothing else gets a hardcoded key.
+12. **Names.** `ROOST_*` environment variables, op names and file layouts stay as they are: they are internal, and
+    keeping them keeps the diff against pi-roost readable. User-facing text says `xpi` and `xpi roost`. The generated
+    op reference becomes `packages/xpi-roost/docs/protocol.md`.
+13. **Tests and CI.**
+    - Tests whose subject is in `packages/xpi-roost` move to `packages/xpi-roost/test` and keep running on vitest with
+      real PTYs and sockets. Tests of the adapter (foreground, reply queue, reporter, worker wiring, earlier history)
+      move to `xpi-coding-agent`.
+    - A CI job `test (roost)` on Linux compiles `node-pty` (`npm rebuild node-pty` after the install) and runs the
+      package's tests; `xpi-roost` is excluded from `test (other)` and from `./test.sh`'s default walk.
+    - The orphan sweep (M78) comes along, and a roost test never runs another test command.
+    - Tests of removed features are removed whole, never emptied. For each kept test file, a guard is deleted once to
+      see the test fail (as in M66 and M70).
+14. **Real-model check.** Before each merge that changes what a session does: on real Haiku, start a background
+    session, reply to it, attach and detach, with a temporary agent directory holding a copy of `auth.json` made with
+    `copyUserAuth` (an OAuth copy can rotate the original's token: check the expiry first).
+15. **pi-roost's last release.** 0.1.21 with what is on its main, then a README notice that the project continues in
+    xin-pi. npm is published by the owner. `docs/porting.md` moves to `packages/xpi-roost/docs/porting.md` and is cut
+    to phase 1's scope.
+16. **How it is built.** After the owner approves this spec, the PRs below are built without stopping to ask, each
+    with an independent Claude Opus review and green CI before its merge, and with its own docs. Work stops only for a
+    fact that contradicts a decision. `packages/xpi-roost/docs/port-inventory.md` lists every pi-roost source and test
+    file as ported, split or cut (with the decision), so a reviewer can check the cut.
 
 ## The five PRs
 
-In this order; each is reviewed by an independent Claude Opus and merged on green CI.
+In this order. Each one works on its own when merged.
 
-1. **Core processes.** The package, `lib/` for phase 1, the host, the daemon with phase 1's ops, their tests, the CI
-   job. Nothing in `xpi-coding-agent` changes; the daemon and the host run from source in tests.
-2. **Command line and packaging.** `xpi roost <subcommand>`, the bundle entries for the daemon and the host, the
-   optional `node-pty`, the messages for an unsupported platform or a missing native module, the `"roost"` settings
-   section and its schema.
-3. **`builtin:roost`: the session side.** A session started by the daemon reports its state; `/bg`, `/bg-fork`;
-   a foreground session registers itself.
-4. **The hub.** `/agents` and `xpi roost hub` with everything in decision 4.
-5. **Docs.** `docs/roost.md` (user), `docs/xin-pi.md` (the new package, the bundle entries, the optional dependency),
-   README files, `docs/cli.md`, `docs/settings.md`, the porting document, pi-roost's notice. Then a release.
+1. **Core processes.** The package, `lib/` for phase 1, the host, the daemon with phase 1's ops, the new state and
+   runtime directories, their tests, the CI job, the inventory. Nothing in `xpi-coding-agent` changes; the daemon and
+   the host run from source in tests.
+2. **Command line and packaging.** `xpi roost <subcommand>` without `hub`: `ls`, `logs`, `attach`, `reply`, `stop`,
+   `rm`, `respawn`, `daemon`. The bundle entries, the optional `node-pty`, the messages for an unsupported platform or
+   a missing native module, the `"roost"` settings section. A shell-command session can be started for tests through
+   the client library; users get their first way to start a session in PR 3.
+3. **The hub.** `xpi roost hub [dir]` in a terminal: everything in decision 4's hub list, with new xpi sessions
+   started from it. These sessions run but do not report their state yet (they show as running until they end).
+4. **`builtin:roost`: the session side.** A session the daemon started reports state, waiting, dialogs, context and
+   model; `/agents`; `xpi --bg`; `/bg` and `/bg-fork` (which open the hub after the hand-off); the left arrow.
+5. **Docs and release.** The user guide complete, the porting document, pi-roost's notice, a release.
 
 ## Out of scope
 
-Everything in decision 5; agent teams; a headless (rpc) session model; roost in the standalone binaries; Windows.
+Everything in decision 6; agent teams; a headless (rpc) session model; roost in the standalone binaries; Windows.
