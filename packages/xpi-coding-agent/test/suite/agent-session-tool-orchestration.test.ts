@@ -112,14 +112,14 @@ describe("AgentSession tool orchestration", () => {
 		expect(persisted?.type === "message" && persisted.message).toMatchObject({ nestedCalls: result.nestedCalls });
 	});
 
-	it("registers codemode and tool_search inactive until they are named", async () => {
+	it("activates codemode by default and tool_search only when named", async () => {
 		const extensionFactories = [createCodemodeExtension(), createToolSearchExtension()];
 		const plain = await createHarness({ extensionFactories });
 		harnesses.push(plain);
 		expect(plain.session.getAllTools().map((tool) => tool.name)).toEqual(
 			expect.arrayContaining(["codemode", "tool_search"]),
 		);
-		expect(plain.session.getActiveToolNames()).toEqual(["read", "bash", "edit", "write"]);
+		expect(plain.session.getActiveToolNames()).toEqual(["read", "bash", "edit", "write", "codemode"]);
 
 		// --tools and the defaultTools setting name them explicitly.
 		const allowed = await createHarness({ allowedToolNames: ["read", "codemode"], extensionFactories });

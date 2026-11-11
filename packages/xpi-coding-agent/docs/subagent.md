@@ -22,8 +22,8 @@ return [a.output, b.output].join("\n---\n");
 ## Enabling
 
 The extension is built in (source: `src/extensions/subagent/`) and on by default; `-builtin:subagent` turns it off. The
-tool has `codemode` exposure: the model reaches it only through the `codemode` tool, so enable codemode
-(`xpi --tools +codemode`, or `"defaultTools": ["+codemode"]` in settings).
+tool has `codemode` exposure: the model reaches it only through the `codemode` tool, which is a default tool
+(unless `--tools` or `defaultTools` removes it).
 
 ## Agent definitions
 

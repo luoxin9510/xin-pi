@@ -288,6 +288,15 @@ failed. Changes:
 Out of scope: built-in schemes, images from virtual schemes, schemes inside bash. User docs:
 `extensions.md#path-schemes`. Tests: `test/path-schemes.test.ts`, `test/suite/path-schemes-session.test.ts`.
 
+## Core changes: codemode is a default tool
+
+Upstream pi starts with `read`, `bash`, `edit` and `write`; `codemode` is off unless settings, `--tools` or an MCP server
+turns it on. xin-pi adds `codemode` to `DEFAULT_TOOL_NAMES` (`src/core/settings-manager.ts`), which the CLI, the SDK
+and a session without a tool selection all start from. The codemode extension still registers the tool with
+`defaultActive: false`, so a session whose selection leaves it out (`--tools read,bash`, `"defaultTools": ["-codemode"]`,
+a resumed branch that removed it) does not get it back on registration. When merging upstream, keep `codemode` in that
+list and keep `src/core/agent-session.ts` reading it instead of its own copy.
+
 ## Testing
 
 Everything below runs from `packages/xpi-coding-agent/`. Tests assert on structure and side effects (result fields,
