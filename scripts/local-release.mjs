@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { installConsumer, packageConsumerDirectoryName, smokeTestNpmConsumer } from "./local-package-install.mjs";
 import { produceArtifactSet } from "./package-artifacts.mjs";
-import { codingAgentName, smokeTestCodingAgent } from "./coding-agent-smoke.mjs";
+import { codingAgentName, smokeTestCodingAgent, smokeTestRoost } from "./coding-agent-smoke.mjs";
 import { execNpmSync } from "./npm-command.mjs";
 
 function printUsage() {
@@ -122,7 +122,10 @@ if (!options.skipInstall) {
 				: join(validationRoot, "npm", packageConsumerDirectoryName(pkg.name));
 			installConsumer({ artifactSet, directory, packageNames: [pkg.name] });
 			smokeTestNpmConsumer({ artifactSet, directory, packageName: pkg.name });
-			if (pkg.name === codingAgentName) smokeTestCodingAgent(directory);
+			if (pkg.name === codingAgentName) {
+				smokeTestCodingAgent(directory);
+				smokeTestRoost(directory);
+			}
 		}
 		createXpiShim(nodeInstallDirectory);
 

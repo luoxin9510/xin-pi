@@ -17,8 +17,28 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
   `.scratch/xpi-roost/01-roost-core.md`). It imports nothing of xpi: the caller gives it the agent directory and the
   daemon and host entry files, and they travel to the daemon, hosts and sessions in `ROOST_*` variables. State is in
   `<agent dir>/xpi-roost/`, sockets in a runtime directory keyed by the agent directory, settings in the `"roost"` section
-  of `settings.json`. Its README, `docs/protocol.md` and `docs/port-inventory.md` describe it. The `xpi roost`
-  commands, `builtin:roost` and the hub are not there yet.
+  of `settings.json`. Its README, `docs/protocol.md` and `docs/port-inventory.md` describe it. `builtin:roost`
+  (`xpi --bg`, `/bg`) and the hub are not there yet.
+- `xpi roost <subcommand>` (user docs: [CLI](../packages/xpi-coding-agent/docs/cli.md#background-session-commands)) is
+  dispatched in `coding-agent/src/main.ts` next to `xpi mcp`, through `src/extensions/roost/cli.lazy.ts`. The commands
+  live in `xpi-roost/src/cli.ts` (`runRoostCli`); `src/extensions/roost/cli.ts` supplies the agent directory, the entry
+  files (`getRoostEntries()` in `config.ts`), the detach key (a matcher over the user's `app.suspend` binding: the
+  library has no key of its own) and the messages for Windows and a standalone binary. Without node-pty only what
+  starts a session process is refused (`respawn`, `attach` to a session that is not running: xpi-roost's
+  `ptyInstalled`). The daemon runs as `node <roost-daemon.js>`.
+- Bundle: `scripts/build-coding-agent-bundle.mjs` builds `roost-daemon.js` and `roost-host.js` from xpi-roost's built
+  `dist/daemon/main.js` and `dist/host/main.js` into the chunk directory, next to `config.ts`'s chunk, where
+  `resolveRoostEntries` looks for them (like `codemode-worker.js`). Unbundled runs resolve `xpi-roost/daemon` and
+  `xpi-roost/host` (their `dist`). xpi-roost is a `devDependency` of coding-agent and is inlined, `@xterm/headless` and
+  `@xterm/addon-serialize` too (pure JS, in the host entry only). node-pty is the one external; the build fails if
+  any output other than the host imports it. `npm run build` builds xpi-roost (`tsc -p tsconfig.build.json`) before
+  coding-agent, and `check-entry-graphs.mjs` budgets its three entries (`.`, `./daemon`, `./host`), each forbidden to
+  pull in the others.
+- node-pty is an `optionalDependencies` entry of `xpi-coding-agent` (pinned), so an install that cannot compile it on
+  Linux still succeeds; `xpi roost respawn` and `attach` to a session that is not running then say how to get it. The install lock allows its install script
+  (`allowedInstallScriptPackages` in `scripts/generate-coding-agent-install-lock.mjs`, with the reason: no Linux
+  prebuild), and the generator marks packages reached only through `optionalDependencies` (node-pty, node-addon-api)
+  `optional: true`.
 - App-config environment variables carry the prefix `XPI_` instead of `PI_` (`XPI_OFFLINE`, `XPI_TELEMETRY`,
   `XPI_PACKAGE_DIR`, `XPI_SKIP_VERSION_CHECK`, ...). The list of renamed names is `ENV_VARS` in `scripts/xpi-rename.mjs`.
   CI secrets, build constants and release tooling variables keep their names.
@@ -55,7 +75,7 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
 - Installing a local build without publishing: `npm run xpi:pack` cleans, builds and writes `dist-pack/xpi-coding-agent-<version>.tgz`
   (gitignored); install it with `npm i -g ./dist-pack/xpi-coding-agent-<version>.tgz`. The tarball is self-contained: the
   bundle inlines `xpi-ai`, `xpi-tui`, `xpi-agent-core`, `xpi-codemode` and `xpi-mcp`, so they are `devDependencies` of
-  `xpi-coding-agent` and only third-party packages (29 in all) are installed. `npm run check` fails if the built bundle imports
+  `xpi-coding-agent` and only third-party packages (29 in all, plus the optional node-pty and node-addon-api) are installed. `npm run check` fails if the built bundle imports
   an `xpi-*` package at runtime. The same tarball is what npm gets, and it works as a library (SDK) too. The repository's
   package folder is not self-contained (its `dist/index.js` imports the workspace packages); the published package is made
   from it by `scripts/coding-agent-publish.mjs`: `main` and the `"."` import point at the
@@ -393,7 +413,10 @@ token would leave the user's file with a dead refresh token. Send one message in
 workers, no model), so the package has no `test` script and root `npm test`, `./test.sh` and CI's `test (other)` skip it.
 Run `npm run test:roost` in `packages/xpi-roost` (about a minute); CI runs it in the `test (roost)` job on Linux after
 `npm rebuild node-pty`. The suite sweeps what a killed run leaves, before and after (test processes are marked by
-`ROOST_PARENT_PID` and a home under `<tmp>/xroost-*`); check for leftovers after a run anyway.
+`ROOST_PARENT_PID` and a home under `<tmp>/xroost-*`); check for leftovers after a run anyway. `npm run release:local`
+also runs a roost smoke on the packed install (`smokeTestRoost` in `scripts/coding-agent-smoke.mjs`, skipped on
+Windows, `npm rebuild node-pty` first on Linux): `xpi roost ls` starts the daemon, `daemon status` reports node-pty, a
+shell-command session runs in a PTY host and its screen is read with `logs`, then the daemon is stopped.
 
 The codemode controller is exercised through `codemodeStandIn` in `test/subagent/helpers.ts` (a stand-in `codemode` tool
 whose scripts are JS functions, driving `beginCodemodeScript` the way `executeCodemode` does) in the fault suite, and

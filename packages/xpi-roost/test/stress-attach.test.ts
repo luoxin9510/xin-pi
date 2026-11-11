@@ -270,7 +270,7 @@ describe("M22 stress: switching sessions from one terminal", () => {
 				for (let i = 0; ; i++) {
 					const id = ids[i % 2];
 					process.stdout.write("\\r\\n[attach " + id + " #" + i + "]\\r\\n");
-					const why = await attachToHost(hostSocketPath(id), { stdin: process.stdin, stdout: process.stdout });
+					const why = await attachToHost(hostSocketPath(id), { stdin: process.stdin, stdout: process.stdout }, { isDetachKey: (k) => k === "\\x1a" || /^\\x1b\\[122;(?:5|69|133)(?::[12])?u$/.test(k) });
 					process.stdout.write("\\r\\n[detached " + why + "]\\r\\n");
 				}
 			`;
@@ -382,7 +382,7 @@ describe("M22: the detach key across chunks", () => {
 			import { hostSocketPath } from "./src/lib/paths.ts";
 			for (let i = 0; ; i++) {
 				process.stdout.write("\\r\\n[attach #" + i + "]\\r\\n");
-				const why = await attachToHost(hostSocketPath(${JSON.stringify(id)}), { stdin: process.stdin, stdout: process.stdout });
+				const why = await attachToHost(hostSocketPath(${JSON.stringify(id)}), { stdin: process.stdin, stdout: process.stdout }, { isDetachKey: (k) => k === "\\x1a" || /^\\x1b\\[122;(?:5|69|133)(?::[12])?u$/.test(k) });
 				process.stdout.write("\\r\\n[detached " + why + " #" + i + "]\\r\\n");
 			}
 		`;

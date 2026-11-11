@@ -4,14 +4,16 @@ Background sessions for xpi: a daemon that runs xpi sessions (and plain shell co
 session that holds its PTY and a headless mirror of its screen, and the library both use. Ported from pi-roost, phase 1
 of `.scratch/xpi-roost/01-roost-core.md`. Private: it ships inside the `xpi-coding-agent` bundle, never on its own.
 
-This package is the core only. The `xpi roost` commands, the bundle entries, `builtin:roost` (`xpi --bg`, `/bg`) and
-the hub come in the next PRs of the spec.
+It has the core and the `xpi roost` commands; `builtin:roost` (`xpi --bg`, `/bg`) and the hub come in the next PRs of
+the spec.
 
 ## Layout
 
 - `src/lib/`: the shared library (protocol, client, paths, store, callers, the attach loop, ...).
 - `src/daemon/main.ts`: the daemon. One per agent directory; started on demand by `DaemonClient.connectOrStart`.
-- `src/host/main.ts`: the PTY host of one session.
+- `src/host/main.ts`: the PTY host of one session. The only module that loads node-pty.
+- `src/cli.ts`: `runRoostCli(argv, options)`, the `xpi roost` commands (user docs: coding-agent's `docs/cli.md`).
+- `src/index.ts`: what xpi imports (the client, the CLI, the settings merge, the detach-key scanner).
 - `docs/protocol.md`: how sessions and controllers talk to the daemon, with the op reference generated from the
   schemas (`npm run docs:protocol`).
 - `docs/port-inventory.md`: every pi-roost file and where it went, and the renamed environment variables.
@@ -22,6 +24,20 @@ It imports nothing of xpi. The caller gives the agent directory and the paths of
 // src/lib/client.ts
 const client = await DaemonClient.connectOrStart({ agentDir, daemonEntry, hostEntry });
 ```
+
+`xpi roost` (`coding-agent/src/extensions/roost/cli.ts`) calls `runRoostCli` with those, plus the detach key as a
+matcher (`isDetachKey(key)`, built from the user's `app.suspend` binding; the attach loop cuts the input into whole
+keys, asks the matcher about each and treats a bracketed paste as text), its name for the help, and the hint printed
+when the daemon cannot load node-pty. The CLI process takes on the given roost's location variables, so it reaches
+that agent directory's daemon even from inside another roost's session.
+
+## Build
+
+`npm run build` (`tsc -p tsconfig.build.json`) writes `dist/`; the root build runs it before coding-agent's. Exports:
+`.` (the library), `./daemon` and `./host` (the two entry files). The coding-agent bundle inlines the package:
+`roost-daemon.js` and `roost-host.js` are built from `dist/daemon/main.js` and `dist/host/main.js` next to the bundle's
+chunks, `@xterm/*` inlined into the host, node-pty left external (an optional dependency of `xpi-coding-agent`).
+Unbundled runs resolve `xpi-roost/daemon` and `xpi-roost/host`, so build this package first.
 
 ## Where a roost is
 

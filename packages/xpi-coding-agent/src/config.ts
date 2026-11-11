@@ -551,6 +551,35 @@ export function getCodemodeWorkerSpecifier(): string | URL | undefined {
 	return codemodeWorkerDataUrl;
 }
 
+/** Where `xpi roost` finds the daemon's and the host's entry files, by release runtime. */
+export function resolveRoostEntries(
+	runtime: "bun-binary" | "bundled-node" | "unbundled",
+	moduleUrl: string,
+): { daemonEntry: string; hostEntry: string } | undefined {
+	// A standalone binary has no Node runtime to start them with (roost needs the npm installation).
+	if (runtime === "bun-binary") return undefined;
+	if (runtime === "bundled-node") {
+		return {
+			daemonEntry: fileURLToPath(new URL("./roost-daemon.js", moduleUrl)),
+			hostEntry: fileURLToPath(new URL("./roost-host.js", moduleUrl)),
+		};
+	}
+	const require = createRequire(moduleUrl);
+	return { daemonEntry: require.resolve("xpi-roost/daemon"), hostEntry: require.resolve("xpi-roost/host") };
+}
+
+/**
+ * The daemon's and the host's entry files, run as processes of their own: in the npm
+ * package they are files of the bundle next to this one (as `codemode-worker.js` is);
+ * unbundled, xpi-roost's built files.
+ */
+export function getRoostEntries(): { daemonEntry: string; hostEntry: string } | undefined {
+	return resolveRoostEntries(
+		isBunBinary ? "bun-binary" : isBundledNode ? "bundled-node" : "unbundled",
+		import.meta.url,
+	);
+}
+
 export type InstallChange = { kind: "updated"; version: string } | { kind: "removed" };
 
 /**

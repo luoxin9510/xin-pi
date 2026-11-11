@@ -8,7 +8,7 @@
 // that starts the daemon sets and the daemon hands on.
 import { createHash } from "node:crypto";
 import { chmodSync, lstatSync, mkdirSync, realpathSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { roostEnv } from "./identity.ts";
 
 /** The longest socket path used here; a unix socket path is limited to about 104 bytes (macOS). */
@@ -22,12 +22,22 @@ export function envAgentDir(env: NodeJS.ProcessEnv = process.env): string | unde
 	return dir ? resolve(dir) : undefined;
 }
 
-/** The agent directory as one path: absolute, links resolved when it exists. */
+/**
+ * The agent directory as one path: absolute, links resolved. A directory that does not exist
+ * yet resolves through its nearest existing parent, so its key does not change once it is made.
+ */
 function realAgentDir(agentDir: string): string {
-	try {
-		return realpathSync(agentDir);
-	} catch {
-		return resolve(agentDir);
+	let dir = resolve(agentDir);
+	const rest: string[] = [];
+	for (;;) {
+		try {
+			return join(realpathSync(dir), ...rest.reverse());
+		} catch {
+			const parent = dirname(dir);
+			if (parent === dir) return resolve(agentDir);
+			rest.push(basename(dir));
+			dir = parent;
+		}
 	}
 }
 
@@ -122,6 +132,13 @@ export function runtimeLevels(agentDir?: string): string[] {
 	const rt = runtimeDir(agentDir);
 	const parent = tmpRuntimeParent();
 	return rt.startsWith(`${parent}/`) ? [parent, rt] : [rt];
+}
+
+/** The levels of the runtime directory a socket is in (a host's socket, as `attach` has it). */
+export function socketDirLevels(socketPath: string): string[] {
+	const dir = dirname(resolve(socketPath));
+	const parent = tmpRuntimeParent();
+	return dir.startsWith(`${parent}/`) ? [parent, dir] : [dir];
 }
 
 /**

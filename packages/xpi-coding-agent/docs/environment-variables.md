@@ -101,3 +101,20 @@ These variables are read by Pi itself:
 | `HTTP_PROXY`, `HTTPS_PROXY` | Proxy outbound HTTP requests |
 
 Provider credentials such as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and provider-specific configuration are listed in [Providers](providers.md#use-an-api-key-from-the-environment).
+
+## Background Sessions
+
+`xpi roost` keeps a daemon per agent directory: state in `<agent dir>/xpi-roost/`, sockets in
+`$XDG_RUNTIME_DIR/xpi-roost-<key>` or `/tmp/xpi-roost-<uid>/<key>`, where `<key>` is derived from the agent directory.
+See [CLI](cli.md#background-session-commands).
+
+| Variable | Description |
+|----------|-------------|
+| `ROOST_HOME` | Override the state directory (default `<agent dir>/xpi-roost`) |
+| `ROOST_RUNTIME_DIR` | Override the socket directory. Each of its levels must be a directory you own, not a link, and the path must stay short enough for a Unix socket |
+| `ROOST_AGENT_DIR` | The agent directory the two overrides belong to. When it names another directory than the one xpi uses, `ROOST_HOME` and `ROOST_RUNTIME_DIR` are ignored |
+| `XDG_RUNTIME_DIR` | When set (usually on Linux), the base of the default socket directory, unless a socket path would be too long there |
+
+A background session carries `ROOST_AGENT_DIR`, `ROOST_HOME` and `ROOST_RUNTIME_DIR` of its roost, so `xpi roost` run
+inside it reaches the same daemon, and an xpi with another agent directory (`XPI_CODING_AGENT_DIR`) gets a daemon of
+its own. Other `ROOST_*` names are internal.

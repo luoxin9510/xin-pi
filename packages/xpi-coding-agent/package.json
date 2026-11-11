@@ -72,6 +72,9 @@
 		"undici": "8.12.3",
 		"yaml": "2.9.0"
 	},
+	"optionalDependencies": {
+		"node-pty": "1.1.0"
+	},
 	"overrides": {
 		"protobufjs": "7.6.6"
 	},
@@ -80,6 +83,7 @@
 		"xpi-ai": "1.8.1",
 		"xpi-codemode": "1.8.1",
 		"xpi-mcp": "1.8.1",
+		"xpi-roost": "1.8.1",
 		"xpi-tui": "1.8.1",
 		"@types/cross-spawn": "6.0.6",
 		"@types/hosted-git-info": "3.0.5",
@@ -88,7 +92,6 @@
 		"@types/semver": "7.7.1",
 		"@xterm/headless": "5.5.0",
 		"marked": "18.0.11",
-		"node-pty": "1.1.0",
 		"vitest": "4.1.12"
 	},
 	"keywords": [

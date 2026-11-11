@@ -11,6 +11,7 @@ const repoRoot = resolve(scriptDir, "..");
 const codingAgentDir = join(repoRoot, "packages", "xpi-coding-agent");
 const aiDistDir = join(repoRoot, "packages", "xpi-ai", "dist");
 const codingAgentDistDir = join(codingAgentDir, "dist");
+const roostDistDir = join(repoRoot, "packages", "xpi-roost", "dist");
 const bundleDir = join(codingAgentDistDir, "bundle");
 const banner = {
 	js: 'import { createRequire as __piCreateRequire } from "node:module"; const require = __piCreateRequire(import.meta.url);',
@@ -25,6 +26,10 @@ const allowedExternalPackages = new Set([
 	"kerberos",
 	// Optional debug output coloring.
 	"supports-color",
+	// xpi roost's native PTY, an optional dependency. Only the roost host entry may import it (checked below; the
+	// check sees static imports only, so a runtime createRequire(...)("node-pty") elsewhere is not caught: the
+	// daemon's probe loads it to report ptyError, and the CLI only resolves its path).
+	"node-pty",
 ]);
 
 const lazyJitiPlugin = {
@@ -145,6 +150,8 @@ for (const entry of [
 	join(codingAgentDistDir, "extensions", "codemode", "worker.js"),
 	join(aiDistDir, "api", "bedrock-converse-stream.js"),
 	join(aiDistDir, "auth", "oauth", "anthropic.js"),
+	join(roostDistDir, "daemon", "main.js"),
+	join(roostDistDir, "host", "main.js"),
 ]) {
 	if (!existsSync(entry)) {
 		throw new Error(`Bundle input is missing: ${relative(repoRoot, entry)}. Build the workspace packages first.`);
@@ -233,6 +240,29 @@ for (const [outputPath, output] of Object.entries(codemodeWorkerResult.metafile.
 	}
 }
 
+// xpi roost's daemon and a session's PTY host are processes of their own, started with the running Node from these
+// files; getRoostEntries() in config.ts finds them next to its own chunk. node-pty, a native optional dependency,
+// stays external, and only the host imports it: nothing xpi loads at start reaches it.
+const roostResult = await build({
+	...commonBuildOptions(),
+	entryNames: "[name]",
+	entryPoints: {
+		"roost-daemon": join(roostDistDir, "daemon", "main.js"),
+		"roost-host": join(roostDistDir, "host", "main.js"),
+	},
+	external: [...commonBuildOptions().external, "node-pty"],
+	outdir: dirname(bedrockLoaderOutput),
+	splitting: false,
+});
+// Static imports only (esbuild's metafile): a runtime createRequire(...)("node-pty") is not seen here.
+for (const metafile of [mainResult.metafile, lazyResult.metafile, codemodeWorkerResult.metafile, roostResult.metafile]) {
+	for (const [outputPath, output] of Object.entries(metafile.outputs)) {
+		if (!output.imports.some((imported) => imported.path === "node-pty")) continue;
+		if (output.entryPoint?.replaceAll("\\", "/").endsWith("xpi-roost/dist/host/main.js")) continue;
+		throw new Error(`Only the roost host may import node-pty, but ${relative(repoRoot, resolve(repoRoot, outputPath))} does`);
+	}
+}
+
 const imageResizeWorkerOutput = resolve(dirname(bedrockLoaderOutput), "image-resize-worker.js");
 if (dirname(imageResizeOutput) !== dirname(imageResizeWorkerOutput)) {
 	throw new Error("Image resize implementation and worker were emitted into different directories");
@@ -242,7 +272,7 @@ if (dirname(configOutput) !== dirname(bedrockLoaderOutput)) {
 	throw new Error("config.ts and the codemode worker were emitted into different directories");
 }
 
-const metafiles = [mainResult.metafile, lazyResult.metafile, codemodeWorkerResult.metafile];
+const metafiles = [mainResult.metafile, lazyResult.metafile, codemodeWorkerResult.metafile, roostResult.metafile];
 validateExternalImports(metafiles);
 const cliLauncher = `#!/usr/bin/env node
 import { createRequire, enableCompileCache } from "node:module";

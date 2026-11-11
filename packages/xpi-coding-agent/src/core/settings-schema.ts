@@ -368,6 +368,102 @@ const CommitSettingsSchema = Type.Object(
 	{ additionalProperties: true, description: "Settings of the built-in commit extension (/commit)." },
 );
 
+// xpi roost's block (background sessions). xpi-roost validates it itself (its lib/config.ts: a bad value is skipped)
+// and its daemon reads the user's section from <agent dir>/settings.json; this is for the published schema. Defaults are
+// in the descriptions. A project's settings cannot set the four environment keys (inheritEnv, envAllowList,
+// envDenyList, workspaceEnv): a cloned repository must not choose which of the user's environment reaches its sessions.
+const RoostPresetSchema = Type.Object(
+	{
+		model: Type.Optional(Type.String({ description: 'Model of a new session, as "provider/model".' })),
+		thinking: Type.Optional(Type.String({ description: "Thinking level of a new session." })),
+		dir: Type.Optional(
+			Type.String({ description: "Directory of a new session, relative to the hub's (never above it)." }),
+		),
+	},
+	{ additionalProperties: true },
+);
+
+const RoostSettingsSchema = Type.Object(
+	{
+		leftArrowOpensAgents: Type.Optional(
+			Type.Boolean({ description: "The left arrow on an empty editor opens the hub. Default true." }),
+		),
+		reapIdleMinutes: Type.Optional(
+			Type.Number({
+				exclusiveMinimum: 0,
+				description:
+					"A background session idle, unattached and unpinned this long is stopped (it can be started again). Default 60.",
+			}),
+		),
+		cleanupDays: Type.Optional(
+			Type.Number({
+				minimum: 0,
+				maximum: 3650,
+				description: "Records of sessions that ended this many days ago are removed; 0 keeps them. Default 30.",
+			}),
+		),
+		dispatchModel: Type.Optional(
+			Type.String({ description: 'Model of a new background session, "provider/model".' }),
+		),
+		dispatchThinking: Type.Optional(Type.String({ description: "Thinking level of a new background session." })),
+		inheritEnv: Type.Optional(
+			Type.Boolean({
+				description:
+					"A session starts with the launching shell's environment (less envDenyList); false: envAllowList only. User settings only. Default true.",
+			}),
+		),
+		envAllowList: Type.Optional(
+			Type.Array(Type.String(), {
+				description:
+					"Variables carried even when inheritEnv is off or envDenyList names them. User settings only. Default [].",
+			}),
+		),
+		envDenyList: Type.Optional(
+			Type.Array(Type.String(), {
+				description: 'Variables never carried; "PREFIX*" names a prefix. User settings only. Default [].',
+			}),
+		),
+		workspaceEnv: Type.Optional(
+			Type.Union([Type.Literal("shell"), Type.Literal("direnv"), Type.Literal("off")], {
+				description:
+					'The session directory\'s own environment on top: its shell\'s cd hooks ("shell"), direnv only, or "off". User settings only. Default "shell".',
+			}),
+		),
+		groupBy: Type.Optional(
+			Type.Union([Type.Literal("state"), Type.Literal("directory")], {
+				description: 'How the hub groups sessions. Default "state".',
+			}),
+		),
+		fullscreen: Type.Optional(
+			Type.Boolean({
+				description: "The hub covers the whole terminal (false: below the conversation). Default true.",
+			}),
+		),
+		rowDetails: Type.Optional(
+			Type.Boolean({ description: "Each row of the hub shows its model and context use. Default true." }),
+		),
+		notify: Type.Optional(
+			Type.Union(
+				[
+					Type.Literal("auto"),
+					Type.Literal("osc9"),
+					Type.Literal("osc777"),
+					Type.Literal("bell"),
+					Type.Literal("off"),
+				],
+				{ description: 'How the hub makes the terminal notify. Default "auto".' },
+			),
+		),
+		presets: Type.Optional(
+			Type.Record(Type.String(), RoostPresetSchema, {
+				description:
+					"Saved choices for new sessions, by name (the user's and a project's merged, a project's winning).",
+			}),
+		),
+	},
+	{ additionalProperties: true, description: "Settings of xpi roost (background sessions and the hub)." },
+);
+
 export const SettingsSchema = Type.Object(
 	{
 		$schema: Type.Optional(Type.String({ description: "JSON Schema reference." })),
@@ -642,6 +738,7 @@ export const SettingsSchema = Type.Object(
 		subagent: Type.Optional(SubagentSettingsSchema),
 		relay: Type.Optional(RelaySettingsSchema),
 		commit: Type.Optional(CommitSettingsSchema),
+		roost: Type.Optional(RoostSettingsSchema),
 	},
 	{ additionalProperties: true },
 );
