@@ -11,7 +11,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DaemonClient } from "xpi-roost";
 import { readWriterLock } from "xpi-roost/session";
 import { processStartToken } from "../../xpi-roost/src/lib/proc.ts";
-import { backgroundAndExit, backgroundedText, chosenOnCommandLine } from "../src/extensions/roost/background.ts";
+import { ProjectTrustStore } from "../src/core/trust-manager.ts";
+import {
+	backgroundAndExit,
+	backgroundedText,
+	chosenOnCommandLine,
+	sessionTrust,
+} from "../src/extensions/roost/background.ts";
 import roost, { bgArgsProblem, bgProblem, registerWriteLock } from "../src/extensions/roost/index.ts";
 import { BINARY_MESSAGE, NO_PTY_MESSAGE, WINDOWS_MESSAGE } from "../src/extensions/roost/messages.ts";
 import { launchSettings } from "../src/extensions/roost/settings.ts";
@@ -54,10 +60,15 @@ afterEach(() => {
 
 function fakePi(flags: Record<string, string | boolean> = {}) {
 	const handlers = new Map<string, Handler[]>();
-	const registered: { flags: Map<string, any> } = { flags: new Map() };
+	const registered: { flags: Map<string, any>; commands: Map<string, any> } = {
+		flags: new Map(),
+		commands: new Map(),
+	};
 	const pi = {
 		on: (name: string, h: Handler) => handlers.set(name, [...(handlers.get(name) ?? []), h]),
 		registerFlag: (name: string, o: unknown) => registered.flags.set(name, o),
+		registerCommand: (name: string, o: unknown) => registered.commands.set(name, o),
+		events: { emit() {} },
 		getFlag: (name: string) => flags[name],
 		registerEntryRenderer() {},
 		registerMessageRenderer() {},
@@ -224,7 +235,8 @@ describe("an ordinary start", () => {
 			const child = fakePi();
 			await roost(child.pi);
 			expect(loaded).toEqual([]);
-			expect([...child.handlers.keys()].sort()).toEqual(["session_shutdown", "session_start"]);
+			// it is an ordinary (foreground) session: the write lock, /agents and the foreground role's /bg
+			expect([...child.registered.commands.keys()].sort()).toEqual(["agents", "background", "bg", "bg-fork"]);
 
 			// the session itself: it has the token; after the worker took it out, a /reload is still the session
 			process.env.ROOST_JOB_TOKEN = "t";
@@ -302,6 +314,33 @@ describe("--bg", () => {
 		expect(chosenOnCommandLine(["--model", "a/b", "--bg", "x"])).toEqual({ model: true, thinking: false });
 		expect(chosenOnCommandLine(["--thinking=high"])).toEqual({ model: false, thinking: true });
 		expect(chosenOnCommandLine(["--bg", "use --model in docs"])).toEqual({ model: false, thinking: false });
+	});
+
+	it("the trust decision that goes with the session: one somebody made, never xpi's own yes for a folder with nothing to trust", () => {
+		const agentDir = join(dir, "trust-agent");
+		const plain = join(dir, "plain");
+		const guarded = join(dir, "guarded");
+		mkdirSync(plain, { recursive: true });
+		mkdirSync(join(guarded, ".agents", "skills"), { recursive: true });
+		// the folder has something to trust: this process's answer (the question, a flag or a stored decision)
+		expect(sessionTrust(guarded, ["--bg", "x"], true, agentDir)).toBe(true);
+		expect(sessionTrust(guarded, ["--bg", "x"], false, agentDir)).toBe(false);
+		// nothing to trust: xpi said yes without asking, and that yes would load extensions that appear later
+		expect(sessionTrust(plain, ["--bg", "x"], true, agentDir)).toBe(false);
+		expect(sessionTrust(plain, ["--approve", "--bg", "x"], true, agentDir)).toBe(true);
+		expect(sessionTrust(plain, ["-na", "--bg", "x"], false, agentDir)).toBe(false);
+		// a flag's value is text, not a decision: read as xpi reads its command line
+		expect(sessionTrust(plain, ["--bg=-a", "--bg-name=--approve"], true, agentDir)).toBe(false);
+		expect(sessionTrust(plain, ["--append-system-prompt", "-a", "--bg", "x"], true, agentDir)).toBe(false);
+		// no answer of this process for the folder (the hub starting a session elsewhere): only a stored decision,
+		// whatever the folder holds and whatever this process's command line says
+		expect(sessionTrust(guarded, ["--approve"], undefined, agentDir)).toBe(false);
+		expect(sessionTrust(plain, ["--approve"], undefined, agentDir)).toBe(false);
+		new ProjectTrustStore(agentDir).set(plain, true);
+		expect(sessionTrust(plain, ["--bg", "x"], true, agentDir)).toBe(true);
+		expect(sessionTrust(plain, [], undefined, agentDir)).toBe(true);
+		new ProjectTrustStore(agentDir).set(guarded, false);
+		expect(sessionTrust(guarded, [], undefined, agentDir)).toBe(false);
 	});
 
 	it("a new session's settings: the user's environment keys, a project's dispatch keys, never a project's environment", () => {
@@ -402,8 +441,9 @@ setTimeout(() => {}, 30000);
 					join(dir, "s1.jsonl"),
 					"--model",
 					"faux/m1",
-					// the trust this process had: the session must not stop at the "Trust project folder?" question
-					"--approve",
+					// a decision always goes with it, so the session never stops at the "Trust project folder?" question;
+					// nothing here needs trust and nobody decided, so it is no
+					"--no-approve",
 					"--",
 					"count the files",
 				]);

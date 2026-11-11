@@ -23,8 +23,8 @@ import { getRoostEntries, VERSION } from "../../config.ts";
 import { KeybindingsManager } from "../../core/keybindings.ts";
 import { type SessionInfo, SessionManager } from "../../core/session-manager.ts";
 import { SettingsManager } from "../../core/settings-manager.ts";
-import { ProjectTrustStore } from "../../core/trust-manager.ts";
 import { SessionSelectorComponent } from "../../modes/interactive/components/session-selector.ts";
+import { sessionTrust } from "./background.ts";
 import { detachMatcher } from "./cli.ts";
 import { builtinCommands } from "./commands.ts";
 import { roostSettings } from "./settings.ts";
@@ -65,16 +65,13 @@ const same = (a: string, b: string): boolean => {
 };
 
 /**
- * Fact 2 of the PR 4 brief: the trust decision a session the hub starts in `dir` gets (`--approve`/`--no-approve`), so
- * it never stops at "Trust project folder?" in its PTY. The host xpi's own answer for its directory; elsewhere a stored
- * decision (`trust.json`, the nearest one). Undefined when there is none: a directory without project resources, or a
- * `defaultProjectTrust` of always or never, decides for itself without asking; a directory with resources and no
- * decision under "ask" still asks (not settled here).
+ * The trust decision a session the hub starts in `dir` gets (`--approve`/`--no-approve`), by `sessionTrust`'s rule
+ * (the one `xpi --bg` uses): in the host xpi's own folder, its answer and its command line; anywhere else only a stored
+ * decision, otherwise no. Never undefined: a session the hub starts never waits at the trust question.
  */
-export function trustFor(dir: string, h: Pick<XpiHost, "cwd" | "agentDir" | "projectTrusted">): boolean | undefined {
-	if (h.projectTrusted !== undefined && same(dir, h.cwd)) return h.projectTrusted;
-	const stored = new ProjectTrustStore(h.agentDir).get(dir);
-	return stored ?? undefined;
+export function trustFor(dir: string, h: Pick<XpiHost, "cwd" | "agentDir" | "argv" | "projectTrusted">): boolean {
+	const here = h.projectTrusted !== undefined && same(dir, h.cwd);
+	return sessionTrust(dir, here ? h.argv.slice(2) : [], here ? h.projectTrusted : undefined, h.agentDir);
 }
 
 /** The user's settings (global only): the hub writes the `"roost"` keys it changes there. */

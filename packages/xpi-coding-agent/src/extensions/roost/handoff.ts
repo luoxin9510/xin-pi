@@ -6,6 +6,7 @@
 import { buildLaunch, DaemonClient, fallbackName, messageText } from "xpi-roost";
 import { getAgentDir, VERSION } from "../../config.ts";
 import type { ExtensionContext } from "../../core/extensions/types.ts";
+import { sessionTrust } from "./background.ts";
 import { roostStart } from "./hub-options.ts";
 import { launchSettings } from "./settings.ts";
 
@@ -31,13 +32,15 @@ export interface HandoffInput {
 	/** M8: the model and thinking level this xpi runs now (a session file does not always record them). */
 	model?: string;
 	thinking?: string;
-	/** This xpi's answer about the project folder: the session gets `--approve` or `--no-approve`. */
+	/** This xpi's answer about the project folder (undefined: none); `sessionTrust` decides what the session gets. */
 	trusted?: boolean;
 }
 
 /** The daemon's dispatch request for a session file this xpi hands over. */
 export function handoffRequest(ctx: ExtensionContext, o: HandoffInput) {
 	const settings = launchSettings(ctx.cwd, o.trusted ?? false);
+	// the same rule as `xpi --bg`: only a decision somebody made goes with the session, otherwise --no-approve
+	const trusted = sessionTrust(ctx.cwd, process.argv.slice(2), o.trusted, getAgentDir());
 	return buildLaunch({
 		task: o.task,
 		cwd: ctx.cwd,
@@ -47,7 +50,7 @@ export function handoffRequest(ctx: ExtensionContext, o: HandoffInput) {
 		argv: process.argv,
 		execPath: process.execPath,
 		env: process.env,
-		...(o.trusted !== undefined ? { trusted: o.trusted } : {}),
+		trusted,
 		...settings.env,
 		piVersion: VERSION,
 		...(o.model ? { model: o.model } : {}),

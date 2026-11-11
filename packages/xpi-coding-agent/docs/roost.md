@@ -43,6 +43,10 @@ flags that choose its extensions and model (`-e`, `--no-extensions`, `--model`, 
 
 The session also gets this xpi's answer about the project folder's trust, as `--approve` or `--no-approve`, so it never
 waits at the trust question where nobody sees it: answer the question (or pass `--approve`) when you run `xpi --bg`.
+The answer is part of the session's command: every later start of that session (`respawn`, a reply to a finished
+session, a restart after a crash) uses it without asking again, also an answer given for one run only. In a folder that
+has nothing to trust yet, the session gets `--no-approve` unless you passed `--approve` or a decision is stored, so
+project extensions that appear later do not load in it unasked.
 
 The `roost` settings choose a new session's model, thinking level and environment; see [Settings](#settings).
 
