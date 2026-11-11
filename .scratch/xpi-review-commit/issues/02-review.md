@@ -24,8 +24,9 @@ more pass, and returns a ranked list to the main conversation.
 - [x] Tests: offline unit tests for the script's pure parts (target parsing, skip list, grouping, ranking, result text),
       whole runs with a fake `agent()`, an e2e `xpi -p /review`, and discovery (built-in listed, untrusted project, user
       file wins)
-- [ ] Real-model check by hand with Haiku on a fixture repo with two planted bugs and a style-only change
-      (`test/subagent/real/23-review.test.ts`, prepared, not run)
+- [x] Real-model check by hand with Haiku on a fixture repo with two planted bugs and a style-only change
+      (`test/subagent/real/23-review.test.ts`: passed 2026-11-11 on 8bd5ff1e6, both bugs found, style change not
+      reported, 15 s)
 - [x] Docs: `packages/xpi-coding-agent/docs/subagent.md` (built-in workflows, `reviewer`, `/review`),
       `docs/slash-commands.md`, `docs/xin-pi.md`, `README.md` if it lists built-ins
 
