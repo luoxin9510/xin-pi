@@ -80,7 +80,7 @@ continued on indented lines is still invalid: quote it or use a `|` block.
 | `color` | `red`, `blue`, `green`, `yellow`, `purple`, `orange`, `pink` or `cyan` tints the agent's label in the panel and on its screen header (fixed 256-colour escapes; the status icon and text keep their status colours). Any other value warns once and is ignored. |
 | `isolation` | `worktree` runs every call of this agent in its own git worktree; the call's `isolation` wins. See [Worktree isolation](#worktree-isolation). |
 | `memory` | `user`, `project` or `local` gives the agent a persistent directory. See [Agent memory](#agent-memory). |
-| `mcpServers` | A list of names of MCP servers configured in `mcp.json`. The agent gets those servers' tools and no other server's; `[]` means no MCP. An unknown name warns in the result. An inline server definition (Claude Code's other form) is not supported: it is skipped with a warning. See [MCP](#mcp). |
+| `mcpServers` | MCP servers for this agent: names of servers configured in `mcp.json`, inline definitions (a mapping with the server name as key, in `mcp.json`'s shape), or a list mixing both. The agent gets those servers' tools and no other server's; `[]` means no MCP. An unknown name warns in the result. See [MCP](#mcp). |
 | `background` | `true`: a call for this agent without `run_in_background` returns at once with `status: "running"`, and the result arrives as a message. The call's own `run_in_background` wins; print mode waits. |
 | `autoCompactWindow`, `permissionMode`, `hooks`, `initialPrompt`, `experimental` | Accepted, no effect; the warning says why (xpi compacts by reserve tokens, has no permission modes and no hooks, and has no agent-as-main-session for `initialPrompt`). |
 
@@ -369,6 +369,42 @@ no `tools` list gets your normal tools and every installed extension, MCP includ
 and, in a trusted project, the project's). With a `tools` list, each server's tools join it as `mcp__<server>__*`.
 Without one, the configured servers the agent does not name are excluded (`--exclude-tools`); servers an extension
 registers at run time are not in `mcp.json` and are not excluded this way. `mcpServers: []` removes all MCP tools.
+
+### Inline servers
+
+An entry can also define a server, as in Claude Code, in the same shape as a `mcp.json` entry:
+
+```yaml
+mcpServers:
+  - docs                       # configured in mcp.json
+  - probe:                     # defined here, for this agent only
+      command: node
+      args: [./tools/probe-server.mjs]
+  - tracker:
+      url: https://tracker.example/mcp
+      headers: { Authorization: "Bearer ${TRACKER_TOKEN}" }
+```
+
+- Only the child connects to them, and it disconnects when it ends: the child gets them with
+  [`--mcp-config`](mcp.md#add-servers-for-one-run), as JSON in its arguments. The parent session does not get them.
+  Values written out in the file (an `env` token, say) are visible in the process list then; use `${VAR}`, which the
+  child expands. Servers the parent got from its own `--mcp-config` are not passed on.
+- They need the built-in MCP extension. With it turned off (`-builtin:mcp` in the `extensions` setting) or replaced by
+  another MCP extension, they are skipped with a warning in the result.
+- Their tools are handled like a named server's: with a `tools` list, `mcp__<server>__*` joins it.
+- Types are those `mcp.json` accepts (`stdio`, `http`, `streamable-http`, or none). An entry it rejects (`sse`, `ws`, a
+  bad field) is skipped with a warning at discovery that gives the reason.
+- Trust, as in Claude Code: inline servers of an agent file in the project (`.pi/agents`, `.claude/agents`) load only
+  in a [trusted](security.md#understand-project-trust) project; otherwise they are skipped with a warning in the result.
+  Those of user agent files (`~/.pi/agent/agents`, `~/.claude/agents`), `--agents` and built-ins always load. A project
+  agent file may not use `auth: { provider }` (skipped with a warning), the rule the project `mcp.json` has: a
+  repository must not choose where a credential goes.
+- A name equal to a configured server's replaces that server for this child. A name that collides with another
+  server's only in the tool namespace (`a-b` and `a_b`) is skipped with a warning.
+- Each set of inline servers makes its own [prompt-cache group](#cost-caching-and-limits), since their tools come
+  before the system prompt.
+- A child has no UI, so an inline HTTP server cannot run an OAuth sign-in. It uses what `mcp.json` would: `headers`, or
+  tokens `/mcp` already stored for a server with the same name and URL.
 
 ## Codemode-only children
 

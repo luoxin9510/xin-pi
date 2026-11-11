@@ -47,9 +47,11 @@ import {
 	getMcpToolExposure,
 	type LoadedMcpConfig,
 	loadMcpConfig,
+	type McpConfigFlag,
 	type McpExposure,
 	type McpServerConfigPatch,
 	type McpServerEntry,
+	parseMcpConfigFlag,
 	updateMcpServerConfig,
 } from "./config.ts";
 import type { McpOAuthCredentialStore, McpSignInPrompt } from "./oauth.ts";
@@ -68,8 +70,8 @@ import { type McpMenu, type McpUi, showMcpManager } from "./ui.ts";
 export type { McpTransportFactory } from "./runtime.ts";
 
 export interface McpExtensionOptions {
-	/** Defaults to reading `mcp.json` from the agent directory and the trusted project. */
-	loadConfig?: (ctx: ExtensionContext) => LoadedMcpConfig;
+	/** Defaults to reading `mcp.json` from the agent directory and the trusted project, then `--mcp-config`. */
+	loadConfig?: (ctx: ExtensionContext, flag: McpConfigFlag | undefined) => LoadedMcpConfig;
 	/** Defaults to stdio and streamable HTTP transports built from the server config. */
 	createTransport?: McpTransportFactory;
 	/** Defaults to `mcp-auth.json` in the agent directory. */
@@ -279,6 +281,16 @@ const MCP_USAGE = "Usage: /mcp, /mcp login [server], /mcp logout [server], /mcp 
 
 export function createMcpExtension(options: McpExtensionOptions = {}): ExtensionFactory {
 	return (pi: ExtensionAPI) => {
+		pi.registerFlag("mcp-config", {
+			type: "string",
+			description:
+				'MCP servers for this run, added after mcp.json: the path of a JSON file or JSON, {"mcpServers": {...}} as in mcp.json.',
+			// JSON or a file that does not parse stops the start: the run would lack servers it was asked for.
+			validate: (value, cwd) => {
+				if (value !== "") parseMcpConfigFlag(value, cwd);
+				return undefined;
+			},
+		});
 		let servers: McpServer[] = [];
 		/** Servers from `mcp.json`, which take precedence over registered servers of the same name. */
 		let configuredEntries: McpServerEntry[] = [];
@@ -662,7 +674,7 @@ export function createMcpExtension(options: McpExtensionOptions = {}): Extension
 		const saveConfig = (server: McpServer, patch: McpServerConfigPatch, inProject = false): string | undefined => {
 			const override = inProject ? projectConfig : server.entry.override;
 			const entry = override ? { ...server.entry, override } : server.entry;
-			if (entry.scope !== "extension") {
+			if (!isSessionOnly(entry)) {
 				try {
 					updateConfig(entry, patch);
 				} catch (error) {
@@ -820,14 +832,13 @@ export function createMcpExtension(options: McpExtensionOptions = {}): Extension
 				};
 			}
 			const { entry, connection } = server;
-			const saved =
-				entry.scope === "extension"
-					? "for this session"
-					: entry.override
-						? "saved to the project mcp.json"
-						: entry.scope
-							? `saved to the ${entry.scope} mcp.json`
-							: "saved to mcp.json";
+			const saved = isSessionOnly(entry)
+				? "for this session"
+				: entry.override
+					? "saved to the project mcp.json"
+					: entry.scope
+						? `saved to the ${entry.scope} mcp.json`
+						: "saved to mcp.json";
 			// Global servers without an override can be turned on or off for the trusted project alone.
 			const inProject = entry.scope === "global" && !entry.override && projectConfig !== undefined;
 			const inProjectSaved = "saved to the project mcp.json";
@@ -904,7 +915,9 @@ export function createMcpExtension(options: McpExtensionOptions = {}): Extension
 				details:
 					server.entry.scope === "extension"
 						? `Applies to this session; the server is registered by ${server.entry.source}.`
-						: `Saved to ${server.entry.override ?? server.entry.source}.`,
+						: server.entry.scope === "cli"
+							? `Applies to this session; the server comes from --mcp-config (${server.entry.source}).`
+							: `Saved to ${server.entry.override ?? server.entry.source}.`,
 				items: (Object.keys(EXPOSURE_DESCRIPTIONS) as (keyof typeof EXPOSURE_DESCRIPTIONS)[]).map((exposure) => ({
 					value: exposure,
 					label: `${exposure === current ? "✓ " : "  "}${exposure}`,
@@ -1113,8 +1126,18 @@ export function createMcpExtension(options: McpExtensionOptions = {}): Extension
 		};
 
 		pi.on("session_start", (_event, ctx) => {
-			const loaded = (options.loadConfig ?? defaultLoadConfig)(ctx);
-			configErrors = loaded.errors;
+			const flagValue = pi.getFlag("mcp-config");
+			let flag: McpConfigFlag | undefined;
+			let flagError: string | undefined;
+			try {
+				if (typeof flagValue === "string" && flagValue !== "") flag = parseMcpConfigFlag(flagValue, ctx.cwd);
+			} catch (error) {
+				// Checked at startup (validate above). After /new, a resume or a fork it is read again from the session's cwd;
+				// a failure then is reported with the config errors and the run goes on without those servers.
+				flagError = errorMessage(error);
+			}
+			const loaded = (options.loadConfig ?? defaultLoadConfig)(ctx, flag);
+			configErrors = flagError === undefined ? loaded.errors : [flagError, ...loaded.errors];
 			projectConfig = loaded.projectConfig;
 			autoEnableCodemode = loaded.autoEnableCodemode ?? true;
 			warnedUnreachable = false;
@@ -1341,8 +1364,13 @@ export function createMcpExtension(options: McpExtensionOptions = {}): Extension
 	};
 }
 
-function defaultLoadConfig(ctx: ExtensionContext): LoadedMcpConfig {
-	return loadMcpConfig({ agentDir: getAgentDir(), cwd: ctx.cwd, projectTrusted: ctx.isProjectTrusted() });
+function defaultLoadConfig(ctx: ExtensionContext, flag: McpConfigFlag | undefined): LoadedMcpConfig {
+	return loadMcpConfig({ agentDir: getAgentDir(), cwd: ctx.cwd, projectTrusted: ctx.isProjectTrusted(), flag });
+}
+
+/** Servers whose changes in `/mcp` last for the session only: registered by an extension, or from `--mcp-config`. */
+function isSessionOnly(entry: McpServerEntry): boolean {
+	return entry.scope === "extension" || entry.scope === "cli";
 }
 
 export default createMcpExtension();

@@ -313,6 +313,18 @@ and a session without a tool selection all start from. The codemode extension st
 a resumed branch that removed it) does not get it back on registration. When merging upstream, keep `codemode` in that
 list and keep `src/core/agent-session.ts` reading it instead of its own copy.
 
+## Core changes: extension flag validation
+
+An error thrown by a `session_start` handler is only reported, so an extension could not stop a run whose flag value is
+unusable. xin-pi adds `validate(value, cwd)` to string flags (`registerFlag`, `ExtensionFlag` in
+`src/core/extensions/types.ts`, kept by `loader.ts`). `applyExtensionFlagValues` (`src/core/agent-session-services.ts`)
+calls it for a command-line value with the session cwd; a returned message or a throw becomes an `error` diagnostic,
+which stops the start in every mode, as an unknown option does. The services are created again for `/new`, a resume or
+a fork, whose diagnostics are not shown: there the value is set anyway, so the extension's `session_start` reports the
+problem. `--agents` (subagent) and `--mcp-config` (MCP) use it.
+User docs: `extensions.md#piregisterflagname-options`. Tests: `test/extension-flag-validate.test.ts`,
+`test/subagent/faults/cli-agents.test.ts`.
+
 ## Testing
 
 Everything below runs from `packages/xpi-coding-agent/`. Tests assert on structure and side effects (result fields,

@@ -44,6 +44,9 @@ describe("validateMcpServerConfig", () => {
 		expect(errorOf(validateMcpServerConfig("s", { type: "sse", url: "https://a.example/sse" }))).toBe(
 			'server "s": legacy SSE transport is not supported; use the streamable HTTP URL',
 		);
+		expect(errorOf(validateMcpServerConfig("s", { type: "ws", url: "wss://a.example/mcp" }))).toBe(
+			'server "s": type "ws" is not supported (use stdio, http or streamable-http)',
+		);
 	});
 
 	it("reports invalid names and fields", () => {

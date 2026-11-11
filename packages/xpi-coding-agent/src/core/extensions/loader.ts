@@ -342,7 +342,12 @@ function createExtensionAPI(
 
 		registerFlag(
 			name: string,
-			options: { description?: string; type: "boolean" | "string"; default?: boolean | string },
+			options: {
+				description?: string;
+				type: "boolean" | "string";
+				default?: boolean | string;
+				validate?: (value: string, cwd: string) => string | undefined;
+			},
 		): void {
 			assertActive();
 			if (options.default !== undefined && typeof options.default !== options.type) {

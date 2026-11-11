@@ -124,6 +124,12 @@ export function validateMcpServerConfig(
 	if (type === "sse") {
 		return invalid(`server "${name}": legacy SSE transport is not supported; use the streamable HTTP URL`);
 	}
+	// "ws" (WebSocket) among others: name the type, or the message below would blame a missing command or url.
+	if (type !== undefined && type !== "stdio" && type !== "http" && type !== "streamable-http") {
+		return invalid(
+			`server "${name}": type ${JSON.stringify(type)} is not supported (use stdio, http or streamable-http)`,
+		);
+	}
 	// The casts below hold because the fields were checked one by one, which the types cannot express.
 	if (typeof url === "string" && (type === undefined || type === "http" || type === "streamable-http")) {
 		const error = validateHttpFields(raw, url, options);

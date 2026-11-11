@@ -102,7 +102,7 @@ export async function directTool(cwd: string, signal: AbortSignal, options: Dire
 		on: (event: string, h: Function) => (handlers[event] ??= []).push(h),
 		registerTool: (t: { name: string; execute: Function }) => (tools[t.name] = t),
 		registerCommand: () => {},
-		getCommands: () => [],
+		getCommands: () => [{ name: "mcp", sourceInfo: { path: "builtin:mcp" } }], // as a real session: built-in MCP
 		registerFlag: () => {},
 		getFlag: () => undefined,
 		sendMessage: () => {},

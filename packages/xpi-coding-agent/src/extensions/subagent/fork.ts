@@ -25,6 +25,7 @@ export const FORK_DEFINITION: AgentDefinition = {
 	description: FORK_DESCRIPTION,
 	prompt: "",
 	source: FORK_SOURCE,
+	scope: "builtin",
 	inert: [],
 	warnings: [],
 };

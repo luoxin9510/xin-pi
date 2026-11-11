@@ -100,12 +100,11 @@ export function agentSources(cwd: string): string[] {
 let cliAgents: AgentDefinition[] = [];
 export const CLI_SOURCE = "--agents";
 
-// Parse the value of `--agents`: a JSON object (or the path of a file holding one) whose keys are agent names and whose
-// values are definitions, Claude Code's shape: `prompt` is the system prompt, the other keys are the agent-file fields.
-// Throws when it is not such an object; an entry that is not a valid agent is skipped with a warning.
-export function setCliAgents(value: string | undefined, cwd: string): string[] {
-	cliAgents = [];
-	if (value === undefined || value.trim() === "") return [];
+/**
+ * Read the value of `--agents` (JSON, or the path of a JSON file relative to `cwd`) as its object of agents. Throws
+ * with the reason when it cannot be read or parsed; the flag's `validate` stops the start with it.
+ */
+export function parseCliAgents(value: string, cwd: string): Record<string, unknown> {
 	let text = value.trim();
 	if (!text.startsWith("{")) {
 		const path = resolve(cwd, text);
@@ -126,6 +125,16 @@ export function setCliAgents(value: string | undefined, cwd: string): string[] {
 	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
 		throw new Error("--agents: expected a JSON object whose keys are agent names");
 	}
+	return parsed as Record<string, unknown>;
+}
+
+// Set the agents of `--agents`: a JSON object (or the path of a file holding one) whose keys are agent names and whose
+// values are definitions, Claude Code's shape: `prompt` is the system prompt, the other keys are the agent-file fields.
+// Throws when it is not such an object; an entry that is not a valid agent is skipped with a warning.
+export function setCliAgents(value: string | undefined, cwd: string): string[] {
+	cliAgents = [];
+	if (value === undefined || value.trim() === "") return [];
+	const parsed = parseCliAgents(value, cwd);
 	const warnings: string[] = [];
 	for (const [name, raw] of Object.entries(parsed)) {
 		if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
@@ -141,7 +150,7 @@ export function setCliAgents(value: string | undefined, cwd: string): string[] {
 			warnings.push(`skipped --agents entry "${name}": it is a reserved agent type`);
 			continue;
 		}
-		const result = definitionFromFields(CLI_SOURCE, { ...fields, name }, (prompt ?? "").trim());
+		const result = definitionFromFields(CLI_SOURCE, { ...fields, name }, (prompt ?? "").trim(), "cli");
 		if (result.ok) cliAgents.push(result.def);
 		else warnings.push(`skipped --agents entry "${name}": ${result.reason}`);
 	}
@@ -162,9 +171,10 @@ export function discoverAgents(cwd: string): Discovery {
 	const projectSources = new Set(agentSources(cwd).slice(0, 2 * projectDirs(cwd).length));
 	const winners = new Map<string, { dir: string; path: string }>();
 	for (const dir of agentSources(cwd)) {
+		const scope = dir === BUILTIN_DIR ? "builtin" : projectSources.has(dir) ? "project" : "user";
 		const seen = new Map<string, string>(); // name -> path, within this source
 		for (const path of markdownFiles(dir, warnings)) {
-			const result = parseDefinition(path, readFileSync(path, "utf8"));
+			const result = parseDefinition(path, readFileSync(path, "utf8"), scope);
 			if (!result.ok) {
 				warnings.push(`skipped agent file ${path}: ${result.reason}`);
 				continue;

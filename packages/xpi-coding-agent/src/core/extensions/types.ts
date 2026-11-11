@@ -1813,6 +1813,11 @@ export interface ExtensionAPI {
 					description?: string;
 					type: "string";
 					default?: string;
+					/**
+					 * Checks a value given on the command line before the session starts (`cwd` is the session's). A returned
+					 * message stops the start with that error, as an unknown option does.
+					 */
+					validate?: (value: string, cwd: string) => string | undefined;
 			  },
 	): void;
 
@@ -2224,6 +2229,8 @@ export interface ExtensionFlag {
 	description?: string;
 	type: "boolean" | "string";
 	default?: boolean | string;
+	/** String flags: checks a command-line value before the session starts; a message stops the start. */
+	validate?: (value: string, cwd: string) => string | undefined;
 	extensionPath: string;
 }
 

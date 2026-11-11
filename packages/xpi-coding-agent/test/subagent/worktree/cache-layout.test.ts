@@ -81,3 +81,14 @@ test("the child process is given the head as --system-prompt and the tail as --s
 	assert.ok(x.systemPromptTail!.includes("AGENT-X-BODY") && !x.systemPrompt.includes("AGENT-X-BODY"));
 	assert.ok(y.systemPromptTail!.includes("AGENT-Y-BODY") && y.systemPromptTail!.includes(".pi/worktrees/"));
 });
+
+test("inline MCP servers are part of the prefix key: their tools come before the system prompt", () => {
+	const t = setup();
+	const servers = (command: string) => `tools: Read\nmcpServers:\n  local:\n    command: ${command}`;
+	const options = { mcpServers: [] };
+	const a = t.resolve("a", servers("one"), "BODY", options);
+	const same = t.resolve("b", servers("one"), "OTHER-BODY", options);
+	const other = t.resolve("c", servers("two"), "BODY", options);
+	assert.equal(a.prefixKey, same.prefixKey);
+	assert.notEqual(a.prefixKey, other.prefixKey);
+});

@@ -8,10 +8,11 @@ import { createCodemodeExtension } from "../codemode/index.ts";
 import { agentTool, describeAgents, parentContext } from "./agent-tool.ts";
 import { scripts } from "./background.ts";
 import { type Config, readConfig } from "./config.ts";
-import { discoverAgents, setCliAgents } from "./discovery.ts";
+import { discoverAgents, parseCliAgents, setCliAgents } from "./discovery.ts";
 import { bindHost, limitConcurrency } from "./exchange.ts";
 import { installPanel } from "./panel.ts";
 import { registry } from "./registry.ts";
+import { setBuiltinMcp } from "./resolve.ts";
 import type { Run } from "./runs.ts";
 import { scriptHelpers } from "./script-helpers.ts";
 import { sendMessageTool } from "./send-message-tool.ts";
@@ -42,6 +43,11 @@ export default function subagent(pi: ExtensionAPI) {
 		type: "string",
 		description:
 			'Subagents for this run: a JSON object {"<name>": {"description", "prompt", ...agent-file fields}} or the path of a JSON file. They rank above agent files.',
+		// JSON or a file that does not parse stops the start.
+		validate: (value, cwd) => {
+			if (value.trim() !== "") parseCliAgents(value, cwd);
+			return undefined;
+		},
 	});
 
 	// agent(), parallel(), pipeline(), phase(), log() in every script that can call Agent (script-helpers.ts). The add-on
@@ -245,6 +251,7 @@ export default function subagent(pi: ExtensionAPI) {
 			throw err;
 		}
 		limitConcurrency(config.maxConcurrent);
+		setBuiltinMcp(pi.getCommands().some((c) => c.name === "mcp" && c.sourceInfo?.path === "builtin:mcp"));
 		disconnect?.();
 		disconnect = scripts.connect({
 			sessionId: () => current?.sessionManager.getSessionId(),
