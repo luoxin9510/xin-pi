@@ -1,6 +1,6 @@
 # 01: Structured output (`schema` on an `Agent` call)
 
-Status: ready-for-agent (owner approved Grill 1 on 2026-11-10)
+Status: done (2026-11-10, PR #10; owner approved Grill 1 on 2026-11-10)
 
 ## Problem
 
