@@ -124,3 +124,9 @@ the rule's times of day, not on the next two slots; the protocol version stays 1
 through the extension's wrapper and uses the stored trust decision only; a run's environment is not stored; a missing
 executable skips a run; run now, edit and retention are specified; each PR updates its own user docs; names follow
 pi-roost's pattern.
+
+After the spec's second review, the author's corrections (no owner decision changes): a run's environment is computed
+when the schedule is made or edited and stored with it, as a job's record stores it today (the first draft said it
+was computed at run time, which the code does not do, and a login service's daemon has almost no environment); the
+login service runs once per login with no restart, `KillMode=process` on systemd and a per-agent-directory name;
+`schedule list` does not start the daemon; the hub's `/schedule` works inside a roost session.

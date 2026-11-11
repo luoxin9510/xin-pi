@@ -36,7 +36,7 @@ Checked on main (5f2cf66e1, v1.9.0) and pi-roost's main.
   the schedule (`name`, `name (2)`), its session file a fresh `{{run}}.jsonl`, and it auto-closes when done through the
   subagent auto-close that phase 1 cut. Ops `schedules`, `schedule-add`, `schedule-rm`, `schedule-pause`,
   `schedule-run`, person-only; `schedules.json` in the state directory, one writer, durable atomic writes; at most 100
-  schedules; names `[A-Za-z0-9._-]{1,40}`. Adding a schedule was possible only in the hub.
+  schedules; names `^[A-Za-z0-9][A-Za-z0-9_.-]{0,39}$`. Adding a schedule was possible only in the hub.
 - Parts of M39/M40 depend on what phase 1 cut: profiles and `!` commands as scheduled tasks, agent-definition launches,
   worktree templates (refused anyway), subagent auto-close.
 - Claude Code's local scheduled tasks (Desktop): presets (hourly, daily, weekdays, weekly, manual) or a cron rule in
@@ -63,6 +63,12 @@ Checked on main (5f2cf66e1, v1.9.0) and pi-roost's main.
   The hub's `launch` uses `trustFor`, which takes the hub xpi's own answer in its directory.
 - The protocol version is `PROTOCOL_VERSION = 1` (`packages/xpi-roost/src/lib/protocol.ts`); an older daemon answers
   an op it does not know with `bad_request: unknown op`, and `xpi roost` warns when the daemon's version differs.
+- A session's environment is computed in the client: `buildLaunch` filters the caller's `process.env` by the `roost`
+  settings (`workerEnv`), the dispatch carries it, the daemon writes it into the job's record (`store.ts`, files 0600
+  in 0700 directories) and the host starts the session with it. The daemon never computes a session's environment.
+- The daemon starts hosts with `detached: true`, which escapes launchd's process-group cleanup but not a systemd
+  unit's cgroup.
+- `xpi roost` commands other than `daemon ...` connect with `connectOrStart`, so they start the daemon.
 
 ## Decisions
 
@@ -79,19 +85,32 @@ Checked on main (5f2cf66e1, v1.9.0) and pi-roost's main.
    - The floor is 5 minutes and does not depend on when it is checked: `every` under 5 m is refused; a cron rule is
      refused when two of its times of day (its minute and hour fields, the last of a day followed by the first of the
      next) are under 5 minutes apart. Day fields only make slots further apart, so this is the closest two slots can
-     be.
+     be. On the day clocks go forward, two slots around the skipped hour can be closer; that is accepted.
    - `every` is anchored when the schedule is made, resumed or its rule edited, so a gap never bursts.
 4. **Missed slots.** On each tick the daemon compares a schedule's `nextAt` with now. When `nextAt` has passed by more
-   than two ticks (the daemon was off or the machine slept), it finds the latest slot at or before now: if that slot
-   is within the last 7 days the schedule runs once, marked as a catch-up in its record and the hub's log; older ones
-   are dropped. Either way `nextAt` moves to the first slot after now. No `catchUp` option.
+   than two ticks (the daemon was off or the machine slept), it finds the latest slot at or before now, searching from
+   the later of `nextAt` and seven days ago: if there is one, the schedule runs once, marked as a catch-up in its
+   record and the hub's log; older ones are dropped. A catch-up follows decision 7 like any run (skipped while the
+   previous run is working). Either way `nextAt` moves to the first slot after now. No `catchUp` option.
 5. **When schedules run.** Only while the agent directory's daemon runs. The daemon does not start at login by
-   default; `xpi roost daemon install` registers it as a per-user login service (macOS: a launchd agent in
-   `~/Library/LaunchAgents`; Linux: a systemd user unit), `daemon uninstall` removes it, `daemon status` says whether it
-   is installed. The service starts the same daemon `connectOrStart` would, for the agent directory it was installed
-   from. `xpi roost daemon stop` stops schedules with the daemon (an installed service starts it again at the next
-   login, or with `launchctl`/`systemctl` as the docs say). `xpi roost schedule list` says when the daemon is not
-   running that nothing runs until it does.
+   default; any `xpi roost` command (other than `daemon ...`), the hub and `xpi --bg` start it, and
+   `xpi roost daemon stop` stops schedules with it.
+   - `xpi roost daemon install` registers it as a per-user login service; `daemon uninstall` removes it;
+     `daemon status` says whether it is installed. macOS: a launchd agent in `~/Library/LaunchAgents`; Linux: a
+     systemd user unit. The label or unit name carries the agent directory's key, so two agent directories do not
+     collide.
+   - The service runs what `connectOrStart` would: the installing xpi's `process.execPath` with the daemon entry, and
+     the environment `daemonEnv` gives (`ROOST_AGENT_DIR`, `ROOST_HOME`, `ROOST_RUNTIME_DIR`, `ROOST_HOST_ENTRY`). It
+     starts the daemon once per login: no `KeepAlive`, no `Restart=`, so `daemon stop` is not undone. The systemd unit
+     has `KillMode=process`, so stopping the daemon (also `daemon stop --keep-workers`) does not kill the sessions in
+     its cgroup.
+   - The service's own environment is a login service's (a short `PATH`, no shell rc), which is why runs do not take
+     it (decision 9). The docs say: reinstall after moving or upgrading xpi to another path; on Linux the user
+     instance stops at logout unless lingering is on, and the sessions with it; a runtime directory override in the
+     shell (`ROOST_RUNTIME_DIR`, `ROOST_HOME`) or a missing `XDG_RUNTIME_DIR` makes clients look elsewhere than the
+     service's daemon (the state lock refuses a second daemon with `other_runtime_dir`, and `daemon status` says so).
+   - `xpi roost schedule list` connects without starting the daemon, as `daemon status` does: when it is not running,
+     it prints the schedules from `schedules.json` and says nothing runs until the daemon does.
 6. **A run.** A new background session, never a reply into an earlier one, with a fresh session file in the launch's
    session directory. It is named after the schedule (`nightly`, `nightly (2)`) and its record carries the schedule's
    name; the hub and `xpi roost ls` show it with the schedule's name.
@@ -118,7 +137,9 @@ Checked on main (5f2cf66e1, v1.9.0) and pi-roost's main.
      it.
    - Inside a session the daemon runs (its environment has `ROOST_JOB_ID`), `xpi roost schedule add|edit|run` refuse,
      saying why; `list` works. This stops a model from adding schedules by accident, not on purpose (it can clear the
-     variable), which the docs say. The schedule ops are person-only in `callers.ts`, which keeps agents out.
+     variable), which the docs say. The hub opened with `/agents` in such a session keeps `/schedule`: the person is
+     the one typing there. The schedule ops are person-only in `callers.ts`, which keeps agents out.
+   - The directory cannot be edited: remove the schedule and add it again there.
 9. **A run's launch.** Built when the schedule is made or edited, by the xpi process that does it (the hub, or the CLI
    through the extension's wrapper), with `buildLaunch` as for any new session:
    - the directory (where the hub or CLI is, or `--cwd`); a missing directory is refused at `add`, and a run whose
@@ -133,9 +154,12 @@ Checked on main (5f2cf66e1, v1.9.0) and pi-roost's main.
    - the xpi executable and entry (`execPath`, the CLI path) of the xpi that made it. A run whose executable or entry
      no longer exists (xpi moved or upgraded elsewhere) is skipped with "run `xpi roost schedule edit <name>` to
      update it".
-   - Not stored: environment variables. Each run gets its environment the way a session started from the hub does,
-     at run time, from the `roost` settings (`inheritEnv`, the allow and deny lists) and the daemon's environment, so
-     `schedules.json` holds no secrets.
+   - the environment, as `buildLaunch` computes it for any new session: the making process's environment filtered by
+     the `roost` settings (`inheritEnv`, the allow and deny lists, `workspaceEnv`). It is stored with the schedule as a
+     job's record stores it (0600 file in a 0700 directory) and every run starts with it, so a run has the `PATH`, keys
+     and variables of the terminal or hub that made or last edited the schedule, not those of whoever started the
+     daemon (a login service has almost none). `edit` takes the editing process's environment; the docs say to edit
+     a schedule after changing a key it needs.
    - A run that fails to start is recorded in the schedule (`lastSkip` with the error) and logged.
 10. **Notifications.** A run that finishes or needs input notifies as any session does (`notify`). A catch-up run, a
     skipped slot and a missing directory are logged in the hub's log and the schedule's record, without a
@@ -159,7 +183,7 @@ Checked on main (5f2cf66e1, v1.9.0) and pi-roost's main.
     the tests); hub tests for `/schedule` and the list; CLI tests. Before each merge that changes what a session does,
     a real Haiku check: a `manual` schedule run now from the CLI and from the hub, an `every 5m` schedule seen to fire
     and to skip while its run is busy, a catch-up after a daemon restart; `daemon install`, `status` and `uninstall`
-    on macOS.
+    on macOS, and a run fired by a daemon the login service started (it must find `git` and authenticate).
 16. **How it is built.** After the owner approves this spec, the PRs below are built without stopping to ask, each
     with an independent Opus review and green CI before merge; stop only for a fact that contradicts a decision. Each
     PR updates the user docs for what it adds (AGENTS.md).
