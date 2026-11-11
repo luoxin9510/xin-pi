@@ -25,8 +25,8 @@ and result.
 - [x] End message to main uses the description when present
 - [x] Offline tests: background call returns at once and the result arrives as a message; waits without a controller
       and in print mode; row label with and without description; screen renders calls, output, result; `x` stops
-- [ ] By hand with Haiku after merge: pty TUI check of the screen; real-model check that the model uses
-      `run_in_background` for a slow command and the result arrives
+- [x] By hand with Haiku (run before merge, 2026-11-11): `tui/13-script-screen` passed; `parent/05` passed (the model
+      chose `run_in_background` unprompted); full `test:subagent:tui` 17/17 and `:parent` 13/13 after the tui fixes
 - [x] Docs: `packages/xpi-coding-agent/docs/codemode.md`, `docs/subagent.md` (background work, panel, script screen, keys),
       `docs/xin-pi.md`
 
