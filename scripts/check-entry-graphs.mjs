@@ -24,6 +24,7 @@ const WORKSPACE = {
 	"xpi-codemode": "packages/xpi-codemode/src",
 	"xpi-telemetry": "packages/xpi-telemetry/src",
 	"xpi-mcp": "packages/xpi-mcp/src",
+	"xpi-roost": "packages/xpi-roost/src",
 	"xpi-schema": "packages/xpi-schema/src",
 	"xpi-tui": "packages/xpi-tui/src",
 };
@@ -54,6 +55,14 @@ const BUDGETS = {
 				"./utils/validation": { maxFiles: 42, forbid: ["providers/", "api/", "packages/xpi-ai/src/index.ts"] },
 			},
 		},
+	},
+	"packages/xpi-roost": {
+		// What xpi loads for `xpi roost`: the command line and its client. The daemon and the host are processes of their
+		// own, never imported (they start servers, and the host loads node-pty).
+		".": { maxFiles: 25, forbid: ["roost/src/daemon/", "roost/src/host/"] },
+		// The daemon never reaches the host (nor node-pty through it).
+		"./daemon": { maxFiles: 30, forbid: ["roost/src/host/", "roost/src/cli.ts"] },
+		"./host": { maxFiles: 25, forbid: ["roost/src/daemon/", "roost/src/cli.ts"] },
 	},
 	"packages/xpi-codemode": {
 		// Node and Bun users never load the Cloudflare entry, which imports the `cloudflare:workers` built-in.

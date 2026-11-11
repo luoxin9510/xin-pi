@@ -354,3 +354,42 @@ These commands work outside a session, so agents can run them through `bash`. Se
 `add` and `remove` change `~/.pi/agent/mcp.json`, or `.pi/mcp.json` in the current directory with `--local` (`-l`). `add` also takes `--exposure <mode>` (see [Exposure](mcp.md#control-tool-exposure)) and `--description <text>` and does not connect; run `pi mcp list` to check the server.
 
 Project `.pi/mcp.json` files are only read for projects that are already trusted.
+
+## Background session commands
+
+`xpi roost` lists and controls background sessions: xpi sessions or shell commands that a per-agent-directory daemon
+runs in pseudo-terminals, so they keep running after the terminal that started them closes. This version has the
+commands below; starting a session from xpi (`xpi --bg`, `/bg`) and the hub come later.
+
+| Command | Description |
+|---|---|
+| `xpi roost ls [--all] [--cwd <dir>] [--json]` | List sessions (also `list`). Ended sessions older than 48 hours are shown with `--all`; `--cwd` keeps the sessions of one directory; `--json` prints the rows for programs |
+| `xpi roost attach <id\|name>` | Open a session in this terminal. The `app.suspend` key (default `ctrl+z`, see [Keybindings](keybindings.md)) detaches and leaves it running. An ended session is started again first. Needs a terminal |
+| `xpi roost logs <id\|name>` | Print the session's current screen, or its last one when it has ended |
+| `xpi roost log [-n <count>] [--follow] [<id\|name>]` | What happened lately (started, finished, stopped, ...), oldest first; `--follow` keeps printing |
+| `xpi roost reply <id\|name> <text>` | Send a reply to an xpi session; queued as a follow-up while it works. Exits with `1` when it was not delivered |
+| `xpi roost stop <id\|name>` | Stop the session; its record stays |
+| `xpi roost rm <id\|name>` | Stop it and delete its record |
+| `xpi roost respawn <id\|name>` | Start an ended session again, or restart a live one |
+| `xpi roost respawn --all` | Restart every live and reaped session, for example after an upgrade |
+| `xpi roost daemon status` | The daemon's pid, version, socket directory and whether it can load node-pty; does not start a daemon |
+| `xpi roost daemon logs` | Print the daemon's log |
+| `xpi roost daemon stop [--keep-workers]` | Stop the daemon and its sessions; with `--keep-workers` the sessions keep running and the next daemon takes them over |
+
+The commands outside `daemon` start the agent directory's daemon when it is not running; `daemon ...` never starts one. A session is named by its id, a
+unique id prefix or its name. An unknown command exits with `2`; `xpi roost hub` says the hub is not in this version yet.
+
+After an upgrade the running daemon still has the old code, and every command warns about it until it is restarted:
+run `xpi roost daemon stop --keep-workers`, then `xpi roost respawn --all`.
+
+Requirements:
+
+- macOS or Linux. On Windows the commands exit with a message (use WSL).
+- The npm installation of xpi. A standalone binary has no Node runtime for the daemon and says to install xpi with
+  `npm install -g xpi-coding-agent`.
+- node-pty, an optional dependency installed with xpi. When it is missing (`--omit=optional`, `--ignore-scripts`, or a
+  failed compile on Linux, which needs python3, make and a C++ compiler), the commands say how to reinstall it; only
+  `xpi roost --help` and `xpi roost daemon ...` work without it.
+
+Each agent directory has its own daemon, state (`<agent dir>/xpi-roost/`) and sockets. The `roost` block of
+`settings.json` configures it; see [Settings](settings.md#background-sessions).

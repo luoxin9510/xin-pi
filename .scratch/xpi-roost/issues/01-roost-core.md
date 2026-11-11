@@ -87,21 +87,75 @@ Notes on PR 1 (details the spec left open, settled while building it):
 
 ## PR 2: command line and packaging (branch `roost-cli`)
 
-- [ ] T9 `xpi roost <subcommand>` in `src/main.ts`: `ls`/`list` (`--all`, `--cwd`, `--json`), `logs`/`log`, `attach`,
+- [x] T9 `xpi roost <subcommand>` in `src/main.ts`: `ls`/`list` (`--all`, `--cwd`, `--json`), `logs`/`log`, `attach`,
       `reply`, `stop`, `rm`, `respawn` (`--all`), `daemon status|logs|stop` (`stop --keep-workers`), the internal
       command that runs the daemon; help text; an unknown subcommand is an error; `hub` says it is not there yet
       until PR 4
-- [ ] T10 Bundle: entry files for the daemon and the host (as `codemode-worker.js`), found by `xpi-coding-agent` and
+- [x] T10 Bundle: entry files for the daemon and the host (as `codemode-worker.js`), found by `xpi-coding-agent` and
       handed to `xpi-roost`; the entry-graph and runtime-dependency checks know them; the version message when a
       client meets a daemon of another version
-- [ ] T11 `node-pty` as an optional dependency of `xpi-coding-agent`, imported only when a host starts; the
+- [x] T11 `node-pty` as an optional dependency of `xpi-coding-agent`, imported only when a host starts; the
       install-lock allowlist entry with its reason; install-lock refreshed; the messages when `node-pty` does not
       load, when there is no Node runtime (standalone binary), and on Windows
-- [ ] T12 Settings: the `"roost"` section (the keys of decision 9, the keys a project may not set), its schema;
+- [x] T12 Settings: the `"roost"` section (the keys of decision 9, the keys a project may not set), its schema;
       `roost.json` is not read
-- [ ] Tests: the CLI against a real daemon in a temporary agent directory (a shell-command session started through
+- [x] Tests: the CLI against a real daemon in a temporary agent directory (a shell-command session started through
       the client library); the packed npm tarball starts a daemon and a shell-command session (`release:local`)
-- [ ] Docs: `packages/xpi-coding-agent/docs/cli.md`, `settings.md`, `environment-variables.md`, `docs/xin-pi.md`
+- [x] Docs: `packages/xpi-coding-agent/docs/cli.md`, `settings.md`, `environment-variables.md`, `docs/xin-pi.md`
+
+Notes (PR 2):
+
+- T9: the commands are `runRoostCli` in `xpi-roost/src/cli.ts`; `xpi-coding-agent/src/extensions/roost/cli.ts`
+  (loaded lazily from `main.ts`, before the `mcp` branch) supplies the agent directory, the entry files, the detach
+  key, the node-pty hint and the "cannot run here" messages. The internal command is `xpi roost daemon run` (the
+  daemon in-process, not in the help); the daemon itself is started as `node <roost-daemon.js>`. No command prints
+  the help and exits 2, `--help` exits 0, an unknown command exits 2, `hub` exits 1 with "not in this version of xpi
+  yet". `reply` exits 1 when the daemon did not deliver or save it. `ls` takes no options besides `--all`, `--cwd`,
+  `--json` (others are a usage error). Cut from pi-roost's CLI: `schedule`, `review`, the raw `--json` op,
+  `--version`, `--subagents`. `list-format.ts`, `text-width.ts` and `resume.ts` (`ensureLive`, without M38's
+  "Continue" prompt) are ported; `list-format.test.ts` too.
+- The CLI process writes its roost's `ROOST_LOCATION_ENV` values (`daemonEnv(start)`) into `process.env`, so from
+  inside another roost's session it still reaches the agent directory it was given.
+- Decision 11 / the PR 1 note: the library has no detach key. `attachToHost` takes `isDetachKey(key)`; the input is
+  cut into whole keys (CSI, SS3, OSC, ESC and a character, UTF-8 characters; an unfinished sequence waits for the next
+  chunk), a bracketed paste is text. xpi's matcher is the user's `app.suspend` through `KeybindingsManager.matches`
+  (legacy, kitty CSI-u with lock bits and repeat, modifyOtherKeys), not on a key release, with kitty's associated-text
+  field dropped first. `attach` with `app.suspend` unbound exits 1 and says so. `attachToHost` runs the
+  runtime-directory check before it connects.
+- `agentDirKey` resolves the real path through the nearest existing parent, so the key (and the runtime directory) is
+  the same before and after the agent directory is created (found by the `release:local` smoke: `/var` vs
+  `/private/var` on macOS gave the CLI and the daemon different runtime directories).
+- T10: xpi-roost now builds (`tsc -p tsconfig.build.json`, in the root build before coding-agent) with exports `.`,
+  `./daemon`, `./host` (each with a `default` condition for `createRequire().resolve`). The bundle script builds
+  `roost-daemon.js` and `roost-host.js` from the built entries into the chunk directory next to `config.ts`'s chunk;
+  `resolveRoostEntries` in `config.ts` finds them (bundled), resolves `xpi-roost/daemon|host` (unbundled) or returns
+  nothing (bun binary). xpi-roost is a devDependency of coding-agent and inlined; `@xterm/headless` and
+  `@xterm/addon-serialize` are inlined into the host entry (pure JS, declared by xpi-roost). node-pty is the only
+  external, and the bundle script fails when any output but the host imports it. `check-entry-graphs.mjs` budgets the
+  three xpi-roost entries (`.` 25 files, `./daemon` 30, `./host` 25), each forbidden to pull in the others or `cli.ts`.
+  `check-runtime-deps.mjs` needed no change: it walks the whole bundle directory, and coding-agent's sources import
+  `xpi-roost`, an inlined devDependency. The daemon entry gets no data-URL treatment. `ROOST_VERSION` in the bundle is
+  coding-agent's version (lockstep). The version message: every command warns once when the daemon's version differs,
+  and says to run `xpi roost daemon stop --keep-workers`, then `xpi roost respawn --all`.
+- T11: `optionalDependencies: { "node-pty": "1.1.0" }` (out of devDependencies). The install-lock allowlist entry
+  `node-pty@1.1.0` ("native PTY for xpi roost; compiles on Linux (no prebuilt binary there)"); the generator now marks
+  packages reached only through optionalDependencies `optional: true` (node-pty, node-addon-api), so a failed compile
+  does not fail the install. Messages, in the order checked: Windows (use WSL), no entry files (a standalone binary:
+  install with npm), node-pty not resolvable (reinstall without `--omit=optional`/`--ignore-scripts`; Linux needs
+  python3, make and a C++ compiler; then `daemon stop --keep-workers`). node-pty is resolved, never loaded, by the CLI;
+  `--help`, `hub` and `daemon ...` work without it. A daemon that cannot load it is reported by `daemon status` and a
+  warning with the same hint.
+- T12: `roost` in `settings-schema.ts` (14 keys of `RoostConfig`, `presets`; the user-only keys say so) and
+  `schemas/settings.schema.json`. `roostSettings()` in `src/extensions/roost/settings.ts` is `mergeConfig(global,
+  project)` (a project's `envAllowList`, `inheritEnv`, `envDenyList`, `workspaceEnv` dropped). The daemon reads the
+  user's file itself (`reapIdleMinutes`, `cleanupDays`); the environment and dispatch keys take effect with PR 3.
+- Tests: `xpi-roost/test/cli.test.ts` (3: help/unknown/hub/bad options; every command on a shell session against a
+  real daemon; the given agent directory over another roost's variables), `test/list-format.test.ts` (3),
+  `attach-keys.test.ts` rewritten for the matcher, `lib-core` gained the key-before-creation case;
+  `xpi-coding-agent/test/roost-cli.test.ts` (7: messages, entries, detach-key encodings, rebinding, schema, merge,
+  `runRoostCommand` with a rebound key). `release:local` runs `smokeTestRoost` on the packed install (daemon, PTY
+  host, shell-command session; `npm rebuild node-pty` first on Linux; skipped on Windows).
+- Docs: also `packages/xpi-roost/README.md` and `docs/port-inventory.md`.
 
 ## PR 3: `builtin:roost`, the session side (branch `roost-session`)
 

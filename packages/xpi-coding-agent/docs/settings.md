@@ -201,6 +201,35 @@ The built-in `commit` extension (`/commit`) reads a `commit` block:
 |---|---|---|---|
 | `commit.model` | string | `"haiku"` | Model that drafts the commit message: an alias from the `models` setting, `"provider/model"`, or `"inherit"` for the session model. |
 
+## Background sessions
+
+The `roost` block configures background sessions (`xpi roost`, see [CLI](cli.md#background-session-commands)). The
+daemon of an agent directory reads `reapIdleMinutes` and `cleanupDays` from `<agent dir>/settings.json` itself, each
+time it uses them, so they come from your settings only. Where xpi reads the block in a project, a project's
+`.pi/settings.json` adds to yours key by key, but never the environment keys (marked "user only"): a cloned repository
+must not choose which of your environment reaches its sessions. A `roost.json` file is not read. Keys of the wrong
+type are ignored.
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `roost.reapIdleMinutes` | number | `60` | A session that is idle, not attached and not pinned for this long is stopped; it can be started again. |
+| `roost.cleanupDays` | number | `30` | Records of sessions that ended this many days ago are removed (`0` keeps them; at most `3650`). |
+| `roost.inheritEnv` | boolean | `true` | User only. A session starts with the environment of the shell that started it, less `envDenyList`; `false` carries only `envAllowList`. |
+| `roost.envAllowList` | `string[]` | `[]` | User only. Variables carried even when `inheritEnv` is off or `envDenyList` names them. |
+| `roost.envDenyList` | `string[]` | `[]` | User only. Variables never carried; `"PREFIX*"` names a prefix. |
+| `roost.workspaceEnv` | `"shell" \| "direnv" \| "off"` | `"shell"` | User only. The session directory's own environment on top: what its shell's cd hooks set (direnv, mise, fnm, ...), direnv only, or nothing. |
+| `roost.dispatchModel` | string | Session default | Model of a new background session, `"provider/model"`. |
+| `roost.dispatchThinking` | string | Session default | Thinking level of a new background session. |
+| `roost.presets` | object | None | Saved choices for new sessions by name: `{ "fast": { "model": "provider/model", "thinking": "low", "dir": "sub/dir" } }`. `dir` is relative to the hub's directory and never above it. The user's and a project's presets merge by name, a project's winning. |
+| `roost.leftArrowOpensAgents` | boolean | `true` | The left arrow on an empty editor opens the hub. |
+| `roost.groupBy` | `"state" \| "directory"` | `"state"` | How the hub groups sessions. |
+| `roost.fullscreen` | boolean | `true` | The hub covers the whole terminal; `false` shows it below the conversation. |
+| `roost.rowDetails` | boolean | `true` | Each row of the hub shows its model and context use. |
+| `roost.notify` | `"auto" \| "osc9" \| "osc777" \| "bell" \| "off"` | `"auto"` | How the hub makes the terminal notify. |
+
+The environment, dispatch, preset and hub keys take effect with `xpi --bg` and the hub, which are not in this version
+yet.
+
 ## Updates, telemetry, and warnings
 
 | Setting | Type | Default | Description |

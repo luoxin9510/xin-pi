@@ -20,7 +20,7 @@ root `tsc`, biome and check scripts cover it unchanged.
 | `lib/agent-client.ts` | `src/lib/agent-client.ts` | split: `Reporter` and `jobIdentity` only; `RoostAgent` (the protocol client class, M31), `call` and the peer items (`agentItems`, `ack` `exact`) cut, decision 6 |
 | `lib/agents.ts` | | cut: starting a session from an agent definition (M18), decision 6 |
 | `lib/atomic.ts` | `src/lib/atomic.ts` | ported |
-| `lib/attach.ts` | `src/lib/attach.ts` | ported; `REPAINT_MARKER` cut (M14, dead with a current host; the session side does not repaint, decision 11) |
+| `lib/attach.ts` | `src/lib/attach.ts` | ported; `REPAINT_MARKER` cut (M14, dead with a current host; the session side does not repaint, decision 11). PR 2: the hardcoded Ctrl+Z scan replaced by the caller's matcher over whole keys (decision 11); the runtime directory is checked before connecting |
 | `lib/board.ts` | | cut: task board (M47), decision 6 |
 | `lib/callers.ts` | `src/lib/callers.ts` | split: three caller kinds (Person, Session, Unregistered agent); the `Concierge` kind, the foreground/background session forms, the task and order action rows and the peer ops cut, decision 6 |
 | `lib/client.ts` | `src/lib/client.ts` | ported; `packageRoot`, `daemonEntry` and `hostEntry` replaced by `DaemonStart` (the agent directory and the two entry files come from the caller, decision 7) |
@@ -39,7 +39,7 @@ root `tsc`, biome and check scripts cover it unchanged.
 | `lib/identity.ts` | `src/lib/identity.ts` | split: `ROOST_*` names only; the `PI_*` fallbacks cut (decision 9) |
 | `lib/ids.ts` | `src/lib/ids.ts` | ported (not named in T3's list) |
 | `lib/job-events.ts` | `src/lib/job-events.ts` | ported |
-| `lib/list-format.ts` | | later: PR 2 (`xpi roost ls`) |
+| `lib/list-format.ts` | `src/lib/list-format.ts` | ported (PR 2); no subagent rows or `--subagents`, no "ready" group (decision 6) |
 | `lib/locks.ts` | `src/lib/locks.ts` | ported |
 | `lib/op.ts` | `src/lib/op.ts` | ported (not named in T3's list) |
 | `lib/orphans.ts` | `src/lib/orphans.ts` | ported; matches `src/daemon/main.ts` and `src/host/main.ts`, test directories `xroost-*` |
@@ -52,7 +52,7 @@ root `tsc`, biome and check scripts cover it unchanged.
 | `lib/project-config.ts` | | cut: a task workspace's project settings (M54 to M60), decision 6 |
 | `lib/protocol-schema.ts` | `src/lib/protocol-schema.ts` | split: decision 4's eighteen ops; the peer, send, handback, spawn, watch, schedule, task and concierge schemas and the rows and fields that served them cut |
 | `lib/protocol.ts` | `src/lib/protocol.ts` | split: the capabilities and events of phase 1 |
-| `lib/resume.ts` | | later: PR 2 (`attach` starts an ended session first, AT-1) |
+| `lib/resume.ts` | `src/lib/resume.ts` | ported (PR 2): `ensureLive` and the starting frame for `attach` (AT-1); M38's "Continue" prompt on respawn cut |
 | `lib/review.ts` | | cut: workspaces (M58), decision 6 |
 | `lib/schedule.ts`, `lib/schedules.ts` | | cut: schedules (M39, M40) are phase 2, decision 6 |
 | `lib/schema.ts` | `src/lib/schema.ts` | ported |
@@ -62,7 +62,7 @@ root `tsc`, biome and check scripts cover it unchanged.
 | `lib/telemetry.ts` | | cut: telemetry (M34), decision 6 |
 | `lib/term-modes.ts` | `src/lib/term-modes.ts` | ported |
 | `lib/term-signals.ts` | | cut: profile jobs only (T3) |
-| `lib/text-width.ts` | | later: PR 2, with `list-format.ts` (or xpi-tui's widths) |
+| `lib/text-width.ts` | `src/lib/text-width.ts` | ported (PR 2), for `list-format.ts`: xpi-roost imports nothing of xpi, so not xpi-tui's widths |
 | `lib/transcript.ts` | `src/lib/transcript.ts` | ported less `pathOf` and `neighboursOf` (the subagent tree of M19, decision 3) |
 | `lib/usage.ts` | `src/lib/usage.ts` | ported |
 | `lib/version.ts` | `src/lib/version.ts` | ported (reads this package's version) |
@@ -93,7 +93,7 @@ root `tsc`, biome and check scripts cover it unchanged.
 | `adapters/pi/pr-links.ts` | | cut: M16, decision 6 |
 | `adapters/pi/subagent-panel.ts`, `adapters/pi/transcript-view.ts` | | cut: decision 3 |
 | `adapters/pi/task-start.ts`, `adapters/pi/tasks-command.ts` | | cut: task board and workspaces, decision 6 |
-| `bin/pi-roost.ts` | | later: PR 2 (`xpi roost <subcommand>`, decision 7; no `pi-roost` executable) |
+| `bin/pi-roost.ts` | `src/cli.ts` | ported (PR 2) as `runRoostCli`, run by `xpi roost <subcommand>` (decision 7; no `pi-roost` executable). Cut: `schedule`, `review`, the raw `--json` op, `--version` (`xpi --version`), `list --subagents` (decisions 6, 7); `hub` says it is not there yet. The detach key comes from the caller; `daemon run` is the hidden in-process daemon |
 | `extensions/index.ts` | | cut: decision 6 |
 | `sdk/python/roost_agent.py` | | cut: the Python SDK, decision 6 |
 | `scripts/protocol-doc.ts` | `test/support/protocol-doc.ts` | ported; writes `docs/protocol.md` (`npm run docs:protocol` in this package) |
@@ -109,11 +109,13 @@ root `tsc`, biome and check scripts cover it unchanged.
 | `agent-view.test.ts`, `fit-screen.test.ts`, `hub-standalone.test.ts`, `log-overlay.test.ts`, `roost-port.test.ts`, `usage-overlay.test.ts` | | later: PR 4 |
 | `agents.test.ts` | | cut: M18, decision 6 |
 | `atomic.test.ts` | `test/atomic.test.ts` | ported |
-| `attach-keys.test.ts` | `test/attach-keys.test.ts` | ported |
+| `attach-keys.test.ts` | `test/attach-keys.test.ts` | ported; PR 2: rewritten for the caller's matcher (the key encodings are tested in coding-agent's `test/roost-cli.test.ts`) |
 | `board.test.ts`, `task-diff.test.ts`, `task-git.test.ts`, `tasks-command.test.ts`, `tasks-overlay.test.ts`, `review.test.ts`, `review-overlay.test.ts`, `workspace.test.ts`, `workspace-view.test.ts`, `workspaces-overlay.test.ts`, `worktree.test.ts`, `project-config.test.ts` | | cut: task board, workspaces, worktree isolation, decision 6 |
 | `callers.test.ts` | `test/callers.test.ts` | split: three caller kinds and eighteen ops |
 | `callers-matrix.test.ts` (and its snapshot) | `test/callers-matrix.test.ts` | split: Person, Session, Unregistered agent; two unported ops shown as unknown; snapshot regenerated |
-| `cli-deps.test.ts`, `list-format.test.ts` | | later: PR 2 |
+| `list-format.test.ts` | `test/list-format.test.ts` | ported (PR 2) without subagents; plus wide names, control characters and text-width cases |
+| `cli-deps.test.ts` | | cut: the bundle check (`build-coding-agent-bundle.mjs`: only the host imports node-pty) and `check-entry-graphs.mjs` (each entry forbids the others) cover it; its layer and adapter tests have nothing to check here |
+| (new) | `test/cli.test.ts` | `xpi roost` against a real daemon: every command on a shell session, the agent directory over another roost's variables |
 | `client-order.test.ts` | `test/client-order.test.ts` | ported |
 | `comms.test.ts`, `tool-fields.test.ts`, `watches.test.ts` | | cut: messages, agent tools, watches, decision 6 |
 | `compare-overlay.test.ts` | | cut: M26, decision 6 |

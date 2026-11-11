@@ -16,7 +16,12 @@ const internalPackageNames = new Set();
 const installPackageName = "xpi-coding-agent-install";
 // The bundle inlines xpi-ai and the other workspace packages, so their third-party dependencies (for example
 // @google/genai, protobufjs) are not installed with the CLI and need no entry here.
-const allowedInstallScriptPackages = new Map([]);
+const allowedInstallScriptPackages = new Map([
+	// xpi roost's PTY hosts need it (an optional dependency). Its install script uses a prebuilt binary where one exists
+	// (macOS, Windows) and compiles it with node-gyp on Linux, where none is shipped. Approved by the owner (xpi-roost
+	// spec, decision 8); nothing else joins this list.
+	["node-pty@1.1.0", "native PTY for xpi roost; compiles on Linux (no prebuilt binary there)"],
+]);
 
 const args = new Set(process.argv.slice(2));
 const checkOnly = args.has("--check");
@@ -199,6 +204,27 @@ function resolveExternalDependency(lockPackages, packageName, fromLockPath) {
 		`Cannot resolve ${packageName} from ${fromLockPath || "root"}. ` +
 			(matches.length > 1 ? `Matches: ${matches.join(", ")}` : "No matching lockfile entry found."),
 	);
+}
+
+// A package reached only through optionalDependencies (node-pty and its own dependencies) is optional, as npm
+// marks it: an install whose build of it fails (no compiler on Linux) leaves it out instead of failing.
+function markOptionalPackages(installLockPackages) {
+	const required = new Set([""]);
+	const queue = [""];
+	while (queue.length > 0) {
+		const from = queue.shift();
+		for (const dependencyName of Object.keys(installLockPackages[from].dependencies ?? {})) {
+			const lockPath = resolveExternalDependency(installLockPackages, dependencyName, from);
+			if (required.has(lockPath)) continue;
+			required.add(lockPath);
+			queue.push(lockPath);
+		}
+	}
+	for (const [lockPath, entry] of Object.entries(installLockPackages)) {
+		if (lockPath === "") continue;
+		if (required.has(lockPath)) delete entry.optional;
+		else installLockPackages[lockPath] = sortedPackageEntry({ ...entry, optional: true });
+	}
 }
 
 function addInternalWorkspace(installLockPackages, addedPaths, queue, name, workspace) {
@@ -407,6 +433,8 @@ function generateInstallLock() {
 
 		addExternalPackage(lockPackages, installLockPackages, addedPaths, queue, item);
 	}
+
+	markOptionalPackages(installLockPackages);
 
 	const installLock = {
 		name: installerPackageJson.name,

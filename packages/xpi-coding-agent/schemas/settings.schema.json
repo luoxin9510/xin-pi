@@ -1051,6 +1051,141 @@
       },
       "additionalProperties": true,
       "description": "Settings of the built-in commit extension (/commit)."
+    },
+    "roost": {
+      "type": "object",
+      "properties": {
+        "leftArrowOpensAgents": {
+          "type": "boolean",
+          "description": "The left arrow on an empty editor opens the hub. Default true."
+        },
+        "reapIdleMinutes": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "A background session idle, unattached and unpinned this long is stopped (it can be started again). Default 60."
+        },
+        "cleanupDays": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3650,
+          "description": "Records of sessions that ended this many days ago are removed; 0 keeps them. Default 30."
+        },
+        "dispatchModel": {
+          "type": "string",
+          "description": "Model of a new background session, \"provider/model\"."
+        },
+        "dispatchThinking": {
+          "type": "string",
+          "description": "Thinking level of a new background session."
+        },
+        "inheritEnv": {
+          "type": "boolean",
+          "description": "A session starts with the launching shell's environment (less envDenyList); false: envAllowList only. User settings only. Default true."
+        },
+        "envAllowList": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Variables carried even when inheritEnv is off or envDenyList names them. User settings only. Default []."
+        },
+        "envDenyList": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Variables never carried; \"PREFIX*\" names a prefix. User settings only. Default []."
+        },
+        "workspaceEnv": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "shell"
+            },
+            {
+              "type": "string",
+              "const": "direnv"
+            },
+            {
+              "type": "string",
+              "const": "off"
+            }
+          ],
+          "description": "The session directory's own environment on top: its shell's cd hooks (\"shell\"), direnv only, or \"off\". User settings only. Default \"shell\"."
+        },
+        "groupBy": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "state"
+            },
+            {
+              "type": "string",
+              "const": "directory"
+            }
+          ],
+          "description": "How the hub groups sessions. Default \"state\"."
+        },
+        "fullscreen": {
+          "type": "boolean",
+          "description": "The hub covers the whole terminal (false: below the conversation). Default true."
+        },
+        "rowDetails": {
+          "type": "boolean",
+          "description": "Each row of the hub shows its model and context use. Default true."
+        },
+        "notify": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "auto"
+            },
+            {
+              "type": "string",
+              "const": "osc9"
+            },
+            {
+              "type": "string",
+              "const": "osc777"
+            },
+            {
+              "type": "string",
+              "const": "bell"
+            },
+            {
+              "type": "string",
+              "const": "off"
+            }
+          ],
+          "description": "How the hub makes the terminal notify. Default \"auto\"."
+        },
+        "presets": {
+          "type": "object",
+          "patternProperties": {
+            "^.*$": {
+              "type": "object",
+              "properties": {
+                "model": {
+                  "type": "string",
+                  "description": "Model of a new session, as \"provider/model\"."
+                },
+                "thinking": {
+                  "type": "string",
+                  "description": "Thinking level of a new session."
+                },
+                "dir": {
+                  "type": "string",
+                  "description": "Directory of a new session, relative to the hub's (never above it)."
+                }
+              },
+              "additionalProperties": true
+            }
+          },
+          "description": "Saved choices for new sessions, by name (the user's and a project's merged, a project's winning)."
+        }
+      },
+      "additionalProperties": true,
+      "description": "Settings of xpi roost (background sessions and the hub)."
     }
   },
   "additionalProperties": true,

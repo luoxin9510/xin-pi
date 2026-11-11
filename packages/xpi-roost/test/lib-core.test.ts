@@ -187,6 +187,18 @@ describe("paths by agent directory (decision 14)", () => {
 		expect(runtimeDir(b)).toBe(rt);
 	});
 
+	it("an agent directory's key does not change when the directory is made (a path through a link)", () => {
+		const parent = bare();
+		const link = `${parent}-link`;
+		madeRuntime.push(link);
+		symlinkSync(parent, link);
+		const later = join(link, "agent");
+		const before = agentDirKey(later);
+		mkdirSync(later);
+		expect(agentDirKey(later)).toBe(before);
+		expect(agentDirKey(join(parent, "agent"))).toBe(before);
+	});
+
 	it("a relative agent directory is made absolute everywhere it travels", () => {
 		const a = bare();
 		const rel = relative(process.cwd(), a);

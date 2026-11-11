@@ -1,5 +1,6 @@
 import { connect, type Socket } from "node:net";
 import { encodeFrame, encodeJsonFrame, type Frame, FrameDecoder, FrameType, parseJsonPayload } from "./framing.ts";
+import { checkLevels, socketDirLevels } from "./paths.ts";
 
 export type DetachReason = "local" | "takeover" | "exit" | "request" | "closed" | "error";
 
@@ -8,15 +9,18 @@ export interface AttachIO {
 	stdout: NodeJS.WriteStream;
 }
 
-// Ctrl+Z: legacy, a kitty CSI-u press or repeat (any alternate keys, lock bits, text),
-// xterm's modifyOtherKeys; and the bracketed paste markers (a pasted ^Z is text).
-const DETACH_SCAN = /\x1a|\x1b\[122(?::\d*)*;(\d+)(?::(\d+))?(?:;[\d:]*)?u|\x1b\[27;(\d+);122~|\x1b\[20([01])~/g;
+/**
+ * Decision 11: which key detaches is the caller's (xpi passes the user's `app.suspend`
+ * keybinding); this library has no key of its own. It is asked about each key in the
+ * input, one at a time: a whole escape sequence, ESC and a character, a UTF-8 character or
+ * a control byte. A key release, if the caller does not want it, is the caller's to refuse.
+ */
+export type DetachKeyMatcher = (key: string) => boolean;
+
 /** The start of an escape sequence a chunk may end in (sent on: only the scan waits for the rest). */
 const PARTIAL_ESC = /\x1b(?:\[[\d;:]*)?$/;
 /** No input for this long while in a paste: its end marker was lost. */
 const PASTE_IDLE_MS = 1000;
-/** Caps Lock and Num Lock (kitty's modifier bits 64 and 128) do not make it another key. */
-const ctrlOnly = (mods: string) => ((Number(mods) - 1) & ~(64 | 128)) === 4;
 
 // Modes a worker may have left on (AT-4): kitty keyboard, bracketed paste,
 // mouse tracking, focus events, modifyOtherKeys, synchronized output; then autowrap and
@@ -34,31 +38,75 @@ export function altScreenAfter(chunk: string, was: boolean): boolean {
 	return on === off ? was : on > off;
 }
 
-export function isLocalDetach(chunk: Buffer): boolean {
+export function isLocalDetach(chunk: Buffer, isDetachKey: DetachKeyMatcher): boolean {
 	const s = chunk.toString("latin1");
-	const r = localDetachAt(s);
+	const r = localDetachAt(s, isDetachKey);
 	return r.at === 0 && r.end === s.length;
+}
+
+const PASTE_START = "\x1b[200~";
+const PASTE_END = "\x1b[201~";
+
+/**
+ * The length of the key at `i` of `s` (bytes as latin1): a CSI or SS3 sequence, an OSC
+ * string, ESC and one character, a UTF-8 character, or one byte. Undefined when the input
+ * ends inside a sequence (the next chunk finishes it).
+ */
+export function keyLength(s: string, i: number): number | undefined {
+	const c = s.charCodeAt(i);
+	if (c !== 0x1b) {
+		const n = c >= 0xf0 ? 4 : c >= 0xe0 ? 3 : c >= 0xc0 ? 2 : 1;
+		return Math.min(n, s.length - i);
+	}
+	if (i + 1 >= s.length) return undefined;
+	const next = s[i + 1];
+	if (next === "[") {
+		let j = i + 2;
+		while (j < s.length && s.charCodeAt(j) >= 0x30 && s.charCodeAt(j) <= 0x3f) j++;
+		while (j < s.length && s.charCodeAt(j) >= 0x20 && s.charCodeAt(j) <= 0x2f) j++;
+		if (j >= s.length) return undefined;
+		const f = s.charCodeAt(j);
+		return f >= 0x40 && f <= 0x7e ? j - i + 1 : 1;
+	}
+	if (next === "O") return i + 2 < s.length ? 3 : undefined;
+	if (next === "]") {
+		const bel = s.indexOf("\x07", i + 2);
+		const st = s.indexOf("\x1b\\", i + 2);
+		const ends = [bel === -1 ? -1 : bel + 1, st === -1 ? -1 : st + 2].filter((e) => e > 0);
+		return ends.length > 0 ? Math.min(...ends) - i : undefined;
+	}
+	if (next === "\x1b") return 1;
+	return 2;
 }
 
 /**
  * M22: where the local detach key is in a chunk of input, if anywhere. Keys typed fast,
- * a terminal or multiplexer that batches input, or a lock key held on can put Ctrl+Z
- * among other bytes or in another encoding; sent on, it would reach the session's pi,
- * which suspends itself, and nothing in the background would ever continue it.
- * `pasting` carries a bracketed paste across chunks. Offsets are bytes (latin1).
+ * a terminal or multiplexer that batches input, or a lock key held on can put it among
+ * other bytes; sent on, it would reach the session's xpi, which suspends itself, and
+ * nothing in the background would ever continue it. Inside a bracketed paste it is text.
+ * `pasting` carries a paste across chunks. Offsets are bytes (latin1).
  */
-export function localDetachAt(s: string, pasting = false): { at: number; end: number; pasting: boolean } {
-	DETACH_SCAN.lastIndex = 0;
-	for (let m = DETACH_SCAN.exec(s); m; m = DETACH_SCAN.exec(s)) {
-		if (m[4] !== undefined) {
-			pasting = m[4] === "0";
+export function localDetachAt(
+	s: string,
+	isDetachKey: DetachKeyMatcher,
+	pasting = false,
+): { at: number; end: number; pasting: boolean } {
+	for (let i = 0; i < s.length; ) {
+		if (s.startsWith(PASTE_START, i)) {
+			pasting = true;
+			i += PASTE_START.length;
 			continue;
 		}
-		if (pasting) continue;
-		const mods = m[1] ?? m[3];
-		// a release (event 3) is not a press
-		if (mods !== undefined && (!ctrlOnly(mods) || m[2] === "3")) continue;
-		return { at: m.index, end: m.index + m[0].length, pasting };
+		if (s.startsWith(PASTE_END, i)) {
+			pasting = false;
+			i += PASTE_END.length;
+			continue;
+		}
+		const n = keyLength(s, i);
+		if (n === undefined) break;
+		if (!pasting && isDetachKey(Buffer.from(s.slice(i, i + n), "latin1").toString("utf8")))
+			return { at: i, end: i + n, pasting };
+		i += n;
 	}
 	return { at: -1, end: -1, pasting };
 }
@@ -67,7 +115,17 @@ export function localDetachAt(s: string, pasting = false): { at: number; end: nu
  * Pass the terminal through to a job's PTY host until detach. The caller owns
  * the terminal before and after: this only toggles raw mode while attached.
  */
-export function attachToHost(socketPath: string, io: AttachIO): Promise<DetachReason> {
+export function attachToHost(
+	socketPath: string,
+	io: AttachIO,
+	opts: { isDetachKey: DetachKeyMatcher },
+): Promise<DetachReason> {
+	// the host's socket is in the runtime directory: its levels are checked before it is used
+	try {
+		checkLevels(socketDirLevels(socketPath));
+	} catch (err) {
+		return Promise.reject(err);
+	}
 	return new Promise((resolve) => {
 		const { stdin, stdout } = io;
 		const wasRaw = stdin.isTTY ? stdin.isRaw : false;
@@ -91,7 +149,7 @@ export function attachToHost(socketPath: string, io: AttachIO): Promise<DetachRe
 			lastInput = now;
 			const text = buf.toString("latin1");
 			const scan = tail + text;
-			const r = localDetachAt(scan, pasting);
+			const r = localDetachAt(scan, opts.isDetachKey, pasting);
 			pasting = r.pasting;
 			const at = r.at - tail.length;
 			tail = (PARTIAL_ESC.exec(scan)?.[0] ?? "").slice(-32);
