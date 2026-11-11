@@ -86,6 +86,14 @@ const BUILTIN_TOOL_MAP: Record<string, string> = {
 	LS: "ls",
 };
 
+// permissionMode "plan": the tools an agent may have (intersected with its `tools` list). With an explicit --tools list
+// no other tool registers, extension tools included, so a codemode script cannot reach them either. The child also
+// runs with --no-mcp (no server starts, no MCP or resource tool); the exclusions are a second guard.
+const PLAN_TOOLS = ["read", "grep", "find", "ls"];
+const PLAN_EXCLUDED = ["write", "edit", "bash", "powershell", "mcp__*"];
+const PLAN_PROMPT =
+	"You are a read-only planning agent (permission mode plan): explore and report. You cannot change files or run commands; do not ask for tools that would.";
+
 // Tools that would let a child spawn agents. Nesting is fixed at one level in v1.
 const NESTING_TOOLS = ["Agent", "Task"];
 
@@ -149,19 +157,24 @@ function memoryHead(dir: string, warnings: string[]): { text: string; cut: boole
 	return { text, cut };
 }
 
-function memorySection(dir: string, readOnly: boolean, warnings: string[]): string {
+// Why an agent's memory is read-only: a deny rule on Write or Edit, or permission mode plan.
+type MemoryReadOnly = false | "denied" | "plan";
+
+function memorySection(dir: string, readOnly: MemoryReadOnly, warnings: string[]): string {
 	const head = memoryHead(dir, warnings);
 	const note = `\n\n(MEMORY.md was truncated here: only its first ${MEMORY_MAX_LINES} lines or ${MEMORY_MAX_BYTES} bytes are shown. Read the file for the rest, and keep it shorter.)`;
 	const body = head === undefined ? "MEMORY.md does not exist yet." : head.text.trimEnd() + (head.cut ? note : "");
 	return [
 		"# Persistent memory",
 		`You have a persistent memory directory: ${dir}`,
-		readOnly
-			? "Writing to this memory is not allowed for you: read it, do not change it."
-			: [
-					"It survives between your runs. Save what a later run would want to know (conventions, decisions, user preferences, where things are), not what the code already shows.",
-					"Keep `MEMORY.md` there as a short index: one line per memory, pointing to a topic file in the same directory when it needs more. Update an existing memory instead of adding a duplicate, and remove what turned out wrong.",
-				].join("\n"),
+		readOnly === "plan"
+			? "This memory is read-only in plan mode: read it, do not change it."
+			: readOnly
+				? "Writing to this memory is not allowed for you: read it, do not change it."
+				: [
+						"It survives between your runs. Save what a later run would want to know (conventions, decisions, user preferences, where things are), not what the code already shows.",
+						"Keep `MEMORY.md` there as a short index: one line per memory, pointing to a topic file in the same directory when it needs more. Update an existing memory instead of adding a duplicate, and remove what turned out wrong.",
+					].join("\n"),
 		"The start of MEMORY.md:",
 		body,
 	].join("\n");
@@ -190,7 +203,7 @@ function resolveTools(
 	structured: boolean,
 	configured: () => string[], // the configured MCP server names, read only when needed (`mcpServers`, direct tools)
 	trusted: boolean,
-): { args: string[]; mcpConfig?: string; warnings: string[]; memoryReadOnly: boolean } {
+): { args: string[]; mcpConfig?: string; warnings: string[]; memoryReadOnly: MemoryReadOnly } {
 	const toolMap = { ...BUILTIN_TOOL_MAP, ...config.toolMap };
 	const warnings: string[] = [];
 
@@ -207,10 +220,12 @@ function resolveTools(
 
 	// `Bash(git push *)` in a deny list removes the whole tool: pi has no per-command rules.
 	const deny = map((def.disallowedTools ?? []).map((t) => t.replace(/\(.*\)$/, "").trim()));
+	if (def.permissionMode === "plan") return planTools(def, codemode, structured, deny, map, warnings);
 	const args: string[] = [];
 	// Memory needs Read, Write and Edit; a deny rule on Write or Edit keeps them off and makes the memory read-only.
 	const memoryTools = def.memory ? map(["Read", "Write", "Edit"]) : [];
-	const memoryReadOnly = !!def.memory && memoryTools.slice(1).some((t) => deny.includes(t));
+	const memoryReadOnly: MemoryReadOnly =
+		!!def.memory && memoryTools.slice(1).some((t) => deny.includes(t)) ? "denied" : false;
 	if (memoryReadOnly) {
 		const widened = (def.disallowedTools ?? []).filter(
 			(t) => t.includes("(") && memoryTools.slice(1).includes(map([t.replace(/\(.*\)$/, "").trim()])[0]),
@@ -267,6 +282,34 @@ function resolveTools(
 	}
 	if (deny.length > 0) args.push("--exclude-tools", deny.join(","));
 	return { args, ...(mcpConfig ? { mcpConfig } : {}), warnings, memoryReadOnly };
+}
+
+// permissionMode "plan": an explicit --tools list from PLAN_TOOLS (the agent's `tools` narrow it; memory adds `read`,
+// as for a read-only memory elsewhere), the write, shell and MCP tools excluded, and codemode excluded unless the child
+// is codemode-only (a second guard: it is not in the list). `disallowedTools` still applies.
+function planTools(
+	def: AgentDefinition,
+	codemode: boolean,
+	structured: boolean,
+	deny: string[],
+	map: (names: string[]) => string[],
+	warnings: string[],
+): { args: string[]; warnings: string[]; memoryReadOnly: MemoryReadOnly } {
+	const listed = def.tools === undefined ? PLAN_TOOLS : map(def.tools).filter((t) => PLAN_TOOLS.includes(t));
+	const wanted = def.memory && !listed.includes("read") ? ["read", ...listed] : listed;
+	const allow = wanted.filter((t) => !deny.includes(t));
+	if (allow.length === 0) throw new Error(`agent "${def.name}" has no usable tools`);
+	const selected = [...(codemode ? ["codemode"] : []), ...allow, ...(structured ? [STRUCTURED_OUTPUT_TOOL] : [])];
+	const excluded = [
+		...deny.filter((t) => !PLAN_EXCLUDED.includes(t)),
+		...PLAN_EXCLUDED,
+		...(codemode ? [] : ["codemode"]),
+	];
+	return {
+		args: ["--tools", selected.join(","), "--exclude-tools", [...new Set(excluded)].join(","), "--no-mcp"],
+		warnings,
+		memoryReadOnly: def.memory ? "plan" : false,
+	};
 }
 
 // The agent's inline MCP servers the child may start. A project agent file's load only in a trusted project, as Claude
@@ -335,6 +378,7 @@ function buildSystemPrompt(
 			`Date: ${now.toISOString().slice(0, 10)}`,
 		].join("\n"),
 	);
+	if (def.permissionMode === "plan") parts.push(PLAN_PROMPT);
 	if (structured) parts.push(STRUCTURED_OUTPUT_PROMPT);
 	const head = codemode ? `${HEAD_PROMPT}\n\n${CODEMODE_PROMPT}` : HEAD_PROMPT;
 	return { head, tail: parts.join("\n\n"), warnings };

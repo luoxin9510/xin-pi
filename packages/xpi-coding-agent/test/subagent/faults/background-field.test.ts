@@ -55,10 +55,7 @@ test("background must be true or false; the fields that stay inert say why", () 
 		"---\nname: a\ndescription: d\nbackground: true\nmcpServers: []\nhooks: {}\npermissionMode: plan\ninitialPrompt: hi\nautoCompactWindow: 200000\nexperimental: {}\n---\nbody",
 	);
 	assert.ok(r.ok);
-	assert.deepEqual(r.def.inert, ["autoCompactWindow", "permissionMode", "hooks", "initialPrompt", "experimental"]);
-	assert.equal(
-		inertNotice("permissionMode"),
-		'field "permissionMode" has no effect in subagent: xpi has no permission modes',
-	);
+	assert.deepEqual(r.def.inert, ["autoCompactWindow", "hooks", "initialPrompt", "experimental"]);
+	assert.equal(r.def.permissionMode, "plan");
 	for (const field of r.def.inert) assert.match(inertNotice(field), /has no effect in subagent: \S/);
 });
