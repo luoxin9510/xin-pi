@@ -28,6 +28,8 @@ It has the core, the `xpi roost` commands and the hub. The session side, `builti
 - `docs/protocol.md`: how sessions and controllers talk to the daemon, with the op reference generated from the
   schemas (`npm run docs:protocol`).
 - `docs/port-inventory.md`: every pi-roost file and where it went, and the renamed environment variables.
+- `docs/porting.md`: how it works and how to rebuild it in another host agent, step by step, with what phase 1 left
+  out of pi-roost and by which decision.
 
 It imports nothing of xpi. The caller gives the agent directory and the paths of the two entry files:
 

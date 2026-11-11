@@ -17,7 +17,8 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
   `.scratch/xpi-roost/01-roost-core.md`). It imports nothing of xpi: the caller gives it the agent directory and the
   daemon and host entry files, and they travel to the daemon, hosts and sessions in `ROOST_*` variables. State is in
   `<agent dir>/xpi-roost/`, sockets in a runtime directory keyed by the agent directory, settings in the `"roost"` section
-  of `settings.json`. Its README, `docs/protocol.md` and `docs/port-inventory.md` describe it. The hub is its own entry,
+  of `settings.json`. Its README, `docs/protocol.md`, `docs/port-inventory.md` and `docs/porting.md` (how it works, what
+  phase 1 left out) describe it. The hub is its own entry,
   `xpi-roost/hub` (`src/hub/`, drawn with `xpi-tui`, the only xpi package xpi-roost imports, and only there): xpi
   supplies the daemon connection, the detach key, how sessions launch, models, presets and the command table
   (`AgentViewOptions`).
@@ -82,7 +83,10 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
     message components). In every other session the foreground role (`foreground.ts`): `/bg` (`/background`),
     `/bg-fork` and the left arrow on an empty prompt (`leftArrowOpensAgents`; AGENTS.md's exemption), which hand the
     session file to the daemon through a never-written scratch session (`<agent dir>/xpi-roost/scratch/`, not locked)
-    and open the hub. In both, `/agents` (`open-view.ts`, `ctx.ui.custom`). `foreground.ts` loads light: the client,
+    and open the hub (the dispatch goes with `requestOnce`; a lost answer is checked against the daemon's list
+    before going back to the file, `dispatchHandoff` in `handoff.ts`). In both, `/agents` (`open-view.ts`,
+    `ctx.ui.custom`); the hub reads xpi's commands and event bus from the runtime that loaded the extension last
+    (`view-state.ts`), since a `/bg` switch makes the earlier one stale. `foreground.ts` loads light: the client,
     the launch builder (`handoff.ts`) and the hub load through `hub.lazy.ts` when used. `hub-options.ts` is what the hub
     gets from xpi (launch, resume, presets and grouping written back with `SettingsManager.setRoostSetting`, the trust
     decision by `sessionTrust`'s rule); `commands.ts` classifies xpi's slash commands for the peek (T18,

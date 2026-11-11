@@ -7,8 +7,8 @@ Every source and test file of pi-roost (main `890cbe9`) and where it went. The s
   substance).
 - **split**: the part phase 1 keeps moved; the cut part was not copied (decision 6: never copied and switched off).
 - **cut**: not ported, with the decision that cuts it.
-- **later**: in phase 1 but moved by a later PR of the five (decision 12 of the grill: core, command line, session
-  side, hub, docs).
+
+Phase 1 was built in five PRs (core, command line, session side, hub, docs); "PR N" below says which one moved a file.
 
 The code moved into `src/` (`src/lib`, `src/daemon`, `src/host`, `src/hub`), as in every other package of the monorepo, so the
 root `tsc`, biome and check scripts cover it unchanged.
@@ -181,8 +181,19 @@ root `tsc`, biome and check scripts cover it unchanged.
 | `support/overlay-keys.ts`, `support/roost-port.ts` | `test/support/` | ported (PR 4) |
 | (new) | `test/support/builtins.ts` | PR 4: a copy of `builtin:roost`'s command table for the hub's tests |
 | `fixtures/agent-py.py`, `fixtures/agent-ts.ts`, `fixtures/fake-agent.mjs` | | cut: the protocol clients and terminal-agent profiles (M30, M31), decision 6 |
-| `fixtures/ask-extension.ts` | | later: PR 3, if the worker's dialog tests use it |
+| `fixtures/ask-extension.ts` | | cut: only pi-roost's manual M2 check used it; the worker's dialog tests drive a fake xpi |
 | | `test/agent-dirs.test.ts` | new: two agent directories, two daemons, no shared socket, job or roster; each reads its own `settings.json` (decision 9) |
+
+## Docs
+
+| pi-roost | xpi-roost | |
+|---|---|---|
+| `docs/porting.md` | `docs/porting.md` | split (PR 5): rewritten in English for phase 1 (decision 15 of the spec); the steps, settings, constants and ops of cut features left out, with a table of what phase 1 left out and why |
+| `docs/protocol.md` | `docs/protocol.md` | split (PR 1): phase 1's ops, generated from the schemas |
+| `README.md` | `README.md`, `xpi-coding-agent/docs/roost.md`, `xpi-coding-agent/docs/cli.md` | rewritten: the package README for developers, the user guide and the CLI reference in the coding agent's docs |
+| `docs/profiles.md` | | cut: terminal-agent profiles (M30), decision 6 |
+| `docs/summary-model.md` | | cut: the summary model, decision 6 |
+| `docs/plans/*`, `docs/agents/*`, `GLOSSARY.md`, `CHANGELOG.md`, `CLAUDE.md` | | not ported: pi-roost's own records; the terms are in the spec, the history in pi-roost's repository |
 
 ## Environment variables
 

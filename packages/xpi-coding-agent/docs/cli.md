@@ -373,8 +373,8 @@ pseudo-terminals, so they keep running after the terminal that started them clos
 | `xpi roost reply <id\|name> <text>` | Send a reply to an xpi session; queued as a follow-up while it works. Exits with `1` when it was not delivered |
 | `xpi roost stop <id\|name>` | Stop the session; its record stays |
 | `xpi roost rm <id\|name>` | Stop it and delete its record |
-| `xpi roost respawn <id\|name>` | Start an ended session again, or restart a live one |
-| `xpi roost respawn --all` | Restart every live and reaped session, for example after an upgrade |
+| `xpi roost respawn <id\|name>` | Start an ended session again, or restart a running xpi session (a running shell session is left alone) |
+| `xpi roost respawn --all` | Restart every running xpi session, for example after an upgrade; reaped sessions load the new code when they start again |
 | `xpi roost daemon status` | The daemon's pid, version, socket directory and whether it can load node-pty; does not start a daemon |
 | `xpi roost daemon logs` | Print the daemon's log |
 | `xpi roost daemon stop [--keep-workers]` | Stop the daemon and its sessions; with `--keep-workers` the sessions keep running and the next daemon takes them over |
@@ -382,7 +382,7 @@ pseudo-terminals, so they keep running after the terminal that started them clos
 The commands outside `daemon` start the agent directory's daemon when it is not running; `daemon ...` never starts one. A session is named by its id, a
 unique id prefix or its name. An unknown command exits with `2`.
 
-After an upgrade the running daemon still has the old code, and every command warns about it until it is restarted:
+After an upgrade the running daemon still has the old code, and `xpi roost` commands other than `hub`, `daemon logs` and `daemon stop` (and `xpi --bg`) warn about it until it is restarted:
 run `xpi roost daemon stop --keep-workers`, then `xpi roost respawn --all`.
 
 Requirements:

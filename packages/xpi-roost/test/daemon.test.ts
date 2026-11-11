@@ -750,7 +750,7 @@ describe("lifecycle", () => {
 		expect((await find(client, pinned.id))?.pid).toBeTruthy();
 	});
 
-	it("respawn --all restarts live and reaped jobs but leaves finished ones", async () => {
+	it("respawn --all restarts running jobs and leaves ended ones (a reaped one loads the new code when woken)", async () => {
 		const { client } = await startDaemon();
 		const live = await client.request("dispatch", args("sleep 30"));
 		const ended = await client.request("dispatch", args("true"));
