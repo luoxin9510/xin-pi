@@ -90,16 +90,26 @@ If rebase conflicts occur:
 
 See `CONTRIBUTING.md` for the quality bar for issues and PRs.
 
-Every PR goes through an independent review before it is merged, also docs-only and one-line PRs (a lighter review is fine):
+Every PR an agent opens goes through an independent review before it is merged, including docs-only,
+one-line and release PRs. A smaller PR may get a shorter review, but it is still Claude Opus, in a fresh context, and
+recorded. Pull requests from outside contributors are merged by the owner.
 
-1. Branch from `main`, implement, run the relevant tests and `npm run check`, push, open the PR, wait for CI to pass.
+1. Branch from `main`, implement, run the relevant tests (and `npm run check` for code changes), push, open the PR, wait
+   for CI to pass.
 2. Review by Claude Opus in a fresh context: a separate agent session or subagent on the Opus model that did not write
-   the change and is not given the author's reasoning. It gets the PR number and diff, the spec or PR body, and this file.
-   It reports findings as blocking, should-fix or nit, each with a concrete failure scenario and how it was checked.
-3. Fix every blocking and should-fix finding (or say in the PR why not), push, and have the same reviewer look again
-   until nothing blocking is left.
-4. Post the review record as a PR comment (rounds, findings, what was done about each), then merge (merge commit,
-   delete the branch). CI passing alone never allows a merge.
+   the change and is not given the author's reasoning; not a fork of the author's session (a fork inherits it). It gets
+   the PR number and diff, the spec or PR body, and this file. It reports findings as blocking, should-fix or nit, each
+   with a concrete failure scenario and how it was checked. If no Opus model is available, do not merge; ask the user.
+3. Fix every blocking finding; a blocking finding is closed only when the reviewer agrees it is fixed or the user
+   overrides it. Fix should-fix findings or answer them in the PR. Push, and have the same reviewer (or a new one in a
+   fresh context, given the earlier findings) look again until nothing blocking is left.
+4. Post the review record as a PR comment (reviewer model, reviewed commit SHA, rounds, findings and what was done about
+   each; follow "When posting issue/PR comments" below). Merge only the head commit the last review round passed, with
+   CI green on that commit; any later push needs another round, and nothing is merged while a round is pending. Merge
+   with a merge commit and delete the branch.
+
+This gate applies to every merge; an agent may merge on its own once the gate is passed. CI passing alone never allows a
+merge.
 
 When reviewing PRs:
 

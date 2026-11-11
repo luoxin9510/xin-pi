@@ -36,7 +36,7 @@ Run repository commands from the repo root (two directories above this skill), u
    npm run release:patch    # fixes + additions
    npm run release:minor    # breaking changes
    ```
-   It creates branch `release-vX.Y.Z`, sets every package to the new version, refreshes `package-lock.json` and `packages/xpi-coding-agent/install-lock`, commits `chore: release vX.Y.Z` (the pre-commit hook runs `npm run check`), pushes, and opens the PR. If a fresh lockfile refresh is blocked by npm's release-age gate, rerun with `npm_config_min_release_age=0`. Review the lockfile diff in the PR.
+   It creates branch `release-vX.Y.Z`, sets every package to the new version, refreshes `package-lock.json` and `packages/xpi-coding-agent/install-lock`, commits `chore: release vX.Y.Z` (the pre-commit hook runs `npm run check`), pushes, and opens the PR. If a fresh lockfile refresh is blocked by npm's release-age gate, rerun with `npm_config_min_release_age=0`. Review the lockfile diff in the PR. Like every PR, it is merged only after the independent Claude Opus review in `AGENTS.md` (Issues and PRs).
 
    A version already on main that was never tagged (for example after a manual bump) needs no PR: go to step 3.
 
