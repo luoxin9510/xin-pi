@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { DaemonError } from "xpi-roost";
 import { ProjectTrustStore } from "../src/core/trust-manager.ts";
 import {
 	CONTINUE,
@@ -14,6 +15,7 @@ import {
 	startProblem,
 } from "../src/extensions/roost/foreground.ts";
 import { NO_PTY_MESSAGE, WINDOWS_MESSAGE } from "../src/extensions/roost/messages.ts";
+import { setHubApi } from "../src/extensions/roost/view-state.ts";
 
 type Handler = (event: any, ctx?: any) => unknown;
 type Request = { command: string[]; sessionFile: string; name: string; origin: string; cwd: string };
@@ -37,56 +39,110 @@ beforeEach(() => {
 	writeFileSync(sessionFile, "{}\n");
 });
 afterEach(() => {
+	setHubApi(undefined);
 	process.argv = savedArgv;
 	if (savedAgentDir === undefined) delete process.env.XPI_CODING_AGENT_DIR;
 	else process.env.XPI_CODING_AGENT_DIR = savedAgentDir;
 	rmSync(home, { recursive: true, force: true });
 });
 
-function fakePi() {
+/** A runtime's extension API; `stale()` makes every call throw, as xpi's does once its session is replaced. */
+function fakePi(commandName = "review") {
 	const handlers = new Map<string, Handler[]>();
 	const commands = new Map<string, (args: string, ctx: any) => Promise<void>>();
+	const emitted: [string, unknown][] = [];
+	let isStale = false;
+	const live = () => {
+		if (isStale) throw new Error("This extension ctx is stale");
+	};
 	const pi = {
 		on: (name: string, h: Handler) => handlers.set(name, [...(handlers.get(name) ?? []), h]),
 		registerCommand: (name: string, c: { handler: (args: string, ctx: any) => Promise<void> }) =>
 			commands.set(name, c.handler),
 		getFlag: () => undefined,
 		getThinkingLevel: () => "low",
-		getCommands: () => [{ name: "review", source: "prompt" }],
-		events: { emit() {} },
+		getCommands: () => {
+			live();
+			return [{ name: commandName, source: "prompt" }];
+		},
+		events: {
+			emit(channel: string, data: unknown) {
+				live();
+				emitted.push([channel, data]);
+			},
+		},
 	};
+	// index.ts does so on every load of builtin:roost
+	setHubApi(pi);
 	const emit = (name: string, event: any = {}, ctx?: any) => {
 		for (const h of handlers.get(name) ?? []) h(event, ctx);
 	};
-	return { pi: pi as any, emit, commands };
+	return {
+		pi: pi as any,
+		emit,
+		commands,
+		emitted,
+		stale: () => {
+			isStale = true;
+		},
+	};
 }
 
-/** The fakes the role is given: the daemon records what it is asked, the hub what it opens. */
-function fakeDeps(problem?: string) {
+/**
+ * The fakes the role is given: the daemon records what it is asked, the hub what it opens. `dispatch`: `ok` answers,
+ * `refuse` answers no, `lost` takes the request (a worker starts on the file) but its answer never comes; `list` is
+ * what the daemon's list then says (`fail`: no answer either).
+ */
+function fakeDeps(
+	problem?: string,
+	o: { dispatch?: "ok" | "refuse" | "lost"; list?: "running" | "ended" | "none" | "fail" } = {},
+) {
 	const dispatched: Request[] = [];
 	const opened: unknown[] = [];
+	const ops: string[] = [];
 	const deps: ForegroundDeps = {
 		problem: () => problem,
+		dispatchTimeoutMs: 1,
 		openHub: async (_ctx, opts) => {
 			opened.push(opts);
 		},
 		connect: async () =>
 			({
-				request: async (_op: string, args: Request) => {
+				isClosed: false,
+				request: async (op: string, args: Request) => {
+					ops.push(op);
+					if (op === "list") {
+						if (o.list === "fail") throw new Error("socket closed");
+						const file = dispatched[0]?.sessionFile ?? "";
+						if (o.list === "none" || !file) return { jobs: [] };
+						return {
+							jobs: [{ id: "job1", name: "my chat", sessionFile: file, endedAt: o.list === "ended" ? 1 : null }],
+						};
+					}
 					dispatched.push(args);
+					if (o.dispatch === "refuse")
+						throw Object.assign(new DaemonError("the daemon is shutting down"), { fromDaemon: true });
+					if (o.dispatch === "lost") throw new Error("socket closed");
 					return { id: "job1", name: args.name };
 				},
 				close() {},
 			}) as never,
 	};
-	return { deps, dispatched, opened };
+	return { deps, dispatched, opened, ops };
 }
 
 const editor = { getText: () => "", setText() {}, onSubmit: () => {} };
 const selector = { handleInput() {}, render: () => [] };
 
 /** `file` null: --no-session. */
-function fakeCtx(file: string | null = sessionFile, o: { trusted?: boolean } = {}) {
+/**
+ * `file` null: --no-session. `onSwitch`: what the new runtime does as it starts (loads builtin:roost again);
+ * `fresh`: how the switch to the fresh session ends.
+ */
+function fakeCtx(
+	file: string | null = sessionFile,
+	o: { trusted?: boolean; onSwitch?: () => void; fresh?: "ok" | "cancel" | "throw" } = {},
+) {
 	let stale = false;
 	let editorText = "";
 	let focused: unknown = editor;
@@ -127,11 +183,14 @@ function fakeCtx(file: string | null = sessionFile, o: { trusted?: boolean } = {
 		switchSession: async (path: string, opts?: { withSession?: (next: any) => Promise<void> }) => {
 			calls.switches.push(path);
 			stale = true;
+			o.onSwitch?.();
 			const next = {
 				ui,
 				switchSession: async (p: string) => {
 					calls.switches.push(p);
-					return { cancelled: false };
+					if (p === file) return { cancelled: false };
+					if (o.fresh === "throw") throw new Error("disk full");
+					return { cancelled: o.fresh === "cancel" };
 				},
 			};
 			await opts?.withSession?.(next);
@@ -237,6 +296,82 @@ describe("/bg", () => {
 		// then a fresh conversation next to the moved one, not in the scratch directory
 		expect(f.calls.switches[1]?.startsWith(`${work}/`)).toBe(true);
 		expect(commands.has("background")).toBe(true);
+	});
+
+	it("gives the hub the new runtime's commands and event bus: the API /bg was registered with is stale after the switch", async () => {
+		const first = fakePi();
+		const { deps, opened } = fakeDeps();
+		registerForeground(first.pi, deps);
+		let second: ReturnType<typeof fakePi> | undefined;
+		const f = fakeCtx(sessionFile, {
+			onSwitch: () => {
+				first.stale();
+				second = fakePi("model-from-new-runtime");
+			},
+		});
+		await first.commands.get("bg")!("", f.ctx);
+		const hub = opened[0] as { commands: () => unknown[]; events: { emit(c: string, d: unknown): void } };
+		expect(hub.commands()).toEqual([{ name: "model-from-new-runtime", source: "prompt" }]);
+		hub.events.emit("roost:attach", { id: "job1" });
+		expect(second!.emitted).toEqual([["roost:attach", { id: "job1" }]]);
+		// a runtime that has gone stale too: no commands and a dropped event, never a throw into the hub's keys
+		second!.stale();
+		expect(hub.commands()).toEqual([]);
+		expect(() => hub.events.emit("roost:attach", {})).not.toThrow();
+	});
+
+	it("never goes back to the file when the dispatch's answer was lost but the daemon runs it", async () => {
+		const { pi, commands } = fakePi();
+		const { deps, opened, ops } = fakeDeps(undefined, { dispatch: "lost", list: "running" });
+		registerForeground(pi, deps);
+		const f = fakeCtx();
+		await commands.get("bg")!("", f.ctx);
+		expect(ops).toEqual(["dispatch", "list"]);
+		expect(f.calls.switches).not.toContain(sessionFile);
+		expect(f.calls.switches[1]?.startsWith(`${work}/`)).toBe(true);
+		expect(opened).toEqual([expect.objectContaining({ origin: "job1" })]);
+		expect(f.notes.join()).not.toMatch(/could not move/);
+	});
+
+	it("goes back to the file only when nothing runs on it: a refusal, or a lost answer and no running job", async () => {
+		for (const o of [
+			{ dispatch: "refuse" },
+			{ dispatch: "lost", list: "none" },
+			{ dispatch: "lost", list: "ended" },
+		] as const) {
+			const { pi, commands } = fakePi();
+			const { deps, opened } = fakeDeps(undefined, o);
+			registerForeground(pi, deps);
+			const f = fakeCtx();
+			await commands.get("bg")!("", f.ctx);
+			expect(f.calls.switches[1], JSON.stringify(o)).toBe(sessionFile);
+			expect(opened).toEqual([]);
+			expect(f.notes.join()).toMatch(/could not move to the background/);
+		}
+	});
+
+	it("stays out of the file when it cannot tell whether the daemon runs it", async () => {
+		const { pi, commands } = fakePi();
+		const { deps, opened } = fakeDeps(undefined, { dispatch: "lost", list: "fail" });
+		registerForeground(pi, deps);
+		const f = fakeCtx();
+		await commands.get("bg")!("", f.ctx);
+		expect(f.calls.switches).not.toContain(sessionFile);
+		expect(f.calls.switches[1]?.startsWith(`${work}/`)).toBe(true);
+		expect(opened).toHaveLength(1);
+		expect(f.notes.join()).toMatch(/may run in the background; check \/agents/);
+	});
+
+	it("says how to leave the hand-off session when the fresh session cannot be opened", async () => {
+		for (const fresh of ["cancel", "throw"] as const) {
+			const { pi, commands } = fakePi();
+			const { deps } = fakeDeps();
+			registerForeground(pi, deps);
+			const f = fakeCtx(sessionFile, { fresh });
+			await expect(commands.get("bg")!("", f.ctx)).resolves.toBeUndefined();
+			expect(f.notes, fresh).toContain("could not open a fresh session; use /new");
+			expect(f.calls.switches).not.toContain(sessionFile);
+		}
 	});
 
 	it("hands on the trust decision by xpi --bg's rule: the answer for a folder with something to trust, a stored one, else no", async () => {
@@ -351,6 +486,26 @@ describe("/bg-fork", () => {
 		expect(dispatched[0]!.command).toContain("try the other way");
 		expect(f.notes.join()).toMatch(/session running · my chat \(fork\) · job1/);
 		expect(f.calls.switches).toEqual([]);
+	});
+
+	it("reports a fork whose answer was lost by what the daemon's list says", async () => {
+		writeFileSync(
+			sessionFile,
+			`${JSON.stringify({ type: "session", version: 3, id: "s1", timestamp: new Date().toISOString(), cwd: work })}\n${JSON.stringify({ type: "message", id: "m1", parentId: null, timestamp: new Date().toISOString(), message: { role: "user", content: "hi", timestamp: 1 } })}\n`,
+		);
+		const cases = [
+			["running", /session running · my chat · job1/],
+			["none", /could not fork: no answer/],
+			["fail", /the fork may have started .*check \/agents/],
+		] as const;
+		for (const [list, note] of cases) {
+			const { pi, commands } = fakePi();
+			const { deps } = fakeDeps(undefined, { dispatch: "lost", list });
+			registerForeground(pi, deps);
+			const f = fakeCtx();
+			await commands.get("bg-fork")!("", f.ctx);
+			expect(f.notes.join(), list).toMatch(note);
+		}
 	});
 
 	it("has nothing to fork before the first reply is saved", async () => {

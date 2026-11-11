@@ -21,6 +21,7 @@ import {
 import roost, { bgArgsProblem, bgProblem, registerWriteLock } from "../src/extensions/roost/index.ts";
 import { BINARY_MESSAGE, NO_PTY_MESSAGE, WINDOWS_MESSAGE } from "../src/extensions/roost/messages.ts";
 import { launchSettings } from "../src/extensions/roost/settings.ts";
+import { hubContext, setHubApi } from "../src/extensions/roost/view-state.ts";
 
 type Handler = (event: any, ctx?: any) => unknown;
 
@@ -202,6 +203,22 @@ describe("an ordinary start", () => {
 		}
 	});
 
+	it("every load hands the hub its runtime's API: a hub opened after a session switch reads the new one", async () => {
+		const first = fakePi();
+		first.pi.getCommands = () => [{ name: "old", source: "prompt" }];
+		await roost(first.pi);
+		expect(hubContext().commands()).toEqual([{ name: "old", source: "prompt" }]);
+		// the switch: the old runtime's API throws from now on; the new runtime loads builtin:roost again
+		first.pi.getCommands = () => {
+			throw new Error("This extension ctx is stale");
+		};
+		const second = fakePi();
+		second.pi.getCommands = () => [{ name: "new", source: "skill" }];
+		await roost(second.pi);
+		expect(hubContext().commands()).toEqual([{ name: "new", source: "skill" }]);
+		setHubApi(undefined);
+	});
+
 	it("its static imports reach no daemon client or hub: xpi-roost/session, the foreground role, the loaders and the messages (the rest is loaded lazily)", () => {
 		const imports = (file: string) =>
 			[
@@ -210,7 +227,13 @@ describe("an ordinary start", () => {
 				),
 			].map((m) => m[1]!);
 		const local = (file: string) => imports(file).filter((i) => i.includes("roost") || i.startsWith("./"));
-		expect(local("index.ts")).toEqual(["xpi-roost/session", "./foreground.ts", "./hub.lazy.ts", "./messages.ts"]);
+		expect(local("index.ts")).toEqual([
+			"xpi-roost/session",
+			"./foreground.ts",
+			"./hub.lazy.ts",
+			"./messages.ts",
+			"./view-state.ts",
+		]);
 		// every foreground session loads the foreground role: the client, the launch builder and the hub wait for use
 		expect(local("foreground.ts")).toEqual([
 			"xpi-roost/session",

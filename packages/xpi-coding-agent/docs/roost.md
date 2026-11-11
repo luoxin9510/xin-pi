@@ -118,6 +118,13 @@ session (over the conversation, or in place of the editor with `"fullscreen": fa
 a terminal of its own, with new sessions starting in `dir` (default: the current directory). A foreground xpi is not in
 the list until it is handed over with `/bg`; subagents are not listed (see `/subagents` in their session).
 
+New sessions and `/resume` use the session directory of the xpi the hub runs in (`--session-dir`, else
+`XPI_CODING_AGENT_SESSION_DIR`, else the `sessionDir` setting). The hub reads a project's settings (its default model,
+and in `xpi roost hub` its theme and `sessionDir`) only as far as the sessions it starts there would trust the folder.
+
+In a session the daemon runs, `/agents` marks that session's own row "this session" and refuses to attach to it, stop,
+delete or restart it, or run xpi's commands in it: leave the hub to use it.
+
 Rows are grouped by state (needs input, working, completed; pinned first) or by directory. Each row shows its name, what
 it is doing or its last result, its model and context use, what it spent, and its age.
 
@@ -134,7 +141,7 @@ it is doing or its last result, its model and context use, what it spent, and it
 | Ctrl+O | Mark the row (on a header: the group); typed text, `/model`, `/thinking`, Ctrl+X and Ctrl+T then act on every marked session |
 | Shift+↑ Shift+↓, Alt+↑ Alt+↓ | Move the row within its group, jump to the previous or next group |
 | Alt+1…9 | Attach to row N of this directory |
-| Ctrl+S | Group by state or by directory (saved to your settings) |
+| Ctrl+S | Group by state or by directory (saved to your settings; the hub says when it cannot write them) |
 | Ctrl+F, `s:` `n:` `o:` | Filter by name, state or result |
 | Ctrl+L, Ctrl+P, Shift+Tab | The model for new sessions (in a peek: for that session), the next enabled model, the next thinking level |
 | Ctrl+G | Write the task or reply in `$VISUAL` / `$EDITOR` |
@@ -168,7 +175,10 @@ The hub uses your keybindings for the detach key only; its other keys are fixed 
 
 `/bg` waits up to ten seconds for a running tool to finish (the left arrow again skips the wait), interrupts the turn,
 and the session continues in the background with "Continue where you left off." and your prompt. It leaves the
-session file first, so only the daemon's session writes to it. In the hub the moved session is shown in bold, with
+session file first, so only the daemon's session writes to it. When the daemon refuses, or its answer is lost and its
+list shows nothing running on the file, you are back in the conversation. When neither the answer nor the list comes,
+`/bg` does not go back (a session may run on the file): it says so, and `/agents` shows whether it does. In the hub
+the moved session is shown in bold, with
 "Your conversation moved to the background" above the list; Esc goes into it. `/bg` refuses while a dialog is open,
 during compaction, and without a session file (`--no-session`).
 

@@ -6,8 +6,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ROOST_LOCATION_ENV } from "xpi-roost/hub";
+import { SessionManager } from "../src/core/session-manager.ts";
 import { ProjectTrustStore } from "../src/core/trust-manager.ts";
-import { hubDirProblem, parseModelList, runHub } from "../src/extensions/roost/hub-main.ts";
+import { hubDirProblem, parseModelList, runHub, standaloneSettings } from "../src/extensions/roost/hub-main.ts";
 import { hubOptions, trustFor, type XpiHost } from "../src/extensions/roost/hub-options.ts";
 
 let home: string;
@@ -17,7 +18,7 @@ let other: string;
 const saved: Record<string, string | undefined> = {};
 
 beforeEach(() => {
-	for (const k of ROOST_LOCATION_ENV) saved[k] = process.env[k];
+	for (const k of [...ROOST_LOCATION_ENV, "ROOST_JOB_ID", "XPI_CODING_AGENT_SESSION_DIR"]) saved[k] = process.env[k];
 	home = mkdtempSync(join(tmpdir(), "roost-hubopts-"));
 	agentDir = join(home, "agent");
 	work = join(home, "work");
@@ -25,7 +26,7 @@ beforeEach(() => {
 	for (const d of [agentDir, work, other]) mkdirSync(d, { recursive: true });
 });
 afterEach(() => {
-	for (const k of ROOST_LOCATION_ENV) {
+	for (const k of [...ROOST_LOCATION_ENV, "ROOST_JOB_ID", "XPI_CODING_AGENT_SESSION_DIR"]) {
 		if (saved[k] === undefined) delete process.env[k];
 		else process.env[k] = saved[k];
 	}
@@ -126,6 +127,75 @@ describe("settings the hub changes", () => {
 		expect(o.isDetachKey("\x19")).toBe(true);
 		expect(o.isDetachKey("\x1a")).toBe(false);
 		expect(o.builtins!().find((c) => c.name === "tree")).toMatchObject({ how: "picker" });
+	});
+});
+
+describe("PR 4 review: what the hub reads and writes", () => {
+	/** A project with settings of its own (no trust-requiring resources: only a stored decision trusts it). */
+	const project = (name: string, settings: object) => {
+		const dir = join(home, name);
+		mkdirSync(join(dir, ".pi"), { recursive: true });
+		writeFileSync(join(dir, ".pi", "settings.json"), JSON.stringify(settings));
+		return dir;
+	};
+
+	it("a project's default model counts only when the sessions started there would trust the project", () => {
+		writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "u", defaultModel: "mine" }));
+		const theirs = { defaultProvider: "p", defaultModel: "theirs" };
+		const untrusted = project("untrusted", theirs);
+		// `xpi roost hub`: no answer of its own; nothing stored for the folder
+		expect(hubOptions(host({ cwd: untrusted, projectTrusted: undefined })).defaultModel!()).toBe("u/mine");
+		const trusted = project("trusted", theirs);
+		new ProjectTrustStore(agentDir).set(trusted, true);
+		expect(hubOptions(host({ cwd: trusted, projectTrusted: undefined })).defaultModel!()).toBe("p/theirs");
+	});
+
+	it("xpi roost hub reads a project's theme and session directory only when it is trusted", () => {
+		writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ theme: "dark" }));
+		const theirs = { theme: "light", sessionDir: join(home, "their-sessions") };
+		const untrusted = project("untrusted", theirs);
+		expect(standaloneSettings(untrusted, agentDir)).toEqual({ theme: "dark", sessionDir: undefined });
+		const trusted = project("trusted", theirs);
+		new ProjectTrustStore(agentDir).set(trusted, true);
+		expect(standaloneSettings(trusted, agentDir)).toEqual(theirs);
+		process.env.XPI_CODING_AGENT_SESSION_DIR = join(home, "env-sessions");
+		expect(standaloneSettings(untrusted, agentDir).sessionDir).toBe(join(home, "env-sessions"));
+	});
+
+	it("new sessions and /resume use the host's session directory", async () => {
+		const custom = join(home, "sessions");
+		mkdirSync(custom, { recursive: true });
+		const o = hubOptions(host({ sessionDir: () => custom }));
+		expect(o.launch("fix it", {}).sessionFile.startsWith(`${custom}/`)).toBe(true);
+		const saved = SessionManager.create(work, custom);
+		saved.appendMessage({ role: "user", content: "hello there", timestamp: 1 } as never);
+		saved.appendMessage({ role: "assistant", content: [{ type: "text", text: "hi" }], timestamp: 2 } as never);
+		const listed = await o.resumable!(work);
+		expect(listed.map((r) => r.path)).toEqual([saved.getSessionFile()]);
+		// the default directory for the folder: nothing to pass on
+		const plain = hubOptions(host());
+		expect(plain.launch("fix it", {}).sessionFile.startsWith(`${custom}/`)).toBe(false);
+	});
+
+	it("a setting that cannot be written is said, and a project's settings are never written", async () => {
+		const user = join(agentDir, "settings.json");
+		writeFileSync(user, "{ not json");
+		mkdirSync(join(work, ".pi"), { recursive: true });
+		const projectFile = join(work, ".pi", "settings.json");
+		const projectText = JSON.stringify({ roost: { presets: { shared: { thinking: "low" } } } });
+		writeFileSync(projectFile, projectText);
+		const o = hubOptions(host());
+		await expect(o.savePreset!("fast", { model: "a/one" })).rejects.toThrow(/settings\.json/);
+		await expect(o.onGroupBy!("directory")).rejects.toThrow(/settings\.json/);
+		expect(readFileSync(user, "utf8")).toBe("{ not json");
+		expect(readFileSync(projectFile, "utf8")).toBe(projectText);
+	});
+
+	it("in a session the daemon runs, its own row is the hub's self row", () => {
+		process.env.ROOST_JOB_ID = "job7";
+		expect(hubOptions(host()).selfId).toBe("job7");
+		delete process.env.ROOST_JOB_ID;
+		expect(hubOptions(host()).selfId).toBeUndefined();
 	});
 });
 

@@ -18,9 +18,10 @@ import { acquireWriterLock, isRoostSession, isScratchSession, releaseWriterLock 
 import { parseArgs } from "../../cli/args.ts";
 import { getAgentDir, getRoostEntries } from "../../config.ts";
 import type { ExtensionAPI, ExtensionContext } from "../../core/extensions/types.ts";
-import { hubContext, registerForeground } from "./foreground.ts";
+import { registerForeground } from "./foreground.ts";
 import { loadOpenView } from "./hub.lazy.ts";
 import { NO_PTY_MESSAGE, ptyInstalled, roostUnavailable } from "./messages.ts";
+import { hubContext, setHubApi } from "./view-state.ts";
 
 /**
  * What else on the command line `--bg` cannot go with. This process only hands the task over, but xpi would still send
@@ -75,6 +76,8 @@ export default async function roost(pi: ExtensionAPI): Promise<void> {
 	pi.registerFlag("bg-name", { type: "string", description: "Name of the session --bg starts" });
 
 	registerWriteLock(pi);
+	// the hub reads this runtime's commands and event bus (a /bg switch makes an earlier runtime's API stale)
+	setHubApi(pi);
 
 	// T17: the hub, in any session (a session the daemon runs reaches the daemon that runs it)
 	pi.registerCommand("agents", {
@@ -83,7 +86,7 @@ export default async function roost(pi: ExtensionAPI): Promise<void> {
 			const problem = roostUnavailable({ platform: process.platform, entries: getRoostEntries() });
 			if (problem) return ctx.ui.notify(problem, "error");
 			const { openAgentView } = await loadOpenView();
-			await openAgentView(ctx, hubContext(pi));
+			await openAgentView(ctx, hubContext());
 		},
 	});
 

@@ -1531,7 +1531,8 @@ describe("M48: the peek, deeper", () => {
 	});
 
 	it("commands in a peek act on that session; unknown ones and ! are refused; a reply of several lines goes whole", async () => {
-		const r1 = row({ id: "p1", name: "tests" });
+		// the newest first: tests is the row the cursor starts on, whatever the clock did between the two rows
+		const r1 = row({ id: "p1", name: "tests", stateSince: Date.now() });
 		const { view, client } = setup([r1, row({ id: "p2", name: "other" })]);
 		await view.start();
 		view.handleInput(" ");
@@ -2108,6 +2109,115 @@ describe("M79: views and layers, pinned", () => {
 		const { view } = setup(rowsFor());
 		await view.start();
 		expect(await keys(view, [" ", "\x0f", "\x06", "\x1b", "\x0f", "\x1b", "\x06"])).toMatchSnapshot();
+		view.dispose();
+	});
+});
+
+describe("PR 4 review: the hub inside a session the daemon runs, and a stale xpi", () => {
+	const screenWith = async (view: AgentView, text: string): Promise<string> => {
+		let screen = "";
+		for (let i = 0; i < 200; i++) {
+			screen = view.render(200).join("\n");
+			if (screen.includes(text)) return screen;
+			await sleep(5);
+		}
+		return screen;
+	};
+	const REFUSED = "this is the session you are in";
+
+	it("marks its own row and refuses attach, Ctrl+X, and /stop /rm /respawn /attach and xpi's commands on it", async () => {
+		const me = row({ id: "me", name: "mine", state: "blocked", status: "waiting", waitingFor: "question" });
+		const other = row({ id: "other", name: "theirs" });
+		const hostCalls: string[] = [];
+		const { view, client } = setup([me, other], {
+			extra: {
+				selfId: "me",
+				hostControl: (async (_id: string, op: string) => {
+					hostCalls.push(op);
+					return op === "status" ? { attached: false } : {};
+				}) as never,
+			},
+		});
+		await view.start();
+		expect(view.render(200).join("\n")).toContain("this session · ");
+		// the cursor starts on the row that needs input: this one
+		view.handleInput("\r");
+		expect(await screenWith(view, REFUSED)).toContain(`attaching: ${REFUSED}`);
+		view.handleInput("\x18"); // Ctrl+X
+		await sleep(10);
+		expect(await screenWith(view, `Ctrl+X: ${REFUSED}`)).toContain(`Ctrl+X: ${REFUSED}`);
+		view.handleInput(" "); // peek it
+		for (const cmd of ["/stop", "/rm", "/respawn", "/attach", "/session"]) {
+			view.handleInput("\x03");
+			type(view, cmd);
+			view.handleInput("\r");
+			expect(await screenWith(view, `${cmd}: ${REFUSED}`), cmd).toContain(`${cmd}: ${REFUSED}`);
+		}
+		await sleep(10);
+		expect(client.requests.filter((r) => ["stop", "rm", "respawn"].includes(r.op))).toEqual([]);
+		expect(hostCalls).toEqual([]);
+		view.dispose();
+	});
+
+	it("still acts on the other rows, and on the marked ones but its own", async () => {
+		const me = row({ id: "me", name: "mine" });
+		const other = row({ id: "other", name: "theirs" });
+		const { view, client } = setup([me, other], { extra: { selfId: "me" } });
+		await view.start();
+		view.handleInput("\x0f"); // Ctrl+O marks me
+		view.handleInput("\x0f"); // and the other
+		view.handleInput("\x18");
+		await sleep(10);
+		expect(client.requests.filter((r) => r.op === "stop").map((r) => r.args)).toEqual([{ id: "other" }]);
+		view.dispose();
+	});
+
+	it("an xpi whose commands throw (a stale runtime) gives no commands rather than a crash", async () => {
+		const { view } = setup([row()], {
+			extra: {
+				commands: () => {
+					throw new Error("This extension ctx is stale");
+				},
+			},
+		});
+		await view.start();
+		// what `/` in the task box completes from: the view's own commands still
+		const own = (view as unknown as { viewCommands(): { name: string }[] }).viewCommands();
+		expect(own.map((c) => c.name)).toContain("model");
+		expect(() => type(view, "/")).not.toThrow();
+		expect(() => view.render(120)).not.toThrow();
+		view.handleInput("\x03");
+		expect(() => {
+			type(view, "/nosuch");
+			view.handleInput("\r");
+		}).not.toThrow();
+		expect(await screenWith(view, "isn't available in the hub")).toContain("/nosuch isn't available in the hub");
+		view.dispose();
+	});
+
+	it("says when a preset or the grouping could not be saved", async () => {
+		const { view } = setup([row()], {
+			extra: {
+				presets: () => ({}),
+				userPreset: () => false,
+				savePreset: async () => {
+					throw new Error("/u/settings.json: Unexpected token");
+				},
+				onGroupBy: async () => {
+					throw new Error("/u/settings.json: Unexpected token");
+				},
+			},
+		});
+		await view.start();
+		view.handleInput("\x13"); // Ctrl+S
+		expect(await screenWith(view, "could not save the grouping")).toContain(
+			"could not save the grouping: /u/settings.json: Unexpected token",
+		);
+		type(view, "/preset save fast");
+		view.handleInput("\r");
+		expect(await screenWith(view, "could not save preset")).toContain(
+			"could not save preset fast: /u/settings.json: Unexpected token",
+		);
 		view.dispose();
 	});
 });

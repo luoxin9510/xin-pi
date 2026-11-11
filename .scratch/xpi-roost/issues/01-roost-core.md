@@ -287,6 +287,16 @@ Notes (PR 4):
   and its 10 s daemon poll (BG-11), `defaultToAgentsView` (decision 6), peers (decision 5). `setJobEventBus` is set
   when a hub opens (the footer poll that also observed jobs is not ported). The `--bg` hint names the bound
   `app.suspend` keys (coordinator's fact 3).
+- After the review of PR 4 (#68): the hub reads xpi's commands and event bus from the runtime that loaded
+  `builtin:roost` last (`view-state.ts` `setHubApi`, set on every load), so a hub `/bg` opens after the session switch
+  never calls the stale API; a failing `commands()` gives none instead of throwing into the hub's keys. `/agents` in a
+  session the daemon runs takes `selfId` from `ROOST_JOB_ID` (a process started in that session's terminal inherits it:
+  its row is the same terminal), marks the row and refuses attach, Ctrl+X, `/stop`, `/rm`, `/respawn`, `/attach` and
+  xpi's commands on it. `/bg` and `/bg-fork` dispatch with `requestOnce` (`handoff.ts` `dispatchHandoff`); a lost
+  answer is checked against the daemon's list by session file: running, no fallback; nothing running, back to the
+  conversation; no list either, no fallback and a warning. The hub's settings reads (`launchDefaultModel`,
+  `xpi roost hub`'s theme and session directory, `standaloneSettings`) pass the trust the sessions get; new sessions
+  and `/resume` use the host's session directory; a preset or grouping that cannot be written is said in the hub.
 
 
 ## PR 5: docs and release (branch `roost-docs`)

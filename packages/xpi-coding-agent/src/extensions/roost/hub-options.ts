@@ -6,7 +6,8 @@
  */
 
 import { realpathSync } from "node:fs";
-import { buildLaunch, DaemonClient, type DaemonStart, daemonEnv, envPolicy, fallbackName } from "xpi-roost";
+import { resolve } from "node:path";
+import { buildLaunch, DaemonClient, type DaemonStart, daemonEnv, envPolicy, fallbackName, readJobEnv } from "xpi-roost";
 import {
 	type AgentViewOptions,
 	notifySequence,
@@ -21,7 +22,7 @@ import {
 import { readWriterLock } from "xpi-roost/session";
 import { getRoostEntries, VERSION } from "../../config.ts";
 import { KeybindingsManager } from "../../core/keybindings.ts";
-import { type SessionInfo, SessionManager } from "../../core/session-manager.ts";
+import { getDefaultSessionDir, type SessionInfo, SessionManager } from "../../core/session-manager.ts";
 import { SettingsManager } from "../../core/settings-manager.ts";
 import { SessionSelectorComponent } from "../../modes/interactive/components/session-selector.ts";
 import { sessionTrust } from "./background.ts";
@@ -74,27 +75,59 @@ export function trustFor(dir: string, h: Pick<XpiHost, "cwd" | "agentDir" | "arg
 	return sessionTrust(dir, here ? h.argv.slice(2) : [], here ? h.projectTrusted : undefined, h.agentDir);
 }
 
+/** The session whose terminal this process is in, when the daemon runs it (its job id is in the environment). */
+const selfId = (): string | undefined => readJobEnv(process.env, "id");
+
 /** The user's settings (global only): the hub writes the `"roost"` keys it changes there. */
 function userSettings(h: Pick<XpiHost, "cwd" | "agentDir">): SettingsManager {
 	return SettingsManager.create(h.cwd, h.agentDir, { projectTrusted: false });
 }
 
+/**
+ * Write one `"roost"` key to the user's `settings.json`, never a project's. Resolves once it is on disk; rejects when
+ * it could not be (a file that does not parse is left alone, a write that fails), so the hub can say so.
+ */
+export async function writeRoostSetting(
+	h: Pick<XpiHost, "cwd" | "agentDir">,
+	key: string,
+	value: (s: SettingsManager) => unknown,
+): Promise<void> {
+	const s = userSettings(h);
+	s.setRoostSetting(key, value(s));
+	await s.flush();
+	const failed = s.drainErrors().find((e) => e.scope === "global");
+	if (failed) throw new Error(`${failed.path ?? "settings.json"}: ${failed.error.message}`);
+}
+
+/** The session directory new sessions and /resume use: the host's when it is not the default for its folder. */
+function chosenSessionDir(h: Pick<XpiHost, "cwd" | "agentDir" | "sessionDir">): string | undefined {
+	const dir = h.sessionDir();
+	if (!dir) return undefined;
+	return resolve(dir) === resolve(getDefaultSessionDir(h.cwd, h.agentDir)) ? undefined : dir;
+}
+
 export function hubOptions(h: XpiHost): Omit<AgentViewOptions, "tui" | "theme" | "setTitle" | "done"> {
 	const start = roostStart(h.agentDir);
-	const settingsNow = () =>
-		roostSettings(SettingsManager.create(h.cwd, h.agentDir, { projectTrusted: h.projectTrusted ?? false }));
+	// a project's settings count as far as the sessions started here would trust it (never more)
+	const projectTrusted = trustFor(h.cwd, h);
+	const settingsNow = () => roostSettings(SettingsManager.create(h.cwd, h.agentDir, { projectTrusted }));
+	const sessionDir = chosenSessionDir(h);
 	const config = settingsNow();
 	const keybindings = KeybindingsManager.create(h.agentDir);
+	const self = selfId();
 	return {
 		cwd: h.cwd,
 		connect: () => DaemonClient.connectOrStart(start),
 		isDetachKey: detachMatcher(keybindings),
 		detachKeyName: keybindings.getKeys("app.suspend").join(" or ") || "app.suspend",
 		builtins: builtinCommands,
+		// in a session the daemon runs (or a process started in its terminal): that session's row is this one
+		...(self ? { selfId: self } : {}),
 		launch: (task, o = {}) => {
 			const cwd = o.cwd ?? h.cwd;
 			const name = o.name ?? fallbackName(task);
-			const sessionFile = o.sessionFile ?? SessionManager.create(cwd).getSessionFile();
+			// a --session-dir (or the settings' sessionDir) of the host xpi keeps the new session there too
+			const sessionFile = o.sessionFile ?? SessionManager.create(cwd, sessionDir).getSessionFile();
 			if (!sessionFile) throw new Error("could not allocate a session file");
 			const now = settingsNow();
 			return buildLaunch({
@@ -132,13 +165,13 @@ export function hubOptions(h: XpiHost): Omit<AgentViewOptions, "tui" | "theme" |
 		},
 		// M27: read again each time (a save from another hub, or an edited file)
 		presets: () => settingsNow().presets ?? {},
-		savePreset: (name: string, preset: Preset | null) => {
-			const s = userSettings(h);
-			const current = { ...(userPresets(s) ?? {}) };
-			if (preset) current[name] = preset;
-			else delete current[name];
-			s.setRoostSetting("presets", Object.keys(current).length > 0 ? current : undefined);
-		},
+		savePreset: (name: string, preset: Preset | null) =>
+			writeRoostSetting(h, "presets", (s) => {
+				const current = { ...(userPresets(s) ?? {}) };
+				if (preset) current[name] = preset;
+				else delete current[name];
+				return Object.keys(current).length > 0 ? current : undefined;
+			}),
 		userPreset: (name) => Object.hasOwn(userPresets(userSettings(h)) ?? {}, name),
 		commands: h.commands,
 		models: h.models,
@@ -146,7 +179,7 @@ export function hubOptions(h: XpiHost): Omit<AgentViewOptions, "tui" | "theme" |
 		currentSession: h.currentSession,
 		resumable: async (cwd) =>
 			// a session another xpi is writing cannot be run here (the write lock)
-			(await SessionManager.list(cwd))
+			(await SessionManager.list(cwd, sessionDir))
 				.filter((s) => !readWriterLock(s.path))
 				.map(
 					(s): Resumable => ({
@@ -157,9 +190,9 @@ export function hubOptions(h: XpiHost): Omit<AgentViewOptions, "tui" | "theme" |
 					}),
 				),
 		sessionSelector: (o) => sessionSelector(h, o),
-		defaultModel: () => settingsNow().dispatchModel ?? launchDefaultModel(h),
+		defaultModel: () => settingsNow().dispatchModel ?? launchDefaultModel(h, projectTrusted),
 		groupBy: config.groupBy,
-		onGroupBy: (groupBy) => userSettings(h).setRoostSetting("groupBy", groupBy),
+		onGroupBy: (groupBy) => writeRoostSetting(h, "groupBy", () => groupBy),
 		notify: (row, kind) => {
 			const { title, body } = notifyText(row, kind);
 			const seq = notifySequence(resolveNotify(settingsNow().notify), title, body);
@@ -183,8 +216,8 @@ function sessionSelector(h: XpiHost, o: Parameters<NonNullable<AgentViewOptions[
 		return list;
 	};
 	const selector = new SessionSelectorComponent(
-		// this xpi's session directory (a --session-dir too)
-		(onProgress, signal) => SessionManager.list(o.cwd, h.sessionDir(), onProgress, signal).then(keep),
+		// this xpi's session directory when it chose one (a --session-dir), else the folder's
+		(onProgress, signal) => SessionManager.list(o.cwd, chosenSessionDir(h), onProgress, signal).then(keep),
 		(onProgress, signal) => SessionManager.listAll(onProgress, signal).then(keep),
 		(path) => {
 			const s = seen.get(path);
@@ -232,24 +265,33 @@ function sessionSelector(h: XpiHost, o: Parameters<NonNullable<AgentViewOptions[
  * M23: what a session started from here runs without a chosen model: the hub's own `--model` (new sessions inherit
  * its command line), else xpi's default from settings.
  */
-let defaultCache: { cwd: string; at: number; value: string | undefined } | undefined;
-function launchDefaultModel(h: Pick<XpiHost, "cwd" | "agentDir" | "argv">): string | undefined {
+let defaultCache: { cwd: string; trusted: boolean; at: number; value: string | undefined } | undefined;
+function launchDefaultModel(
+	h: Pick<XpiHost, "cwd" | "agentDir" | "argv">,
+	projectTrusted: boolean,
+): string | undefined {
 	const { argv, cwd } = h;
 	for (let i = 0; i < argv.length; i++) {
 		if (argv[i] === "--model" && argv[i + 1]) return argv[i + 1];
 		if (argv[i]?.startsWith("--model=")) return argv[i]!.slice("--model=".length);
 	}
 	// read on render: a few seconds' cache
-	if (defaultCache && defaultCache.cwd === cwd && Date.now() - defaultCache.at < 5000) return defaultCache.value;
+	if (
+		defaultCache &&
+		defaultCache.cwd === cwd &&
+		defaultCache.trusted === projectTrusted &&
+		Date.now() - defaultCache.at < 5000
+	)
+		return defaultCache.value;
 	let value: string | undefined;
 	try {
-		const s = SettingsManager.create(cwd, h.agentDir);
+		const s = SettingsManager.create(cwd, h.agentDir, { projectTrusted });
 		const model = s.getDefaultModel();
 		const provider = s.getDefaultProvider();
 		value = model ? (model.includes("/") || !provider ? model : `${provider}/${model}`) : undefined;
 	} catch {
 		value = undefined;
 	}
-	defaultCache = { cwd, at: Date.now(), value };
+	defaultCache = { cwd, trusted: projectTrusted, at: Date.now(), value };
 	return value;
 }

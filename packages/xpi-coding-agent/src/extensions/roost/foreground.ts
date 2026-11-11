@@ -26,7 +26,7 @@ import type { HandoffInput } from "./handoff.ts";
 import { loadHandoff, loadOpenView } from "./hub.lazy.ts";
 import { NO_PTY_MESSAGE, ptyInstalled, roostUnavailable } from "./messages.ts";
 import type { OpenViewOptions } from "./open-view.ts";
-import { agentViewOpen } from "./view-state.ts";
+import { agentViewOpen, hubContext } from "./view-state.ts";
 
 // Static imports stay light (every foreground session loads this): xpi-roost's client, launch builder and hub load
 // when /bg, /bg-fork or the left arrow is used.
@@ -60,14 +60,6 @@ function safely(fn: () => void): void {
 	}
 }
 
-/** What every hub this xpi opens gets: its slash commands and its event bus. */
-export function hubContext(pi: ExtensionAPI): Pick<OpenViewOptions, "commands" | "events"> {
-	return {
-		commands: () => pi.getCommands().map((c) => ({ name: c.name, source: c.source })),
-		events: pi.events,
-	};
-}
-
 /** Why roost cannot start a session from here, or undefined. */
 export function startProblem(
 	o: { platform?: NodeJS.Platform; entries?: ReturnType<typeof getRoostEntries>; ptyFound?: () => boolean } = {},
@@ -98,12 +90,14 @@ export interface ForegroundDeps {
 	/** Why a session cannot be started (tests). */
 	problem?: () => string | undefined;
 	/** The daemon connection (tests). */
-	connect?: () => Promise<Pick<DaemonClient, "request" | "close">>;
+	connect?: () => Promise<Pick<DaemonClient, "request" | "close" | "isClosed">>;
+	/** How long a hand-off's dispatch is resent before its answer counts as lost (tests). */
+	dispatchTimeoutMs?: number;
 }
 
 export function registerForeground(pi: ExtensionAPI, deps: ForegroundDeps = {}): void {
 	const openHub = async (ctx: ExtensionContext, opts: OpenViewOptions = {}) => {
-		const all = { ...hubContext(pi), ...opts };
+		const all = { ...hubContext(), ...opts };
 		if (deps.openHub) return deps.openHub(ctx, all);
 		const { openAgentView } = await loadOpenView();
 		return openAgentView(ctx, all);
@@ -260,11 +254,10 @@ export function registerForeground(pi: ExtensionAPI, deps: ForegroundDeps = {}):
 			const file = ctx.sessionManager.getSessionFile();
 			if (!file || !existsSync(file))
 				return ctx.ui.notify("nothing to fork yet: the session has no saved messages", "warning");
-			let client: Pick<DaemonClient, "request" | "close"> | undefined;
 			try {
 				const copy = SessionManager.forkFrom(file, ctx.cwd, dirname(file)).getSessionFile();
 				if (!copy) throw new Error("could not create the copy");
-				const { conversationName, handoffRequest } = await loadHandoff();
+				const { conversationName, dispatchHandoff, handoffRequest } = await loadHandoff();
 				const request = handoffRequest(ctx, {
 					task: args.trim(),
 					sessionFile: copy,
@@ -272,13 +265,14 @@ export function registerForeground(pi: ExtensionAPI, deps: ForegroundDeps = {}):
 					origin: "fork",
 					...current(ctx),
 				});
-				client = await connect();
-				const { id, name } = await client.request("dispatch", request);
-				ctx.ui.notify(`session running · ${name} · ${id}: open it from /agents`, "info");
+				const out = await dispatchHandoff(connect, request, deps.dispatchTimeoutMs);
+				if (out.kind === "started")
+					ctx.ui.notify(`session running · ${out.name ?? request.name} · ${out.id}: open it from /agents`, "info");
+				else if (out.kind === "unknown")
+					ctx.ui.notify(`the fork may have started (${out.message}): check /agents`, "warning");
+				else ctx.ui.notify(`could not fork: ${out.message}`, "error");
 			} catch (err) {
 				ctx.ui.notify(`could not fork: ${(err as Error).message}`, "error");
-			} finally {
-				client?.close();
 			}
 		},
 	});
@@ -351,7 +345,7 @@ export function registerForeground(pi: ExtensionAPI, deps: ForegroundDeps = {}):
 			await new Promise((r) => setImmediate(r));
 		}
 
-		const { conversationName, handoffRequest } = await loadHandoff();
+		const { conversationName, dispatchHandoff, handoffRequest } = await loadHandoff();
 		const cwd = ctx.cwd;
 		// before the switch: ctx is stale after it
 		const request = handoffRequest(ctx, {
@@ -369,20 +363,29 @@ export function registerForeground(pi: ExtensionAPI, deps: ForegroundDeps = {}):
 		// writer. The scratch session is never written.
 		const result = await ctx.switchSession(scratch, {
 			withSession: async (next) => {
-				let id: string;
-				let client: Pick<DaemonClient, "request" | "close"> | undefined;
+				let out: Awaited<ReturnType<typeof dispatchHandoff>>;
 				try {
-					client = await connect();
-					({ id } = await client.request("dispatch", request));
+					out = await dispatchHandoff(connect, request, deps.dispatchTimeoutMs);
 				} catch (err) {
-					next.ui.notify(`could not move to the background: ${(err as Error).message}`, "error");
+					out = { kind: "absent", message: (err as Error).message };
+				}
+				// Back to the original only when nothing runs on it: an answer lost after the daemon started the worker
+				// would leave two writers on the file.
+				if (out.kind === "refused" || out.kind === "absent") {
+					next.ui.notify(`could not move to the background: ${out.message}`, "error");
 					await next.switchSession(original);
 					return;
-				} finally {
-					client?.close();
 				}
+				if (out.kind === "unknown")
+					next.ui.notify(
+						`the background service did not answer (${out.message}): your conversation may run in the background; check /agents before resuming it`,
+						"warning",
+					);
 				try {
-					await openHub(next, { origin: id, banner: "Your conversation moved to the background" });
+					await openHub(next, {
+						...(out.kind === "started" ? { origin: out.id } : {}),
+						banner: "Your conversation moved to the background",
+					});
 				} catch (err) {
 					next.ui.notify(`the hub failed: ${(err as Error).message}`, "error");
 				}

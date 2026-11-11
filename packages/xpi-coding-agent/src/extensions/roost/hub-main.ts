@@ -9,9 +9,10 @@ import { statSync } from "node:fs";
 import { resolve } from "node:path";
 import { AgentView, ansiTheme } from "xpi-roost/hub";
 import { ProcessTerminal, TuiAltScreen } from "xpi-tui";
+import { ENV_SESSION_DIR, expandTildePath } from "../../config.ts";
 import { SettingsManager } from "../../core/settings-manager.ts";
 import { initTheme } from "../../modes/interactive/theme/theme.ts";
-import { hubOptions } from "./hub-options.ts";
+import { hubOptions, trustFor } from "./hub-options.ts";
 
 /** The models `xpi --list-models` lists (those with credentials), as "provider/id". */
 export function parseModelList(out: string): string[] {
@@ -46,6 +47,22 @@ export function hubDirProblem(dir: string): string | undefined {
 }
 
 /** Run the hub until the user leaves it; resolves to the exit code. */
+/**
+ * The settings `xpi roost hub` reads for itself: its theme and where sessions live. A project's settings count only as
+ * far as the sessions started here would trust the folder (a stored decision: the hub asks nobody).
+ */
+export function standaloneSettings(cwd: string, agentDir: string): { theme?: string; sessionDir?: string } {
+	const settings = SettingsManager.create(cwd, agentDir, {
+		projectTrusted: trustFor(cwd, { cwd, agentDir, argv: [], projectTrusted: undefined }),
+	});
+	// where xpi keeps sessions without --session-dir: the environment's choice, else the settings'
+	const envSessionDir = process.env[ENV_SESSION_DIR];
+	return {
+		theme: settings.getTheme(),
+		sessionDir: envSessionDir ? expandTildePath(envSessionDir) : settings.getSessionDir(),
+	};
+}
+
 export async function runHub(args: string[], o: { cwd: string; agentDir: string }): Promise<number> {
 	if (args.length > 1 || args[0]?.startsWith("-")) {
 		process.stderr.write("usage: xpi roost hub [dir]\n");
@@ -61,9 +78,10 @@ export async function runHub(args: string[], o: { cwd: string; agentDir: string 
 		process.stderr.write("xpi roost hub needs a terminal\n");
 		return 1;
 	}
+	const { theme, sessionDir } = standaloneSettings(cwd, o.agentDir);
 	// xpi's components the hub shows (its /resume list) draw with xpi's theme
 	try {
-		initTheme(SettingsManager.create(cwd, o.agentDir).getTheme());
+		initTheme(theme);
 	} catch {
 		initTheme();
 	}
@@ -81,7 +99,7 @@ export async function runHub(args: string[], o: { cwd: string; agentDir: string 
 		models: () => models,
 		scopedModels: () => [],
 		currentSession: () => undefined,
-		sessionDir: () => undefined,
+		sessionDir: () => sessionDir,
 	});
 	const terminal = new ProcessTerminal();
 	// a closed tab or a kill: exit, so xpi-tui's exit handler gives the terminal back

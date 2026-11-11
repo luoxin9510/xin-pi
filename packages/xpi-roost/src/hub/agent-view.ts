@@ -134,11 +134,17 @@ export interface HubDisplay {
 	cwdFilter?: string;
 	/** AV-K6: initial grouping and where a change is persisted. */
 	groupBy?: "state" | "directory";
-	onGroupBy?: (groupBy: "state" | "directory") => void;
+	/** A promise that rejects (a settings file that cannot be written) is said as a warning. */
+	onGroupBy?: (groupBy: "state" | "directory") => void | Promise<void>;
 	/** NT-1: a session needs input or finished while the hub is on screen. */
 	notify?: (row: JobRow, kind: "needs_input" | "completed") => void;
 	/** AV-9: a row to keep bold (the conversation just moved to the background). */
 	highlightId?: string;
+	/**
+	 * The session this hub runs in, when a session the daemon runs opened it (`/agents` there): its row is marked, and
+	 * attaching to it, stopping, deleting or restarting it from here are refused (its PTY would loop into itself).
+	 */
+	selfId?: string;
 	/** BG-5: Esc goes back into this session (the conversation that just moved) instead of leaving. */
 	origin?: string;
 	/** Shown above the list until the user returns to the origin. */
@@ -161,7 +167,7 @@ export interface HubLaunching {
 	launchShell?: (command: string, cwd: string) => DispatchArgs;
 	/** M27: the presets (the user's and a project's) and saving one to the user's settings (null removes). */
 	presets?: () => Record<string, Preset>;
-	savePreset?: (name: string, preset: Preset | null) => void;
+	savePreset?: (name: string, preset: Preset | null) => void | Promise<void>;
 	/** M27: whether the user's own settings have this preset (a project's cannot be removed here). */
 	userPreset?: (name: string) => boolean;
 }
@@ -1030,9 +1036,7 @@ export class AgentView implements Component {
 	/** Not a skill or prompt template (those can be a session's first prompt). */
 	private isViewCommand(name: string): boolean {
 		if (name.startsWith("skill:")) return false;
-		return !(this.o.commands?.() ?? []).some(
-			(c) => c.name === name && (c.source === "prompt" || c.source === "skill"),
-		);
+		return !this.xpiCommands().some((c) => c.name === name && (c.source === "prompt" || c.source === "skill"));
 	}
 
 	/** Returns true when the command was handled here (and the input consumed). */
@@ -1092,7 +1096,7 @@ export class AgentView implements Component {
 				if (this.presetCommand(arg)) return done();
 				return true;
 		}
-		const known = this.o.commands?.().find((c) => c.name === name);
+		const known = this.xpiCommands().find((c) => c.name === name);
 		if (known && (known.source === "prompt" || known.source === "skill")) return false;
 		this.say(`/${name} isn't available in the hub`, "warning");
 		return true; // the text stays in the input
@@ -1377,7 +1381,9 @@ export class AgentView implements Component {
 		this.collapsed.clear();
 		this.cursor = row ? { kind: "row", id: row.id } : undefined;
 		try {
-			this.o.onGroupBy?.(this.groupBy);
+			void Promise.resolve(this.o.onGroupBy?.(this.groupBy)).catch((err: unknown) =>
+				this.say(`could not save the grouping: ${(err as Error).message}`, "warning"),
+			);
 		} catch (err) {
 			this.say(`could not save the grouping: ${(err as Error).message}`, "warning");
 		}
@@ -1645,6 +1651,10 @@ export class AgentView implements Component {
 			this.reply.setValue("");
 			this.o.tui.requestRender();
 		};
+		if (row.id === this.o.selfId && SELF_REFUSED.has(name)) {
+			done();
+			return this.say(selfRefusal(`/${name}`), "warning");
+		}
 		switch (name) {
 			case "model":
 			case "thinking":
@@ -1848,13 +1858,22 @@ export class AgentView implements Component {
 			},
 			{ name: "exit", description: "leave the hub" },
 		];
-		const xpi = (this.o.commands?.() ?? [])
+		const xpi = this.xpiCommands()
 			.filter((c) => c.source === "prompt" || c.source === "skill")
 			.map((c) => ({ name: c.name, description: `xpi: ${c.source}` }));
 		return [...own, ...xpi];
 	}
 
 	/** T18: one of xpi's commands, with how a peek runs it. */
+	/** This xpi's commands; none when they cannot be read (the hub must not fail on a key because of them). */
+	private xpiCommands(): { name: string; source: string }[] {
+		try {
+			return this.o.commands?.() ?? [];
+		} catch {
+			return [];
+		}
+	}
+
 	private builtin(name: string): BuiltinCommand | undefined {
 		return this.o.builtins?.().find((c) => c.name === name);
 	}
@@ -1953,6 +1972,7 @@ export class AgentView implements Component {
 		if (!hasArgs && spec?.args === "required")
 			return this.say(`/${name} needs ${spec.argumentHint ?? "an argument"}`, "warning");
 		if (this.commandBusy) return;
+		if (row.id === this.o.selfId) return this.say(selfRefusal(`/${name}`), "warning");
 		if (row.pid === null)
 			return this.say(`${row.name} is not running: /${name} works in a running session`, "warning");
 		if (row.state === "working" || row.waitingFor === "dialog")
@@ -2279,7 +2299,10 @@ export class AgentView implements Component {
 				return false;
 			}
 			try {
-				this.o.savePreset(name, verb === "save" ? p : null);
+				// the write happens in the background: a failure is said when it comes
+				void Promise.resolve(this.o.savePreset(name, verb === "save" ? p : null)).catch((err: unknown) =>
+					this.say(`could not save preset ${name}: ${(err as Error).message}`, "error"),
+				);
 			} catch (err) {
 				this.say((err as Error).message, "error");
 				return false;
@@ -2467,7 +2490,10 @@ export class AgentView implements Component {
 		const marked = this.peek ? [] : this.markedRows();
 		if (!it && marked.length === 0) return;
 		// M25: the marked rows, else the row, else the header's group
-		const targets = marked.length > 0 ? marked : it!.kind === "row" ? [it!.row] : it!.section.rows;
+		const all = marked.length > 0 ? marked : it!.kind === "row" ? [it!.row] : it!.section.rows;
+		// the session this hub runs in is never stopped or deleted from here
+		const targets = all.filter((r) => r.id !== this.o.selfId);
+		if (targets.length === 0 && all.length > 0) return this.say(selfRefusal("Ctrl+X"), "warning");
 		if (targets.length === 0) return;
 		const key =
 			marked.length > 0
@@ -2515,6 +2541,7 @@ export class AgentView implements Component {
 		if (this.attached) return;
 		const row = this.rows.get(id);
 		if (!row) return;
+		if (id === this.o.selfId) return this.say(selfRefusal("attaching"), "warning");
 		if (row.pid === null) {
 			if (!this.port) return this.say("background service unavailable", "error");
 			// a reaped session just wakes up (AT-1); one that ended asks first (DM-7)
@@ -2738,7 +2765,15 @@ export class AgentView implements Component {
 		const tail = `${detail ? `${detail}  ` : ""}${costCol}${ageCol}`;
 		const room = width - visibleWidth(head) - visibleWidth(tail) - 2;
 		const summary =
-			room > 4 ? t.fg(row.pid === null ? "dim" : "muted", truncateToWidth(oneLine(sentenceOf(row)), room)) : "";
+			room > 4
+				? t.fg(
+						row.id === this.o.selfId ? "accent" : row.pid === null ? "dim" : "muted",
+						truncateToWidth(
+							oneLine(`${row.id === this.o.selfId ? `${SELF_MARK} · ` : ""}${sentenceOf(row)}`),
+							room,
+						),
+					)
+				: "";
 		const gap = Math.max(1, width - visibleWidth(head) - visibleWidth(summary) - visibleWidth(tail));
 		return `${head}${summary}${" ".repeat(gap)}${tail}`;
 	}
@@ -3034,6 +3069,13 @@ export function presetText(p: Preset): string {
 		.filter(Boolean)
 		.join(" · ");
 }
+
+/** How the row of the session the hub runs in is marked. */
+const SELF_MARK = "this session";
+/** The peek commands refused on the session the hub runs in. */
+const SELF_REFUSED = new Set(["stop", "rm", "respawn", "attach"]);
+const selfRefusal = (what: string) =>
+	`${what}: this is the session you are in; leave the hub to use it (its terminal would loop into itself)`;
 
 /**
  * Full screen: exactly `rows` lines. The bottom block (input, notices, keys) is pinned
