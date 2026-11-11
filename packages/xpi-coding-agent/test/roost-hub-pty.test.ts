@@ -3,7 +3,7 @@
 // registers (it answers "echo: <the prompt>"), so nothing reaches a provider.
 // - `xpi roost hub`: start a session, peek, reply, attach, detach, stop and delete; a shell command; Ctrl+C twice exits.
 // - A foreground xpi: the left arrow on its empty prompt hands the conversation to the daemon and opens the hub on it.
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import xterm from "@xterm/headless";
@@ -94,18 +94,20 @@ afterEach(async () => {
 		process.env.ROOST_HOME = join(agentDir, "xpi-roost");
 		client = await DaemonClient.connect();
 		const status = await client.request("status", {});
+		// the daemon, its hosts and their sessions: each may still write into the agent directory as it ends
+		const pids = [status.pid, ...sessionPids(join(agentDir, "xpi-roost", "jobs"))];
 		await client.request("shutdown", {});
-		const alive = () => {
+		const alive = (pid: number) => {
 			try {
-				process.kill(status.pid, 0);
+				process.kill(pid, 0);
 				return true;
 			} catch {
 				return false;
 			}
 		};
-		for (const deadline = Date.now() + 10_000; alive() && Date.now() < deadline; )
+		for (const deadline = Date.now() + 10_000; pids.some(alive) && Date.now() < deadline; )
 			await new Promise((r) => setTimeout(r, 50));
-		if (alive()) process.kill(status.pid, "SIGKILL");
+		for (const pid of pids.filter(alive)) process.kill(pid, "SIGKILL");
 		rmSync(status.socketDir, { recursive: true, force: true });
 	} catch {
 		// no daemon
@@ -119,6 +121,26 @@ afterEach(async () => {
 	// a session the daemon ran may still be writing as it ends
 	rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 }, 30_000);
+
+/** The host and session pids the jobs' state files name. */
+function sessionPids(jobs: string): number[] {
+	const pids: number[] = [];
+	for (const id of existsSync(jobs) ? readdirSync(jobs) : []) {
+		try {
+			const st = JSON.parse(readFileSync(join(jobs, id, "state.json"), "utf8")) as { hostPid?: unknown };
+			if (typeof st.hostPid === "number") pids.push(st.hostPid);
+		} catch {
+			// no state yet
+		}
+		try {
+			const worker = JSON.parse(readFileSync(join(jobs, id, "worker.json"), "utf8")) as { pid?: unknown };
+			if (typeof worker.pid === "number") pids.push(worker.pid);
+		} catch {
+			// no worker
+		}
+	}
+	return pids;
+}
 
 function terminal(args: string[]) {
 	const cols = 100;
