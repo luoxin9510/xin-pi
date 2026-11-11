@@ -85,7 +85,7 @@ test("order: call > definition > defaultModel; aliases map to same-name Anthropi
 	const model = await pick({ defaultModel: "sonnet" });
 	assert.equal(await model({}), "anthropic/claude-sonnet-5-5", "settings default");
 	assert.equal(await model({ subagent_type: "m-opus" }), "anthropic/claude-opus-5-5", "definition beats default");
-	assert.equal(await model({ subagent_type: "m-fable" }), "anthropic/claude-fable-5-1");
+	assert.equal(await model({ subagent_type: "m-fable" }), "anthropic/claude-fable-5-2");
 	assert.equal(
 		await model({ subagent_type: "m-opus", model: "haiku" }),
 		"anthropic/claude-haiku-5-5",
