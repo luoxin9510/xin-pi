@@ -72,8 +72,12 @@ describe("the import graph", () => {
 		for (const pkg of ["typebox", "@sinclair/typebox"]) expect(loading(["src"], pkg), pkg).toEqual([]);
 	});
 
-	it("has no xpi package in src: the agent directory and the entry files come from the caller", () => {
-		expect(loading(["src"], "xpi-[^\"'/]+")).toEqual([]);
+	it("has no xpi package in src but the hub's xpi-tui: the agent directory and the entry files come from the caller", () => {
+		expect(loading(["src"], "xpi-(?!tui[\"'/])[^\"'/]+")).toEqual([]);
+		// the hub draws with xpi-tui (decision 6: it imports xpi-tui directly); nothing else in src does
+		const tui = loading(["src"], "xpi-tui");
+		expect(tui.length).toBeGreaterThan(0);
+		expect(tui.filter((f) => !f.startsWith("src/hub/"))).toEqual([]);
 		// Upstream pi's scope, written in two parts so the rename check (scripts/xpi-rename.mjs) leaves this line alone.
 		expect(loading(["src"], `${["@earendil", "works"].join("-")}/[^"'/]+`)).toEqual([]);
 	});

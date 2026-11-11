@@ -9,6 +9,7 @@ export const workspaceSourcePaths = {
 	mcpTesting: fileURLToPath(new URL("./packages/xpi-mcp/src/testing/index.ts", import.meta.url)),
 	roostIndex: fileURLToPath(new URL("./packages/xpi-roost/src/index.ts", import.meta.url)),
 	roostSession: fileURLToPath(new URL("./packages/xpi-roost/src/session.ts", import.meta.url)),
+	roostHub: fileURLToPath(new URL("./packages/xpi-roost/src/hub/index.ts", import.meta.url)),
 	aiIndex: fileURLToPath(new URL("./packages/xpi-ai/src/index.ts", import.meta.url)),
 	aiCompat: fileURLToPath(new URL("./packages/xpi-ai/src/compat.ts", import.meta.url)),
 	aiModels: fileURLToPath(new URL("./packages/xpi-ai/src/models.ts", import.meta.url)),
@@ -32,10 +33,11 @@ export default defineConfig({
 			{ find: /^xpi-mcp$/, replacement: workspaceSourcePaths.mcpIndex },
 			{ find: /^xpi-mcp\/oauth$/, replacement: workspaceSourcePaths.mcpOAuth },
 			{ find: /^xpi-mcp\/testing$/, replacement: workspaceSourcePaths.mcpTesting },
-			// The library and the session entry from source; the daemon and host entries (`xpi-roost/daemon`, `/host`) are
+			// The library, the session entry and the hub from source; the daemon and host entries (`xpi-roost/daemon`, `/host`) are
 			// resolved by Node at run time and need `npm run build` in packages/xpi-roost.
 			{ find: /^xpi-roost$/, replacement: workspaceSourcePaths.roostIndex },
 			{ find: /^xpi-roost\/session$/, replacement: workspaceSourcePaths.roostSession },
+			{ find: /^xpi-roost\/hub$/, replacement: workspaceSourcePaths.roostHub },
 			{ find: /^xpi-ai$/, replacement: workspaceSourcePaths.aiIndex },
 			{ find: /^xpi-ai\/compat$/, replacement: workspaceSourcePaths.aiCompat },
 		{ find: /^xpi-ai\/models$/, replacement: workspaceSourcePaths.aiModels },

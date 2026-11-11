@@ -21,6 +21,7 @@ import {
 import roost, { bgArgsProblem, bgProblem, registerWriteLock } from "../src/extensions/roost/index.ts";
 import { BINARY_MESSAGE, NO_PTY_MESSAGE, WINDOWS_MESSAGE } from "../src/extensions/roost/messages.ts";
 import { launchSettings } from "../src/extensions/roost/settings.ts";
+import { hubContext, setHubApi } from "../src/extensions/roost/view-state.ts";
 
 type Handler = (event: any, ctx?: any) => unknown;
 
@@ -60,10 +61,15 @@ afterEach(() => {
 
 function fakePi(flags: Record<string, string | boolean> = {}) {
 	const handlers = new Map<string, Handler[]>();
-	const registered: { flags: Map<string, any> } = { flags: new Map() };
+	const registered: { flags: Map<string, any>; commands: Map<string, any> } = {
+		flags: new Map(),
+		commands: new Map(),
+	};
 	const pi = {
 		on: (name: string, h: Handler) => handlers.set(name, [...(handlers.get(name) ?? []), h]),
 		registerFlag: (name: string, o: unknown) => registered.flags.set(name, o),
+		registerCommand: (name: string, o: unknown) => registered.commands.set(name, o),
+		events: { emit() {} },
 		getFlag: (name: string) => flags[name],
 		registerEntryRenderer() {},
 		registerMessageRenderer() {},
@@ -197,17 +203,46 @@ describe("an ordinary start", () => {
 		}
 	});
 
-	it("its static imports reach no daemon client: only xpi-roost/session and the messages (the rest is loaded lazily)", () => {
+	it("every load hands the hub its runtime's API: a hub opened after a session switch reads the new one", async () => {
+		const first = fakePi();
+		first.pi.getCommands = () => [{ name: "old", source: "prompt" }];
+		await roost(first.pi);
+		expect(hubContext().commands()).toEqual([{ name: "old", source: "prompt" }]);
+		// the switch: the old runtime's API throws from now on; the new runtime loads builtin:roost again
+		first.pi.getCommands = () => {
+			throw new Error("This extension ctx is stale");
+		};
+		const second = fakePi();
+		second.pi.getCommands = () => [{ name: "new", source: "skill" }];
+		await roost(second.pi);
+		expect(hubContext().commands()).toEqual([{ name: "new", source: "skill" }]);
+		setHubApi(undefined);
+	});
+
+	it("its static imports reach no daemon client or hub: xpi-roost/session, the foreground role, the loaders and the messages (the rest is loaded lazily)", () => {
 		const imports = (file: string) =>
 			[
 				...readFileSync(resolve(__dirname, "../src/extensions/roost", file), "utf8").matchAll(
 					/^import\s+(?!type\b)[^"']*["']([^"']+)["']/gm,
 				),
 			].map((m) => m[1]!);
-		expect(imports("index.ts").filter((i) => i.includes("roost") || i.startsWith("./"))).toEqual([
+		const local = (file: string) => imports(file).filter((i) => i.includes("roost") || i.startsWith("./"));
+		expect(local("index.ts")).toEqual([
 			"xpi-roost/session",
+			"./foreground.ts",
+			"./hub.lazy.ts",
 			"./messages.ts",
+			"./view-state.ts",
 		]);
+		// every foreground session loads the foreground role: the client, the launch builder and the hub wait for use
+		expect(local("foreground.ts")).toEqual([
+			"xpi-roost/session",
+			"./hub.lazy.ts",
+			"./messages.ts",
+			"./view-state.ts",
+		]);
+		expect(imports("hub.lazy.ts")).toEqual([]);
+		expect(imports("view-state.ts")).toEqual([]);
 		expect(imports("messages.ts")).toEqual(["node:module"]);
 	});
 
@@ -223,7 +258,8 @@ describe("an ordinary start", () => {
 			const child = fakePi();
 			await roost(child.pi);
 			expect(loaded).toEqual([]);
-			expect([...child.handlers.keys()].sort()).toEqual(["session_shutdown", "session_start"]);
+			// it is an ordinary (foreground) session: the write lock, /agents and the foreground role's /bg
+			expect([...child.registered.commands.keys()].sort()).toEqual(["agents", "background", "bg", "bg-fork"]);
 
 			// the session itself: it has the token; after the worker took it out, a /reload is still the session
 			process.env.ROOST_JOB_TOKEN = "t";
@@ -294,6 +330,10 @@ describe("--bg", () => {
 		expect(text).toContain("xpi roost attach abcd0001");
 		expect(text).toContain("xpi roost ls --json");
 		expect(text).toContain("note: a note");
+		// the detach key is the one the user bound to app.suspend, the action named only when none is
+		expect(text).toContain("(the app.suspend key detaches)");
+		expect(backgroundedText("abcd0001", "x", [], ["ctrl+z"])).toContain("open it (ctrl+z detaches)");
+		expect(backgroundedText("abcd0001", "x", [], ["ctrl+z", "f12"])).toContain("(ctrl+z or f12 detaches)");
 		expect(chosenOnCommandLine(["--model", "a/b", "--bg", "x"])).toEqual({ model: true, thinking: false });
 		expect(chosenOnCommandLine(["--thinking=high"])).toEqual({ model: false, thinking: true });
 		expect(chosenOnCommandLine(["--bg", "use --model in docs"])).toEqual({ model: false, thinking: false });
@@ -315,8 +355,15 @@ describe("--bg", () => {
 		// a flag's value is text, not a decision: read as xpi reads its command line
 		expect(sessionTrust(plain, ["--bg=-a", "--bg-name=--approve"], true, agentDir)).toBe(false);
 		expect(sessionTrust(plain, ["--append-system-prompt", "-a", "--bg", "x"], true, agentDir)).toBe(false);
+		// no answer of this process for the folder (the hub starting a session elsewhere): only a stored decision,
+		// whatever the folder holds and whatever this process's command line says
+		expect(sessionTrust(guarded, ["--approve"], undefined, agentDir)).toBe(false);
+		expect(sessionTrust(plain, ["--approve"], undefined, agentDir)).toBe(false);
 		new ProjectTrustStore(agentDir).set(plain, true);
 		expect(sessionTrust(plain, ["--bg", "x"], true, agentDir)).toBe(true);
+		expect(sessionTrust(plain, [], undefined, agentDir)).toBe(true);
+		new ProjectTrustStore(agentDir).set(guarded, false);
+		expect(sessionTrust(guarded, [], undefined, agentDir)).toBe(false);
 	});
 
 	it("a new session's settings: the user's environment keys, a project's dispatch keys, never a project's environment", () => {

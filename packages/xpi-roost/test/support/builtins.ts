@@ -1,0 +1,71 @@
+// T18: a table of xpi's commands as builtin:roost hands it to the hub (packages/xpi-coding-agent/src/extensions/roost/
+// commands.ts), for the hub's tests: xpi-roost cannot import xpi. Two of the built-in extensions' commands too.
+import type { BuiltinCommand } from "../../src/hub/agent-view.ts";
+
+export const BUILTINS: BuiltinCommand[] = [
+	{ name: "settings", description: "Open settings menu", how: "picker" },
+	{
+		name: "model",
+		description: "Select model (opens selector UI)",
+		argumentHint: "<provider/model>",
+		how: "hub",
+		args: "optional",
+	},
+	{ name: "tree", description: "Navigate session tree (switch branches)", how: "picker" },
+	{ name: "thinking", description: "Set thinking level", argumentHint: "<level>", how: "hub", args: "optional" },
+	{ name: "scoped-models", description: "Enable/disable models for Ctrl+P cycling", how: "picker" },
+	{
+		name: "export",
+		description: "Export session (HTML default, or specify path: .html/.jsonl)",
+		how: "screen",
+		args: "optional",
+	},
+	{
+		name: "import",
+		description: "Import a JSONL session, preserving its ID and working directory",
+		how: "picker",
+		args: "required",
+		argumentHint: "<file>",
+	},
+	{ name: "share", description: "Share session via a Radius artifact or a GitHub gist", how: "picker" },
+	{
+		name: "bug",
+		description: "Report a bug to the Pi developers",
+		argumentHint: "<description>",
+		how: "picker",
+		args: "optional",
+	},
+	{ name: "copy", description: "Copy last agent message to clipboard", how: "screen" },
+	{ name: "name", description: "Set session display name", how: "hub", args: "optional" },
+	{ name: "session", description: "Show session info and stats", how: "screen" },
+	{ name: "changelog", description: "Show changelog entries", how: "screen" },
+	{ name: "hotkeys", description: "Show all keyboard shortcuts", how: "screen" },
+	{ name: "fork", description: "Create a new fork from a previous user message", how: "picker" },
+	{ name: "clone", description: "Duplicate the current session at the current position", how: "screen" },
+	{ name: "trust", description: "Save project trust decision for future sessions", how: "picker" },
+	{
+		name: "login",
+		description: "Configure provider authentication",
+		argumentHint: "<provider>",
+		how: "picker",
+		args: "optional",
+	},
+	{ name: "logout", description: "Remove provider authentication", how: "picker" },
+	{ name: "new", description: "Start a new session", how: "screen" },
+	{ name: "compact", description: "Manually compact the session context", how: "hub", args: "optional" },
+	{ name: "resume", description: "Resume another session", how: "picker" },
+	{
+		name: "reload",
+		description: "Reload keybindings, extensions, skills, prompts, themes, and context files",
+		how: "screen",
+	},
+	{ name: "quit", description: "Quit xpi", how: "confirm" },
+	{ name: "relay", description: "Relay: who has the work, the round and the two models", how: "screen" },
+	{
+		name: "subtask",
+		description: "Start a fork for a side task",
+		argumentHint: "<task>",
+		how: "reply",
+		args: "required",
+	},
+];

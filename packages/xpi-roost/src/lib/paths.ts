@@ -101,6 +101,11 @@ export const daemonLockPath = (agentDir?: string) => join(runtimeDir(agentDir), 
 export const stateLockPath = (agentDir?: string) => join(roostHome(agentDir), "state.lock");
 export const daemonLogPath = () => join(roostHome(), "daemon.log");
 export const rosterPath = () => join(roostHome(), "roster.json");
+/** Throwaway sessions a foreground xpi switches to after handing its own to the daemon (`/bg`, C4). */
+export const scratchDir = (agentDir?: string) => join(roostHome(agentDir), "scratch");
+/** Whether a session file is one of those (no lock, no hand-off from it). */
+export const isScratchSession = (file: string | undefined, agentDir?: string) =>
+	!!file && resolve(file).startsWith(`${resolve(scratchDir(agentDir))}/`);
 
 /** Why `dir` is not a directory only this user can use (a link, not a directory, another owner), or undefined. */
 function unsafeDir(dir: string): string | undefined {

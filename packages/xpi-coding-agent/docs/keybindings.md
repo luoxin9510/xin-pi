@@ -130,6 +130,8 @@ In fullscreen mode, these actions control the transcript and take precedence ove
 
 On native Windows, `app.suspend` has no default because Windows terminals do not support Unix job control. If you assign it manually, Pi shows a status message instead of suspending. WSL uses the normal `ctrl+z` and `fg` behavior.
 
+[Background sessions](roost.md) use `app.suspend` as the key that detaches an attached session, in `xpi roost attach` and from the hub (`app.clear` and `app.exit` pressed twice detach too). The left arrow on an empty prompt is fixed, not a keybinding: in a foreground session it hands the conversation to the hub (`/bg`, off with `roost.leftArrowOpensAgents: false`), in an attached one it detaches. The hub's own keys are fixed as well; see [The hub](roost.md#the-hub).
+
 ### Sessions
 
 | Keybinding id | Default | Description |

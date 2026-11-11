@@ -75,6 +75,8 @@ const BUDGETS = {
 			],
 		},
 		// The daemon never reaches the host (nor node-pty through it).
+		// The hub (`/agents`, `xpi roost hub`): xpi-tui and the client; never the daemon, the host or the command line.
+		"./hub": { maxFiles: 80, forbid: ["roost/src/daemon/", "roost/src/host/", "roost/src/cli.ts"] },
 		"./daemon": { maxFiles: 30, forbid: ["roost/src/host/", "roost/src/cli.ts"] },
 		"./host": { maxFiles: 25, forbid: ["roost/src/daemon/", "roost/src/cli.ts"] },
 	},

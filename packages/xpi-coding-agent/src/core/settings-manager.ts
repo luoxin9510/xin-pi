@@ -691,6 +691,19 @@ export class SettingsManager {
 		return this.settings.extensionChangelogVersions?.[key];
 	}
 
+	/**
+	 * One key of the `"roost"` section in the user's settings (the hub's grouping, a saved preset); `undefined` removes
+	 * it. Other keys of the section, and keys written by another xpi meanwhile, are kept.
+	 */
+	setRoostSetting(key: string, value: unknown): void {
+		const roost = { ...((this.globalSettings.roost as Record<string, unknown> | undefined) ?? {}) };
+		if (value === undefined) delete roost[key];
+		else roost[key] = value;
+		this.globalSettings.roost = roost as Settings["roost"];
+		this.markModified("roost", key);
+		this.save();
+	}
+
 	setExtensionChangelogVersion(key: string, version: string): void {
 		this.globalSettings.extensionChangelogVersions = {
 			...(this.globalSettings.extensionChangelogVersions ?? {}),

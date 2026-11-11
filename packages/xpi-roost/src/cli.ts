@@ -33,6 +33,8 @@ export interface RoostCliOptions {
 	 * running. Everything else talks to the daemon and to running hosts, which have theirs.
 	 */
 	ptyInstalled?: boolean;
+	/** `xpi roost hub [dir]`: the hub runs on xpi's terminal and settings, so xpi supplies it (none: not available). */
+	hub?: (args: string[]) => Promise<number>;
 	/** How long a daemon may take to start (tests). */
 	startTimeoutMs?: number;
 	stdout?: Out;
@@ -59,7 +61,8 @@ usage:
   xpi roost respawn <id|name>      start an ended session again (or restart a live one)
   xpi roost respawn --all          restart live and reaped sessions (after an upgrade)
   xpi roost daemon status|logs|stop [--keep-workers]
-  xpi roost hub [dir]              the hub (not there yet)`;
+  xpi roost hub [dir]              the hub: every session, peek, reply, attach, start new ones
+                                   (new sessions start in dir, default the current one)`;
 }
 
 class UsageError extends Error {}
@@ -337,7 +340,8 @@ export async function runRoostCli(argv: string[], opts: RoostCliOptions): Promis
 				await cmdDaemon(rest[0], rest.slice(1));
 				return 0;
 			case "hub":
-				stderr.write("xpi roost: the hub is not in this version of xpi yet; list sessions with: xpi roost ls\n");
+				if (opts.hub) return await opts.hub(rest);
+				stderr.write("xpi roost: the hub is not available here; list sessions with: xpi roost ls\n");
 				return 1;
 			case undefined:
 			case "help":

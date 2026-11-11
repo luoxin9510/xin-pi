@@ -9,16 +9,21 @@ import { buildLaunch, DaemonClient, fallbackName, ROOST_VERSION, requestOnce } f
 import { parseArgs } from "../../cli/args.ts";
 import { getAgentDir, getRoostEntries, VERSION } from "../../config.ts";
 import type { ExtensionAPI, ExtensionContext } from "../../core/extensions/types.ts";
+import { KeybindingsManager } from "../../core/keybindings.ts";
 import { hasTrustRequiringProjectResources, ProjectTrustStore } from "../../core/trust-manager.ts";
 import { BINARY_MESSAGE } from "./messages.ts";
 import { launchSettings } from "./settings.ts";
 
-/** What `xpi --bg` prints once it has exited (anything written while the TUI is up is drawn over). */
-export function backgroundedText(id: string, name: string, notes: string[] = []): string {
+/**
+ * What `xpi --bg` prints once it has exited (anything written while the TUI is up is drawn over). `detachKeys`: the
+ * keys bound to app.suspend (attach's detach key); with none bound, the action is named.
+ */
+export function backgroundedText(id: string, name: string, notes: string[] = [], detachKeys: string[] = []): string {
+	const detach = detachKeys.length > 0 ? detachKeys.join(" or ") : "the app.suspend key";
 	return [
 		`backgrounded · ${id} · ${name}`,
 		...notes.map((n) => `  note: ${n}`),
-		`  xpi roost attach ${id}   open it (the app.suspend key detaches)`,
+		`  xpi roost attach ${id}   open it (${detach} detaches)`,
 		`  xpi roost logs ${id}     its screen`,
 		`  xpi roost stop ${id}     stop it`,
 		`  xpi roost ls --json${" ".repeat(Math.max(1, id.length - 4))}     list all`,
@@ -110,7 +115,8 @@ export async function backgroundAndExit(
 		} catch {
 			// the session is started; the notes are a courtesy
 		}
-		atExit(() => process.stdout.write(backgroundedText(id, finalName, notes)));
+		const detachKeys = KeybindingsManager.create(agentDir).getKeys("app.suspend");
+		atExit(() => process.stdout.write(backgroundedText(id, finalName, notes, detachKeys)));
 		ctx.shutdown();
 	} catch (err) {
 		fail((err as Error).message);
@@ -125,10 +131,16 @@ export async function backgroundAndExit(
  * answer: the question, `--approve` / `--no-approve`, or a stored decision. Where the folder has nothing that needs
  * trust, xpi answers yes without asking anyone; that yes is not handed on, or it would load project extensions that
  * appear later. Only a decision somebody made is: the command line's or a stored one, otherwise no.
+ *
+ * Every session started from here, the hub or the foreground role uses this rule. `trusted` undefined: this process
+ * has no answer for `cwd` (the hub starting a session in another folder, or `xpi roost hub` with no session of its
+ * own), so only a stored decision counts; `args` then names no folder of `cwd`'s and is not read.
  */
-export function sessionTrust(cwd: string, args: string[], trusted: boolean, agentDir: string): boolean {
-	// xpi's own reading of the command line: a flag's value (the task, a name, a prompt) is text, not a decision
-	const decided = parseArgs(args).projectTrustOverride !== undefined;
-	if (decided || hasTrustRequiringProjectResources(cwd)) return trusted;
+export function sessionTrust(cwd: string, args: string[], trusted: boolean | undefined, agentDir: string): boolean {
+	if (trusted !== undefined) {
+		// xpi's own reading of the command line: a flag's value (the task, a name, a prompt) is text, not a decision
+		const decided = parseArgs(args).projectTrustOverride !== undefined;
+		if (decided || hasTrustRequiringProjectResources(cwd)) return trusted;
+	}
 	return new ProjectTrustStore(agentDir).get(cwd) ?? false;
 }

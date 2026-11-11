@@ -27,6 +27,9 @@ What xin-pi adds to pi:
   cheap worker builds. The lead hands over with a plan and acceptance commands, and reads a record of the result, not
   the worker's transcript.
 - **`/upstream`**: compares upstream pi with xin-pi and asks the model what is worth porting.
+- **Background sessions** (macOS and Linux): `xpi --bg "<task>"` or `/bg` hands a session to a daemon that keeps it
+  running; `/agents` or `xpi roost hub` lists them to peek, reply, attach and start more. See
+  [Background Sessions](docs/roost.md).
 
 ## Install
 

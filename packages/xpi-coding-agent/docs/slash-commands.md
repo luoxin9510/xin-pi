@@ -66,6 +66,19 @@ Added by the built-in `subagent` extension (see [Subagents](subagent.md)); absen
 | `/<workflow name> [args]` | Run a saved workflow with no model turn; `args` is JSON or text |
 | `/review [target]` | Built-in workflow: review the uncommitted changes (no target), a branch (changes since it diverged), a commit, or `#N` (a GitHub PR) with parallel read-only `reviewer` agents and a verifier; returns ranked findings and edits nothing. A `review.js` of your own hides it. See [Built-in workflows](subagent.md#built-in-workflows) |
 
+## Background sessions
+
+Added by the built-in `roost` extension (see [Background Sessions](roost.md)); absent with `-builtin:roost`. macOS and
+Linux with the npm installation of xpi.
+
+| Command | Description |
+|---------|-------------|
+| `/agents` | Open the hub: the sessions the daemon runs; start, peek, reply, attach, stop. Also in a session the daemon runs |
+| `/bg [prompt]` | Hand this conversation to the daemon and open the hub on it; a running turn is interrupted and continues there. Also `/background`; the left arrow on an empty prompt does it too (`roost.leftArrowOpensAgents`) |
+| `/bg-fork [prompt]` | Copy this conversation into a new background session; this one carries on |
+
+`/bg`, `/background` and `/bg-fork` are not there in a session the daemon runs (it is in the background already).
+
 ## Upstream
 
 | Command | Description |

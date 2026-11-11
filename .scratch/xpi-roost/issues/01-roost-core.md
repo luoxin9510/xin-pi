@@ -239,21 +239,65 @@ Notes (PR 3):
 
 ## PR 4: the hub (branch `roost-hub`)
 
-- [ ] T16 `hub/` on `xpi-tui`: agent view (split: no board, concierge, schedule, pr, worktree, task or
+- [x] T16 `hub/` on `xpi-tui`: agent view (split: no board, concierge, schedule, pr, worktree, task or
       agent-definition code), overlay host, the log and usage overlays, the editor for a new session's prompt; the
       tasks, workspaces, review, concierge, schedules and compare overlays are not ported and their keys are gone from
       the help
-- [ ] T17 `xpi roost hub [dir]` and `/agents`; hub options from xpi (models, presets without `worktree`, `agent` and
+- [x] T17 `xpi roost hub [dir]` and `/agents`; hub options from xpi (models, presets without `worktree`, `agent` and
       `fanout`, resume); settings written back through xpi's settings
-- [ ] T18 The table of xpi's built-in slash commands with how the hub runs each, in `builtin:roost`, and the test
+- [x] T18 The table of xpi's built-in slash commands with how the hub runs each, in `builtin:roost`, and the test
       that every command in `BUILTIN_SLASH_COMMANDS` has a class
-- [ ] T19 `/bg` (alias `/background`) and `/bg-fork`, opening the hub after the hand-off; the left arrow on an empty
+- [x] T19 `/bg` (alias `/background`) and `/bg-fork`, opening the hub after the hand-off; the left arrow on an empty
       editor behind `leftArrowOpensAgents`; AGENTS.md: the hub's files and the left-arrow check in the key exemption
       list
-- [ ] Tests: the hub's tests in scope; foreground (`/bg`) tests in `xpi-coding-agent`; a pty test of `xpi roost hub`
+- [x] Tests: the hub's tests in scope; foreground (`/bg`) tests in `xpi-coding-agent`; a pty test of `xpi roost hub`
       (list, peek, reply, attach, detach); real Haiku: two sessions in parallel, reply to one from peek, attach to
       the other, `/bg` moves a foreground session to the daemon and it appears in the hub
-- [ ] Docs: `roost.md` (the hub and its keys, `/bg`), `slash-commands.md`, `cli.md`
+- [x] Docs: `roost.md` (the hub and its keys, `/bg`), `slash-commands.md`, `cli.md`
+
+Notes (PR 4):
+
+- Tests: the real Haiku part is the coordinator's check after this PR; the rest is ticked. The pty test runs the built
+  bundle (`npm run build`) with a fake model an extension in the temporary agent directory registers.
+- T16: `xpi-roost/hub` is an entry of its own (budget 80 files, never the daemon, the host or the command line), so
+  the worker and `xpi roost` do not load xpi-tui. xpi-tui against pi-roost's pi-tui (upstream `f9a263655`): HTML
+  comments hidden in markdown, the `xpi-tui/...` symbols, `XPI_*` environment names, Kitty images drawn last on every
+  terminal, every cursor marker stripped, `sliceWithWidth` no longer carrying APC codes from before the range,
+  Alacritty detection, the native module's package name. None reaches the hub's components; nothing was changed for
+  them. The header reads "xpi agents". A fifth command class, "reply", is new: one of xpi's built-in extensions'
+  commands that the session's worker runs (`/subtask`, `/review`, `/handover`, ...): sent as a reply, said as
+  `/name · session`, not listed with xpi's own in the peek's menu.
+- T17: `hub-options.ts` (what the hub gets), `open-view.ts` (`/agents`, `ctx.ui.custom`, full screen unless
+  `"fullscreen": false`), `hub-main.ts` (`xpi roost hub [dir]`, run through `runRoostCli`'s new `hub` option; it
+  disposes the view when it ends, which pi-roost left to `process.exit`). The hub's process carries the roost's
+  location variables (`roostStart`). Presets and `groupBy` are written to the user's `settings.json` with the new
+  `SettingsManager.setRoostSetting` (a nested key, merged with the file); `fullscreen`, `rowDetails`, `notify` and
+  `presets` take effect. Trust (the coordinator's facts 2, then the merged `sessionTrust`): every session the hub
+  starts or resumes gets `--approve`/`--no-approve` by `sessionTrust`'s rule; in the host xpi's folder its answer and
+  command line, elsewhere and in `xpi roost hub` only a stored decision, otherwise `--no-approve` (`sessionTrust` takes
+  `undefined` for "no answer for this folder").
+- T18: `commands.ts`: the 24 `BUILTIN_SLASH_COMMANDS` as pi-roost classed them (`/import` gets the hint `<file>`), and
+  the built-in extensions' commands (`commit`, `mcp`, `llama`, `workflows`, `subagents`, `agents`: picker; `relay`:
+  screen; `handover`, `handback`, `subtask`, `upstream`, `review`: reply). `test/roost-commands.test.ts` also scans
+  the built-in extensions' `registerCommand` literals and built-in workflow names, so a new one fails until classed;
+  `/bg`, `/background`, `/bg-fork` are foreground only (not in a session the daemon runs).
+- T19: `foreground.ts` loads light in every foreground session (only `xpi-roost/session`, xpi-tui and the lazy
+  loaders in `hub.lazy.ts`); the client and launch (`handoff.ts`) and the hub load when used. The scratch session of
+  the hand-off is `<agent dir>/xpi-roost/scratch/`, never locked. Not ported: the quit offer (BG-9), the footer hint
+  and its 10 s daemon poll (BG-11), `defaultToAgentsView` (decision 6), peers (decision 5). `setJobEventBus` is set
+  when a hub opens (the footer poll that also observed jobs is not ported). The `--bg` hint names the bound
+  `app.suspend` keys (coordinator's fact 3).
+- After the review of PR 4 (#68): the hub reads xpi's commands and event bus from the runtime that loaded
+  `builtin:roost` last (`view-state.ts` `setHubApi`, set on every load), so a hub `/bg` opens after the session switch
+  never calls the stale API; a failing `commands()` gives none instead of throwing into the hub's keys. `/agents` in a
+  session the daemon runs takes `selfId` from `ROOST_JOB_ID` (a process started in that session's terminal inherits it:
+  its row is the same terminal), marks the row and refuses attach, Ctrl+X, `/stop`, `/rm`, `/respawn`, `/attach` and
+  xpi's commands on it. `/bg` and `/bg-fork` dispatch with `requestOnce` (`handoff.ts` `dispatchHandoff`); a lost
+  answer is checked against the daemon's list by session file: running, no fallback; nothing running, back to the
+  conversation; no list either, no fallback and a warning. The hub's settings reads (`launchDefaultModel`,
+  `xpi roost hub`'s theme and session directory, `standaloneSettings`) pass the trust the sessions get; new sessions
+  and `/resume` use the host's session directory; a preset or grouping that cannot be written is said in the hub.
+
 
 ## PR 5: docs and release (branch `roost-docs`)
 
