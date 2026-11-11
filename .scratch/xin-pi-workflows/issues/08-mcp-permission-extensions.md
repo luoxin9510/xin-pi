@@ -2,7 +2,7 @@
 
 Spec: `../08-mcp-permission-extensions.md`. One branch per PR.
 
-**Status:** PR 1 merged (#57); PR 2 merged (#59); PR 3 in review
+**Status:** done: PR 1 #57, PR 2 #59, PR 3 #61; regression passed
 
 ## PR 1: inline MCP servers and `--mcp-config` (branch `subagent-inline-mcp`)
 
@@ -61,5 +61,6 @@ Spec: `../08-mcp-permission-extensions.md`. One branch per PR.
 
 ## After the three
 
-- [ ] Full real-model regression: `test:subagent:real`, `:parent`, `:tui`, `:evals`, relay real
-- [ ] Roadmap status: subagent work wrapped up
+- [x] Full real-model regression on main e6e96329e: `test:subagent:real` 96/96, `:parent` 13/13, `:tui` 17/17,
+      `:evals` 22/22 ($0.011), `test:relay:real` 1/1
+- [x] Roadmap status: subagent work wrapped up
