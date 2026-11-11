@@ -68,13 +68,32 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-	for (const p of running.splice(0)) {
-		try {
-			p.kill();
-		} catch {
-			// gone
-		}
-	}
+	// wait for each xpi to end: one still exiting writes into the agent directory while it is removed (ENOTEMPTY)
+	await Promise.all(
+		running.splice(0).map(
+			(p) =>
+				new Promise<void>((resolve) => {
+					const timer = setTimeout(() => {
+						try {
+							p.kill("SIGKILL");
+						} catch {
+							// gone
+						}
+						resolve();
+					}, 5_000);
+					p.onExit(() => {
+						clearTimeout(timer);
+						resolve();
+					});
+					try {
+						p.kill();
+					} catch {
+						clearTimeout(timer);
+						resolve();
+					}
+				}),
+		),
+	);
 	// this agent directory's daemon, and its sessions with it
 	const saved = { dir: process.env.ROOST_AGENT_DIR, home: process.env.ROOST_HOME };
 	let client: DaemonClient | undefined;
@@ -105,7 +124,8 @@ afterEach(async () => {
 		if (saved.home === undefined) delete process.env.ROOST_HOME;
 		else process.env.ROOST_HOME = saved.home;
 	}
-	rmSync(root, { recursive: true, force: true });
+	// a session the daemon ran may still be writing as it ends
+	rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 });
 
 function terminal(args: string[]) {
