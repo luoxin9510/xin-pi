@@ -377,7 +377,7 @@ pseudo-terminals, so they keep running after the terminal that started them clos
 | `xpi roost respawn --all` | Restart every running xpi session, for example after an upgrade; reaped sessions load the new code when they start again |
 | `xpi roost daemon status` | The daemon's pid, version, socket directory and whether it can load node-pty; does not start a daemon |
 | `xpi roost daemon logs` | Print the daemon's log |
-| `xpi roost daemon stop [--keep-workers]` | Stop the daemon and its sessions; with `--keep-workers` the sessions keep running and the next daemon takes them over |
+| `xpi roost daemon stop [--keep-workers]` | Stop the daemon and its sessions (one that has not ended after six seconds is killed); with `--keep-workers` the sessions keep running and the next daemon takes them over |
 
 The commands outside `daemon` start the agent directory's daemon when it is not running; `daemon ...` never starts one. A session is named by its id, a
 unique id prefix or its name. An unknown command exits with `2`.

@@ -133,7 +133,8 @@ and in `xpi roost hub` its theme and `sessionDir`) only as far as the sessions i
 In a session the daemon runs, `/agents` marks that session's own row "this session" and refuses to attach to it, stop,
 delete or restart it, or run xpi's commands in it: leave the hub to use it.
 
-Rows are grouped by state (needs input, working, completed; pinned first) or by directory. Each row shows its name, what
+Until the daemon's list arrives the hub says it is connecting to the background service (and reconnecting, after the
+daemon went away). Rows are grouped by state (needs input, working, completed; pinned first) or by directory. Each row shows its name, what
 it is doing or its last result, its model and context use, what it spent, and its age.
 
 | Key | What it does |
@@ -232,7 +233,8 @@ so `xpi roost` inside it reaches the same daemon.
   otherwise.
 - **Sockets**: `$XDG_RUNTIME_DIR/xpi-roost-<key>` or `/tmp/xpi-roost-<uid>/<key>`, one per agent directory.
 - **One daemon per agent directory**. It starts on demand with the first command that needs it and stops with
-  `xpi roost daemon stop`. An xpi with another agent directory has a daemon and sessions of its own.
+  `xpi roost daemon stop`, which stops the sessions too (a session that has not ended after a few seconds is killed;
+  `--keep-workers` leaves them running). An xpi with another agent directory has a daemon and sessions of its own.
 
 Each xpi session also holds a lock next to its session file (`<file>.lock`) while it is open, so the daemon never
 starts a session on a file another xpi has open.

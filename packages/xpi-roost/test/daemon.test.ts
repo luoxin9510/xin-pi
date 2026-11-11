@@ -33,6 +33,7 @@ const ENV_NAMES = [
 	"ROOST_SHELL_KEEP_MS",
 	"ROOST_CLEANUP_DAYS",
 	"ROOST_CLEANUP_CHECK_MS",
+	"ROOST_STOP_WAIT_MS",
 ];
 const saved = Object.fromEntries(ENV_NAMES.map((k) => [k, process.env[k]]));
 
@@ -330,6 +331,30 @@ describe("daemon", () => {
 		expect(isAlive(hostPid)).toBe(false);
 		expect(readState(id)?.state).toBe("stopped");
 	});
+
+	it("shutdown without keepWorkers kills a host that does not stop, and its session, and logs it", async () => {
+		process.env.ROOST_STOP_WAIT_MS = "300";
+		const first = await startDaemon();
+		const { id } = await first.client.request("dispatch", args("sleep 30"));
+		const workerPid = await waitFor(async () => (await find(first.client, id))?.pid ?? undefined);
+		const hostPid = readState(id)!.hostPid!;
+		// a host that is up (listening), then answers nothing and handles no signal but SIGKILL
+		await waitFor(() => existsSync(join(rt, `host-${id}.sock`)));
+		process.kill(hostPid, "SIGSTOP");
+		try {
+			await first.client.request("shutdown", {});
+			await waitFor(() => exited(first.proc), 15_000);
+			expect(isAlive(hostPid)).toBe(false);
+			await waitFor(() => !isAlive(workerPid), 5000);
+			const log = readFileSync(join(home, "daemon.log"), "utf8");
+			expect(log, log).toMatch(/host did not stop, killing/);
+			expect(log).toContain(`"hostPid":${hostPid}`);
+		} finally {
+			try {
+				process.kill(hostPid, "SIGCONT");
+			} catch {}
+		}
+	}, 30_000);
 
 	it("a second daemon exits 0 and leaves the first alone", async () => {
 		const first = await startDaemon();

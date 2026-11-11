@@ -2229,3 +2229,41 @@ describe("PR 4 review: the hub inside a session the daemon runs, and a stale xpi
 		view.dispose();
 	});
 });
+
+describe("the hub before the daemon's list", () => {
+	it("says it is connecting, with no counts or groups, until the first list; and reconnecting after a drop", async () => {
+		let open: (() => void) | undefined;
+		const gate = new Promise<void>((r) => {
+			open = r;
+		});
+		let client: FakeClient | undefined;
+		const s = setup([row({ id: "a", name: "one" })], {
+			extra: {
+				connect: async () => {
+					await gate;
+					return client as unknown as DaemonClient;
+				},
+			},
+		});
+		client = s.client;
+		const view = s.view;
+		const started = view.start();
+		let screen = view.render(120).join("\n");
+		expect(screen).toContain("connecting to the background service…");
+		expect(screen).not.toContain("needs input ·");
+		for (const h of ["Needs input", "Working", "Completed"]) expect(screen).not.toContain(h);
+		open!();
+		await started;
+		screen = view.render(120).join("\n");
+		expect(screen).toContain("0 needs input · 1 working · 0 completed");
+		expect(screen).toContain("one");
+		// the daemon goes away: the counts are not shown while there is no list
+		for (const l of client.closes) l();
+		screen = view.render(120).join("\n");
+		expect(screen).toContain("reconnecting to the background service…");
+		expect(screen).not.toContain("1 working");
+		await sleep(700);
+		expect(view.render(120).join("\n")).toContain("0 needs input · 1 working · 0 completed");
+		view.dispose();
+	});
+});

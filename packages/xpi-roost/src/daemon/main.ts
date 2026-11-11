@@ -36,7 +36,7 @@ import {
 	rosterPath,
 	runtimeDir,
 } from "../lib/paths.ts";
-import { isAlive, processStartTokenAsync, sameProcess } from "../lib/proc.ts";
+import { isAlive, parentPid, processStartTokenAsync, sameProcess } from "../lib/proc.ts";
 import {
 	contextFrom,
 	DAEMON_CAPABILITIES,
@@ -72,7 +72,8 @@ import {
 import { usageFrom } from "../lib/usage.ts";
 import { ROOST_VERSION } from "../lib/version.ts";
 
-const WAIT_MS = 6000;
+/** How long a stop waits for a host to go before it is killed (ROOST_STOP_WAIT_MS: tests shorten it). */
+const WAIT_MS = Number(roostEnv("STOP_WAIT_MS")) || 6000;
 const CONTINUE = "Continue where you left off.";
 /**
  * DM-5: automatic restarts of a session whose agent process crashed mid-run, in a row, and
@@ -344,14 +345,7 @@ async function removeRecord(id: string): Promise<{ id: string }> {
 		removing.add(id);
 		await terminateHost(id);
 		if (!(await waitGone([id], WAIT_MS))) {
-			const ref = roster.get(id);
-			log("warn", "host did not stop, killing", { id });
-			for (const pid of [readWorkerPid(id), ref?.hostPid]) {
-				if (typeof pid !== "number") continue;
-				try {
-					process.kill(pid, "SIGKILL");
-				} catch {}
-			}
+			killHost(id, "rm");
 			await waitGone([id], 2000);
 			if (roster.has(id)) finalize(id, "killed by rm");
 		}
@@ -653,6 +647,29 @@ async function terminateHost(id: string): Promise<void> {
 		log("warn", "host control failed, sending SIGTERM", { id, error: String(err) });
 		try {
 			process.kill(ref.hostPid, "SIGTERM");
+		} catch {}
+	}
+}
+
+/**
+ * SIGKILL a host that did not stop, and its session's process, only when they are still ours: the host by its start
+ * token (or, before the token was read, as this daemon's child), the session as that host's child. Pids are reused.
+ */
+function killHost(id: string, why: string): void {
+	const ref = roster.get(id);
+	if (!ref || !isAlive(ref.hostPid)) return;
+	const ours = ref.hostToken ? sameProcess(ref.hostPid, ref.hostToken) : parentPid(ref.hostPid) === process.pid;
+	if (!ours) {
+		log("warn", "host did not stop; its pid is another process now, not killed", { id, why, hostPid: ref.hostPid });
+		return;
+	}
+	const worker = readWorkerPid(id);
+	const workerPid = worker !== undefined && parentPid(worker) === ref.hostPid ? worker : undefined;
+	log("warn", "host did not stop, killing", { id, why, hostPid: ref.hostPid, workerPid: workerPid ?? null });
+	for (const pid of [workerPid, ref.hostPid]) {
+		if (pid === undefined) continue;
+		try {
+			process.kill(pid, "SIGKILL");
 		} catch {}
 	}
 }
@@ -1371,7 +1388,11 @@ async function shutdown(keepWorkers: boolean): Promise<void> {
 	if (!keepWorkers) {
 		const ids = [...roster.keys()];
 		await Promise.all(ids.map((id) => terminateHost(id)));
-		await waitGone(ids, WAIT_MS);
+		if (!(await waitGone(ids, WAIT_MS))) {
+			// a host that did not stop would keep its session running with no daemon to reach it
+			for (const id of ids) if (roster.has(id)) killHost(id, "shutdown");
+			await waitGone(ids, 2000);
+		}
 	}
 	persistRoster();
 	// M35: the last group of durable writes reaches the disk before the process goes
