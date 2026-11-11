@@ -97,6 +97,12 @@ export interface LaunchInput {
 	/** Overrides from the agent view's /model and /thinking (DI-4). */
 	model?: string;
 	thinking?: string;
+	/**
+	 * Whether the caller's project is trusted. The session gets `--approve` or `--no-approve`: it runs with no
+	 * one in front of it, so it must not stop at xpi's "Trust project folder?" question (it would sit there, shown
+	 * as working, and nothing could reach it). Left out, the session decides for itself.
+	 */
+	trusted?: boolean;
 }
 
 /** The daemon dispatch request for a new background xpi running `task`. */
@@ -117,6 +123,7 @@ export function buildLaunch(input: LaunchInput) {
 		input.origin === "adopt" || input.origin === "fork" ? withoutFlags(pass, SESSION_RESTORED_FLAGS, 0) : pass;
 	if (input.model) args = [...withoutFlag(args, "--model"), "--model", input.model];
 	if (input.thinking) args = [...withoutFlag(args, "--thinking"), "--thinking", input.thinking];
+	if (input.trusted !== undefined) args = [...args, input.trusted ? "--approve" : "--no-approve"];
 	return {
 		cwd: input.cwd,
 		sessionFile: input.sessionFile,

@@ -12,6 +12,11 @@
 			"types": "./dist/index.d.ts",
 			"import": "./dist/index.js"
 		},
+		"./session": {
+			"source": "./src/session.ts",
+			"types": "./dist/session.d.ts",
+			"import": "./dist/session.js"
+		},
 		"./daemon": {
 			"source": "./src/daemon/main.ts",
 			"import": "./dist/daemon/main.js",

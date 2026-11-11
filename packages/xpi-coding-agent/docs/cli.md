@@ -39,6 +39,8 @@ With terminal stdin and stdout, Pi opens the terminal UI unless `--print`, `--mo
 | `--` | Stop option parsing so a prompt can begin with `-` |
 | `--agents <json\|path>` | Subagents for this run, as a JSON object or the path of a JSON file; see [Subagents](subagent.md#agents-on-the-command-line). From the built-in `subagent` extension |
 | `--mcp-config <json\|path>` | MCP servers for this run, added after `mcp.json`, as JSON in its shape or the path of a JSON file; see [MCP](mcp.md#add-servers-for-one-run). From the built-in `mcp` extension |
+| `--bg <task>` | Start `<task>` as a background session in the current directory and exit, printing its id and how to attach; see [Background Sessions](roost.md). Interactive mode only, in a terminal; the whole task is one argument (no other messages, `@file`s or `--no-session` with it); macOS and Linux with the npm installation. From the built-in `roost` extension |
+| `--bg-name <name>` | The name of the session `--bg` starts (default: the task's first six words) |
 
 Pi resolves `@path` from the current working directory. The working directory also controls project configuration, resource discovery, and session grouping.
 
@@ -357,9 +359,9 @@ Project `.pi/mcp.json` files are only read for projects that are already trusted
 
 ## Background session commands
 
-`xpi roost` lists and controls background sessions: xpi sessions or shell commands that a per-agent-directory daemon
-runs in pseudo-terminals, so they keep running after the terminal that started them closes. This version has the
-commands below; starting a session from xpi (`xpi --bg`, `/bg`) and the hub come later.
+`xpi roost` lists and controls background sessions: xpi sessions that a per-agent-directory daemon runs in
+pseudo-terminals, so they keep running after the terminal that started them closes. `xpi --bg "<task>"` starts one; see
+[Background Sessions](roost.md). The hub and `/bg` come later.
 
 | Command | Description |
 |---|---|

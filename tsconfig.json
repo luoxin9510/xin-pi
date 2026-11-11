@@ -29,6 +29,7 @@
 			"xpi-coding-agent/*": ["./packages/xpi-coding-agent/src/*"],
 			"typebox": ["./node_modules/typebox"],
 			"xpi-roost": ["./packages/xpi-roost/src/index.ts"],
+			"xpi-roost/session": ["./packages/xpi-roost/src/session.ts"],
 			"xpi-tui": ["./packages/xpi-tui/src/index.ts"],
 			"xpi-tui/*": ["./packages/xpi-tui/src/*"]
 		}

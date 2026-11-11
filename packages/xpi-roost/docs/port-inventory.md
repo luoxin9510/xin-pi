@@ -57,7 +57,7 @@ root `tsc`, biome and check scripts cover it unchanged.
 | `lib/schedule.ts`, `lib/schedules.ts` | | cut: schedules (M39, M40) are phase 2, decision 6 |
 | `lib/schema.ts` | `src/lib/schema.ts` | ported |
 | `lib/store.ts` | `src/lib/store.ts` | split: agent, fan-out, profile, schedule, term, protocol, role, parent/root session, worktree, task, verify and setup fields and their helpers cut, decision 6; the record format is otherwise unchanged |
-| `lib/summarizer.ts` | | later: the recap without the summary model (PR 3); the summary model cut, decision 6 |
+| `lib/summarizer.ts` | `src/lib/recap.ts` | split (PR 3): the recap's list (`AwayLog`, `emptyAway`, `awayIsEmpty`, `recapList`) moves; the summary model's prompts and parsers are cut, decision 6 |
 | `lib/task-diff.ts`, `lib/task-git.ts`, `lib/task-worktree-worker.ts` | | cut: workspaces, decision 6 |
 | `lib/telemetry.ts` | | cut: telemetry (M34), decision 6 |
 | `lib/term-modes.ts` | `src/lib/term-modes.ts` | ported |
@@ -83,8 +83,11 @@ root `tsc`, biome and check scripts cover it unchanged.
 | `hub/overlays/concierge.ts` | | cut: concierge, decision 6 |
 | `hub/overlays/review.ts`, `hub/overlays/tasks.ts`, `hub/overlays/workspaces.ts` | | cut: task board and workspaces, decision 6 |
 | `hub/overlays/schedules.ts` | | cut: schedules, decision 6 |
-| `adapters/pi/worker.ts`, `adapters/pi/worker-extras.ts`, `adapters/pi/earlier-history.ts` | | later: PR 3 (`builtin:roost`, the session side; split there) |
-| `adapters/pi/index.ts`, `adapters/pi/foreground.ts`, `adapters/pi/hub-main.ts`, `adapters/pi/hub-options.ts`, `adapters/pi/open-view.ts` | | later: PR 3 and PR 4 (`builtin:roost`, `/bg`, the hub's options) |
+| `adapters/pi/worker.ts` | `xpi-coding-agent/src/extensions/roost/worker.ts`, `detach-keys.ts` | split (PR 3): the reports, `ReplyQueue` (without agent items), `usageOf`, `contextOf`, the commands for the peek; the detach keys follow the user's keybindings (decision 11). Cut: agent items and `handback` (M9), the `roost_*` agent tools, PR links (M16), pi-mobile (M11), the worktree and task notes (M10, M55), decision 6 |
+| `adapters/pi/worker-extras.ts` | `xpi-coding-agent/src/extensions/roost/recap.ts` | split (PR 3): `registerRecap` without the summary model's rewrite; `attachSignal` only with the SIGUSR2 handler in (decision 11). Cut: `registerSummaries` (SM-2, DI-9 naming), `askSummaryModel`, the repaint on attach (M14, dead with a current host) |
+| `adapters/pi/earlier-history.ts` | `xpi-coding-agent/src/extensions/roost/earlier-history.ts` | ported (PR 3), on xpi's own message components |
+| `adapters/pi/index.ts` | `xpi-coding-agent/src/extensions/roost/index.ts`, `background.ts` | split (PR 3): the write lock (DM-8), `--bg` and `--bg-name`, the worker role; `--bg` takes the `"roost"` settings' model, thinking level and environment. Cut: `--agent`, `--worktree`, `--agents`, `--agents-cwd` (decision 6), the concierge role, the M32 double-load guard (one built-in, one path), `setJobEventBus` (NT-2, the hub's). `/agents` is PR 4 |
+| `adapters/pi/foreground.ts`, `adapters/pi/hub-main.ts`, `adapters/pi/hub-options.ts`, `adapters/pi/open-view.ts` | | later: PR 4 (`/bg`, `/bg-fork`, the hub and its options) |
 | `adapters/pi/agent-tools.ts` | | cut: the `roost_*` agent tools, decision 6 |
 | `adapters/pi/api.ts` | | cut: the programmatic API went with the published package (decision 1: `xpi-roost` is not published) |
 | `adapters/pi/concierge.ts` | | cut: concierge, decision 6 |
@@ -126,7 +129,12 @@ root `tsc`, biome and check scripts cover it unchanged.
 | `daemon.test.ts` | `test/daemon.test.ts` | split: the tests of M11, M26, M30, M31's protocol client, M34, M35's agent part, M38, M39, M40, `peer_register`, `autoResume` and the conformance suite removed whole; host-gone and killed-host tests now expect the session to end |
 | `dispatch-input.test.ts` | `test/dispatch-input.test.ts` | ported |
 | `dispatch.test.ts` | `test/dispatch.test.ts` | ported (imports made static, `ROOST_JOB_ID`) |
-| `earlier-history.test.ts`, `reply-queue.test.ts`, `reporter.test.ts`, `worker-wiring.test.ts` | | later: PR 3 (adapter tests move to `xpi-coding-agent`, decision 13) |
+| `earlier-history.test.ts` | `xpi-coding-agent/test/roost-earlier-history.test.ts` | ported (PR 3) |
+| `reply-queue.test.ts` | `xpi-coding-agent/test/roost-reply-queue.test.ts` | ported (PR 3) without the agent items (M9) |
+| `reporter.test.ts` | `xpi-coding-agent/test/roost-reporter.test.ts` | ported (PR 3) |
+| `worker-wiring.test.ts` | `xpi-coding-agent/test/roost-worker-wiring.test.ts` | ported (PR 3); plus the reports and replies against a fake daemon, and the detach keys wired to a fake xpi |
+| (new) | `xpi-coding-agent/test/roost-detach-keys.test.ts` | the detach keys with default and rebound keybindings |
+| (new) | `xpi-coding-agent/test/roost-session.test.ts` | the write lock, an ordinary start (no daemon contacted), a subagent child, `--bg` (messages, settings, a session under a real daemon), SIGUSR2 |
 | `entry-check.test.ts` | `test/entry-check.test.ts` | split: the cases of unported ops removed |
 | `evals-judge.test.ts` | | cut: `evals/`, decision 6 |
 | `events.test.ts` | `test/events.test.ts` | split: cut kinds removed |
@@ -146,7 +154,7 @@ root `tsc`, biome and check scripts cover it unchanged.
 | `schema.test.ts` | `test/schema.test.ts` | ported |
 | `stress-attach.test.ts` | `test/stress-attach.test.ts` | ported |
 | `subagent-panel.test.ts` | | cut: decision 3 |
-| `summaries.test.ts` | `test/job-events.test.ts` | split: the job events part moved (with a first-sighting case added); the away log goes with the recap (PR 3); the summary model cut, decision 6 |
+| `summaries.test.ts` | `test/job-events.test.ts`, `test/recap.test.ts` | split: the job events part moved (with a first-sighting case added); the away log moved with the recap (PR 3, plus a case); the summary model cut, decision 6 |
 | `telemetry.test.ts` | | cut: M34, decision 6 |
 | `term-modes.test.ts` | `test/term-modes.test.ts` | ported |
 | `transcript.test.ts` | `test/transcript.test.ts` | split: the M19 view and tree removed (decision 3) |
