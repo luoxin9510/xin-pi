@@ -2,6 +2,11 @@
 // early return, the detached script, stop, the nested-call bookkeeping) is the codemode built-in's `codemodeScripts`;
 // this file keeps the policy: when to move, the registry rows the panel shows, and the end message handed to main.
 
+import type {
+	ToolExecutionEndEvent,
+	ToolExecutionStartEvent,
+	ToolExecutionUpdateEvent,
+} from "../../core/extensions/types.ts";
 import { type CodemodeScriptEnd, codemodeScripts } from "../codemode/scripts.ts";
 import { registry } from "./registry.ts";
 import { runs } from "./runs.ts";
@@ -10,9 +15,53 @@ import { workflowOf } from "./workflow-run.ts";
 
 export type ScriptState = "foreground" | "background" | "completed" | "failed" | "stopped";
 
+export type ScriptCallStatus = "running" | "done" | "error";
+
+// A tool call the script made (`tools.bash(...)`), kept in memory for the script screen. `output` is the text the call
+// reported so far (its partial results, then its result), cut to the last OUTPUT_LINES lines.
+export interface ScriptCall {
+	id: string; // "<callId>/<n>"
+	name: string; // the tool: bash, Agent, read, ...
+	label: string; // its main argument, first line, cut (the bash command, an Agent's description, a path)
+	status: ScriptCallStatus;
+	startedAt: number;
+	endedAt?: number;
+	output: string;
+}
+
+export const OUTPUT_LINES = 200; // output lines kept per call
+const LOG_LINES = 200; // log() lines kept per script
+const RESULT_CHARS = 20_000; // the end text kept for the screen
+const LABEL_CHARS = 80;
+const LABEL_ARGS = ["command", "description", "file_path", "path", "pattern", "url", "query", "prompt"];
+
+const lastLines = (text: string, n: number): string => {
+	const lines = text.split("\n");
+	return lines.length <= n ? text : lines.slice(-n).join("\n");
+};
+
+// The main argument of a call, first line, cut: what the panel and the screen say it is doing.
+export function callLabel(args: Record<string, unknown> | undefined): string {
+	const value = LABEL_ARGS.map((k) => args?.[k]).find((v) => typeof v === "string" && v.trim() !== "") as
+		| string
+		| undefined;
+	const line = (value ?? "").trim().split("\n")[0]!;
+	return line.length > LABEL_CHARS ? `${line.slice(0, LABEL_CHARS - 1)}…` : line;
+}
+
+// What a script row and the end message call the script: its description, else its first bash command, else nothing.
+export function scriptLabel(script: ScriptRecord): string | undefined {
+	return script.description ?? script.calls.find((c) => c.name === "bash" && c.label)?.label;
+}
+
 export interface ScriptRecord {
 	id: string; // S1, S2, ... (the controller's script id)
 	callId: string; // the codemode tool call id; the script's Agent calls have ids "<callId>/<n>"
+	description?: string; // the codemode call's `description`: a few words naming the script
+	code?: string; // the script's source
+	calls: ScriptCall[]; // the tool calls it made, in order
+	logs: string[]; // its log() lines
+	result?: string; // when it ended: the return value or output, or the error text (with state "failed")
 	workflow?: string; // the saved workflow it runs, when a /name command started it
 	run?: string; // the workflow run's id (R1, R2, ...): its results are saved for a relaunch
 	saved?: number; // Agent calls answered from a relaunched run's saved results
@@ -84,6 +133,10 @@ class ScriptRegistry {
 				this.scripts.set(info.id, {
 					id: info.id,
 					callId: info.toolCallId,
+					...(info.description ? { description: info.description } : {}),
+					...(info.code === undefined ? {} : { code: info.code }),
+					calls: [],
+					logs: [],
 					...(workflowOf(info.toolCallId) ? { workflow: workflowOf(info.toolCallId) } : {}),
 					...(runs.ofScript(info.toolCallId) ? { run: runs.ofScript(info.toolCallId)!.id } : {}),
 					sessionId: info.sessionId,
@@ -106,11 +159,17 @@ class ScriptRegistry {
 				if (script) this.ended(script, outcome, link);
 			},
 		});
+		// `codemode` calls with run_in_background move only while this instance is on and serves the session.
+		const offBackground = codemodeScripts.provideBackground({
+			sessionId: () => link.sessionId(),
+			enabled: () => live && link.enabled(),
+		});
 		return () => {
 			// Disconnected (session shutdown or a new connect): scripts still running here end unseen, so their rows are
 			// closed now and nothing of them is delivered later.
 			live = false;
 			off();
+			offBackground();
 			for (const id of own) {
 				const script = this.scripts.get(id);
 				if (script && (script.state === "foreground" || script.state === "background"))
@@ -132,13 +191,21 @@ class ScriptRegistry {
 				: outcome.error || outcome.result?.isError || everyAgentFailed
 					? "failed"
 					: "completed";
+		// `text` is what an end message shows: the error, or the return value. `allFailed`: it returned normally but
+		// every agent it ran failed or was stopped.
+		const text = outcome.error ? outcome.error.message : textOf(outcome.result);
+		script.result = text.length > RESULT_CHARS ? `${text.slice(0, RESULT_CHARS)}\n[cut]` : text;
+		// Calls still running were cut off by the end.
+		for (const call of script.calls) {
+			if (call.status === "running") {
+				call.status = "error";
+				call.endedAt = Date.now();
+			}
+		}
 		this.setState(script, state);
 		if (!outcome.background) return;
 		try {
-			// `text` is what an end message shows: the error, or the return value. `allFailed`: it returned normally but
-			// every agent it ran failed or was stopped.
 			const allFailed = !outcome.error && !outcome.result?.isError && state === "failed";
-			const text = outcome.error ? outcome.error.message : textOf(outcome.result);
 			link.deliver(endMessage(script, state, text, link.parent(), allFailed));
 		} catch (e) {
 			console.error(`subagent: could not deliver the end of script ${script.id}: ${(e as Error).message}`); // never crash pi
@@ -216,7 +283,40 @@ class ScriptRegistry {
 	// A `phase()` or `log()` call of the script (script-helpers.ts).
 	note(script: ScriptRecord, note: { phase: string } | { log: string }): void {
 		if ("phase" in note) script.phase = note.phase;
-		else script.log = note.log;
+		else {
+			script.log = note.log;
+			script.logs.push(note.log);
+			if (script.logs.length > LOG_LINES) script.logs.splice(0, script.logs.length - LOG_LINES);
+		}
+		this.changed();
+	}
+
+	// A tool call a script made (`tool_execution_*` with `parentToolCallId`): recorded on the script's record for its
+	// screen. Only the script's own calls count, not what those calls call in turn.
+	nested(event: ToolExecutionStartEvent | ToolExecutionUpdateEvent | ToolExecutionEndEvent): void {
+		const script = this.owner(event.toolCallId);
+		if (!script || event.parentToolCallId !== script.callId) return;
+		if (event.type === "tool_execution_start") {
+			script.calls.push({
+				id: event.toolCallId,
+				name: event.toolName,
+				label: callLabel(event.args),
+				status: "running",
+				startedAt: Date.now(),
+				output: "",
+			});
+		} else {
+			const call = script.calls.find((c) => c.id === event.toolCallId);
+			if (!call) return;
+			if (event.type === "tool_execution_update") call.output = lastLines(textOf(event.partialResult), OUTPUT_LINES);
+			else {
+				call.status = event.isError ? "error" : "done";
+				call.endedAt = Date.now();
+				// A call whose result carries no text keeps what it streamed.
+				const text = textOf(event.result);
+				if (text) call.output = lastLines(text, OUTPUT_LINES);
+			}
+		}
 		this.changed();
 	}
 
@@ -278,7 +378,11 @@ export function endMessage(
 		const r = registry.get(id);
 		return r ? `- ${id} ${r.type} ${r.status} $${r.usage.cost.total.toFixed(4)}` : `- ${id}`;
 	});
-	const what = script.workflow ? ` (workflow ${script.workflow}${script.run ? `, run ${script.run}` : ""})` : "";
+	const what = script.workflow
+		? ` (workflow ${script.workflow}${script.run ? `, run ${script.run}` : ""})`
+		: script.description
+			? ` (${script.description})`
+			: "";
 	// A workflow run that did not complete can be started again without redoing what finished.
 	const relaunch =
 		script.workflow && script.run && (state === "stopped" || state === "failed")

@@ -128,7 +128,7 @@ detached from the turn's abort signal. The codemode built-in owns the mechanism;
 policy (when to move, the end message). The `codemode` tool is no longer wrapped or replaced.
 
 - `src/extensions/codemode/scripts.ts` (new): `codemodeScripts` controller (`owner`, `list`, `background`,
-  `backgroundAll`, `stop`, `stopAll`, `subscribe`) and the `beginCodemodeScript` hook used by the executor. Exported
+  `backgroundAll`, `stop`, `stopAll`, `subscribe`, `provideBackground`, `canBackground`) and the `beginCodemodeScript` hook used by the executor. Exported
   from `src/index.ts`.
 - `src/extensions/codemode/execute.ts`: `executeCodemode` is now a thin wrapper over the old body (`runCodemode`,
   unchanged). It registers the script, links the turn's signal only while foreground, races the script against "moved",
@@ -146,6 +146,27 @@ policy (when to move, the end message). The `codemode` tool is no longer wrapped
 - `src/extensions/subagent/index.ts`: connects the registry at `session_start`. `subagent.backgroundScripts: false`, or
   no UI (print mode), means scripts are neither tracked nor moved.
 - Tests: `test/nested-tool-calls.test.ts` (detached scopes), `test/suite/codemode-scripts.test.ts` (controller).
+
+### `run_in_background` and the script screen
+
+The `codemode` tool takes optional `run_in_background` and `description`. The executor moves the script right after it
+starts (`codemodeScripts.background()`) when `codemodeScripts.canBackground(sessionId)` says some provider serves the
+session. The subagent extension is that provider: `scripts.connect()` registers one (`provideBackground`) whose
+`enabled()` is `subagent.backgroundScripts !== false` and a UI, so the flag is ignored (the call waits) with the
+extension off, the setting off, or in print mode. `CodemodeScriptInfo` carries `description` and `code`.
+
+- `src/extensions/codemode/tool.ts`: the schema fields and the guidance in the description (more than about 30 s, result
+  not needed this turn; never dev servers or watch; return a filtered result). The description is static: it says the
+  flag is ignored where unavailable, since the loadout is built before the subagent extension knows its settings.
+- `src/extensions/subagent/background.ts`: `ScriptRecord` gains `description`, `code`, `calls` (tool calls in order with
+  status, times and the last 200 output lines), `logs` and `result`. `scripts.nested()` fills `calls` from the
+  `tool_execution_*` events that carry `parentToolCallId` equal to the script's call id (`index.ts` subscribes). Memory
+  only, nothing goes to the session file. The end message names the description.
+- `src/extensions/subagent/script-screen.ts`: the script screen, opened from the panel (Enter on a script row). Fixed
+  keys like the panel's: `Esc`, `x`, scrolling.
+- Tests: `test/suite/codemode-run-in-background.test.ts` (vitest, the flag with and without a provider),
+  `test/subagent/panel/script-screen.test.ts` (rows, calls, end message, screen). By hand with Haiku:
+  `test/subagent/parent/05-codemode-run-in-background.test.ts`, `test/subagent/tui/13-script-screen.test.ts`.
 
 ## Core changes: workflows
 
