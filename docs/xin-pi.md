@@ -50,9 +50,16 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
   (gitignored); install it with `npm i -g ./dist-pack/xpi-coding-agent-<version>.tgz`. The tarball is self-contained: the
   bundle inlines `xpi-ai`, `xpi-tui`, `xpi-agent-core`, `xpi-codemode` and `xpi-mcp`, so they are `devDependencies` of
   `xpi-coding-agent` and only third-party packages (29 in all) are installed. `npm run check` fails if the built bundle imports
-  an `xpi-*` package at runtime. Importing `xpi-coding-agent` as a library (SDK) from such an install is not supported: its
-  unbundled `dist/index.js` needs the workspace packages. Development alternative: `npm link` in `packages/xpi-coding-agent`
-  after `npm run build`. Verified with a private prefix (`npm i -g --prefix <tmp> <tarball>`, then `<tmp>/bin/xpi --version`,
+  an `xpi-*` package at runtime. The same tarball is what npm gets, and it works as a library (SDK) too. The repository's
+  package folder is not self-contained (its `dist/index.js` imports the workspace packages); the published package is made
+  from it by `scripts/coding-agent-publish.mjs`: `main` and the `"."` import point at the
+  self-contained `dist/bundle/index.js`, and the declaration files of the workspace packages it refers to are copied into
+  `dist/vendor/<package>/` with every `xpi-*` specifier in the `.d.ts` files rewritten to a relative path. The repository's
+  own `package.json` keeps the unbundled `dist/index.js`, so workspace consumers (`xpi-evals`, tests) are unchanged.
+  `npm run xpi:pack` and `npm run release:local` both pack this way; `release:local` imports the SDK from an isolated
+  npm install. Type checking a consumer needs `skipLibCheck: true`, or the type packages of the provider SDKs the
+  declarations name (`openai`, `@anthropic-ai/sdk`, `@google/genai`, `marked`). Development alternative: `npm link` in
+  `packages/xpi-coding-agent` after `npm run build`. Verified with a private prefix (`npm i -g --prefix <tmp> <tarball>`, then `<tmp>/bin/xpi --version`,
   `--help`, `--list-models` from another directory with `XPI_CODING_AGENT_DIR` set to a temp dir).
 - `npm run build` removes `packages/xpi-coding-agent/dist` first, so files of deleted sources are never packed.
 - Self-update is disabled: `xpi update --self` (and plain `xpi update`) says to reinstall xpi the way it was installed
@@ -107,8 +114,9 @@ One version for every package. Two steps, each from an up-to-date `main`:
    (`xpi-<platform>.tar.gz` / `.zip`), `SHA256SUMS`, a smoke test on three operating systems, then the GitHub Release
    with generated notes.
 
-npm is not published by either step or by CI. The owner publishes by hand (2FA):
-`cd packages/xpi-coding-agent && npm publish --access public`. So npm can be behind the latest GitHub Release.
+npm is not published by either step or by CI. The owner publishes by hand (2FA), from the repository root:
+`npm run xpi:pack && npm publish ./dist-pack/xpi-coding-agent-<version>.tgz --access public`. So npm can be behind the latest GitHub Release. Publishing the package folder directly is refused by its
+`prepublishOnly` (`scripts/refuse-folder-publish.mjs`): that folder is not the package npm users get.
 
 The other workflows are `ci.yml` (build, check, tests) and `npm-audit.yml` (scheduled audit).
 

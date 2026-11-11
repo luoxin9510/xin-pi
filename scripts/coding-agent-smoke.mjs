@@ -33,7 +33,9 @@ assert.equal(typeof SessionManager.inMemory, "function");
 assert.equal(typeof ModelRuntime.create, "function");
 `);
 		execFileSync(runtime, [entry], { cwd: directory, env, stdio: ["inherit", "pipe", "pipe"], timeout: 30_000 });
-		for (const cli of new Set([manifest.bin.xpi, "dist/cli.js"])) {
+		// The bin is the bundle. The unbundled dist/cli.js needs the xpi-* workspace packages, which the published
+		// package does not carry (scripts/coding-agent-publish.mjs), so it is not a CLI users can run.
+		for (const cli of [manifest.bin.xpi]) {
 			const output = execFileSync(runtime, [join(packageDir, cli), "--version"], {
 				cwd: directory,
 				encoding: "utf8",

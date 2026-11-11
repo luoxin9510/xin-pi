@@ -23,6 +23,12 @@ function createFixture(t, { importUndeclared = false } = {}) {
 	const repoRoot = join(root, "repo");
 	mkdirSync(repoRoot, { recursive: true });
 	writeFileSync(join(repoRoot, "package.json"), '{"name":"fixture","private":true}\n');
+	// The published root entry is the bundle (scripts/coding-agent-publish.mjs), so the SDK code under test is there.
+	const sdk = `${importUndeclared ? 'import "@example/undeclared";' : ""}
+export function createAgentSession() {}
+export class SessionManager { static inMemory() {} }
+export class ModelRuntime { static create() {} }
+`;
 	writePackage(
 		join(repoRoot, "packages", codingAgentName),
 		{
@@ -36,11 +42,8 @@ function createFixture(t, { importUndeclared = false } = {}) {
 			bin: { xpi: "dist/bundle/cli.js" },
 		},
 		{
-			"dist/index.js": `${importUndeclared ? 'import "@example/undeclared";' : ""}
-export function createAgentSession() {}
-export class SessionManager { static inMemory() {} }
-export class ModelRuntime { static create() {} }
-`,
+			"dist/index.js": sdk,
+			"dist/bundle/index.js": sdk,
 			"dist/index.d.ts": "export {};\n",
 			"dist/cli.js": 'console.log("1.0.0");\n',
 			"dist/bundle/cli.js": 'console.log("1.0.0");\n',

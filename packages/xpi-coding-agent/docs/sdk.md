@@ -4,6 +4,8 @@
 
 Use the SDK for in-process TypeScript integration. For a language-independent or isolated subprocess, see [CLI Integration](cli-integration.md).
 
+Install it with `npm i xpi-coding-agent`. The package is self-contained: the library entry is a bundle and its type declarations include those of the internal packages, so nothing else from xpi is installed. Its declarations also name the types of provider SDKs (`openai`, `@anthropic-ai/sdk`, `@google/genai`) and `marked`, which are not installed; type-check with `skipLibCheck: true` (the `tsc --init` default), or add those packages as dev dependencies.
+
 ```typescript
 import { createAgentSession } from "xpi-coding-agent";
 

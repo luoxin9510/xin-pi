@@ -22,7 +22,7 @@ Options:
   --skip-check         Do not run npm run check before building
   --skip-test          Do not run ./test.sh after building
   --skip-install       Only create the artifact set; do not create isolated installs
-  --skip-bun-install   Do not create the isolated Bun install
+  --bun                Also build the standalone Bun binary and a Bun package install (needs bun on PATH)
   --help               Show this help
 `);
 }
@@ -72,7 +72,7 @@ const { values } = parseArgs({
 		force: { type: "boolean", default: false },
 		help: { type: "boolean", default: false },
 		out: { type: "string" },
-		"skip-bun-install": { type: "boolean", default: false },
+		bun: { type: "boolean", default: false },
 		"skip-check": { type: "boolean", default: false },
 		"skip-install": { type: "boolean", default: false },
 		"skip-test": { type: "boolean", default: false },
@@ -85,7 +85,7 @@ if (values.help) {
 const options = {
 	force: values.force,
 	outDir: values.out,
-	skipBunInstall: values["skip-bun-install"],
+	bun: values.bun,
 	skipCheck: values["skip-check"],
 	skipInstall: values["skip-install"],
 	skipTest: values["skip-test"],
@@ -113,7 +113,7 @@ if (!options.skipTest) execFileSync("bash", ["./test.sh"], { cwd: repoRoot, stdi
 
 let binaryPlatform;
 if (!options.skipInstall) {
-	binaryPlatform = buildBunBinaryRelease(binaryDirectory, outDir);
+	if (options.bun) binaryPlatform = buildBunBinaryRelease(binaryDirectory, outDir);
 	const validationRoot = mkdtempSync(join(tmpdir(), "pi-local-release-consumers-"));
 	try {
 		for (const pkg of artifactSet.packages) {
@@ -126,7 +126,7 @@ if (!options.skipInstall) {
 		}
 		createXpiShim(nodeInstallDirectory);
 
-		if (!options.skipBunInstall) {
+		if (options.bun) {
 			installConsumer({ artifactSet, directory: bunInstallDirectory, packageManager: "bun", packageNames: [codingAgentName] });
 			smokeTestCodingAgent(bunInstallDirectory, "bun");
 			createXpiShim(bunInstallDirectory);
@@ -141,19 +141,21 @@ console.log(`Manifest: ${artifactSet.manifestPath}`);
 console.log("\nTarballs:");
 for (const pkg of artifactSet.packages) console.log(`  ${pkg.tarballPath}`);
 
-if (!options.skipInstall) {
+if (!options.skipInstall && options.bun) {
 	console.log("\nLocal Bun binary release:");
 	console.log(`  ${binaryDirectory}`);
 	console.log(`  ${join(outDir, `xpi-${binaryPlatform}.${String(binaryPlatform).startsWith("windows-") ? "zip" : "tar.gz"}`)}`);
 	console.log("\nRun the local Bun binary release from outside the repository:");
 	console.log(`  ${join(binaryDirectory, String(binaryPlatform).startsWith("windows-") ? "xpi.exe" : "xpi")} --help`);
+}
 
+if (!options.skipInstall) {
 	console.log("\nIsolated npm install:");
 	console.log(`  ${nodeInstallDirectory}`);
 	console.log("\nRun the locally packed npm CLI from outside the repository:");
 	console.log(`  ${join(nodeInstallDirectory, process.platform === "win32" ? "xpi.cmd" : "xpi")} --help`);
 
-	if (!options.skipBunInstall) {
+	if (options.bun) {
 		console.log("\nIsolated Bun package install:");
 		console.log(`  ${bunInstallDirectory}`);
 		console.log("\nRun the locally packed Bun package CLI from outside the repository:");

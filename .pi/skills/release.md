@@ -24,12 +24,9 @@ Run repository commands from the repo root (two directories above this skill), u
    /tmp/xpi-local-release/node/xpi --version
    /tmp/xpi-local-release/node/xpi --list-models
    /tmp/xpi-local-release/node/xpi -p "Say exactly: ok"
-
-   /tmp/xpi-local-release/bun/xpi --help
-   /tmp/xpi-local-release/bun/xpi --version
-   /tmp/xpi-local-release/bun/xpi -p "Say exactly: ok"
    ```
-   The Bun binary build needs `bun` on PATH (`npx -y bun@1.4.4` works). For real prompts, use a temporary `XPI_CODING_AGENT_DIR` holding a copy of `auth.json`, never the real `~/.pi/agent`. Load [interactive-testing.md](interactive-testing.md) for the tmux workflow if the interactive mode needs a check.
+   It also imports the SDK from the isolated npm install. Only the Node build is tested locally; `--bun` adds the
+   standalone Bun binary and a Bun install (needs `bun` on PATH), which the release workflow builds anyway. For real prompts, use a temporary `XPI_CODING_AGENT_DIR` holding a copy of `auth.json`, never the real `~/.pi/agent`. Load [interactive-testing.md](interactive-testing.md) for the tmux workflow if the interactive mode needs a check.
 
 2. **Open the release PR** from an up-to-date main with a clean tree:
    ```bash
@@ -51,7 +48,8 @@ Run repository commands from the repo root (two directories above this skill), u
 
 5. **npm**: tell the owner the release is ready and give them the command; they run it themselves:
    ```bash
-   cd packages/xpi-coding-agent && npm publish --access public
+   npm run xpi:pack
+   npm publish ./dist-pack/xpi-coding-agent-X.Y.Z.tgz --access public
    ```
 
 6. **If the release workflow fails**: the tag cannot be moved. Read the failed job. A draft release left behind is deleted by the workflow. If the failure was transient, rerun the workflow (`gh run rerun <id> --failed`) or start it by hand with the tag (`gh workflow run release.yml -f tag=vX.Y.Z`). If the code was wrong, fix main and release the next patch version. A published release is never changed by the workflow.

@@ -51,7 +51,7 @@
 		"eval:delegation": "node --experimental-strip-types test/delegation/run.ts",
 		"generate:schemas": "node --import ./src/experimental/source-resolver.ts scripts/generate-schemas.ts",
 		"generate:references": "node --import ./src/experimental/source-resolver.ts scripts/generate-references.ts",
-		"prepublishOnly": "npm run clean && npm run build"
+		"prepublishOnly": "node ../../scripts/refuse-folder-publish.mjs"
 	},
 	"dependencies": {
 		"@silvia-odwyer/photon-node": "0.3.4",
