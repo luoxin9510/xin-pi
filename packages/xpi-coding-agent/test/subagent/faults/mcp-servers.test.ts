@@ -75,3 +75,18 @@ test("a name that is not configured warns and is left out", async () => {
 	assert.equal(r.tools, "codemode,read,mcp__docs__*");
 	assert.deepEqual(r.warnings, ['mcpServers: server "ghost" is not configured in mcp.json']);
 });
+
+test("a direct-tools agent without a tools list takes codemode out of the child's default tools", async () => {
+	const direct = await run("codemode: false");
+	assert.equal(direct.tools, "-codemode");
+	const codemodeOnly = await run("model: haiku");
+	assert.equal(codemodeOnly.tools, "+codemode");
+});
+
+test('childCodemode "inherit": a child without a tools list gets direct tools and no codemode', async () => {
+	const s = sandbox();
+	s.scenario({ lines: [ev.session(), ev.assistant("ok"), ev.turnEnd(), ev.settled()] });
+	const t = await loadTool({ childCodemode: "inherit" }, { cwd: s.repo });
+	await t.run({});
+	assert.equal(flag(s.record().argv, "--tools"), "-codemode");
+});

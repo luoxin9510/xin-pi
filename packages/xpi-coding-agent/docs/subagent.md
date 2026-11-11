@@ -55,8 +55,9 @@ Scans skip dot directories and `node_modules`, go at most 6 levels deep and read
 Definitions are re-read on every call, so edits apply at once. The agent list in the tool's description is built at
 session start: a new agent can be called right away but shows up in the description only after `/reload`.
 Invalid files are skipped with a warning: a notification in the TUI, a line on stderr in print mode, and the reason in
-the error of an `Agent` call for that agent. A top-level value that holds `: ` without quotes (`description: Use when: ...`)
-is not valid YAML; like Claude Code, xpi reads it as one string instead of skipping the file.
+the error of an `Agent` call for that agent. A top-level value on one line that holds `: ` without quotes (`description: Use when: ...`)
+is not valid YAML; like Claude Code, xpi reads it as one string instead of skipping the file. A value like that
+continued on indented lines is still invalid: quote it or use a `|` block.
 
 | Field | Handling |
 |---|---|

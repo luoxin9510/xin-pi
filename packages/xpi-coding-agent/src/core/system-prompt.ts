@@ -6,6 +6,7 @@ import { homedir } from "node:os";
 import { relative, resolve, sep } from "node:path";
 import { getSystemMessageText } from "xpi-ai";
 import { getDocsPath, getExamplesPath, getReadmePath } from "../config.ts";
+import { DEFAULT_TOOL_NAMES } from "./settings-manager.ts";
 import { formatSkillsForPrompt, type Skill } from "./skills.ts";
 
 export interface BuildSystemPromptOptions {
@@ -78,7 +79,7 @@ export function normalizeBuildSystemPromptOptions(input: BuildSystemPromptOption
 	return {
 		customPrompt: input.customPrompt,
 		forceSystemPrompt: input.forceSystemPrompt,
-		selectedTools: [...(input.selectedTools ?? ["read", "bash", "edit", "write"])],
+		selectedTools: [...(input.selectedTools ?? DEFAULT_TOOL_NAMES)],
 		hiddenTools: [...(input.hiddenTools ?? [])],
 		toolSnippets: { ...(input.toolSnippets ?? {}) },
 		toolGuidelines: Object.fromEntries(

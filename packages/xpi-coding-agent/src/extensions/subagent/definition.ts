@@ -102,9 +102,12 @@ function quotePlainValues(yaml: string): string {
 		.map((line) => {
 			const match = /^([A-Za-z_][\w-]*):[ \t]+(.+?)[ \t]*$/.exec(line);
 			if (!match) return line;
-			const value = match[2];
+			// A " #" starts a YAML comment, which stays a comment.
+			const hash = match[2].search(/[ \t]#/);
+			const value = hash === -1 ? match[2] : match[2].slice(0, hash).trimEnd();
+			const comment = hash === -1 ? "" : match[2].slice(hash);
 			if (!value.includes(": ") || /^["'[{|>&*!]/.test(value)) return line;
-			return `${match[1]}: ${JSON.stringify(value)}`;
+			return `${match[1]}: ${JSON.stringify(value)}${comment}`;
 		})
 		.join("\n");
 }

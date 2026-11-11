@@ -235,10 +235,9 @@ function resolveTools(
 		// A --tools list does not drop MCP tools unless an entry starts with mcp__; an agent must not get unlisted ones.
 		if (!allow.some((t) => t.startsWith("mcp__"))) deny.push("mcp__*");
 	} else {
-		if (codemode || structured) {
-			const added = [...(codemode ? ["codemode"] : []), ...(structured ? [STRUCTURED_OUTPUT_TOOL] : [])];
-			args.push("--tools", added.map((t) => `+${t}`).join(","));
-		}
+		// Changes the child's default tools: codemode is one of them, so a child on direct tools takes it away.
+		const changes = [codemode ? "+codemode" : "-codemode", ...(structured ? [`+${STRUCTURED_OUTPUT_TOOL}`] : [])];
+		args.push("--tools", changes.join(","));
 		// No tool list to add to: the servers it does not name are taken away instead (all of MCP when it names none).
 		if (servers !== undefined) deny.push(...(servers.length === 0 ? ["mcp__*"] : otherServers.map(serverTools)));
 	}

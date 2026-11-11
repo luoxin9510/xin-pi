@@ -9,6 +9,7 @@ import { DefaultResourceLoader } from "../src/core/resource-loader.ts";
 import { type CreateAgentSessionOptions, createAgentSession, type InlineExtension } from "../src/core/sdk.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
+import { createCodemodeExtension } from "../src/extensions/codemode/index.ts";
 
 type ToolOptions = Pick<CreateAgentSessionOptions, "tools" | "excludeTools" | "noTools" | "customTools">;
 
@@ -472,5 +473,45 @@ describe("defaultTools setting", () => {
 		).toEqual(["bash", "edit", "find", "grep", "ls", "powershell", "read", "write"]);
 		expect(session.getActiveToolNames()).toEqual(["ls"]);
 		session.dispose();
+	});
+
+	describe("codemode is a default tool", () => {
+		async function withCodemode(settings: { defaultTools?: string[] }, options: ToolOptions = {}) {
+			const settingsManager = SettingsManager.inMemory(settings);
+			const resourceLoader = new DefaultResourceLoader({
+				cwd: tempDir,
+				agentDir,
+				settingsManager,
+				extensionFactories: [createCodemodeExtension()],
+			});
+			await resourceLoader.reload();
+			const { session } = await createAgentSession({
+				cwd: tempDir,
+				agentDir,
+				model: getModel("anthropic", "claude-sonnet-4-5")!,
+				settingsManager,
+				sessionManager: SessionManager.inMemory(tempDir),
+				resourceLoader,
+				...options,
+			});
+			const names = session.getActiveToolNames();
+			session.dispose();
+			return names;
+		}
+
+		it("is active without any tool setting", async () => {
+			expect(await withCodemode({})).toEqual(["read", "bash", "edit", "write", "codemode"]);
+		});
+
+		it('"-codemode" in defaultTools or in --tools turns it off and keeps the rest', async () => {
+			expect(await withCodemode({ defaultTools: ["-codemode"] })).toEqual(["read", "bash", "edit", "write"]);
+			expect(await withCodemode({}, { tools: ["-codemode"] })).toEqual(["read", "bash", "edit", "write"]);
+		});
+
+		it("a plain tool list and --no-builtin-tools leave it out unless named", async () => {
+			expect(await withCodemode({}, { tools: ["read", "bash"] })).toEqual(["read", "bash"]);
+			expect(await withCodemode({}, { noTools: "builtin" })).toEqual([]);
+			expect(await withCodemode({}, { tools: ["read", "codemode"] })).toEqual(["read", "codemode"]);
+		});
 	});
 });
