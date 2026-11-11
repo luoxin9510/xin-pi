@@ -8,7 +8,7 @@ and runs `git commit` with the accepted text.
 
 **Blocked by:** None (can start immediately)
 
-**Status:** in review
+**Status:** done (PR #42, merged 2026-11-11)
 
 - [x] `src/extensions/commit/`, registered with the other built-in extensions; can be turned off like them
 - [x] Staged diff only; with nothing staged, `ui.confirm` to stage tracked changes (`git add -u`); untracked never
