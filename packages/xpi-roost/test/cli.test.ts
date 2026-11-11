@@ -101,7 +101,7 @@ async function shellSession(name: string, script: string): Promise<string> {
 }
 
 describe("xpi roost", () => {
-	it("help, an unknown command, the hub that is not there yet", async () => {
+	it("help, an unknown command, the hub (xpi's, or not available)", async () => {
 		const help = await roost("--help");
 		expect(help.code).toBe(0);
 		expect(help.out).toContain("xpi roost ls [--all] [--cwd <dir>] [--json]");
@@ -110,9 +110,24 @@ describe("xpi roost", () => {
 		const bad = await roost("frobnicate");
 		expect(bad.code).toBe(2);
 		expect(bad.err).toContain("xpi roost: unknown command: frobnicate");
+		expect(help.out).toContain("xpi roost hub [dir]");
 		const hub = await roost("hub");
 		expect(hub.code).toBe(1);
-		expect(hub.err).toContain("not in this version of xpi yet");
+		expect(hub.err).toContain("the hub is not available here");
+		// xpi supplies the hub: it gets the arguments after "hub"
+		const seen: string[][] = [];
+		const code = await runRoostCli(["hub", "some/dir"], {
+			start: { agentDir, daemonEntry: DAEMON, hostEntry: HOST },
+			isDetachKey: () => false,
+			detachKeyName: "ctrl+z",
+			ptyHint: "",
+			hub: async (args) => {
+				seen.push(args);
+				return 0;
+			},
+		});
+		expect(code).toBe(0);
+		expect(seen).toEqual([["some/dir"]]);
 		expect((await roost("ls", "--bogus")).code).toBe(2);
 		expect((await roost("reply")).code).toBe(2);
 	});

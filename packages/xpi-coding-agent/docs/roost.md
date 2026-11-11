@@ -30,13 +30,14 @@ and how to reach it:
 
 ```
 backgrounded · 3f9c2a1e · run the tests and fix what fails
-  xpi roost attach 3f9c2a1e   open it (the app.suspend key detaches)
+  xpi roost attach 3f9c2a1e   open it (ctrl+z detaches)
   xpi roost logs 3f9c2a1e     its screen
   xpi roost stop 3f9c2a1e     stop it
   xpi roost ls --json         list all
 ```
 
-The name defaults to the first six words of the task; `--bg-name` sets it. The session runs the same xpi with the
+The detach key shown is the one bound to `app.suspend` in your keybindings (`ctrl+z` by default; the action is named
+when nothing is bound). The name defaults to the first six words of the task; `--bg-name` sets it. The session runs the same xpi with the
 flags that choose its extensions and model (`-e`, `--no-extensions`, `--model`, `--provider`, `--thinking`,
 `--session-dir`, `--offline`). `xpi --session <file> --bg "<task>"` continues that session in the background.
 

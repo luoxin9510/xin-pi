@@ -11,6 +11,7 @@ import { type DetachKeyMatcher, runRoostCli } from "xpi-roost";
 import { isKeyRelease } from "xpi-tui";
 import { getRoostEntries } from "../../config.ts";
 import { KeybindingsManager } from "../../core/keybindings.ts";
+import { loadHubMain } from "./hub.lazy.ts";
 import { BINARY_MESSAGE, PTY_HINT, ptyInstalled, roostUnavailable } from "./messages.ts";
 
 export { BINARY_MESSAGE, PTY_HINT, ptyInstalled, roostUnavailable, WINDOWS_MESSAGE } from "./messages.ts";
@@ -47,5 +48,9 @@ export async function runRoostCommand(
 		detachKeyName: detachKeys.join(" or ") || "app.suspend",
 		ptyHint: PTY_HINT,
 		ptyInstalled: (options.ptyInstalled ?? ptyInstalled)(),
+		hub: async (rest) => {
+			const { runHub } = await loadHubMain();
+			return runHub(rest, { cwd: process.cwd(), agentDir: options.agentDir });
+		},
 	});
 }

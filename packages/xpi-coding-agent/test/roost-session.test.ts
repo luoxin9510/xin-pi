@@ -191,17 +191,24 @@ describe("an ordinary start", () => {
 		}
 	});
 
-	it("its static imports reach no daemon client: only xpi-roost/session and the messages (the rest is loaded lazily)", () => {
+	it("its static imports reach no daemon client or hub: xpi-roost/session, the foreground role, the loaders and the messages (the rest is loaded lazily)", () => {
 		const imports = (file: string) =>
 			[
 				...readFileSync(resolve(__dirname, "../src/extensions/roost", file), "utf8").matchAll(
 					/^import\s+(?!type\b)[^"']*["']([^"']+)["']/gm,
 				),
 			].map((m) => m[1]!);
-		expect(imports("index.ts").filter((i) => i.includes("roost") || i.startsWith("./"))).toEqual([
+		const local = (file: string) => imports(file).filter((i) => i.includes("roost") || i.startsWith("./"));
+		expect(local("index.ts")).toEqual(["xpi-roost/session", "./foreground.ts", "./hub.lazy.ts", "./messages.ts"]);
+		// every foreground session loads the foreground role: the client, the launch builder and the hub wait for use
+		expect(local("foreground.ts")).toEqual([
 			"xpi-roost/session",
+			"./hub.lazy.ts",
 			"./messages.ts",
+			"./view-state.ts",
 		]);
+		expect(imports("hub.lazy.ts")).toEqual([]);
+		expect(imports("view-state.ts")).toEqual([]);
 		expect(imports("messages.ts")).toEqual(["node:module"]);
 	});
 
@@ -288,6 +295,10 @@ describe("--bg", () => {
 		expect(text).toContain("xpi roost attach abcd0001");
 		expect(text).toContain("xpi roost ls --json");
 		expect(text).toContain("note: a note");
+		// the detach key is the one the user bound to app.suspend, the action named only when none is
+		expect(text).toContain("(the app.suspend key detaches)");
+		expect(backgroundedText("abcd0001", "x", [], ["ctrl+z"])).toContain("open it (ctrl+z detaches)");
+		expect(backgroundedText("abcd0001", "x", [], ["ctrl+z", "f12"])).toContain("(ctrl+z or f12 detaches)");
 		expect(chosenOnCommandLine(["--model", "a/b", "--bg", "x"])).toEqual({ model: true, thinking: false });
 		expect(chosenOnCommandLine(["--thinking=high"])).toEqual({ model: false, thinking: true });
 		expect(chosenOnCommandLine(["--bg", "use --model in docs"])).toEqual({ model: false, thinking: false });

@@ -5,6 +5,8 @@
 import { readJobEnv } from "./lib/identity.ts";
 
 export { acquireWriterLock, readWriterLock, releaseWriterLock } from "./lib/locks.ts";
+// the hand-off sessions `/bg` passes through: never locked, never handed over
+export { isScratchSession, scratchDir } from "./lib/paths.ts";
 
 const SEEN = Symbol.for("xpi-roost.job-session");
 

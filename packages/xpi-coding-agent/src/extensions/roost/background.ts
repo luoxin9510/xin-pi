@@ -8,15 +8,20 @@
 import { buildLaunch, DaemonClient, fallbackName, ROOST_VERSION, requestOnce } from "xpi-roost";
 import { getAgentDir, getRoostEntries, VERSION } from "../../config.ts";
 import type { ExtensionAPI, ExtensionContext } from "../../core/extensions/types.ts";
+import { KeybindingsManager } from "../../core/keybindings.ts";
 import { BINARY_MESSAGE } from "./messages.ts";
 import { launchSettings } from "./settings.ts";
 
-/** What `xpi --bg` prints once it has exited (anything written while the TUI is up is drawn over). */
-export function backgroundedText(id: string, name: string, notes: string[] = []): string {
+/**
+ * What `xpi --bg` prints once it has exited (anything written while the TUI is up is drawn over). `detachKeys`: the
+ * keys bound to app.suspend (attach's detach key); with none bound, the action is named.
+ */
+export function backgroundedText(id: string, name: string, notes: string[] = [], detachKeys: string[] = []): string {
+	const detach = detachKeys.length > 0 ? detachKeys.join(" or ") : "the app.suspend key";
 	return [
 		`backgrounded · ${id} · ${name}`,
 		...notes.map((n) => `  note: ${n}`),
-		`  xpi roost attach ${id}   open it (the app.suspend key detaches)`,
+		`  xpi roost attach ${id}   open it (${detach} detaches)`,
 		`  xpi roost logs ${id}     its screen`,
 		`  xpi roost stop ${id}     stop it`,
 		`  xpi roost ls --json${" ".repeat(Math.max(1, id.length - 4))}     list all`,
@@ -109,7 +114,8 @@ export async function backgroundAndExit(
 		} catch {
 			// the session is started; the notes are a courtesy
 		}
-		atExit(() => process.stdout.write(backgroundedText(id, finalName, notes)));
+		const detachKeys = KeybindingsManager.create(agentDir).getKeys("app.suspend");
+		atExit(() => process.stdout.write(backgroundedText(id, finalName, notes, detachKeys)));
 		ctx.shutdown();
 	} catch (err) {
 		fail((err as Error).message);

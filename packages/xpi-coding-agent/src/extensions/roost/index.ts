@@ -7,14 +7,19 @@
  * - `xpi --bg "<task>"` (`--bg-name`): hands the task to the daemon as a new session and exits (`background.ts`,
  *   loaded only then).
  * - A session the daemon started (the host gave it a job's identity): the worker role (`worker.ts`, loaded only then).
+ * - Every other session: the foreground role (`foreground.ts`): `/bg`, `/background`, `/bg-fork` and the left arrow
+ *   on an empty prompt.
+ * - Both: `/agents`, the hub (`open-view.ts`, loaded when it opens).
  *
- * Nothing in a subagent child. The hub, `/agents`, `/bg` and `/bg-fork` are not here yet.
+ * Nothing in a subagent child. xpi-roost's client and the hub load only when used (`hub.lazy.ts`).
  */
 
-import { acquireWriterLock, isRoostSession, releaseWriterLock } from "xpi-roost/session";
+import { acquireWriterLock, isRoostSession, isScratchSession, releaseWriterLock } from "xpi-roost/session";
 import { parseArgs } from "../../cli/args.ts";
-import { getRoostEntries } from "../../config.ts";
+import { getAgentDir, getRoostEntries } from "../../config.ts";
 import type { ExtensionAPI, ExtensionContext } from "../../core/extensions/types.ts";
+import { hubContext, registerForeground } from "./foreground.ts";
+import { loadOpenView } from "./hub.lazy.ts";
 import { NO_PTY_MESSAGE, ptyInstalled, roostUnavailable } from "./messages.ts";
 
 /**
@@ -71,11 +76,22 @@ export default async function roost(pi: ExtensionAPI): Promise<void> {
 
 	registerWriteLock(pi);
 
+	// T17: the hub, in any session (a session the daemon runs reaches the daemon that runs it)
+	pi.registerCommand("agents", {
+		description: "Background sessions: start, peek, reply, attach (the hub)",
+		handler: async (_args, ctx) => {
+			const problem = roostUnavailable({ platform: process.platform, entries: getRoostEntries() });
+			if (problem) return ctx.ui.notify(problem, "error");
+			const { openAgentView } = await loadOpenView();
+			await openAgentView(ctx, hubContext(pi));
+		},
+	});
+
 	// A session the daemon runs: report, take replies, detach instead of ending.
 	if (isRoostSession()) {
 		const { registerWorker } = await import("./worker.ts");
 		registerWorker(pi);
-	}
+	} else registerForeground(pi);
 }
 
 /**
@@ -99,6 +115,8 @@ export function registerWriteLock(pi: ExtensionAPI, platform: NodeJS.Platform = 
 		if (platform === "win32") return;
 		const file = ctx.sessionManager.getSessionFile();
 		if (!file) return; // --no-session
+		// /bg passes through a hand-off session that is never written: nothing to lock
+		if (isScratchSession(file, getAgentDir())) return;
 		let result: ReturnType<typeof acquireWriterLock>;
 		try {
 			result = acquireWriterLock(file);
