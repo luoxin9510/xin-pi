@@ -11,8 +11,8 @@
  *     and pushes only that tag. The tag starts .github/workflows/release.yml, which builds the binaries and
  *     publishes the GitHub Release.
  *
- * npm is not published by either step or by CI: the owner runs `npm publish` by hand (2FA); the tag step prints
- * the command.
+ * npm is not published by either step or by CI: the owner publishes the self-contained tarball by hand (2FA); the tag
+ * step prints the commands.
  */
 
 import { execFileSync } from "node:child_process";
@@ -193,8 +193,9 @@ Pushed ${tagName}. The release workflow builds the binaries and publishes the Gi
   gh run list --repo ${repo} --workflow release.yml
   https://github.com/${repo}/releases/tag/${tagName}
 
-npm is published by hand (needs 2FA):
-  cd packages/xpi-coding-agent && npm publish --access public`);
+npm is published by hand (needs 2FA), from the repository root:
+  npm run xpi:pack
+  npm publish ./dist-pack/xpi-coding-agent-${version}.tgz --access public`);
 }
 
 const [command, target] = process.argv.slice(2);

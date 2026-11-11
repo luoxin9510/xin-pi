@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, w
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { getPublicWorkspacePackages } from "./release-packages.mjs";
+import { codingAgentPackageName, packCodingAgent } from "./coding-agent-publish.mjs";
 import { execNpmSync } from "./npm-command.mjs";
 
 const manifestSchemaVersion = 1;
@@ -25,12 +26,17 @@ function packPackages(packages, tarballDirectory) {
 	for (const pkg of packages) {
 		const packageJson = JSON.parse(readFileSync(join(pkg.directory, "package.json"), "utf8"));
 		if (packageJson.name !== pkg.name) throw new Error(`Unexpected package name in ${pkg.directory}`);
-		const output = execNpmSync(["pack", "--ignore-scripts", "--json", "--pack-destination", tarballDirectory], {
-			cwd: pkg.directory,
-			encoding: "utf8",
-			stdio: ["inherit", "pipe", "inherit"],
-		});
-		const parsed = JSON.parse(output);
+		// The coding agent is packed as it is published: self-contained (scripts/coding-agent-publish.mjs).
+		const parsed =
+			pkg.name === codingAgentPackageName
+				? [packCodingAgent({ packageDir: pkg.directory, packagesDir: dirname(pkg.directory), destination: tarballDirectory })]
+				: JSON.parse(
+						execNpmSync(["pack", "--ignore-scripts", "--json", "--pack-destination", tarballDirectory], {
+							cwd: pkg.directory,
+							encoding: "utf8",
+							stdio: ["inherit", "pipe", "inherit"],
+						}),
+					);
 		const packed = Array.isArray(parsed) ? (parsed.length === 1 ? parsed[0] : undefined) : parsed?.[pkg.name];
 		if (packed?.name !== pkg.name || typeof packed.filename !== "string") {
 			throw new Error(`npm pack returned an unexpected result for ${pkg.name}`);

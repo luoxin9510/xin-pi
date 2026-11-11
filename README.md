@@ -153,7 +153,7 @@ We treat npm dependency changes as reviewed code changes.
 - `package-lock.json` is the dependency ground truth. Pre-commit blocks accidental lockfile commits unless `PI_ALLOW_LOCKFILE_CHANGE=1` is set.
 - `npm run check` verifies pinned direct deps, native TypeScript import compatibility, and the generated coding-agent install lock.
 - The upstream installer installed from `packages/xpi-coding-agent/install-lock/`, generated from the root lockfile, to pin transitive deps. The npm package does not pin transitive deps.
-- Local release smoke tests (`npm run release:local`) build and pack with the same scripts the release workflow uses. npm is published by hand from `packages/xpi-coding-agent`, whose `prepublishOnly` rebuilds the bundle first.
+- Local release smoke tests (`npm run release:local`) build and pack with the same scripts the release workflow uses. npm is published by hand from the self-contained tarball `npm run xpi:pack` writes; publishing the package folder directly is refused.
 - Local release installs and the documented npm install use `--ignore-scripts`. xpi does not update itself.
 - CI installs with `npm ci --ignore-scripts`, and a scheduled GitHub workflow runs `npm audit --omit=dev` plus `npm audit signatures --omit=dev`.
 - Install lock generation has an explicit allowlist for dependency lifecycle scripts; new lifecycle-script deps fail checks until reviewed.
