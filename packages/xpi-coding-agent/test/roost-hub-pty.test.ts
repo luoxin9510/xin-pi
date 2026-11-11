@@ -94,7 +94,8 @@ afterEach(async () => {
 		process.env.ROOST_HOME = join(agentDir, "xpi-roost");
 		client = await DaemonClient.connect();
 		const status = await client.request("status", {});
-		// the daemon, its hosts and their sessions: each may still write into the agent directory as it ends
+		// the daemon, its hosts and their sessions: the daemon waits for its hosts at most 6 s and then exits, so a host
+		// and its session may still write into the agent directory as they end
 		const pids = [status.pid, ...sessionPids(join(agentDir, "xpi-roost", "jobs"))];
 		await client.request("shutdown", {});
 		const alive = (pid: number) => {
@@ -122,12 +123,19 @@ afterEach(async () => {
 	rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 }, 30_000);
 
-/** The host and session pids the jobs' state files name. */
+/**
+ * The host and session pids of the jobs still running. An ended job's files keep pids the system may since have given
+ * to another process, so those are left out.
+ */
 function sessionPids(jobs: string): number[] {
 	const pids: number[] = [];
 	for (const id of existsSync(jobs) ? readdirSync(jobs) : []) {
 		try {
-			const st = JSON.parse(readFileSync(join(jobs, id, "state.json"), "utf8")) as { hostPid?: unknown };
+			const st = JSON.parse(readFileSync(join(jobs, id, "state.json"), "utf8")) as {
+				hostPid?: unknown;
+				endedAt?: unknown;
+			};
+			if (typeof st.endedAt === "number") continue;
 			if (typeof st.hostPid === "number") pids.push(st.hostPid);
 		} catch {
 			// no state yet
