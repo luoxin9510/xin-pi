@@ -301,10 +301,25 @@ Notes (PR 4):
 
 ## PR 5: docs and release (branch `roost-docs`)
 
-- [ ] T20 `roost.md` complete; README files; `docs/xin-pi.md`; `packages/xpi-roost/docs/porting.md` cut to phase 1;
+- [x] T20 `roost.md` complete; README files; `docs/xin-pi.md`; `packages/xpi-roost/docs/porting.md` cut to phase 1;
       the inventory updated; what was left out and by which decision
 - [ ] T21 pi-roost: the README notice merged; the repository archived when the owner says so
 - [ ] Release (patch or minor, by what changed for users), Node smoke test including `xpi roost`
+
+Notes (PR 5):
+
+- T20: `porting.md` is pi-roost's Chinese `docs/porting.md` (v0.1.21) rewritten in English for phase 1, checked against
+  the code on main: the architecture, what the host agent must have, what to copy and rewrite, the eight steps phase 1
+  keeps (M1 to M8 with M20 to M28, M36, M48, M51, M53, M61, M79), the settings, constants, build, tests, known limits,
+  and "Left out of phase 1": every cut feature with the spec's decision and the Grill item of `decisions.md`. Its op
+  appendix is `protocol.md`. `roost.md` checked line by line against the code; corrected: `xpi roost ls` lists pinned
+  sessions first, `respawn` also restarts a running session (and `--all`), the state files (`roster.json` is the
+  running hosts, not the list's order), the version warning comes from `xpi roost` and `xpi --bg` (the hub does not
+  give one), node-pty's absence is also said by `/bg`, `/bg-fork` and an attach that starts a session, `/bg` on an
+  idle conversation; added: the hub's movement keys, folding, Tab, Ctrl+J, Shift+Ctrl+P, the peek's 1 to 9, closing an
+  overlay, `/exit`, a section on how sessions end (DM-5 restarts, shell rows, a machine restart), and "Not in this
+  version" in place of "Not there yet". The inventory's "later" class is gone (`fixtures/ask-extension.ts` is cut:
+  only pi-roost's manual M2 check used it) and it gains a Docs section. No code changed.
 
 ## After phase 1
 

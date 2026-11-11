@@ -70,13 +70,13 @@ session file. It does not start the daemon's session when roost cannot run here;
 
 | Command | What it does |
 |---|---|
-| `xpi roost ls [--all] [--cwd <dir>] [--json]` | List sessions: waiting first, then working, then ended ones (`--all` includes those ended over 48 hours ago) |
+| `xpi roost ls [--all] [--cwd <dir>] [--json]` | List sessions: pinned first, then waiting, working and ended ones (`--all` includes those ended over 48 hours ago; `--cwd` one directory's; `--json` for programs) |
 | `xpi roost logs <id\|name>` | Print the session's screen |
 | `xpi roost log [-n <count>] [--follow] [<id\|name>]` | What happened lately: started, finished, waiting, replied, stopped |
 | `xpi roost reply <id\|name> <text>` | Send a reply. A working session gets it as a follow-up once its turn ends; an idle one starts a turn |
 | `xpi roost attach <id\|name>` | Open the session's TUI in this terminal |
 | `xpi roost stop <id\|name>` / `rm <id\|name>` | Stop it; `rm` also deletes its record |
-| `xpi roost respawn <id\|name>` | Start an ended session again |
+| `xpi roost respawn <id\|name>` | Start an ended session again, or restart a running one; `--all` restarts every running and reaped one |
 
 A session is named by its id, a unique prefix of it, or its name. The full list, with the daemon's own commands, is in
 [CLI](cli.md#background-session-commands).
@@ -111,6 +111,14 @@ question asked. It is not part of the model's context.
 In fullscreen xpi, scrolling a session's transcript to its top loads the conversation from before its latest
 compaction, a few messages at a time.
 
+## When a session ends
+
+A session ends when its xpi exits or is stopped; its row stays, as done, failed or stopped, until you delete it (or
+`cleanupDays` after it ended). A session whose xpi crashes while it works is restarted on its own, with "Continue where
+you left off.", up to three times in a row. A shell command's row goes away five minutes after the command ends. When
+the machine restarts, or a session's host process dies, the session ends and does not resume on its own: reply to it,
+attach, or `xpi roost respawn` it to start it again from its session file.
+
 ## The hub
 
 The hub lists the sessions the daemon runs and lets you start, watch, answer and open them. `/agents` opens it in a
@@ -130,11 +138,13 @@ it is doing or its last result, its model and context use, what it spent, and it
 
 | Key | What it does |
 |---|---|
+| ↑ ↓, PgUp PgDn, Home End | Move through the list |
 | type, Enter | Start the typed task as a new session in the hub's directory (`@dir task`: in that directory; `! command`: a shell command as a session) |
 | Ctrl+Enter | Start the typed task and attach to it |
-| Enter or → | Attach to the selected session (its own TUI); the [detach keys](#attach-and-detach) bring you back |
+| Enter or → | Attach to the selected session (its own TUI); the [detach keys](#attach-and-detach) bring you back. Enter on a group header folds the group |
 | Space | Peek: its task, directory, state, model, cost, queued replies and the end of its transcript, with a reply box |
 | in a peek: Enter / Alt+Enter | Send the reply: it joins the current work (as in xpi), or waits for it to end |
+| in a peek: 1…9 | On an empty reply, fill in the session's numbered choice |
 | in a peek: `/…` | Act on that session: `/stop`, `/respawn`, `/rm`, `/pin`, `/rename`, `/attach`, `/model`, `/thinking`, `/name`, `/compact`, `/continue`, `/log`, `/transcript`, the session's own commands, and xpi's (see below) |
 | Ctrl+X | Stop; again within 2 s deletes (on a group header: the group) |
 | Ctrl+T, Ctrl+R | Pin or unpin (pinned sessions are never stopped for being idle), rename |
@@ -143,10 +153,11 @@ it is doing or its last result, its model and context use, what it spent, and it
 | Alt+1…9 | Attach to row N of this directory |
 | Ctrl+S | Group by state or by directory (saved to your settings; the hub says when it cannot write them) |
 | Ctrl+F, `s:` `n:` `o:` | Filter by name, state or result |
-| Ctrl+L, Ctrl+P, Shift+Tab | The model for new sessions (in a peek: for that session), the next enabled model, the next thinking level |
-| Ctrl+G | Write the task or reply in `$VISUAL` / `$EDITOR` |
+| Ctrl+L, Ctrl+P, Shift+Tab | The model for new sessions (in a peek: for that session), the next enabled model (Shift+Ctrl+P: the previous one), the next thinking level |
+| Tab | Complete: `/` the commands, `@` paths |
+| Ctrl+G, Ctrl+J | Write the task or reply in `$VISUAL` / `$EDITOR`; a new line |
 | ? | All keys |
-| Esc, Ctrl+C twice | Close the peek, clear the input, unmark, then leave the hub (sessions keep running) |
+| Esc, Ctrl+C twice | Close the peek, clear the input, unmark, then leave the hub (sessions keep running); Esc, Ctrl+C or `q` closes an overlay |
 
 The hub's own commands, typed in the input:
 
@@ -157,6 +168,7 @@ The hub's own commands, typed in the input:
 | `/resume` | Open a past session in the background (xpi's session list: search, this directory or all) |
 | `/usage` | What the sessions spent: today, in all, by model and by session |
 | `/log` | What happened lately: starts, questions, results, replies, newest first |
+| `/exit` | Leave the hub (also `/quit`) |
 
 xpi's own commands typed in a peek run in that session's xpi: those that show something (`/session`, `/export`,
 `/hotkeys`, ...) show its screen in the hub; those that open a picker (`/tree`, `/settings`, `/resume`, ...) attach
@@ -173,8 +185,9 @@ The hub uses your keybindings for the detach key only; its other keys are fixed 
 | `/bg-fork [prompt]` | Copy this conversation into a new background session; this one carries on |
 | the left arrow on an empty prompt | `/bg`; with no saved conversation yet, it just opens the hub |
 
-`/bg` waits up to ten seconds for a running tool to finish (the left arrow again skips the wait), interrupts the turn,
-and the session continues in the background with "Continue where you left off." and your prompt. It leaves the
+When a turn is running, `/bg` waits up to ten seconds for a running tool to finish (the left arrow again skips the
+wait), interrupts the turn, and the session continues in the background with "Continue where you left off." and your
+prompt; an idle conversation starts there with your prompt, if you gave one. It leaves the
 session file first, so only the daemon's session writes to it. When the daemon refuses, or its answer is lost and its
 list shows nothing running on the file, you are back in the conversation. When neither the answer nor the list comes,
 `/bg` does not go back (a session may run on the file): it says so, and `/agents` shows whether it does. In the hub
@@ -204,8 +217,8 @@ The `roost` block of `settings.json` (see [Settings](settings.md#background-sess
 | `envAllowList` | `[]` | variables carried even when `inheritEnv` is off or `envDenyList` names them |
 | `envDenyList` | `[]` | variables never carried; `"PREFIX*"` names a prefix |
 | `workspaceEnv` | `"shell"` | the session directory's own environment on top: what its shell's cd hooks set (direnv, mise, fnm), `"direnv"` only, or `"off"` |
-| `reapIdleMinutes` | `60` | a session idle, not attached and not pinned this long is stopped; it starts again on attach or reply |
-| `cleanupDays` | `30` | records of sessions that ended this many days ago are removed (`0` keeps them) |
+| `reapIdleMinutes` | `60` | a session idle, not attached and not pinned this long is stopped; it starts again on attach or reply (your settings only) |
+| `cleanupDays` | `30` | records of sessions that ended this many days ago are removed (`0` keeps them; your settings only) |
 
 The environment keys are read from your own settings only: a project's `.pi/settings.json` cannot choose which of your
 environment reaches its sessions. Whatever the lists say, a session gets the variables that say where its roost is,
@@ -214,7 +227,8 @@ so `xpi roost` inside it reaches the same daemon.
 ## Where things are
 
 - **State**: `<agent dir>/xpi-roost/`: one directory per session in `jobs/` (its record, its state, its last screen,
-  its command list), the order of the list, the event log and the daemon's log. The agent directory is `~/.pi/agent` unless `XPI_CODING_AGENT_DIR` says
+  its command list), the running hosts (`roster.json`), the event log (`events.jsonl`) and the daemon's log
+  (`daemon.log`). The agent directory is `~/.pi/agent` unless `XPI_CODING_AGENT_DIR` says
   otherwise.
 - **Sockets**: `$XDG_RUNTIME_DIR/xpi-roost-<key>` or `/tmp/xpi-roost-<uid>/<key>`, one per agent directory.
 - **One daemon per agent directory**. It starts on demand with the first command that needs it and stops with
@@ -230,11 +244,18 @@ starts a session on a file another xpi has open.
 - **The npm installation of xpi** (`npm install -g xpi-coding-agent`). A standalone binary has no Node runtime for the
   daemon and says so.
 - **node-pty**, an optional dependency installed with xpi. On Linux it compiles during the install and needs python3,
-  make and a C++ compiler. Without it `--bg` and `xpi roost respawn` say how to reinstall it.
+  make and a C++ compiler. Without it `--bg`, `/bg`, `/bg-fork`, `xpi roost respawn` and attaching to a session that
+  is not running say how to reinstall it.
 
 After an upgrade, a running daemon still has the old code: run `xpi roost daemon stop --keep-workers`, then
-`xpi roost respawn --all`. Every command says so when the versions differ.
+`xpi roost respawn --all`. `xpi roost` and `xpi --bg` say so when the versions differ.
 
-## Not there yet
+## Not in this version
 
-- Sessions resuming on their own after an interruption, schedules, and messages between sessions.
+Background sessions came from pi-roost; this version has its daemon, `xpi roost`, the hub and the session side. Not
+here: sessions resuming on their own after an interruption and schedules (planned next); messages between sessions and
+watches (with agent teams, later); subagents in the hub (each session shows its own); the task board and workspaces,
+the concierge, worktree isolation, pull request status, fan-out and `/compare`, sessions from agent definitions,
+terminal agents other than xpi, the summary model, pi-mobile and telemetry. The list, with the decision behind each,
+is in [Left out of phase 1](../../xpi-roost/docs/porting.md#left-out-of-phase-1). pi-roost's state and `roost.json`
+are not read: its sessions do not appear here.
