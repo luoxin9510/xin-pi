@@ -6,6 +6,7 @@
  */
 
 import { buildLaunch, DaemonClient, fallbackName, ROOST_VERSION, requestOnce } from "xpi-roost";
+import { parseArgs } from "../../cli/args.ts";
 import { getAgentDir, getRoostEntries, VERSION } from "../../config.ts";
 import type { ExtensionAPI, ExtensionContext } from "../../core/extensions/types.ts";
 import { hasTrustRequiringProjectResources, ProjectTrustStore } from "../../core/trust-manager.ts";
@@ -126,9 +127,8 @@ export async function backgroundAndExit(
  * appear later. Only a decision somebody made is: the command line's or a stored one, otherwise no.
  */
 export function sessionTrust(cwd: string, args: string[], trusted: boolean, agentDir: string): boolean {
-	const flags = ["--approve", "-a", "--no-approve", "-na"];
-	// not the task or the name, which may be any text
-	const decided = args.some((arg, i) => flags.includes(arg) && args[i - 1] !== "--bg" && args[i - 1] !== "--bg-name");
+	// xpi's own reading of the command line: a flag's value (the task, a name, a prompt) is text, not a decision
+	const decided = parseArgs(args).projectTrustOverride !== undefined;
 	if (decided || hasTrustRequiringProjectResources(cwd)) return trusted;
 	return new ProjectTrustStore(agentDir).get(cwd) ?? false;
 }

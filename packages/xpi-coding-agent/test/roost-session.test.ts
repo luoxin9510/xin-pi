@@ -312,8 +312,9 @@ describe("--bg", () => {
 		expect(sessionTrust(plain, ["--bg", "x"], true, agentDir)).toBe(false);
 		expect(sessionTrust(plain, ["--approve", "--bg", "x"], true, agentDir)).toBe(true);
 		expect(sessionTrust(plain, ["-na", "--bg", "x"], false, agentDir)).toBe(false);
-		// the task and the name are text, not flags
-		expect(sessionTrust(plain, ["--bg", "-a", "--bg-name", "--approve"], true, agentDir)).toBe(false);
+		// a flag's value is text, not a decision: read as xpi reads its command line
+		expect(sessionTrust(plain, ["--bg=-a", "--bg-name=--approve"], true, agentDir)).toBe(false);
+		expect(sessionTrust(plain, ["--append-system-prompt", "-a", "--bg", "x"], true, agentDir)).toBe(false);
 		new ProjectTrustStore(agentDir).set(plain, true);
 		expect(sessionTrust(plain, ["--bg", "x"], true, agentDir)).toBe(true);
 	});
