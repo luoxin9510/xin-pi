@@ -52,6 +52,7 @@ import {
 	type WorkerReport,
 } from "../lib/protocol.ts";
 import { argsProblem } from "../lib/protocol-schema.ts";
+import { createSchedules, type ScheduleRun } from "../lib/schedules.ts";
 import {
 	clearExit,
 	clearWorker,
@@ -302,6 +303,7 @@ function rowOf(id: string): JobRow | undefined {
 		// M48: the task it was started on, and the user replies waiting for it (the peek shows both)
 		task: rowTask(rec),
 		queued: pendingReplies(id).length,
+		schedule: rec.schedule ?? null,
 	};
 }
 
@@ -712,7 +714,7 @@ function isDir(p: string): boolean {
 const requestIdOf = (v: unknown): string | undefined =>
 	typeof v === "string" && /^[A-Za-z0-9_.:-]{1,64}$/.test(v) ? v : undefined;
 
-async function dispatch(a: DispatchArgs): Promise<{ id: string; name: string }> {
+async function dispatch(a: DispatchArgs, extra: { schedule?: string } = {}): Promise<{ id: string; name: string }> {
 	if (!a || typeof a !== "object") throw new OpError("bad_request", "missing args");
 	// M36: the same request again (its answer was lost): the job it made, not a second one
 	const rid = requestIdOf(a.requestId);
@@ -776,6 +778,7 @@ async function dispatch(a: DispatchArgs): Promise<{ id: string; name: string }> 
 		...(str(a.piVersion) ? { piVersion: a.piVersion } : {}),
 		roostVersion: ROOST_VERSION,
 		...(rid ? { requestId: rid } : {}),
+		...(extra.schedule ? { schedule: extra.schedule } : {}),
 	};
 	createJob(rec, {
 		state: "working",
@@ -793,17 +796,18 @@ async function dispatch(a: DispatchArgs): Promise<{ id: string; name: string }> 
 		removeJob(id);
 		throw err;
 	}
-	log("info", "dispatch", { id, name, cwd: rec.cwd, origin });
-	// M43: the feed starts the job as working
+	log("info", "dispatch", { id, name, cwd: rec.cwd, origin, ...(extra.schedule ? { schedule: extra.schedule } : {}) });
+	// M43: the feed starts the job as working; a schedule's run is recorded by the schedule
 	lastSeen.set(id, { state: "working", waitingFor: null, question: null });
-	record({
-		kind: "dispatch",
-		id,
-		name,
-		who: "user",
-		why: origin === "dispatch" ? null : origin,
-		text: clipText(taskOf(a)),
-	});
+	if (!extra.schedule)
+		record({
+			kind: "dispatch",
+			id,
+			name,
+			who: "user",
+			why: origin === "dispatch" ? null : origin,
+			text: clipText(taskOf(a)),
+		});
 	if (!shell) supersedeOthers(id);
 	return { id, name };
 }
@@ -1385,6 +1389,7 @@ async function shutdown(keepWorkers: boolean): Promise<void> {
 	clearInterval(watcher);
 	clearInterval(shellWatcher);
 	clearInterval(reaper);
+	schedules.stop();
 	if (!keepWorkers) {
 		const ids = [...roster.keys()];
 		await Promise.all(ids.map((id) => terminateHost(id)));
@@ -1427,6 +1432,13 @@ async function handle(conn: Conn, op: string, args: any): Promise<unknown> {
 			return { jobs: list(args) };
 		case "dispatch":
 			return dispatch(args);
+		case "schedules":
+		case "schedule-add":
+		case "schedule-edit":
+		case "schedule-rm":
+		case "schedule-pause":
+		case "schedule-run":
+			return schedules.op(op, args);
 		case "resolve":
 			return { id: resolve(args?.query) };
 		case "status": {
@@ -1621,6 +1633,65 @@ const reaper = setInterval(
 	},
 	Number(roostEnv("REAP_CHECK_MS")) || REAP_CHECK_MS,
 );
+// ---- phase 2: schedules (lib/schedules.ts) ---------------------------------------------
+
+/** Decision 7: a run holds its schedule back while it works, starts or waits to restart after a crash. */
+function runStillWorking(id: string | undefined): boolean {
+	if (!id || !recs.has(id)) return false;
+	if (starting.has(id) || respawning.has(id)) return true;
+	const st = readState(id);
+	return st?.state === "working" && (roster.has(id) || typeof st.resumeAt === "number");
+}
+
+/** Decision 6: a run that has ended (and has nothing waiting to start it again). */
+function runEnded(id: string): boolean {
+	if (!recs.has(id) || runStillWorking(id) || stopping.has(id) || removing.has(id)) return false;
+	const st = readState(id);
+	return (
+		!!st &&
+		(st.state === "done" || st.state === "failed" || st.state === "stopped") &&
+		pendingReplies(id).length === 0
+	);
+}
+
+const schedulesPath = join(roostHome(), "schedules.json");
+const schedules = createSchedules({
+	jobs: {
+		dispatch: (launch, extra) => dispatch(launch, extra),
+		stillRunning: runStillWorking,
+		shuttingDown: () => shuttingDown,
+		runs: () => {
+			const out: ScheduleRun[] = [];
+			for (const r of recs.values()) {
+				if (!r.schedule) continue;
+				out.push({
+					id: r.id,
+					schedule: r.schedule,
+					createdAt: r.createdAt,
+					ended: runEnded(r.id),
+					pinned: readState(r.id)?.pinned === true,
+				});
+			}
+			return out;
+		},
+		remove: async (id) => {
+			// asked again: anything may have changed since the list
+			if (!runEnded(id) || readState(id)?.pinned === true) return;
+			await removeRecord(id);
+		},
+	},
+	store: {
+		read: () => readJson<unknown>(schedulesPath),
+		write: (v) => writeJsonAtomic(schedulesPath, v),
+	},
+	record,
+	log,
+	isDir,
+	exists: (p) => existsSync(p),
+	tickMs: Number(roostEnv("SCHEDULE_TICK_MS")) || 15_000,
+});
+schedules.start();
+
 // M78: test mode only (ROOST_PARENT_PID is set by tests): with its parent or its home gone
 // the daemon stops, hosts included. Never armed in normal use.
 const followed = followedParent();

@@ -23,6 +23,8 @@ export interface JobRecord {
 	kind?: "pi" | "shell";
 	/** M36: the request id it was dispatched with (a resend finds this job). */
 	requestId?: string;
+	/** Phase 2: the schedule that started it. */
+	schedule?: string;
 	createdAt: number; // ms epoch
 	piVersion?: string;
 	roostVersion: string;

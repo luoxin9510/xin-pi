@@ -2,20 +2,21 @@
 // their first way to start a session in a later PR; here a shell-command session is started
 // through the client library, as `xpi --bg` will through the same daemon.
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import pty from "node-pty";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { runRoostCli } from "../src/cli.ts";
+import { normalizeWhen, runRoostCli, type ScheduleLaunchInput, splitArgsWhen } from "../src/cli.ts";
 import { DaemonClient } from "../src/lib/client.ts";
 import { pidAlive, TEST_DIR_PREFIX } from "../src/lib/orphans.ts";
-import { ROOST_LOCATION_ENV, runtimeDir } from "../src/lib/paths.ts";
+import { ROOST_LOCATION_ENV, roostHome, runtimeDir } from "../src/lib/paths.ts";
+import type { DispatchArgs } from "../src/lib/protocol.ts";
 import { ROOST_VERSION } from "../src/lib/version.ts";
 
 const DAEMON = resolve("src/daemon/main.ts");
 const HOST = resolve("src/host/main.ts");
-const ENV_NAMES = [...ROOST_LOCATION_ENV, "ROOST_PARENT_PID", "XDG_RUNTIME_DIR"];
+const ENV_NAMES = [...ROOST_LOCATION_ENV, "ROOST_PARENT_PID", "XDG_RUNTIME_DIR", "ROOST_JOB_ID"];
 
 const saved: Record<string, string | undefined> = {};
 let agentDir: string;
@@ -49,10 +50,31 @@ afterEach(async () => {
 	}
 });
 
+/** Phase 2: what the fake launch builder was asked for (the wrapper's is tested in xpi-coding-agent). */
+let launches: ScheduleLaunchInput[] = [];
+function fakeLaunch(input: ScheduleLaunchInput): DispatchArgs {
+	launches.push(input);
+	const entry = join(agentDir, "fake-xpi.sh");
+	writeFileSync(entry, "sleep 0.2\n");
+	const sessionFile = join(agentDir, "runs", "{{run}}.jsonl");
+	mkdirSync(join(agentDir, "runs"), { recursive: true });
+	return {
+		cwd: input.cwd,
+		sessionFile,
+		command: ["/bin/sh", entry, "--session", sessionFile, "--", input.task ?? ""],
+		env: { PATH: process.env.PATH ?? "/usr/bin:/bin" },
+		name: input.name,
+		origin: "dispatch",
+		...(input.model ? { model: input.model } : {}),
+		...(input.thinking ? { thinking: input.thinking } : {}),
+	};
+}
+
 async function roost(...argv: string[]): Promise<{ code: number; out: string; err: string }> {
 	let out = "";
 	let err = "";
 	const code = await runRoostCli(argv, {
+		scheduleLaunch: fakeLaunch,
 		start: { agentDir, daemonEntry: DAEMON, hostEntry: HOST },
 		isDetachKey: (k) => k === "\x1a",
 		detachKeyName: "ctrl+z",
@@ -320,3 +342,138 @@ async function attachInPty(ptyInstalled: "0" | "1") {
 		},
 	};
 }
+
+describe("phase 2: xpi roost schedule", () => {
+	beforeEach(() => {
+		launches = [];
+	});
+
+	it("reads <when> as the shell split it, and keeps a cron rule quoted", () => {
+		expect(splitArgsWhen(["every", "2h", "check", "it"])).toEqual({ when: "every 2h", task: "check it" });
+		expect(splitArgsWhen(["every 2h", "check"])).toEqual({ when: "every 2h", task: "check" });
+		expect(splitArgsWhen(["weekly", "mon", "09:00", "plan"])).toEqual({ when: "weekly mon 09:00", task: "plan" });
+		expect(splitArgsWhen(["manual", "x"])).toEqual({ when: "manual", task: "x" });
+		expect(splitArgsWhen(["cron", "0 9 * * 1-5", "x"])).toEqual({ when: 'cron "0 9 * * 1-5"', task: "x" });
+		expect(splitArgsWhen(["cron", "0", "9", "*", "*", "1", "x"])).toEqual({ when: 'cron "0 9 * * 1"', task: "x" });
+		expect(splitArgsWhen(["hourly", "x"])).toBeUndefined();
+		expect(normalizeWhen("cron '0 9 * * 1'")).toBe('cron "0 9 * * 1"');
+		expect(normalizeWhen(" every   2h ")).toBe("every 2h");
+	});
+
+	it("list without a running service reads the file, says nothing runs, and starts nothing", async () => {
+		mkdirSync(roostHome(agentDir), { recursive: true });
+		writeFileSync(
+			join(roostHome(agentDir), "schedules.json"),
+			JSON.stringify([
+				{
+					name: "nightly",
+					when: "daily 03:00",
+					task: "check the build",
+					launch: { cwd: agentDir, sessionFile: "/s/{{run}}.jsonl", command: [], env: {} },
+					paused: false,
+					nextAt: Date.now() + 3600_000,
+				},
+			]),
+		);
+		const r = await roost("schedule", "list");
+		expect(r.code).toBe(0);
+		expect(r.out).toMatch(/^NAME\s+WHEN/);
+		expect(r.out).toMatch(/nightly\s+daily 03:00\s+in \d+m/);
+		expect(r.err).toContain("the background service is not running: no schedule runs until it does");
+		await expect(DaemonClient.connect()).rejects.toThrow();
+		const json = await roost("schedule", "list", "--json");
+		expect(JSON.parse(json.out)[0]).toMatchObject({ name: "nightly", task: "check the build" });
+		await expect(DaemonClient.connect()).rejects.toThrow();
+	});
+
+	it("add, list, run, pause, resume, edit, rm through a real daemon", async () => {
+		const work = mkdtempSync(join(tmpdir(), `${TEST_DIR_PREFIX}cliw-`));
+		made.push(work);
+		const add = await roost("schedule", "add", "nightly", "every", "2h", "check", "the", "build", "--cwd", work);
+		expect(add.err).toBe("");
+		expect(add.code).toBe(0);
+		expect(add.out).toMatch(/^added · nightly · every 2h · next run in (2h 00m|1h 59m) \(/);
+		expect(launches).toEqual([
+			{ cwd: work, task: "check the build", model: undefined, thinking: undefined, name: "nightly" },
+		]);
+		const man = await roost("schedule", "add", "ask", "manual", "look", "--model", "m1");
+		expect(man.out).toBe("added · ask · manual · runs when asked: xpi roost schedule run ask\n");
+		expect(launches[1]).toMatchObject({ cwd: process.cwd(), model: "m1" });
+		const cron = await roost("schedule", "add", "mon", "cron", "0 9 * * 1", "plan", "--cwd", work);
+		expect(cron.out).toContain('added · mon · cron "0 9 * * 1"');
+		const list = await roost("schedule", "list");
+		expect(list.err).toBe("");
+		expect(
+			list.out
+				.split("\n")
+				.slice(1, 4)
+				.map((l) => l.split(/\s+/)[0]),
+		).toEqual(["ask", "mon", "nightly"]);
+		// run now: a session named after the schedule; ls shows the schedule's name
+		const run = await roost("schedule", "run", "ask");
+		expect(run.code).toBe(0);
+		expect(run.out).toMatch(/^started · [0-9a-f]{8} · ask\n$/);
+		expect((await roost("ls")).out).toContain("ask ← ask");
+		const paused = await roost("schedule", "pause", "nightly");
+		expect(paused.out).toBe("paused · nightly · paused\n");
+		expect((await roost("schedule", "resume", "nightly")).out).toMatch(
+			/^resumed · nightly · next run in (2h|1h 59m)/,
+		);
+		// edit: the launch built again with the stored task and model; a new rule
+		launches = [];
+		const edit = await roost("schedule", "edit", "ask", "--when", "daily 03:00", "--thinking", "high");
+		expect(edit.code).toBe(0);
+		expect(edit.out).toMatch(/^edited · ask · daily 03:00 · next run in/);
+		expect(launches).toEqual([{ cwd: process.cwd(), task: "look", model: "m1", thinking: "high", name: "ask" }]);
+		const again = await roost("schedule", "edit", "nightly", "--task", "check it all");
+		expect(again.out).toMatch(/^edited · nightly · every 2h/);
+		expect(launches[1]).toMatchObject({ task: "check it all", cwd: work });
+		const json = JSON.parse((await roost("schedule", "list", "--json")).out) as {
+			name: string;
+			task: string;
+			thinking: string;
+		}[];
+		expect(json.find((x) => x.name === "nightly")?.task).toBe("check it all");
+		expect(json.find((x) => x.name === "ask")?.thinking).toBe("high");
+		expect((await roost("schedule", "rm", "mon")).out).toContain("removed · mon");
+		const gone = await roost("schedule", "run", "mon");
+		expect(gone.code).toBe(1);
+		expect(gone.err).toContain("no schedule named mon");
+	});
+
+	it("refuses bad input as usage; add refuses a missing directory", async () => {
+		const floor = await roost("schedule", "add", "x", "every", "1m", "task");
+		expect(floor.code).toBe(2);
+		expect(floor.err).toContain("every: five minutes at least");
+		expect((await roost("schedule", "add", "x", "hourly", "task")).code).toBe(2);
+		expect((await roost("schedule", "add", "../x", "every", "1h", "task")).code).toBe(2);
+		expect((await roost("schedule", "add", "x", "every", "1h", "task", "--frob")).err).toContain(
+			"unknown option --frob",
+		);
+		const nodir = await roost("schedule", "add", "x", "every", "1h", "task", "--cwd", join(agentDir, "nope"));
+		expect(nodir.code).toBe(1);
+		expect(nodir.err).toContain(`no directory ${join(agentDir, "nope")}`);
+		expect((await roost("schedule")).code).toBe(2);
+		expect(launches).toEqual([]);
+	});
+
+	it("inside a roost session: add, edit and run refuse; list, pause, resume and rm work", async () => {
+		expect((await roost("schedule", "add", "s", "manual", "task")).code).toBe(0);
+		process.env.ROOST_JOB_ID = "abcd1234";
+		for (const argv of [
+			["add", "t", "manual", "task"],
+			["edit", "s", "--task", "x"],
+			["run", "s"],
+		]) {
+			const r = await roost("schedule", ...argv);
+			expect(r.code, argv.join(" ")).toBe(1);
+			expect(r.err).toContain(`schedule ${argv[0]} is refused inside a background session (ROOST_JOB_ID is set)`);
+		}
+		expect((await roost("schedule", "list")).code).toBe(0);
+		expect((await roost("schedule", "pause", "s")).code).toBe(0);
+		expect((await roost("schedule", "resume", "s")).code).toBe(0);
+		expect((await roost("schedule", "rm", "s")).code).toBe(0);
+		expect(launches).toHaveLength(1);
+		expect(JSON.parse(readFileSync(join(roostHome(agentDir), "schedules.json"), "utf8"))).toEqual([]);
+	});
+});

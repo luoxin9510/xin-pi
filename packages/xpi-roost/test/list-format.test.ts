@@ -2,8 +2,8 @@
 // subagent rows (decision 6); the widths are checked with xpi-roost's own text-width, since
 // xpi-roost imports nothing of xpi.
 import { describe, expect, it } from "vitest";
-import { formatList } from "../src/lib/list-format.ts";
-import type { JobRow } from "../src/lib/protocol.ts";
+import { formatList, formatSchedules } from "../src/lib/list-format.ts";
+import type { JobRow, ScheduleRow } from "../src/lib/protocol.ts";
 import { truncateToWidth, visibleWidth } from "../src/lib/text-width.ts";
 
 let n = 0;
@@ -83,5 +83,57 @@ describe("xpi roost ls", () => {
 		expect(truncateToWidth("中文字", 5, "…")).toBe("中文…");
 		expect(truncateToWidth("abc", 3, "…")).toBe("abc");
 		expect(visibleWidth(truncateToWidth("中文字中文字", 7, "…"))).toBeLessThanOrEqual(7);
+	});
+});
+
+describe("phase 2: schedules in ls and schedule list", () => {
+	it("a scheduled run shows its schedule's name", () => {
+		const out = formatList([row({ name: "nightly (2)", schedule: "nightly" }), row({ name: "plain" })], {
+			width: 140,
+		});
+		expect(out).toContain("nightly (2) ← nightly");
+		expect(out).not.toContain("plain ←");
+	});
+
+	it("schedule list: a table with the next run, the last run or skip, paused and manual", () => {
+		const now = Date.UTC(2026, 0, 5, 10);
+		const base: ScheduleRow = {
+			name: "nightly",
+			when: "daily 03:00",
+			task: "check the build",
+			cwd: "/home/u/proj",
+			model: null,
+			thinking: null,
+			paused: false,
+			nextAt: now + 125 * 60_000,
+			lastRunAt: now - 3 * 3600_000,
+			lastJob: "abcd1234",
+			lastRunWhy: "catch-up",
+			lastSkip: null,
+		};
+		const out = formatSchedules(
+			[
+				base,
+				{ ...base, name: "ask", when: "manual", nextAt: null, lastRunAt: null, lastJob: null, lastRunWhy: null },
+				{
+					...base,
+					name: "rest",
+					paused: true,
+					nextAt: null,
+					lastSkip: { at: now - 60_000, why: "previous run still working" },
+				},
+			],
+			{ now, width: 200, home: "/home/u" },
+		);
+		const lines = out.trimEnd().split("\n");
+		expect(lines[0]).toMatch(/^NAME\s+WHEN\s+NEXT\s+LAST\s+DIR\s+TASK$/);
+		expect(lines[1]).toMatch(
+			/^nightly\s+daily 03:00\s+in 2h 05m\s+3h ago \(catch-up\) abcd1234\s+~\/proj\s+check the build$/,
+		);
+		expect(lines[2]).toMatch(/^ask\s+manual\s+on request\s+never run/);
+		expect(lines[3]).toMatch(/^rest\s+daily 03:00\s+paused\s+skipped 1m ago: previous run still working/);
+		expect(formatSchedules([])).toBe("no schedules\n");
+		for (const l of formatSchedules([base], { now, width: 50 }).split("\n"))
+			expect(visibleWidth(l)).toBeLessThanOrEqual(50);
 	});
 });

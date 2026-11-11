@@ -1,5 +1,5 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -34,6 +34,7 @@ const ENV_NAMES = [
 	"ROOST_CLEANUP_DAYS",
 	"ROOST_CLEANUP_CHECK_MS",
 	"ROOST_STOP_WAIT_MS",
+	"ROOST_SCHEDULE_TICK_MS",
 ];
 const saved = Object.fromEntries(ENV_NAMES.map((k) => [k, process.env[k]]));
 
@@ -1203,5 +1204,139 @@ describe("DM-5: a crashed run carries on; a session whose host is gone ends", ()
 		expect((await find(client, id))?.state).toBe("stopped");
 		await new Promise((r) => setTimeout(r, 3300));
 		expect((await find(client, id))?.pid).toBeNull();
+	});
+});
+
+describe("phase 2: schedules in the daemon", () => {
+	/** A launch as the CLI builds one: an executable and an entry that exist, `{{run}}` in the session file. */
+	function launch(script: string) {
+		const entry = join(work, "fake-xpi.sh");
+		writeFileSync(entry, `${script}\n`);
+		const sessionFile = join(work, "runs", "{{run}}.jsonl");
+		mkdirSync(join(work, "runs"), { recursive: true });
+		return {
+			cwd: work,
+			sessionFile,
+			command: ["/bin/sh", entry, "--session", sessionFile, "--no-approve", "--", "the task"],
+			env: { PATH: process.env.PATH ?? "/usr/bin:/bin", SCHEDULE_KEY: "from-the-maker" },
+			name: "x",
+			origin: "dispatch" as const,
+		};
+	}
+	const runsOf = async (c: DaemonClient, name: string) =>
+		(await c.request("list", {})).jobs.filter((j) => j.schedule === name);
+
+	it("run now: a job named after the schedule, its record and row carry it, a fresh session file, its environment", async () => {
+		const { client } = await startDaemon();
+		const events: Event[] = [];
+		await client.request("subscribe", {});
+		client.onEvent((e) => events.push(e));
+		const added = await client.request("schedule-add", {
+			name: "nightly",
+			when: "manual",
+			task: "the task",
+			launch: launch('echo "$SCHEDULE_KEY"; sleep 0.3'),
+		});
+		expect(added).toMatchObject({ name: "nightly", when: "manual", nextAt: null, cwd: work });
+		// the store: the daemon's, 0600, environment kept
+		const file = join(home, "schedules.json");
+		expect(statSync(file).mode & 0o777).toBe(0o600);
+		expect(JSON.parse(readFileSync(file, "utf8"))[0].launch.env.SCHEDULE_KEY).toBe("from-the-maker");
+		const first = await client.request("schedule-run", { name: "nightly" });
+		// the op answers with the schedule's name and the run's job
+		expect(first.name).toBe("nightly");
+		expect((await find(client, first.id))?.name).toBe("nightly");
+		const rec = readJob(first.id)!;
+		expect(rec.schedule).toBe("nightly");
+		expect(rec.env.SCHEDULE_KEY).toBe("from-the-maker");
+		expect(rec.sessionFile).toMatch(/\/runs\/\d{4}-\d\d-\d\dT[\d-]+Z_[0-9a-f-]{36}\.jsonl$/);
+		expect(rec.command[3]).toBe(rec.sessionFile);
+		await waitFor(async () => (await find(client, first.id))?.state === "done");
+		const second = await client.request("schedule-run", { name: "nightly" });
+		expect((await find(client, second.id))?.name).toBe("nightly (2)");
+		expect(readJob(second.id)!.sessionFile).not.toBe(rec.sessionFile);
+		const row = await find(client, second.id);
+		expect(row?.schedule).toBe("nightly");
+		expect((await find(client, first.id))?.schedule).toBe("nightly");
+		// the feed: the schedule's own event, not a dispatch
+		const feed = (await client.request("events", { limit: 100 })).events;
+		expect(feed.filter((e) => e.kind === "dispatch")).toEqual([]);
+		expect(feed.filter((e) => e.kind === "schedule").map((e) => [e.name, e.who, e.why])).toEqual([
+			["nightly", "nightly", "now"],
+			["nightly (2)", "nightly", "now"],
+		]);
+		const list = (await client.request("schedules", {})).schedules;
+		expect(list[0]).toMatchObject({ name: "nightly", lastJob: second.id, lastRunWhy: "now", nextAt: null });
+	});
+
+	it("run now while the previous run works is busy and recorded; a missing executable skips with the edit hint", async () => {
+		const { client } = await startDaemon();
+		await client.request("schedule-add", { name: "long", when: "daily 03:00", launch: launch("sleep 30") });
+		const r = await client.request("schedule-run", { name: "long" });
+		await expect(client.request("schedule-run", { name: "long" })).rejects.toMatchObject({
+			code: "busy",
+			message: "previous run still working",
+		});
+		expect((await client.request("schedules", {})).schedules[0]).toMatchObject({
+			lastJob: r.id,
+			lastSkip: { why: "previous run still working" },
+		});
+		await client.request("stop", { id: r.id });
+		await waitFor(async () => (await find(client, r.id))?.state === "stopped");
+		rmSync(join(work, "fake-xpi.sh"));
+		await expect(client.request("schedule-run", { name: "long" })).rejects.toMatchObject({
+			message: `xpi not found at ${join(work, "fake-xpi.sh")}: run \`xpi roost schedule edit long\` to update it`,
+		});
+	});
+
+	it("add refuses a missing directory; edit cannot move it", async () => {
+		const { client } = await startDaemon();
+		const l = launch("true");
+		await expect(
+			client.request("schedule-add", { name: "gone", when: "every 1h", launch: { ...l, cwd: join(work, "nope") } }),
+		).rejects.toMatchObject({ code: "bad_request", message: `cwd is not a directory: ${join(work, "nope")}` });
+		await client.request("schedule-add", { name: "here", when: "every 1h", launch: l });
+		await expect(
+			client.request("schedule-edit", { name: "here", launch: { ...l, cwd: home } }),
+		).rejects.toMatchObject({ code: "bad_request", message: expect.stringMatching(/directory cannot change/) });
+	});
+
+	it("at start: a missed slot runs once as a catch-up, a due one on the tick; retention keeps 3 ended runs", async () => {
+		process.env.ROOST_SCHEDULE_TICK_MS = "200";
+		const now = Date.now();
+		const l = launch("sleep 0.2");
+		const entry = (name: string, nextAt: number) => ({
+			name,
+			when: "every 1h",
+			launch: l,
+			paused: false,
+			createdAt: now - 3 * 3600_000,
+			anchor: now - 3 * 3600_000,
+			nextAt,
+		});
+		writeFileSync(
+			join(home, "schedules.json"),
+			JSON.stringify([entry("missed", now - 3600_000), entry("due", now + 300)]),
+		);
+		const { client } = await startDaemon();
+		const missed = await waitFor(async () => (await runsOf(client, "missed"))[0]);
+		const due = await waitFor(async () => (await runsOf(client, "due"))[0]);
+		const rows = (await client.request("schedules", {})).schedules;
+		expect(rows.find((r) => r.name === "missed")).toMatchObject({ lastJob: missed.id, lastRunWhy: "catch-up" });
+		expect(rows.find((r) => r.name === "due")).toMatchObject({ lastJob: due.id, lastRunWhy: "due" });
+		for (const r of rows) expect(r.nextAt! > Date.now()).toBe(true);
+		// retention: five ended runs of "due", one pinned: the pinned one and the newest three stay
+		await waitFor(async () => (await find(client, due.id))?.state === "done");
+		await client.request("pin", { id: due.id, pinned: true });
+		const later: string[] = [];
+		for (let i = 0; i < 4; i++) {
+			const r = await client.request("schedule-run", { name: "due" });
+			later.push(r.id);
+			await waitFor(async () => (await find(client, r.id))?.state === "done");
+		}
+		await waitFor(async () => ((await runsOf(client, "due")).length === 4 ? true : undefined));
+		expect((await runsOf(client, "due")).map((j) => j.id).sort()).toEqual([due.id, ...later.slice(1)].sort());
+		// logged as such
+		expect(readFileSync(join(home, "daemon.log"), "utf8")).toContain("schedule run removed");
 	});
 });

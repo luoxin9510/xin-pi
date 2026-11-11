@@ -77,6 +77,36 @@ exports[`M63: who may do what > each op, for each kind of caller 1`] = `
     "person": "not_found: no such job: nope",
     "unregistered": "unsupported: this is the hub's and the CLI's: a session reports and takes replies",
   },
+  "schedule-add": {
+    "job": "unsupported: this is the hub's and the CLI's: a session reports and takes replies",
+    "person": "bad_request: when: "every 30m", "daily 09:00", "weekdays 09:00", "weekly mon 09:00", "cron <minute hour day month weekday>" or "manual"",
+    "unregistered": "unsupported: this is the hub's and the CLI's: a session reports and takes replies",
+  },
+  "schedule-edit": {
+    "job": "unsupported: this is the hub's and the CLI's: a session reports and takes replies",
+    "person": "not_found: no schedule named nope",
+    "unregistered": "unsupported: this is the hub's and the CLI's: a session reports and takes replies",
+  },
+  "schedule-pause": {
+    "job": "unsupported: this is the hub's and the CLI's: a session reports and takes replies",
+    "person": "not_found: no schedule named nope",
+    "unregistered": "unsupported: this is the hub's and the CLI's: a session reports and takes replies",
+  },
+  "schedule-rm": {
+    "job": "unsupported: this is the hub's and the CLI's: a session reports and takes replies",
+    "person": "not_found: no schedule named nope",
+    "unregistered": "unsupported: this is the hub's and the CLI's: a session reports and takes replies",
+  },
+  "schedule-run": {
+    "job": "unsupported: this is the hub's and the CLI's: a session reports and takes replies",
+    "person": "not_found: no schedule named nope",
+    "unregistered": "unsupported: this is the hub's and the CLI's: a session reports and takes replies",
+  },
+  "schedules": {
+    "job": "unsupported: this is the hub's and the CLI's: a session reports and takes replies",
+    "person": "ok",
+    "unregistered": "unsupported: this is the hub's and the CLI's: a session reports and takes replies",
+  },
   "shutdown": {
     "job": "unsupported: this is the hub's and the CLI's: a session reports and takes replies",
     "person": "(not run: it stops the daemon)",

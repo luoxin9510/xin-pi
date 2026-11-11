@@ -94,6 +94,12 @@ const OPS: [string, Record<string, unknown>][] = [
 	["reorder", { ids: [] }],
 	["reply", { id: "nope", text: "x" }],
 	["events", { limit: 1 }],
+	["schedules", {}],
+	["schedule-add", { name: "nope", when: "hourly" }],
+	["schedule-edit", { name: "nope" }],
+	["schedule-rm", { name: "nope" }],
+	["schedule-pause", { name: "nope", paused: true }],
+	["schedule-run", { name: "nope" }],
 	["peers", {}],
 	["task", { action: "list" }],
 	// last: an agent's word makes a connection an agent's

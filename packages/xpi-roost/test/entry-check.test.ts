@@ -28,7 +28,7 @@ function unworded(s: Schema, path: string, out: string[], root = false, discrimi
 describe("the entry check", () => {
 	it("covers every op (M77: dispatch too)", () => {
 		expect([...ENTRY_CHECKED].sort()).toEqual(Object.keys(ArgSchemas).sort());
-		expect(ENTRY_CHECKED.size).toBe(18);
+		expect(ENTRY_CHECKED.size).toBe(24);
 		expect(argsProblem("nope", {})).toBeUndefined();
 	});
 

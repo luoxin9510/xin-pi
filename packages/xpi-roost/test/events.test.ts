@@ -120,3 +120,14 @@ describe("M43: the event log", () => {
 		expect(eventAgo(0, 3 * 24 * 3600_000)).toBe("3d");
 	});
 });
+
+describe("phase 2: a schedule's events", () => {
+	it("a run (due, catch-up, now) and a skip, each one line", () => {
+		const e = { seq: 1, at: 0, kind: "schedule" as const, id: "j1", name: "nightly (2)", who: "nightly" };
+		expect(eventLine({ ...e, why: "catch-up" })).toBe("schedule nightly started nightly (2) (catch-up)");
+		expect(eventLine({ ...e, why: "due" })).toBe("schedule nightly started nightly (2) (due)");
+		expect(eventLine({ ...e, name: "nightly", why: "skip", text: "previous run still working" })).toBe(
+			"schedule nightly skipped: previous run still working",
+		);
+	});
+});

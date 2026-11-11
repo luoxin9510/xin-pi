@@ -115,6 +115,7 @@ export const JobRowSchema = obj({
 	capabilities: opt(arr(str(), "M31: what its agent said it can do in its hello (absent: it never said).")),
 	task: opt(nullable(str(), "M48: the task it was started on (one line, at most 200 characters).")),
 	queued: opt(num("M48: user replies waiting for it.")),
+	schedule: opt(nullable(str(), "Phase 2: the schedule that started it (absent or null: none).")),
 });
 export type JobRow = Infer<typeof JobRowSchema>;
 
@@ -171,6 +172,35 @@ export const DispatchArgsSchema = obj(
 	{ description: "A session to start." },
 );
 export type DispatchArgs = Infer<typeof DispatchArgsSchema>;
+
+export const ScheduleRowSchema = obj(
+	{
+		name: str(),
+		when: str(
+			'The rule as written: `every 2h`, `daily 09:00`, `weekdays 09:00`, `weekly mon 09:00`, `cron "..."`, `manual`.',
+		),
+		task: nullable(str()),
+		cwd: str(),
+		model: nullable(str()),
+		thinking: nullable(str()),
+		paused: bool(),
+		nextAt: nullable(num(), "The next run (ms epoch); null while paused and for `manual`."),
+		lastRunAt: nullable(num()),
+		lastJob: nullable(str(), "The job of its last run."),
+		lastRunWhy: nullable(
+			oneOf(["due", "catch-up", "now"], "Why its last run started: on its slot, a missed slot, or asked."),
+		),
+		lastSkip: nullable(
+			obj({ at: num(), why: str() }),
+			"Why its last slot or run-now did not start (the previous run still working, a missing directory, an error).",
+		),
+	},
+	{ description: "Phase 2: a schedule, as the hub and `xpi roost schedule list` show it." },
+);
+export type ScheduleRow = Infer<typeof ScheduleRowSchema>;
+
+const ScheduleName = need("name required", "A letter or digit, then up to 39 of A-Z a-z 0-9 _ . -.");
+const ScheduleLaunch = loose(DispatchArgsSchema);
 
 export const DaemonStatusSchema = obj({
 	pid: num(),
@@ -285,6 +315,40 @@ export const ArgSchemas = {
 		},
 		{ description: "M43: the event feed (what happened), with a cursor: `after` the seq last seen." },
 	),
+	schedules: Empty,
+	"schedule-add": obj(
+		{
+			name: ScheduleName,
+			when: need("when required"),
+			task: opt(loose(str("The first prompt, at most 64 KiB."))),
+			launch: ScheduleLaunch,
+		},
+		{
+			description:
+				"Phase 2: a schedule. `launch` is an xpi dispatch whose sessionFile holds `{{run}}` (each run's own file), built by the caller, environment included.",
+		},
+	),
+	"schedule-edit": obj(
+		{
+			name: ScheduleName,
+			when: opt(loose(str("A new rule: the anchor is now and nextAt its first slot after now."))),
+			task: opt(loose(str())),
+			launch: ScheduleLaunch,
+		},
+		{ description: "Phase 2: the launch built again by the editing process; its directory cannot change." },
+	),
+	"schedule-rm": obj({ name: ScheduleName }),
+	"schedule-pause": obj(
+		{ name: ScheduleName, paused: opt(loose(bool("true pauses; anything else resumes, counted from now."))) },
+		{ description: "Phase 2: pause or resume a schedule." },
+	),
+	"schedule-run": obj(
+		{ name: ScheduleName },
+		{
+			description:
+				"Phase 2: a run at once, also paused or manual, nextAt unmoved; busy while the previous run works.",
+		},
+	),
 };
 
 const NameId = obj({ id: str(), name: str() });
@@ -316,6 +380,12 @@ export const ResultSchemas = {
 	rename: obj({ id: str(), name: str() }),
 	reorder: Empty,
 	events: obj({ events: arr(domain<RoostEvent>("RoostEvent", "An event of the feed (events.ts).")), cursor: num() }),
+	schedules: obj({ schedules: arr(ScheduleRowSchema) }),
+	"schedule-add": ScheduleRowSchema,
+	"schedule-edit": ScheduleRowSchema,
+	"schedule-rm": obj({ name: str() }),
+	"schedule-pause": ScheduleRowSchema,
+	"schedule-run": obj({ name: str(), id: str() }),
 };
 
 export type OpArgs = { [O in keyof typeof ArgSchemas]: Infer<(typeof ArgSchemas)[O]> };

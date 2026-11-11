@@ -124,7 +124,38 @@ daemon restart, and resends the latest report.
 `pin`, `rename`, `reorder` and `reply` act on one; `list`, `resolve` and `status` read;
 `subscribe` turns the connection into a feed of `job` and `removed` events; `events`
 reads the last 1000 things that happened (starts, state changes, replies, restarts,
-removals); `shutdown` stops the daemon (and its sessions, unless `keepWorkers`).
+removals, schedules' runs and skips); `shutdown` stops the daemon (and its sessions, unless
+`keepWorkers`).
+
+### Schedules
+
+`schedules`, `schedule-add`, `schedule-edit`, `schedule-rm`, `schedule-pause` and
+`schedule-run` are the Person's. A schedule is a name, a time rule (local time: `every
+<n>m|h|d`, `daily HH:MM`, `weekdays HH:MM`, `weekly <mon..sun> HH:MM`, `cron "<5
+fields>"`, `manual`; two slots never under 5 minutes apart), the task as typed, and a
+`launch`: the `DispatchArgs` of an xpi session whose `sessionFile` (absolute) holds
+`{{run}}` and whose `command` names it. The caller builds the launch, environment
+included, as for any new session (`buildLaunch`); the daemon stores it in
+`<roost home>/schedules.json` (0600) and every run starts with it, `{{run}}` replaced by a
+new `<time>_<uuid>`. At most 50 schedules; a task at most 64 KiB; a missing directory is
+refused at `schedule-add`, and `schedule-edit` cannot change it.
+
+The daemon looks every 15 s (`ROOST_SCHEDULE_TICK_MS`). A run is a new job named after
+the schedule (`nightly`, `nightly (2)`) whose record and row carry `schedule`; the feed
+records it as a `schedule` event (`who`: the schedule, `why`: `due`, `catch-up` or `now`),
+not as a `dispatch`. A slot missed by more than two ticks (the daemon was off, the machine
+slept) runs once as a `catch-up` if one fell within the last 7 days; `nextAt` then moves
+to the first slot after now. A slot is skipped while the schedule's last run is working,
+starting or waiting to restart after a crash (not while it waits for an answer); a
+directory, executable or entry that is gone, or a start that fails, skips it too. A skip
+is kept in the schedule's `lastSkip` and recorded as a `schedule` event with `why: "skip"`
+and the reason in `text`. `schedule-run` starts a run at once, also for a paused or
+`manual` schedule, without moving `nextAt`; while the last run works it answers `busy`.
+The daemon keeps 3 ended, unpinned runs per schedule and removes older ones' records as
+`rm` does.
+
+An older daemon answers these ops with `bad_request: unknown op` (the protocol version
+stays 1).
 
 `reply` and `dispatch` take an optional `requestId` (1-64 of `A-Z a-z 0-9 _ . : -`). Sent
 again with the same id because the answer was lost, the request is taken once: a reply
@@ -255,6 +286,7 @@ What a worker reports about itself (full snapshot every time).
 | `capabilities` | `string[]` | no |  | M31: what its agent said it can do in its hello (absent: it never said). |
 | `task` | `string \| null` | no |  | M48: the task it was started on (one line, at most 200 characters). |
 | `queued` | `number` | no |  | M48: user replies waiting for it. |
+| `schedule` | `string \| null` | no |  | Phase 2: the schedule that started it (absent or null: none). |
 
 #### `DaemonStatus`
 
@@ -277,6 +309,25 @@ M8: how full the session's context window is (xpi's ctx.getContextUsage()).
 | `tokens` | `number \| null` | yes |  | Estimated tokens in context; null right after a compaction, until the next reply. |
 | `window` | `number` | yes |  |  |
 | `percent` | `number \| null` | yes |  | 0-100; null when tokens is unknown. |
+
+#### `ScheduleRow`
+
+Phase 2: a schedule, as the hub and `xpi roost schedule list` show it.
+
+| Field | Type | Required | Limit | |
+|---|---|---|---|---|
+| `name` | `string` | yes |  |  |
+| `when` | `string` | yes |  | The rule as written: `every 2h`, `daily 09:00`, `weekdays 09:00`, `weekly mon 09:00`, `cron "..."`, `manual`. |
+| `task` | `string \| null` | yes |  |  |
+| `cwd` | `string` | yes |  |  |
+| `model` | `string \| null` | yes |  |  |
+| `thinking` | `string \| null` | yes |  |  |
+| `paused` | `boolean` | yes |  |  |
+| `nextAt` | `number \| null` | yes |  | The next run (ms epoch); null while paused and for `manual`. |
+| `lastRunAt` | `number \| null` | yes |  |  |
+| `lastJob` | `string \| null` | yes |  | The job of its last run. |
+| `lastRunWhy` | `"due" \| "catch-up" \| "now" \| null` | yes |  | Why its last run started: on its slot, a missed slot, or asked. |
+| `lastSkip` | `{ at: number, why: string } \| null` | yes |  | Why its last slot or run-now did not start (the previous run still working, a missing directory, an error). |
 
 ### Ops
 
@@ -583,5 +634,109 @@ Result:
 |---|---|---|---|
 | `events` | `RoostEvent[]` | yes |  |
 | `cursor` | `number` | yes |  |
+
+### `schedules`
+
+Callers: Person. Refused: Session (`unsupported`), Unregistered agent (`unsupported`).
+
+Args:
+
+No fields.
+
+Result:
+
+| Field | Type | Required | |
+|---|---|---|---|
+| `schedules` | `ScheduleRow[]` | yes |  |
+
+### `schedule-add`
+
+Phase 2: a schedule. `launch` is an xpi dispatch whose sessionFile holds `{{run}}` (each run's own file), built by the caller, environment included.
+
+Callers: Person. Refused: Session (`unsupported`), Unregistered agent (`unsupported`).
+
+Args:
+
+| Field | Type | Required | Limit | |
+|---|---|---|---|---|
+| `name` | `string` | yes | >= 1 chars | A letter or digit, then up to 39 of A-Z a-z 0-9 _ . -. |
+| `when` | `string` | yes | >= 1 chars |  |
+| `task` | `string` | no |  | The first prompt, at most 64 KiB. |
+| `launch` | `DispatchArgs` | yes |  | A session to start. |
+
+Result:
+
+`ScheduleRow` (see shared shapes).
+
+### `schedule-edit`
+
+Phase 2: the launch built again by the editing process; its directory cannot change.
+
+Callers: Person. Refused: Session (`unsupported`), Unregistered agent (`unsupported`).
+
+Args:
+
+| Field | Type | Required | Limit | |
+|---|---|---|---|---|
+| `name` | `string` | yes | >= 1 chars | A letter or digit, then up to 39 of A-Z a-z 0-9 _ . -. |
+| `when` | `string` | no |  | A new rule: the anchor is now and nextAt its first slot after now. |
+| `task` | `string` | no |  |  |
+| `launch` | `DispatchArgs` | yes |  | A session to start. |
+
+Result:
+
+`ScheduleRow` (see shared shapes).
+
+### `schedule-rm`
+
+Callers: Person. Refused: Session (`unsupported`), Unregistered agent (`unsupported`).
+
+Args:
+
+| Field | Type | Required | Limit | |
+|---|---|---|---|---|
+| `name` | `string` | yes | >= 1 chars | A letter or digit, then up to 39 of A-Z a-z 0-9 _ . -. |
+
+Result:
+
+| Field | Type | Required | |
+|---|---|---|---|
+| `name` | `string` | yes |  |
+
+### `schedule-pause`
+
+Phase 2: pause or resume a schedule.
+
+Callers: Person. Refused: Session (`unsupported`), Unregistered agent (`unsupported`).
+
+Args:
+
+| Field | Type | Required | Limit | |
+|---|---|---|---|---|
+| `name` | `string` | yes | >= 1 chars | A letter or digit, then up to 39 of A-Z a-z 0-9 _ . -. |
+| `paused` | `boolean` | no |  | true pauses; anything else resumes, counted from now. |
+
+Result:
+
+`ScheduleRow` (see shared shapes).
+
+### `schedule-run`
+
+Phase 2: a run at once, also paused or manual, nextAt unmoved; busy while the previous run works.
+
+Callers: Person. Refused: Session (`unsupported`), Unregistered agent (`unsupported`).
+
+Args:
+
+| Field | Type | Required | Limit | |
+|---|---|---|---|---|
+| `name` | `string` | yes | >= 1 chars | A letter or digit, then up to 39 of A-Z a-z 0-9 _ . -. |
+
+Result:
+
+| Field | Type | Required | |
+|---|---|---|---|
+| `name` | `string` | yes |  |
+| `id` | `string` | yes |  |
 
 <!-- op-reference:end -->

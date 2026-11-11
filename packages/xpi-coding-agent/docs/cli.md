@@ -375,11 +375,17 @@ pseudo-terminals, so they keep running after the terminal that started them clos
 | `xpi roost rm <id\|name>` | Stop it and delete its record |
 | `xpi roost respawn <id\|name>` | Start an ended session again, or restart a running xpi session (a running shell session is left alone) |
 | `xpi roost respawn --all` | Restart every running xpi session, for example after an upgrade; reaped sessions load the new code when they start again |
+| `xpi roost schedule add <name> <when> <task> [--cwd <dir>] [--model <m>] [--thinking <t>]` | Start `<task>` as a new background session on a rule in local time: `every <n>m\|h\|d`, `daily HH:MM`, `weekdays HH:MM`, `weekly <mon..sun> HH:MM`, `cron "<5 fields>"` or `manual`; runs are at least five minutes apart. Prints its next run; see [Schedules](roost.md#schedules) |
+| `xpi roost schedule list [--json]` | The schedules with their rule, next run and last run or skip. Does not start a daemon: without one it reads the schedules from the state directory and says nothing runs until the daemon does |
+| `xpi roost schedule run <name>` | Run it now, also when paused or `manual`; refused while its previous run works |
+| `xpi roost schedule pause\|resume <name>` | Stop or start its slots |
+| `xpi roost schedule edit <name> [--when <when>] [--task <task>] [--model <m>] [--thinking <t>]` | Change it; the launch (environment, xpi, trust decision, session directory) is built again in this terminal, the directory stays |
+| `xpi roost schedule rm <name>` | Remove it; its runs stay listed |
 | `xpi roost daemon status` | The daemon's pid, version, socket directory and whether it can load node-pty; does not start a daemon |
 | `xpi roost daemon logs` | Print the daemon's log |
 | `xpi roost daemon stop [--keep-workers]` | Stop the daemon and its sessions (one that has not ended after six seconds is killed); with `--keep-workers` the sessions keep running and the next daemon takes them over |
 
-The commands outside `daemon` start the agent directory's daemon when it is not running; `daemon ...` never starts one. A session is named by its id, a
+The commands outside `daemon` and `schedule list` start the agent directory's daemon when it is not running; `daemon ...` and `schedule list` never start one. Inside a background session (`ROOST_JOB_ID` is set), `schedule add`, `edit` and `run` exit with `1` and say why. A session is named by its id, a
 unique id prefix or its name. An unknown command exits with `2`.
 
 After an upgrade the running daemon still has the old code, and `xpi roost` commands other than `hub`, `daemon logs` and `daemon stop` (and `xpi --bg`) warn about it until it is restarted:

@@ -22,6 +22,7 @@ import {
 	JobRowSchema,
 	OPS,
 	ResultSchemas,
+	ScheduleRowSchema,
 	WorkerReportSchema,
 } from "../../src/lib/protocol-schema.ts";
 import { looseOf, type Schema } from "../../src/lib/schema.ts";
@@ -54,6 +55,7 @@ const SHARED = new Map<object, string>([
 	[JobRowSchema, "JobRow"],
 	[DaemonStatusSchema, "DaemonStatus"],
 	[ContextInfoS, "ContextInfo"],
+	[ScheduleRowSchema, "ScheduleRow"],
 ]);
 
 type S = {
