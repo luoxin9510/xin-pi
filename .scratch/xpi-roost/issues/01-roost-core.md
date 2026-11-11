@@ -21,13 +21,16 @@ Every PR updates the docs it touches and lists them in its description.
       kept part moves): protocol, protocol-schema, callers, config, dispatch, store, view-model, filter, events,
       agent-client (`Reporter` and `jobIdentity` only). Not moved: everything decision 6 names, `term-signals.ts`
       (profile jobs only), `pi-resolve.ts`, `pi-commands.ts`
-- [ ] T4 Paths: state in `<agent dir>/xpi-roost/`, the runtime directory keyed by the agent directory (short enough
-      for a unix socket), `ROOST_HOME` and `ROOST_RUNTIME_DIR` overrides, only the `ROOST_` prefix. The agent
-      directory and the two entry paths are given to the library by its caller, never found by importing xpi
-- [ ] T5 `host/main.ts` without telemetry and profile jobs
+- [ ] T4 Paths: state in `<agent dir>/xpi-roost/`, the runtime directory keyed by the agent directory (two levels
+      under `/tmp`, both checked for owner and symlinks; short enough for a unix socket), `ROOST_HOME` and
+      `ROOST_RUNTIME_DIR` overrides. Every `PI_ROOST_*` variable renamed `ROOST_*`, `PI_JOB_ID` and `PI_DAEMON_SOCK`
+      too; the inventory lists the renames. The agent directory and the two entry paths are given to a client by its
+      caller and travel to the daemon, hosts and sessions in their environment, never found by importing xpi
+- [ ] T5 `host/main.ts` without telemetry and profile jobs, with `fixSpawnHelper`
 - [ ] T6 `daemon/main.ts` with decision 4's ops: no task board, workspaces, concierge, orders, schedules, watches,
-      messages, peers, profiles, PR polling, worktree isolation, agent-definition dispatch or telemetry; crash
-      restart and reconciliation kept, with an interrupted session ending instead of resuming; settings read from the
+      messages, peers, `handback`, profiles, PR polling, worktree isolation, agent-definition dispatch or telemetry;
+      `events` kept; restart of a session whose agent process crashed and reconciliation at start kept (DM-5), a
+      session whose host is gone ends (no M38); settings read from the
       `"roost"` section of `<agent dir>/settings.json`; an unknown op answers as today
 - [ ] T7 Tests in scope moved; tests of cut features removed whole; one deleted guard per kept test file shows the
       test failing; a test that two daemons with different agent directories do not share a socket, jobs or roster
@@ -40,9 +43,10 @@ Every PR updates the docs it touches and lists them in its description.
 
 ## PR 2: command line and packaging (branch `roost-cli`)
 
-- [ ] T9 `xpi roost <subcommand>` in `src/main.ts`: `ls`/`list` (`--json`), `logs`/`log`, `attach`, `reply`, `stop`,
-      `rm`, `respawn` (`--all`), `daemon status|logs|stop`, the internal command that runs the daemon; help text; an
-      unknown subcommand is an error; `hub` says it comes with the next version until PR 3
+- [ ] T9 `xpi roost <subcommand>` in `src/main.ts`: `ls`/`list` (`--all`, `--cwd`, `--json`), `logs`/`log`, `attach`,
+      `reply`, `stop`, `rm`, `respawn` (`--all`), `daemon status|logs|stop` (`stop --keep-workers`), the internal
+      command that runs the daemon; help text; an unknown subcommand is an error; `hub` says it is not there yet
+      until PR 4
 - [ ] T10 Bundle: entry files for the daemon and the host (as `codemode-worker.js`), found by `xpi-coding-agent` and
       handed to `xpi-roost`; the entry-graph and runtime-dependency checks know them; the version message when a
       client meets a daemon of another version
@@ -55,33 +59,38 @@ Every PR updates the docs it touches and lists them in its description.
       the client library); the packed npm tarball starts a daemon and a shell-command session (`release:local`)
 - [ ] Docs: `packages/xpi-coding-agent/docs/cli.md`, `settings.md`, `environment-variables.md`, `docs/xin-pi.md`
 
-## PR 3: the hub (branch `roost-hub`)
+## PR 3: `builtin:roost`, the session side (branch `roost-session`)
 
-- [ ] T13 `hub/` on `xpi-tui`: agent view (split: no board, concierge, schedule, pr, worktree, task or agent-definition
-      code), overlay host, the log and usage overlays, the editor for a new session's prompt; the tasks, workspaces,
-      review, concierge, schedules and compare overlays are not ported and their keys are gone from the help
-- [ ] T14 `xpi roost hub [dir]`; hub options from xpi (models, presets, resume, the session's slash commands read
-      from xpi, not from a copied table)
-- [ ] T15 New xpi sessions from the hub; attach with replay and several windows; earlier history when entering a
-      session (M53; its tests in `xpi-coding-agent` if they need the adapter)
-- [ ] T16 AGENTS.md: the hub's files in the key exemption list
-- [ ] Tests: the hub's tests in scope; a pty test of `xpi roost hub` (list, peek, reply, attach, detach); real Haiku:
-      two sessions in parallel, reply to one from peek, attach to the other
-- [ ] Docs: `packages/xpi-coding-agent/docs/roost.md` (first version: the hub and its keys), `docs.json`
-
-## PR 4: `builtin:roost`, the session side (branch `roost-session`)
-
-- [ ] T17 The extension, listed in `src/extensions/index.ts`; does nothing in a subagent child
+- [ ] T13 The extension, listed in `src/extensions/index.ts`; does nothing in a subagent child
       (`XPI_SUBAGENT_DEPTH`); where roost cannot run it only gives the messages of T11
-- [ ] T18 Worker role: a session the daemon started reports state, waiting, dialogs, context and model (`worker.ts`,
-      the parts of `worker-extras.ts` in scope)
-- [ ] T19 `/agents`; `xpi --bg "<task>"` and `--bg-name`; `/bg` (alias `/background`) and `/bg-fork`, opening the hub
-      after the hand-off; the left arrow on an empty editor behind `leftArrowOpensAgents` (AGENTS.md exemption)
-- [ ] Tests (in `xpi-coding-agent`): foreground, reply queue, reporter, worker wiring; real Haiku: `xpi --bg` starts a
-      session that reports working then idle, `xpi roost reply` gets an answer, `/bg` moves a foreground session to
-      the daemon and it appears in the hub
-- [ ] Docs: `roost.md` (sessions, `/bg`, `--bg`), `slash-commands.md`, `cli.md`, `extensions.md` if the extension API
-      is touched
+- [ ] T14 `xpi --bg "<task>"` and `--bg-name`: an xpi session started under the daemon, with the agent directory,
+      state and runtime directories in its environment whatever `inheritEnv` says
+- [ ] T15 Worker role (`worker.ts`, the parts of `worker-extras.ts` in scope): reports of state, waiting, dialogs,
+      context and model; replies delivered and acked; the session's slash-command list written for the peek; the
+      repaint on attach; the earlier history (M53); no `handback`, peers or agent tools
+- [ ] Tests (in `xpi-coding-agent`): reply queue, reporter, worker wiring, earlier history; real Haiku: `xpi --bg`
+      starts a session that reports working then idle, `xpi roost reply` gets an answer, `xpi roost attach` shows
+      the session and detaches
+- [ ] Docs: `packages/xpi-coding-agent/docs/roost.md` (first version: background sessions and the CLI), `cli.md`,
+      `docs.json`, `extensions.md` if the extension API is touched
+
+## PR 4: the hub (branch `roost-hub`)
+
+- [ ] T16 `hub/` on `xpi-tui`: agent view (split: no board, concierge, schedule, pr, worktree, task or
+      agent-definition code), overlay host, the log and usage overlays, the editor for a new session's prompt; the
+      tasks, workspaces, review, concierge, schedules and compare overlays are not ported and their keys are gone from
+      the help
+- [ ] T17 `xpi roost hub [dir]` and `/agents`; hub options from xpi (models, presets without `worktree`, `agent` and
+      `fanout`, resume); settings written back through xpi's settings
+- [ ] T18 The table of xpi's built-in slash commands with how the hub runs each, in `builtin:roost`, and the test
+      that every command in `BUILTIN_SLASH_COMMANDS` has a class
+- [ ] T19 `/bg` (alias `/background`) and `/bg-fork`, opening the hub after the hand-off; the left arrow on an empty
+      editor behind `leftArrowOpensAgents`; AGENTS.md: the hub's files and the left-arrow check in the key exemption
+      list
+- [ ] Tests: the hub's tests in scope; foreground (`/bg`) tests in `xpi-coding-agent`; a pty test of `xpi roost hub`
+      (list, peek, reply, attach, detach); real Haiku: two sessions in parallel, reply to one from peek, attach to
+      the other, `/bg` moves a foreground session to the daemon and it appears in the hub
+- [ ] Docs: `roost.md` (the hub and its keys, `/bg`), `slash-commands.md`, `cli.md`
 
 ## PR 5: docs and release (branch `roost-docs`)
 

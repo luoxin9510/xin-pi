@@ -63,10 +63,13 @@ check does not allow.
     is a plain xpi session with a model and a launch preset.
 18. The hub keeps fixed keys and its files join AGENTS.md's exemption list. The left arrow on an empty editor opens
     the hub, behind a `"roost"` setting that is on by default.
-19. `node-pty` may run its install scripts: it is added to the install-lock check's allowlist (it compiles on Linux
-    and fixes the mode of its helper on macOS).
+19. `node-pty` may run its install scripts: it is added to the install-lock check's allowlist (it compiles on Linux).
+    (The question also said the scripts fix the mode of a helper on macOS. They do not: pi-roost's host does that
+    itself. The Linux reason stands.)
 
 In the spec these are decisions 4 to 6, 8, 9 and 11; the spec's own numbering differs from this record's.
 
-Changed by the author after the review, without a question to the owner (each PR must work on its own when merged):
-the hub is PR 3 and `builtin:roost` is PR 4, the reverse of decision 12, because `/bg` opens the hub after a hand-off.
+Decision 12's order stands (session side, then hub), with one move so that each PR works on its own when merged:
+`/agents`, `/bg`, `/bg-fork` and the left arrow, which open the hub, are in the hub's PR and not in the session side's.
+(A first revision swapped the two PRs; the second review showed that replies, the peek's commands and the earlier
+history need the session side first.)
