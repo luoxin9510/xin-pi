@@ -53,7 +53,8 @@ pi-roost:
   - `HOME`, `RUNTIME_DIR` and `CONFIG_DIR` are read with either prefix, `ROOST_` or `PI_ROOST_` (`roostEnv`). About
     25 tuning and wiring variables are read as `PI_ROOST_*` only (`REAP_MINUTES`, `CLEANUP_DAYS`, `HOST_ENTRY`,
     `PARENT_PID`, `SHELL_KEEP_MS`, ...), and a worker's identity still uses `PI_JOB_ID` and `PI_DAEMON_SOCK`.
-  - A session started with `inheritEnv: false` gets only the variables on the allow list.
+  - A session started with `inheritEnv: false` gets the login basics, `LC_*` and the variables on the allow list;
+    with `inheritEnv: true` the deny list can still remove a variable.
 - How features are wired: the concierge, schedules, watches and workspaces are modules created with injected ports.
   The task board's claim, release, done, drop and assign, the messages between sessions (`send`, `spawn`, peers), PR
   polling, profiles and worktree isolation are written directly in `daemon/main.ts`. Restarting a session whose
@@ -68,8 +69,13 @@ pi-roost:
   protocol client class (`RoostAgent`, M31).
 - The session side (`adapters/pi/worker.ts`) does more than report. A reply reaches a session only through its
   worker connection and waits for the worker's ack (without one it stays queued, and a slash command is refused); the
-  worker writes the session's slash-command list that the hub's peek reads, registers the earlier history (M53) and
-  the repaint on attach. The hub's log overlay and the CLI's `log` read the `events` op. `handback` is a child
+  worker writes the session's slash-command list that the hub's peek reads and registers the earlier history (M53).
+  Its repaint on attach (M14) only serves hosts older than M21 and does nothing with a current host. While a session
+  is attached, the worker turns the keys that would end or freeze it into a detach (`registerDetachKeys`, with fixed
+  keys: Ctrl+Z, Ctrl+C twice, Ctrl+D twice, the left arrow on an empty editor, and a submitted `/exit` or `/quit`).
+- The session write lock (DM-8) has two halves: the daemon checks it at `dispatch` and `respawn`; the adapter takes it
+  at `session_start` and releases it at `session_shutdown` (`adapters/pi/index.ts`), which is what lets `/bg` hand a
+  session over. The hub's log overlay and the CLI's `log` read the `events` op. `handback` is a child
   session's report to its parent (M9), called only by the worker.
 - A foreground pi becomes known to the daemon only through `peer_register` (M9, `adapters/pi/peer-link.ts`).
   `adapters/pi/foreground.ts` holds `/bg`, `/bg-fork` and the left-arrow key; after a hand-off it opens the hub.
@@ -112,6 +118,8 @@ Not known yet; settled in the PR that meets it, and a contradiction with a decis
 
 - Whether `xpi-tui` behaves as the `pi-tui` the hub was written against (xin-pi forked at pi 1.5.0, the version
   pi-roost was tested with).
+- Whether the recap shown on attach (AT-5, `registerRecap`) works without the summary model; it is kept if it does.
+  Automatic naming (DI-9) goes with the summary model.
 - Whether the host's `@xterm/headless` 6 and `@xterm/addon-serialize` are best bundled into the host entry or declared,
   given the pinned 5.5.0 the TUI tests use.
 
@@ -176,7 +184,7 @@ Not known yet; settled in the PR that meets it, and a contradiction with a decis
    running Node and the daemon entry, and the daemon starts hosts with the host entry it was given. The daemon and the
    hosts are processes of their own, so what they need travels in their environment: the daemon is started with the
    agent directory, the state and runtime directories and the host entry, and it gives every host and every session
-   the same, whatever `inheritEnv` says. A session's own `/agents` therefore reaches the daemon that runs it. A client
+   the same; the allow and deny lists of a session's environment do not apply to these. A session's own `/agents` therefore reaches the daemon that runs it. A client
    and a daemon of different versions: the client says so and how to restart the daemon
    (`xpi roost daemon stop --keep-workers`, then `xpi roost respawn --all`), as pi-roost's version warning does.
 8. **Native dependency.** `node-pty` becomes an `optionalDependencies` entry of `xpi-coding-agent`, and the
@@ -201,9 +209,13 @@ Not known yet; settled in the PR that meets it, and a contradiction with a decis
      `roost.json` is read.
 10. **Platforms.** macOS and Linux. On Windows `xpi roost`, `/agents`, `/bg` and `--bg` say roost is not supported.
 11. **Keys.** The hub is a full-screen component with fixed keys, as the subagent panel is; AGENTS.md's exemption list
-    gains the hub's files and the left-arrow check. Nothing else gets a hardcoded key.
+    gains the hub's files and the left arrow on an empty editor (it opens the hub in a foreground session and detaches
+    in an attached one). Nothing else gets a hardcoded key: the detach keys of an attached session follow the user's
+    keybindings, `app.suspend` once, `app.clear` twice and `app.exit` twice (Ctrl+Z, Ctrl+C and Ctrl+D by default),
+    so a rebound exit key is still caught. A submitted `/exit` or `/quit` detaches too.
 12. **Names.** `ROOST_*` environment variables, op names and file layouts stay as they are: they are internal, and
-    keeping them keeps the diff against pi-roost readable. User-facing text says `xpi` and `xpi roost`. The generated
+    keeping them keeps the diff against pi-roost readable. User-facing text says `xpi` and `xpi roost`, hints included
+    (`xpi roost attach`, `xpi roost ls --json`). The generated
     op reference becomes `packages/xpi-roost/docs/protocol.md`.
 13. **Tests and CI.**
     - Tests whose subject is in `packages/xpi-roost` move to `packages/xpi-roost/test` and keep running on vitest with
@@ -237,8 +249,8 @@ In this order. Each one works on its own when merged.
    a missing native module, the `"roost"` settings section. A shell-command session can be started for tests through
    the client library; users get their first way to start a session in PR 3.
 3. **`builtin:roost`: the session side.** `xpi --bg "<task>"` starts an xpi session under the daemon. The session
-   reports state, waiting, dialogs, context and model, takes replies, writes its slash-command list, and registers
-   the earlier history and the repaint on attach. With the CLI of PR 2 this is usable end to end: start, list, reply,
+   reports state, waiting, dialogs, context and model, takes replies, writes its slash-command list, registers the
+   earlier history, holds the session write lock, and detaches instead of ending when it is attached. With the CLI of PR 2 this is usable end to end: start, list, reply,
    attach, stop.
 4. **The hub.** `xpi roost hub [dir]` and `/agents`: everything in decision 4's hub list. With it come the commands
    that open it: `/bg` and `/bg-fork` (the hub opens after the hand-off) and the left arrow.
