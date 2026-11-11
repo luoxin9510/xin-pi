@@ -251,12 +251,15 @@ async function executeAgent(
 		agentType = stored.agentType;
 	}
 	agentType ??= DEFAULT_AGENT;
-	const { agents } = discoverAgents(parent.cwd);
+	const { agents, warnings } = discoverAgents(parent.cwd);
 	if (agentType === FORK_TYPE) checkForkCall(input as CallInput, config, parent);
 	const def = agentType === FORK_TYPE ? FORK_DEFINITION : agents.get(agentType);
 	if (!def) {
 		const known = [...agents.keys(), ...(config.fork ? [FORK_TYPE] : [])];
-		throw new Error(`unknown subagent_type "${agentType}". Available: ${known.join(", ")}`);
+		// The agent may be defined in a file that does not load: say why, so the caller can tell the user.
+		const skipped = warnings.filter((w) => w.startsWith("skipped "));
+		const why = skipped.length > 0 ? `\n${skipped.join("\n")}` : "";
+		throw new Error(`unknown subagent_type "${agentType}". Available: ${known.join(", ")}${why}`);
 	}
 
 	// Isolation: a resume uses the stored worktree (or none) whatever is asked now; a new agent, the call's value else the file's.
