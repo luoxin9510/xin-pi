@@ -90,6 +90,17 @@ If rebase conflicts occur:
 
 See `CONTRIBUTING.md` for the quality bar for issues and PRs.
 
+Every PR goes through an independent review before it is merged, also docs-only and one-line PRs (a lighter review is fine):
+
+1. Branch from `main`, implement, run the relevant tests and `npm run check`, push, open the PR, wait for CI to pass.
+2. Review by Claude Opus in a fresh context: a separate agent session or subagent on the Opus model that did not write
+   the change and is not given the author's reasoning. It gets the PR number and diff, the spec or PR body, and this file.
+   It reports findings as blocking, should-fix or nit, each with a concrete failure scenario and how it was checked.
+3. Fix every blocking and should-fix finding (or say in the PR why not), push, and have the same reviewer look again
+   until nothing blocking is left.
+4. Post the review record as a PR comment (rounds, findings, what was done about each), then merge (merge commit,
+   delete the branch). CI passing alone never allows a merge.
+
 When reviewing PRs:
 
 - Do not run `gh pr checkout`, `git switch`, or otherwise move the worktree to the PR branch unless the user explicitly asks.
