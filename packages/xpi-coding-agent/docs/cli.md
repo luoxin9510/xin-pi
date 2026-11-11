@@ -38,6 +38,7 @@ With terminal stdin and stdout, Pi opens the terminal UI unless `--print`, `--mo
 | Piped stdin | Prepend its contents to the first prompt |
 | `--` | Stop option parsing so a prompt can begin with `-` |
 | `--agents <json\|path>` | Subagents for this run, as a JSON object or the path of a JSON file; see [Subagents](subagent.md#agents-on-the-command-line). From the built-in `subagent` extension |
+| `--mcp-config <json\|path>` | MCP servers for this run, added after `mcp.json`, as JSON in its shape or the path of a JSON file; see [MCP](mcp.md#add-servers-for-one-run). From the built-in `mcp` extension |
 
 Pi resolves `@path` from the current working directory. The working directory also controls project configuration, resource discovery, and session grouping.
 

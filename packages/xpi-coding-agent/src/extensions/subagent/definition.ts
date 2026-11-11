@@ -1,6 +1,7 @@
 // Parse one Claude Code agent file (spec 4.1). A boundary: bad files yield a skip reason, never a throw.
 
 import { parse as parseYaml } from "yaml";
+import { type McpServerConfig, validateMcpServerConfig } from "../../core/mcp-servers.ts";
 
 export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 export type Effort = (typeof EFFORTS)[number];
@@ -8,6 +9,10 @@ export type Effort = (typeof EFFORTS)[number];
 // Claude Code's colour names.
 export const AGENT_COLORS = ["red", "blue", "green", "yellow", "purple", "orange", "pink", "cyan"] as const;
 export type AgentColor = (typeof AGENT_COLORS)[number];
+
+// Where a definition came from: a project's .pi/agents or .claude/agents, the user's (~/.pi/agent/agents,
+// ~/.claude/agents), `--agents`, or the built-ins. Inline MCP servers of a `project` agent load only in a trusted project.
+export type AgentScope = "project" | "user" | "cli" | "builtin";
 
 export interface AgentDefinition {
 	name: string;
@@ -25,8 +30,12 @@ export interface AgentDefinition {
 	memory?: "user" | "project" | "local"; // persistent memory directory (Claude Code's paths)
 	isolation?: "worktree"; // run in its own git worktree (the Agent call's isolation wins)
 	background?: boolean; // true: a call without run_in_background runs this agent in the background
-	mcpServers?: string[]; // names of configured MCP servers: the agent gets their tools and no other server's
+	// Names of MCP servers (configured in mcp.json, or defined inline): the agent gets their tools and no other server's.
+	mcpServers?: string[];
+	// The inline definitions among them, by name (validated as mcp.json entries); the child gets them with --mcp-config.
+	inlineMcpServers?: Record<string, McpServerConfig>;
 	source: string;
+	scope: AgentScope;
 	inert: string[];
 	warnings: string[]; // problems that do not skip the file (an unknown colour); shown once at discovery
 }
@@ -48,31 +57,55 @@ export const inertNotice = (field: string) => `field "${field}" has no effect in
 
 class Skip extends Error {}
 
-// `mcpServers`: Claude Code takes server names and inline definitions (a mapping with the server name as key). Only
-// names of servers configured in mcp.json are supported here; an inline definition is skipped with a warning.
-function serverNames(value: unknown, warnings: string[]): string[] | undefined {
-	if (value === undefined || value === null) return undefined;
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+	typeof value === "object" && value !== null && !Array.isArray(value);
+
+// `mcpServers`, as Claude Code takes it: server names (a list or a comma-separated string), inline definitions (a
+// mapping with the server name as key, in mcp.json's shape), or a list mixing both. An inline definition the mcp.json
+// validator rejects (`sse`, `ws`, a bad field) is skipped with its message; so is one in a project agent file that uses
+// `auth: { provider }`, as in the project mcp.json: a repository must not choose where a credential goes.
+function mcpServersField(
+	value: unknown,
+	scope: AgentScope,
+	warnings: string[],
+): { names?: string[]; inline?: Record<string, McpServerConfig> } {
+	if (value === undefined || value === null) return {};
 	const entries = typeof value === "string" ? value.split(",").map((s) => s.trim()) : value;
-	const inline = (names: string[]) => {
-		for (const name of names) {
-			warnings.push(
-				`mcpServers: the inline definition of "${name}" is not supported and was skipped (configure the server in mcp.json and list its name)`,
-			);
+	const names: string[] = [];
+	const inline: Record<string, McpServerConfig> = {};
+	const addInline = (definitions: Record<string, unknown>) => {
+		for (const [name, raw] of Object.entries(definitions)) {
+			if (names.includes(name)) {
+				warnings.push(`mcpServers: server "${name}" is listed twice; the first entry wins`);
+				continue;
+			}
+			const config = validateMcpServerConfig(name, raw);
+			if (typeof config === "string") {
+				warnings.push(`mcpServers: inline server skipped: ${config}`);
+				continue;
+			}
+			if (scope === "project" && "url" in config && config.auth) {
+				warnings.push(
+					`mcpServers: inline server "${name}" skipped: auth is not allowed in a project agent file (a repository must not choose where a credential goes)`,
+				);
+				continue;
+			}
+			names.push(name);
+			inline[name] = config;
 		}
 	};
 	if (!Array.isArray(entries)) {
-		if (typeof entries !== "object") throw new Skip('"mcpServers" must be a list of server names');
-		inline(Object.keys(entries as object));
-		return [];
+		if (!isRecord(entries)) throw new Skip('"mcpServers" must be a list of server names or inline definitions');
+		addInline(entries);
+	} else {
+		for (const entry of entries) {
+			if (typeof entry === "string") {
+				if (entry !== "" && !names.includes(entry)) names.push(entry);
+			} else if (isRecord(entry)) addInline(entry);
+			else throw new Skip('"mcpServers" must be a list of server names or inline definitions');
+		}
 	}
-	const names: string[] = [];
-	for (const entry of entries) {
-		if (typeof entry === "string") {
-			if (entry !== "" && !names.includes(entry)) names.push(entry);
-		} else if (typeof entry === "object" && entry !== null && !Array.isArray(entry)) inline(Object.keys(entry));
-		else throw new Skip('"mcpServers" must be a list of server names');
-	}
-	return names;
+	return { names, ...(Object.keys(inline).length > 0 ? { inline } : {}) };
 }
 
 // The agent name becomes a directory name and a line in .git/info/exclude.
@@ -110,7 +143,8 @@ function quotePlainValues(yaml: string): string {
 		.join("\n");
 }
 
-export function parseDefinition(source: string, text: string): ParseResult {
+// `scope` is where the file was found (discovery passes it); it decides what its inline MCP servers may do.
+export function parseDefinition(source: string, text: string, scope: AgentScope = "user"): ParseResult {
 	const lines = text.replace(/^﻿/, "").split(/\r?\n/);
 	if (lines[0]?.trim() !== "---") return { ok: false, reason: "file does not start with --- frontmatter" };
 	const end = lines.findIndex((line, i) => i > 0 && line.trim() === "---");
@@ -134,11 +168,16 @@ export function parseDefinition(source: string, text: string): ParseResult {
 		.slice(end + 1)
 		.join("\n")
 		.trim();
-	return definitionFromFields(source, fm as Record<string, unknown>, body);
+	return definitionFromFields(source, fm as Record<string, unknown>, body, scope);
 }
 
 // A definition from its fields (an agent file's frontmatter, or an entry of `--agents`) and its system prompt.
-export function definitionFromFields(source: string, f: Record<string, unknown>, prompt: string): ParseResult {
+export function definitionFromFields(
+	source: string,
+	f: Record<string, unknown>,
+	prompt: string,
+	scope: AgentScope = "user",
+): ParseResult {
 	const name = f.name;
 	if (name === undefined || name === null) return { ok: false, reason: 'missing "name"' };
 	if (typeof name !== "string") return { ok: false, reason: '"name" must be a string' };
@@ -161,6 +200,7 @@ export function definitionFromFields(source: string, f: Record<string, unknown>,
 		if (rawColor !== undefined && rawColor !== null && color === undefined) {
 			warnings.push(`unknown color ${JSON.stringify(rawColor)} ignored (use ${AGENT_COLORS.join(", ")})`);
 		}
+		const servers = mcpServersField(f.mcpServers, scope, warnings);
 		const def: AgentDefinition = {
 			name,
 			description: f.description.trim(),
@@ -192,8 +232,10 @@ export function definitionFromFields(source: string, f: Record<string, unknown>,
 			),
 			isolation: optional<"worktree">(f.isolation, "isolation", (v) => v === "worktree", "worktree"),
 			background: optional<boolean>(f.background, "background", (v) => typeof v === "boolean", "true or false"),
-			mcpServers: serverNames(f.mcpServers, warnings),
+			mcpServers: servers.names,
+			...(servers.inline ? { inlineMcpServers: servers.inline } : {}),
 			source,
+			scope,
 			warnings,
 			inert: INERT_FIELDS.filter((k) => k in f),
 		};

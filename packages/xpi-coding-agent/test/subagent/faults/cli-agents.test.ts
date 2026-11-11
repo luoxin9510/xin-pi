@@ -134,3 +134,33 @@ test("a real xpi takes --agents: the agent is offered to scripts", async () => {
 	assert.match(out, /flag agent says hi/, out);
 	assert.match(s.record().systemPromptTail!, /You greet people\./);
 });
+
+test("a real xpi stops before the session starts when --agents or --mcp-config does not parse", async () => {
+	const s = sandbox();
+	const agentDir = join(s.root, "agent");
+	mkdirSync(agentDir, { recursive: true });
+	const env = {
+		...Object.fromEntries(Object.entries(process.env).filter(([k]) => !/(_API_KEY|_AUTH_TOKEN)$/.test(k))),
+		HOME: s.home,
+		XPI_CODING_AGENT_DIR: agentDir,
+		XPI_SKIP_VERSION_CHECK: "1",
+		XPI_TELEMETRY: "0",
+	};
+	for (const [flagName, expected] of [
+		["--agents", /--agents: invalid JSON/],
+		["--mcp-config", /--mcp-config: /],
+	] as const) {
+		const { code, out } = await new Promise<{ code: number | null; out: string }>((resolve) => {
+			const child = execFile(
+				process.execPath,
+				["--experimental-strip-types", "--no-warnings", CLI, "--no-session", flagName, "{ nope", "-p", "hi"],
+				{ cwd: s.repo, env, timeout: 60_000 },
+				(error, stdout, stderr) =>
+					resolve({ code: error ? ((error as { code?: number }).code ?? null) : 0, out: stdout + stderr }),
+			);
+			child.stdin?.end();
+		});
+		assert.equal(code, 1, out);
+		assert.match(out, expected, out);
+	}
+});

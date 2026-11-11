@@ -3,8 +3,10 @@
 import { mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { mcpNamespace } from "xpi-mcp";
 import { getAgentDir } from "../../config.ts";
 import { findGitPaths } from "../../core/footer-data-provider.ts";
+import type { McpServerConfig } from "../../core/mcp-servers.ts";
 import { loadMcpConfig } from "../mcp/config.ts";
 import type { Config } from "./config.ts";
 import type { AgentDefinition } from "./definition.ts";
@@ -181,7 +183,8 @@ function resolveTools(
 	codemode: boolean,
 	structured: boolean,
 	configured: () => string[], // the configured MCP server names, read only when needed (`mcpServers`, direct tools)
-): { args: string[]; warnings: string[]; memoryReadOnly: boolean } {
+	trusted: boolean,
+): { args: string[]; mcpConfig?: string; warnings: string[]; memoryReadOnly: boolean } {
 	const toolMap = { ...BUILTIN_TOOL_MAP, ...config.toolMap };
 	const warnings: string[] = [];
 
@@ -217,13 +220,20 @@ function resolveTools(
 	// `mcpServers`: the agent gets the tools of the servers it names, and no other server's.
 	let servers: string[] | undefined;
 	let otherServers: string[] = [];
+	let mcpConfig: string | undefined;
 	if (def.mcpServers !== undefined) {
 		const known = configured();
-		servers = def.mcpServers.filter((name) => known.includes(name));
+		const inline = inlineServers(def, known, trusted, warnings);
+		const skipped = Object.keys(def.inlineMcpServers ?? {}).filter((name) => !(name in inline));
+		servers = def.mcpServers.filter((name) => name in inline || (known.includes(name) && !skipped.includes(name)));
 		otherServers = known.filter((name) => !servers!.includes(name));
 		for (const name of def.mcpServers) {
-			if (!known.includes(name)) warnings.push(`mcpServers: server "${name}" is not configured in mcp.json`);
+			if (!known.includes(name) && !(name in inline) && !skipped.includes(name)) {
+				warnings.push(`mcpServers: server "${name}" is not configured in mcp.json`);
+			}
 		}
+		// The child adds them after its mcp.json: one with a configured server's name replaces that server.
+		if (Object.keys(inline).length > 0) mcpConfig = JSON.stringify({ mcpServers: inline });
 	}
 	if (def.tools !== undefined) {
 		const listed = [...map(def.tools), ...(servers ?? []).map(serverTools)];
@@ -249,7 +259,38 @@ function resolveTools(
 		if (servers !== undefined) deny.push(...(servers.length === 0 ? ["mcp__*"] : otherServers.map(serverTools)));
 	}
 	if (deny.length > 0) args.push("--exclude-tools", deny.join(","));
-	return { args, warnings, memoryReadOnly };
+	return { args, ...(mcpConfig ? { mcpConfig } : {}), warnings, memoryReadOnly };
+}
+
+// The agent's inline MCP servers the child may start. A project agent file's load only in a trusted project, as Claude
+// Code does for the folder an agent file came from (a repository would otherwise run commands of its choosing). A name
+// that collides with another server only in the tool namespace (`a-b` and `a_b`) is skipped: the two would share tools.
+function inlineServers(
+	def: AgentDefinition,
+	configured: string[],
+	trusted: boolean,
+	warnings: string[],
+): Record<string, McpServerConfig> {
+	const entries = Object.entries(def.inlineMcpServers ?? {});
+	if (entries.length === 0) return {};
+	if (def.scope === "project" && !trusted) {
+		warnings.push(
+			`mcpServers: inline server${entries.length === 1 ? "" : "s"} ${entries.map(([name]) => `"${name}"`).join(", ")} skipped: the project is not trusted`,
+		);
+		return {};
+	}
+	const accepted: Record<string, McpServerConfig> = {};
+	for (const [name, config] of entries) {
+		const clash = [...configured, ...Object.keys(accepted)].find(
+			(other) => other !== name && mcpNamespace(other) === mcpNamespace(name),
+		);
+		if (clash) {
+			warnings.push(`mcpServers: inline server "${name}" skipped: it conflicts with "${clash}"`);
+			continue;
+		}
+		accepted[name] = config;
+	}
+	return accepted;
 }
 
 // `parentCwd` is where skills are looked up; `cwd` is the child's working directory (a worktree when isolated).
@@ -300,6 +341,7 @@ export function resolveChild(
 		codemode,
 		structured,
 		() => options.mcpServers ?? configuredMcpServers(parent),
+		parent.trusted,
 	);
 	const cwd = options.worktree ? join(options.worktree.path, options.worktree.subdir ?? "") : parent.cwd;
 	const memory = def.memory
@@ -323,6 +365,7 @@ export function resolveChild(
 		"--thinking",
 		thinking,
 		...tools.args,
+		...(tools.mcpConfig ? ["--mcp-config", tools.mcpConfig] : []),
 		...(def.omitClaudeMd ? ["--no-context-files"] : []),
 		parent.trusted ? "--approve" : "--no-approve",
 		...session,
@@ -342,6 +385,7 @@ export function resolveChild(
 		prefixKey: [
 			model,
 			...tools.args,
+			tools.mcpConfig ?? "", // the servers' tools are declared before the system prompt
 			def.omitClaudeMd ? "no context files" : "",
 			system.head,
 			findGitPaths(parent.cwd)?.repoDir ?? parent.cwd, // the same for a child in a worktree of this checkout

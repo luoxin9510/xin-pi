@@ -27,10 +27,13 @@
  *
  * The top-level `autoEnableCodemode` (default true) activates the codemode tool when a server
  * with `codemode` exposure connects. A project value overrides the global one.
+ *
+ * `--mcp-config <file or JSON>` adds servers in the same shape after both files, for one run (scope `cli`): a name it
+ * repeats replaces that server. A subagent's child gets its agent's inline `mcpServers` this way.
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { isMcpServerOverride, mcpNamespace } from "xpi-mcp";
 import { CONFIG_DIR_NAME } from "../../config.ts";
 import { type McpExposure, type McpServerConfig, validateMcpServerConfig } from "../../core/mcp-servers.ts";
@@ -51,10 +54,10 @@ export interface McpServerEntry {
 	/** Config file that defined the entry, or the path of the extension that registered it. */
 	source: string;
 	/**
-	 * The global or the project `mcp.json`, or `extension` for servers registered with
-	 * `pi.registerMcpServer()`. Changes to extension servers are not saved.
+	 * The global or the project `mcp.json`, `cli` for `--mcp-config`, or `extension` for servers registered with
+	 * `pi.registerMcpServer()`. Changes to `cli` and extension servers are not saved.
 	 */
-	scope?: "global" | "project" | "extension";
+	scope?: "global" | "project" | "cli" | "extension";
 	/** Project `mcp.json` with an override of this global server's `enabled`, `exposure`, or `toolExposure`. */
 	override?: string;
 }
@@ -80,20 +83,60 @@ interface McpConfigState {
 	errors: string[];
 }
 
+const SHAPE_ERROR = 'expected an object with an "mcpServers" object';
+
+function isConfigShape(parsed: unknown): parsed is Record<string, unknown> & { mcpServers?: Record<string, unknown> } {
+	return isRecord(parsed) && (parsed.mcpServers === undefined || isRecord(parsed.mcpServers));
+}
+
 function readConfigFile(path: string, scope: "global" | "project", state: McpConfigState): void {
-	const { servers, errors } = state;
 	if (!existsSync(path)) return;
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(stripBom(readFileSync(path, "utf8")));
 	} catch (error) {
-		errors.push(`${path}: ${error instanceof Error ? error.message : String(error)}`);
+		state.errors.push(`${path}: ${error instanceof Error ? error.message : String(error)}`);
 		return;
 	}
-	if (!isRecord(parsed) || (parsed.mcpServers !== undefined && !isRecord(parsed.mcpServers))) {
-		errors.push(`${path}: expected an object with an "mcpServers" object`);
+	if (!isConfigShape(parsed)) {
+		state.errors.push(`${path}: ${SHAPE_ERROR}`);
 		return;
 	}
+	applyConfig(parsed, path, scope, state);
+}
+
+/** A parsed `--mcp-config` value: where it came from (a path, or `--mcp-config`) and its content. */
+export interface McpConfigFlag {
+	source: string;
+	config: Record<string, unknown> & { mcpServers?: Record<string, unknown> };
+}
+
+/**
+ * Parse the value of `--mcp-config`: JSON when it starts with `{`, otherwise the path of a JSON file (relative to
+ * `cwd`). Throws when the JSON or the file does not parse or does not have the `mcp.json` shape: the run stops.
+ */
+export function parseMcpConfigFlag(value: string, cwd: string): McpConfigFlag {
+	const inline = value.trimStart().startsWith("{");
+	const source = inline ? "--mcp-config" : resolve(cwd, value);
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(inline ? value : stripBom(readFileSync(source, "utf8")));
+	} catch (error) {
+		throw new Error(
+			`--mcp-config${inline ? "" : ` ${source}`}: ${error instanceof Error ? error.message : String(error)}`,
+		);
+	}
+	if (!isConfigShape(parsed)) throw new Error(`--mcp-config${inline ? "" : ` ${source}`}: ${SHAPE_ERROR}`);
+	return { source, config: parsed };
+}
+
+function applyConfig(
+	parsed: Record<string, unknown> & { mcpServers?: Record<string, unknown> },
+	path: string,
+	scope: "global" | "project" | "cli",
+	state: McpConfigState,
+): void {
+	const { servers, errors } = state;
 	if (typeof parsed.autoEnableCodemode === "boolean") state.autoEnableCodemode = parsed.autoEnableCodemode;
 	else if (parsed.autoEnableCodemode !== undefined) errors.push(`${path}: autoEnableCodemode must be a boolean`);
 	for (const [name, value] of Object.entries(parsed.mcpServers ?? {})) {
@@ -116,7 +159,7 @@ function readConfigFile(path: string, scope: "global" | "project", state: McpCon
 			errors.push(`${path}: ${config}`);
 			continue;
 		}
-		// Names that differ only in `-` and `_` would share a namespace.
+		// Names that differ only in `-` and `_` would share a namespace. The same name replaces the earlier entry.
 		const clash = [...servers.keys()].find((other) => other !== name && mcpNamespace(other) === mcpNamespace(name));
 		if (clash) {
 			errors.push(`${path}: server "${name}" conflicts with "${clash}"`);
@@ -134,11 +177,18 @@ function readConfigFile(path: string, scope: "global" | "project", state: McpCon
  * Load global and (when trusted) project MCP configuration. Disabled servers are included with
  * `enabled: false`, so they can be enabled again.
  */
-export function loadMcpConfig(options: { agentDir: string; cwd: string; projectTrusted: boolean }): LoadedMcpConfig {
+export function loadMcpConfig(options: {
+	agentDir: string;
+	cwd: string;
+	projectTrusted: boolean;
+	/** `--mcp-config`, added last. */
+	flag?: McpConfigFlag;
+}): LoadedMcpConfig {
 	const state: McpConfigState = { servers: new Map(), errors: [] };
 	readConfigFile(join(options.agentDir, "mcp.json"), "global", state);
 	const projectConfig = options.projectTrusted ? join(options.cwd, CONFIG_DIR_NAME, "mcp.json") : undefined;
 	if (projectConfig) readConfigFile(projectConfig, "project", state);
+	if (options.flag) applyConfig(options.flag.config, options.flag.source, "cli", state);
 	return {
 		servers: [...state.servers.values()],
 		...(state.autoEnableCodemode === undefined ? {} : { autoEnableCodemode: state.autoEnableCodemode }),

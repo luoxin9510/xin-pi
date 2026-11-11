@@ -2025,6 +2025,15 @@ pi.on("session_start", () => {
 });
 ```
 
+A string flag can take `validate(value, cwd)`. Pi calls it with a value given on the command line before the session starts, with the session's working directory. A returned message, or an error it throws, stops the start with that error, as an unknown option does. An error thrown by a `session_start` handler is only reported, so it cannot stop a run.
+
+```typescript
+pi.registerFlag("config-file", {
+  type: "string",
+  validate: (value, cwd) => (existsSync(resolve(cwd, value)) ? undefined : `--config-file: ${value} not found`),
+});
+```
+
 ### pi.exec(command, args, options?)
 
 Execute a command without a shell.

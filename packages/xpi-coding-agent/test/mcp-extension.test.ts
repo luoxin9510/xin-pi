@@ -20,6 +20,7 @@ import {
 	getMcpToolExposure,
 	loadMcpConfig,
 	type McpServerEntry,
+	parseMcpConfigFlag,
 	updateMcpServerConfig,
 } from "../src/extensions/mcp/config.ts";
 import { MAX_SERVERS_SECTION_CHARS, renderServersSection } from "../src/extensions/mcp/index.ts";
@@ -286,6 +287,56 @@ describe("MCP config", () => {
 			expect.stringContaining('server "empty": auth.provider must be a provider name'),
 			expect.stringContaining('server "radius": auth is only allowed in the global mcp.json'),
 		]);
+	});
+
+	it("adds --mcp-config servers last: a repeated name replaces, a namespace clash and unsupported types are skipped", () => {
+		const paths = setup(
+			{ mcpServers: { files: { command: "global-files" }, "doc-search": { command: "docs" } } },
+			{ mcpServers: { notes: { command: "notes" } } },
+		);
+		const flag = parseMcpConfigFlag(
+			JSON.stringify({
+				mcpServers: {
+					files: { command: "cli-files" },
+					doc_search: { command: "clash" },
+					live: { type: "ws", url: "wss://live.example/mcp" },
+					old: { type: "sse", url: "https://old.example/sse" },
+					extra: { url: "https://extra.example/mcp" },
+				},
+			}),
+			paths.cwd,
+		);
+		expect(flag.source).toBe("--mcp-config");
+		const { servers, errors } = loadMcpConfig({ ...paths, projectTrusted: true, flag });
+		expect(servers.map((server) => [server.name, server.scope, server.source])).toEqual([
+			["files", "cli", "--mcp-config"],
+			["doc-search", "global", join(paths.agentDir, "mcp.json")],
+			["notes", "project", join(paths.cwd, ".pi", "mcp.json")],
+			["extra", "cli", "--mcp-config"],
+		]);
+		expect(servers[0]?.config).toEqual({ command: "cli-files" });
+		expect(errors).toEqual([
+			'--mcp-config: server "doc_search" conflicts with "doc-search"',
+			'--mcp-config: server "live": type "ws" is not supported (use stdio, http or streamable-http)',
+			'--mcp-config: server "old": legacy SSE transport is not supported; use the streamable HTTP URL',
+		]);
+	});
+
+	it("reads --mcp-config from a file relative to the cwd and refuses what does not parse", () => {
+		const paths = setup({}, {});
+		writeFileSync(join(paths.cwd, "extra.json"), `\uFEFF${JSON.stringify({ mcpServers: { a: { command: "a" } } })}`);
+		const flag = parseMcpConfigFlag("extra.json", paths.cwd);
+		expect(flag.source).toBe(join(paths.cwd, "extra.json"));
+		expect(loadMcpConfig({ ...paths, projectTrusted: false, flag }).servers.map((server) => server.name)).toEqual([
+			"a",
+		]);
+		expect(() => parseMcpConfigFlag("{nope", paths.cwd)).toThrow(/^--mcp-config: /);
+		expect(() => parseMcpConfigFlag("missing.json", paths.cwd)).toThrow(
+			`--mcp-config ${join(paths.cwd, "missing.json")}: `,
+		);
+		expect(() => parseMcpConfigFlag('{"mcpServers": []}', paths.cwd)).toThrow(
+			'--mcp-config: expected an object with an "mcpServers" object',
+		);
 	});
 });
 

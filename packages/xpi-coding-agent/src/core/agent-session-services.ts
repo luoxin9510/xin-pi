@@ -3,7 +3,7 @@ import type { ThinkingLevel } from "xpi-agent-core";
 import type { Model } from "xpi-ai";
 import { getAgentDir } from "../config.ts";
 import { resolvePath } from "../utils/paths.ts";
-import type { SessionStartEvent, ToolDefinition } from "./extensions/index.ts";
+import type { ExtensionFlag, SessionStartEvent, ToolDefinition } from "./extensions/index.ts";
 import { ModelRuntime } from "./model-runtime.ts";
 import {
 	DefaultResourceLoader,
@@ -82,6 +82,7 @@ export interface AgentSessionServices {
 function applyExtensionFlagValues(
 	resourceLoader: ResourceLoader,
 	extensionFlagValues: Map<string, boolean | string> | undefined,
+	cwd: string,
 ): AgentSessionRuntimeDiagnostic[] {
 	if (!extensionFlagValues) {
 		return [];
@@ -89,10 +90,10 @@ function applyExtensionFlagValues(
 
 	const diagnostics: AgentSessionRuntimeDiagnostic[] = [];
 	const extensionsResult = resourceLoader.getExtensions();
-	const registeredFlags = new Map<string, { type: "boolean" | "string" }>();
+	const registeredFlags = new Map<string, ExtensionFlag>();
 	for (const extension of extensionsResult.extensions) {
 		for (const [name, flag] of extension.flags) {
-			registeredFlags.set(name, { type: flag.type });
+			registeredFlags.set(name, flag);
 		}
 	}
 
@@ -108,7 +109,14 @@ function applyExtensionFlagValues(
 			continue;
 		}
 		if (typeof value === "string") {
-			extensionsResult.runtime.flagValues.set(name, value);
+			let invalid: string | undefined;
+			try {
+				invalid = flag.validate?.(value, cwd);
+			} catch (error) {
+				invalid = error instanceof Error ? error.message : String(error);
+			}
+			if (invalid !== undefined) diagnostics.push({ type: "error", message: invalid });
+			else extensionsResult.runtime.flagValues.set(name, value);
 			continue;
 		}
 		diagnostics.push({
@@ -192,7 +200,7 @@ export async function createAgentSessionServices(
 	}
 	extensionsResult.runtime.pendingVirtualModelRegistrations = [];
 	await modelRuntime.refresh({ allowNetwork: false });
-	diagnostics.push(...applyExtensionFlagValues(resourceLoader, options.extensionFlagValues));
+	diagnostics.push(...applyExtensionFlagValues(resourceLoader, options.extensionFlagValues, cwd));
 
 	return {
 		cwd,

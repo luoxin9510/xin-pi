@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { agentFile, childSetup, loadTool, REPLY_OK, sandbox } from "./helpers.ts";
 
 // A project extension (every trusted child loads it) that registers one tool for each of two "servers", named as the
@@ -43,6 +44,31 @@ test("mcpServers: the child has the named server's tools and not the other's, wi
 	assert.deepEqual(await tools("tools: Read\nmcpServers: [slack]"), ["mcp__slack__ping"]);
 	assert.deepEqual(await tools("mcpServers: []"), []);
 	assert.deepEqual((await tools("model: haiku")).sort(), ["mcp__docs__ping", "mcp__slack__ping"]);
+});
+
+// Spec 08: an inline stdio server in the agent file (the xpi-mcp echo fixture) is started by the child alone.
+const ECHO_SERVER = fileURLToPath(new URL("../../../../xpi-mcp/test/fixtures/stdio-server.mjs", import.meta.url));
+
+test("an inline mcpServers definition: the child starts the server and the agent answers from its tool", async () => {
+	const s = sandbox();
+	const fields = [
+		"name: x",
+		"description: d",
+		"mcpServers:",
+		"  probe:",
+		`    command: ${JSON.stringify(process.execPath)}`,
+		`    args: [${JSON.stringify(ECHO_SERVER)}]`,
+	].join("\n");
+	s.write(join(s.repo, ".pi/agents/x.md"), agentFile(fields));
+	const t = await loadTool({}, { cwd: s.repo, persist: join(s.root, "sessions") });
+	const r = await t.result({
+		subagent_type: "x",
+		prompt:
+			'Call the MCP tool echo of server "probe" with {"text": "zebra-4417"} and reply with exactly what it returned, nothing else.',
+	});
+	assert.equal(r.status, "completed", r.error ?? "");
+	assert.deepEqual(r.warnings, []);
+	assert.match(r.output, /zebra-4417/);
 });
 
 test("background: true returns at once; the result arrives as a message", async () => {

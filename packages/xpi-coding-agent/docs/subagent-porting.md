@@ -36,6 +36,7 @@ and stderr as pipes and the parent's cwd.
 | `--tools a,b` | the agent's `tools`, mapped (`Read→read`, `Glob→find`, ...). Without a list, `--tools +codemode`: the `+` prefix adds to the default tools and must be supported |
 | `--exclude-tools a,b` | `disallowedTools`, and `mcp__*` when `tools` lists no MCP tool: entries are glob patterns |
 | `--system-prompt <path>` | the agent body + skills + environment block, written to a temp file; pi reads a path as the prompt's contents. If your agent takes the value as literal text, every child gets the path as its prompt: change `runChild` in `src/extensions/subagent/runner.ts` |
+| `--mcp-config <json>` | the agent's inline `mcpServers` definitions as `{"mcpServers": {...}}`, which the child's MCP extension adds after `mcp.json`. Only those the agent's `scope` allows: a `project` agent file's (`AgentDefinition.scope`, set by discovery: `project`, `user`, `cli` or `builtin`) only when the parent's project is trusted |
 | `--no-context-files` | `omitClaudeMd` |
 | `--approve` / `--no-approve` | the child gets the parent's project trust |
 | `--session-dir <dir> --session-id <id>` | a persisted child session (or `--no-session` for an in-memory parent) |
@@ -49,6 +50,7 @@ If a flag has another name in your agent, change it in `resolveChild` (`src/exte
 
 - no `--system-prompt`: agent prompts cannot replace the default; prepend them to the prompt instead (behaviour changes).
 - no `--tools` / `--exclude-tools`: tool restrictions cannot be enforced. Do not ship read-only agents.
+- no `--mcp-config`: inline `mcpServers` definitions cannot reach the child; agents keep the servers they name.
 - no `--session-dir` / `--session-id`: no resume and no transcripts; use `--no-session` everywhere.
 
 ### rpc protocol (`src/extensions/subagent/runner.ts`)
@@ -162,8 +164,9 @@ instructions (read-only wording when Write or Edit is denied) and the head of `M
 | `ctx.sessionManager.getSessionFile()` / `getSessionId()` | sessions, registry | children run `--no-session`, no resume. The session dir must be writable: the subagent extension writes `subagents/` there and rebuilds its list from it on every `session_start` (startup, reload, resume, new) |
 | `ctx.modelRegistry.getAvailable()` | `/model` picker | type `/model provider/id` only |
 | `SessionManager.forkFrom(file, cwd, dir, { id })` and `appendMessage()` on the result; a session that stores its system prompt and tool declarations, and a child that continues it with `--session-dir` / `--session-id` | fork (`src/extensions/subagent/fork.ts`) | set `subagent.fork: false`; everything else works |
-| `pi.registerFlag("agents", { type: "string" })`, `pi.getFlag("agents")` | `--agents` (`src/extensions/subagent/discovery.ts`, `setCliAgents`) | no agents from the command line; agent files still work |
+| `pi.registerFlag("agents", { type: "string", validate })`, `pi.getFlag("agents")` | `--agents` (`src/extensions/subagent/discovery.ts`, `parseCliAgents`, `setCliAgents`) | no agents from the command line; agent files still work. Without `validate` (a xin-pi core addition, `agent-session-services.ts`), a value that does not parse is only reported by `session_start` and the run goes on without those agents |
 | `loadMcpConfig({ agentDir, cwd, projectTrusted })` from the MCP built-in (`src/extensions/mcp/config.ts`) | the configured server names behind an agent file's `mcpServers` (`src/extensions/subagent/resolve.ts`) | pass the names yourself (`ResolveOptions.mcpServers`), or every name warns as not configured |
+| The MCP built-in's `--mcp-config <file or JSON>` in the child (`src/extensions/mcp/config.ts`, `parseMcpConfigFlag`) and `validateMcpServerConfig` (`src/core/mcp-servers.ts`) | an agent's inline `mcpServers` definitions: validated at discovery (`definition.ts`), passed to the child as JSON (`resolve.ts`, `inlineServers`) | inline definitions cannot reach the child; keep only names, and configure those servers in `mcp.json` |
 
 Imports: `xpi-coding-agent`, `xpi-tui`, `xpi-ai` (only `StringEnum` and types), plus `typebox` and `yaml`. xpi provides its
 own packages to extensions at load time. If your fork publishes them under other names, replace the import paths

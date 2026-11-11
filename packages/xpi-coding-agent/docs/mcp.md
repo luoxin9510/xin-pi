@@ -72,11 +72,22 @@ Both server types support:
 
 Keep personal servers and servers with credentials in the user-level file. Use the project file only for servers the project requires, and only in trusted projects.
 
+### Add servers for one run
+
+`--mcp-config <file or JSON>` adds servers for one run, in the same shape as `mcp.json`, after the user-level and project files. A name it repeats replaces that server for the run. The value is JSON when it starts with `{`, otherwise the path of a JSON file relative to the working directory:
+
+```bash
+pi --mcp-config '{"mcpServers": {"probe": {"command": "node", "args": ["probe-server.mjs"]}}}'
+pi --mcp-config ./ci-mcp.json
+```
+
+JSON or a file that does not parse stops the start with the reason. An entry that is not valid is reported and skipped, as in `mcp.json`. The flag takes one value; the last one given wins. `/mcp` lists these servers with the scope `cli`, and changes to them last for the session only. Subagents use this flag to give a child the [inline servers](subagent.md#inline-servers) of its agent file.
+
 ### Configuration rules
 
 - Server names may contain only letters, digits, `_`, and `-`. Tools are named `mcp__<server>__<tool>`, with every character other than letters, digits, and `_` replaced by `_`; tools of a server whose names then collide all get a hash suffix. Server names that differ only in `-` and `_` count as the same server: a second one is rejected, and a `mcp.json` server overrides a registered one.
 - `type` is optional. A `command` selects stdio and a `url` selects streamable HTTP. When present, `type` must be `stdio`, `http`, or `streamable-http`.
-- `sse` is rejected. Servers that document an SSE endpoint often also provide streamable HTTP, commonly at `/mcp` instead of `/sse`.
+- `sse` is rejected. Servers that document an SSE endpoint often also provide streamable HTTP, commonly at `/mcp` instead of `/sse`. Other types, such as `ws`, are rejected with the type named.
 - `command` is one executable and `args` contains its arguments. It is not a shell command string.
 - `env` and `headers` values can use environment variables such as `${GITHUB_TOKEN}`. They can also run a command with `!command`, but the command must make up the whole value, for example `"Authorization": "!echo Bearer $(gh auth token)"`.
 - Invalid entries are reported and skipped without preventing other servers from connecting.

@@ -2,25 +2,28 @@
 
 Spec: `../08-mcp-permission-extensions.md`. One branch per PR.
 
-**Status:** not started
+**Status:** PR 1 in review
 
 ## PR 1: inline MCP servers and `--mcp-config` (branch `subagent-inline-mcp`)
 
-- [ ] T1 `--mcp-config <file or JSON>` in the MCP extension (`extensions/mcp/`): one value; same schema as `mcp.json`,
+- [x] T1 `--mcp-config <file or JSON>` in the MCP extension (`extensions/mcp/`): one value; same schema as `mcp.json`,
       added after the agent dir and project config (a name it repeats replaces that server); entries the validator
       rejects (`sse`, `ws`, bad shape) skipped with its message as a warning; JSON or a file that does not parse stops
       the start; scope `cli`, listed by `/mcp`, changes not saved
-- [ ] T2 `discovery.ts`, `definition.ts`: `AgentDefinition.scope` (`project` | `user` | `cli` | `builtin`) set by
+- [x] T2 `discovery.ts`, `definition.ts`: `AgentDefinition.scope` (`project` | `user` | `cli` | `builtin`) set by
       discovery; inline entries of `mcpServers` (mapping form and list-of-mappings form) kept next to the names,
       validated with the `mcp.json` validator (invalid: warning, dropped); `project` entries with `auth: { provider }`
       dropped with a warning
-- [ ] T3 `resolve.ts`: inline servers (scope `user`, `cli`, `builtin`, or `project` in a trusted project; skipped with a
+- [x] T3 `resolve.ts`: inline servers (scope `user`, `cli`, `builtin`, or `project` in a trusted project; skipped with a
       warning otherwise) passed as `--mcp-config '<json>'`; same name as a configured server replaces it; a tool
       namespace collision skips with a warning; tools as for named servers; part of `prefixKey`
-- [ ] Offline tests (fake child: argv, trust, auth rule, collisions, tools list); real Haiku: an agent whose inline stdio
+- [x] Offline tests (fake child: argv, trust, auth rule, collisions, tools list); real Haiku: an agent whose inline stdio
       server is a tiny test MCP server answers from its tool
-- [ ] Docs: `docs/subagent.md` (fields table, MCP, OAuth note), `docs/subagent-porting.md` (`ResolveOptions`, scope),
+- [x] Docs: `docs/subagent.md` (fields table, MCP, OAuth note), `docs/subagent-porting.md` (`ResolveOptions`, scope),
       `docs/mcp.md`, `docs/cli.md` (`--mcp-config`)
+- Found while implementing: an error thrown by a `session_start` handler does not stop a run, so `--agents` never
+  stopped the start as the spec assumed. A core `validate(value, cwd)` on string extension flags now does it for both
+  `--agents` and `--mcp-config` (documented in `docs/xin-pi.md`). The validator also names unsupported types (`ws`).
 
 ## PR 2: `permissionMode` (branch `subagent-permission-mode`)
 
