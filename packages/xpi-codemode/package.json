@@ -1,6 +1,6 @@
 {
 	"name": "xpi-codemode",
-	"version": "1.8.1",
+	"version": "1.9.0",
 	"description": "Sandboxed JavaScript execution where the only capability is calling injected tools",
 	"type": "module",
 	"main": "./dist/index.js",
