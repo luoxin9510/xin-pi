@@ -1,7 +1,7 @@
 import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { visibleWidth } from "xpi-tui";
 import { AgentView, type AgentViewOptions } from "../src/hub/agent-view.ts";
 import type { DaemonClient } from "../src/lib/client.ts";
@@ -25,9 +25,17 @@ afterAll(() => {
 });
 
 let n = 0;
+// each row at least a millisecond older than the one made before it: lists sorted newest first show rows in the order
+// they were made, whichever milliseconds the calls fall in (times still follow the clock, which the snapshots show;
+// each test starts again from the clock)
+let last = Number.POSITIVE_INFINITY;
+beforeEach(() => {
+	last = Number.POSITIVE_INFINITY;
+});
 function row(over: Partial<JobRow> = {}): JobRow {
 	n++;
-	const now = Date.now();
+	const now = Math.min(Date.now(), last - 1);
+	last = now;
 	return {
 		id: `id${n}`,
 		cwd: "/w",
