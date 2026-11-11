@@ -217,9 +217,9 @@ describe.skipIf(!existsSync(CLI) || process.platform === "win32")(
 			await t.send(KEY.enter);
 			await t.until("echo: remember the number 7");
 			await t.send(KEY.left);
-			const hub = await t.until("Your conversation moved to the background");
+			// the hub draws before the daemon's list arrives: wait for the moved conversation's row
+			const hub = await t.until(/Your conversation moved to the background[\s\S]*remember the number 7/);
 			expect(hub).toContain("xpi agents");
-			expect(hub).toContain("remember the number 7");
 			// the daemon runs it now: listed in the hub of this agent directory
 			const list = terminal(["roost", "ls"]);
 			await list.until(() => list.exited() !== undefined, 15_000);
