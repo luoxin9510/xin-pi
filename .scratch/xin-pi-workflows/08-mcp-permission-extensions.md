@@ -91,6 +91,24 @@ on them lose their servers, their read-only mode or their guards without anythin
    Claude Opus review and a real Haiku check; after all three, the full real-model regression, then the subagent work
    is wrapped up.
 
+## Revisions while implementing
+
+Facts above that turned out wrong, and how the build differs from the decisions (each in its PR's description and review):
+
+- Decision 1 (#57): a `session_start` handler that throws only reports the error, so `--agents` never stopped the start.
+  A core `validate(value, cwd)` on string extension flags now stops it for `--agents` and `--mcp-config`. Inline servers
+  are skipped with a warning when the built-in MCP extension is not loaded (a child would not know `--mcp-config`).
+- Decision 3 (#59): with an explicit `--tools` list no tool outside it registers, extension tools included, so a
+  script cannot reach one (the fact on codemode/deferred exposure holds only without a list). A `plan` child therefore
+  has no extension tools; extensions' event handlers still run. It also runs with `--no-mcp` (`mcp__*` alone missed the
+  resource tools), and memory brings `read`.
+- Decision 4 (#61): a missing `-e` path and an extension that throws while loading are already errors that stop the
+  start; a failed package install was a warning, and a source skipped in offline mode or not read as a source
+  (`github:owner/repo`) loaded nothing silently. `--strict-extensions` makes every explicit source that loads no
+  extension an error. A missing local path in an agent file is kept (the child fails on it) instead of dropped, and a
+  project agent file with `extensions` in an untrusted project makes the call fail instead of skipping them: either
+  would run a guarded agent unguarded, which this decision exists to prevent.
+
 ## Out of scope
 
 - Claude Code's hook format and events (`PreToolUse` etc. as shell commands).

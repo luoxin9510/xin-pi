@@ -27,6 +27,7 @@ import type {
 import { findGitPaths } from "./footer-data-provider.ts";
 import {
 	DefaultPackageManager,
+	isOfflineModeEnabled,
 	type PackageInstallFailure,
 	type PathMetadata,
 	type ResolvedResource,
@@ -314,6 +315,11 @@ export interface DefaultResourceLoaderOptions {
 	additionalThemePaths?: string[];
 	extensionFactories?: InlineExtension[];
 	noExtensions?: boolean;
+	/**
+	 * An `additionalExtensionPaths` package (npm:, git:) that fails to install is an error, which stops the CLI's start,
+	 * instead of a warning. A missing path and an extension that throws while loading are errors either way.
+	 */
+	strictExtensions?: boolean;
 	/** Built-in extensions not to load, by name (such as `mcp`), even when settings or `-e` enable them. */
 	disabledBuiltinExtensions?: string[];
 	noSkills?: boolean;
@@ -357,6 +363,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 	private extensionFactories: InlineExtension[];
 	private builtinExtensions: Map<string, BuiltinExtension>;
 	private noExtensions: boolean;
+	private strictExtensions: boolean;
 	private disabledBuiltinExtensions: Set<string>;
 	private noSkills: boolean;
 	private noPromptTemplates: boolean;
@@ -425,6 +432,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		this.additionalPromptTemplatePaths = options.additionalPromptTemplatePaths ?? [];
 		this.additionalThemePaths = options.additionalThemePaths ?? [];
 		this.noExtensions = options.noExtensions ?? false;
+		this.strictExtensions = options.strictExtensions ?? false;
 		this.disabledBuiltinExtensions = new Set(options.disabledBuiltinExtensions);
 		this.noSkills = options.noSkills ?? false;
 		this.noPromptTemplates = options.noPromptTemplates ?? false;
@@ -571,7 +579,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		});
 		const installWarnings = collectPackageInstallWarnings(
 			resolvedPaths.installFailures,
-			cliExtensionPaths.installFailures,
+			this.strictExtensions ? undefined : cliExtensionPaths.installFailures,
 		);
 		// Kept on the instance so post-reload passes (extendResources) can still resolve package metadata.
 		this.resourceMetadataByPath = new Map();
@@ -628,6 +636,24 @@ export class DefaultResourceLoader implements ResourceLoader {
 		const packageWarnings = collectExtensionPackageWarnings(extensionPaths, metadataByPath);
 		const extensionsResult = await this.loadFinalExtensionSet(extensionPaths, preTrustExtensions);
 		mergeExtensionWarnings(extensionsResult, [...installWarnings, ...packageWarnings]);
+		if (this.strictExtensions) {
+			const failures = cliExtensionPaths.installFailures ?? [];
+			for (const failure of failures) {
+				extensionsResult.errors.push({ path: failure.source, error: describePackageInstallFailure(failure) });
+			}
+			// A source that gave no extension and no failure: skipped in offline mode, a package or directory without
+			// an extension, or a source string the package manager does not read as one (such as `github:owner/repo`).
+			for (const source of this.additionalExtensionPaths) {
+				if (source.startsWith(BUILTIN_PATH_PREFIX)) continue;
+				if (isLocalPath(source) && !existsSync(this.resolveResourcePath(source))) continue; // reported below
+				if (failures.some((failure) => failure.source === source)) continue;
+				if (cliExtensionPaths.extensions.some((resource) => resource.metadata.source === source)) continue;
+				extensionsResult.errors.push({
+					path: source,
+					error: `no extension loaded from it${isOfflineModeEnabled() ? " (offline mode: packages are not installed)" : ""}`,
+				});
+			}
+		}
 		for (const p of this.additionalExtensionPaths) {
 			if (isLocalPath(p)) {
 				const resolved = this.resolveResourcePath(p);
@@ -741,9 +767,10 @@ export class DefaultResourceLoader implements ResourceLoader {
 			]),
 		);
 		const packageWarnings = collectExtensionPackageWarnings(extensionPaths, metadataByPath);
+		// With strictExtensions the final pass reports these failures as errors (reload).
 		const installWarnings = collectPackageInstallWarnings(
 			resolvedPaths.installFailures,
-			cliExtensionPaths.installFailures,
+			this.strictExtensions ? undefined : cliExtensionPaths.installFailures,
 		);
 		const extensionsResult = await loadExtensionsCached(extensionPaths, this.cwd, this.eventBus);
 		mergeExtensionWarnings(extensionsResult, [...installWarnings, ...packageWarnings]);

@@ -841,6 +841,7 @@ export async function main(args: string[], options?: MainOptions) {
 				additionalPromptTemplatePaths: resolvedPromptTemplatePaths,
 				additionalThemePaths: resolvedThemePaths,
 				noExtensions: parsed.noExtensions,
+				strictExtensions: parsed.strictExtensions,
 				disabledBuiltinExtensions: parsed.noMcp ? ["mcp"] : undefined,
 				noSkills: parsed.noSkills,
 				noPromptTemplates: parsed.noPromptTemplates,
@@ -977,7 +978,12 @@ export async function main(args: string[], options?: MainOptions) {
 	}
 	if (hasRuntimeErrors) {
 		if (runtime.diagnostics.some((diagnostic) => diagnostic.message.includes("Failed to load extension"))) {
-			console.error(chalk.yellow(EXTENSION_LOAD_FAILURE_HINT));
+			// -ne does not remove explicit -e sources, which are what --strict-extensions reports.
+			console.error(
+				chalk.yellow(
+					parsed.strictExtensions ? "Hint: fix or remove the -e source above." : EXTENSION_LOAD_FAILURE_HINT,
+				),
+			);
 		}
 		process.exit(1);
 	}

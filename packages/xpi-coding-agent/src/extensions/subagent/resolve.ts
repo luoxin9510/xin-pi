@@ -312,6 +312,19 @@ function planTools(
 	};
 }
 
+// The agent's `extensions`, by the trust rule of inline MCP servers: a project agent file's load only in a trusted
+// project (they run code), those of user files, `--agents` and built-ins always. An agent whose extensions cannot
+// load does not run: they may be its guards, and it must not run unguarded (as with --strict-extensions).
+function childExtensions(def: AgentDefinition, trusted: boolean): string[] {
+	const entries = def.extensions ?? [];
+	if (entries.length > 0 && def.scope === "project" && !trusted) {
+		throw new Error(
+			`agent "${def.name}" has extensions, which a project agent file can load only in a trusted project`,
+		);
+	}
+	return entries;
+}
+
 // The agent's inline MCP servers the child may start. A project agent file's load only in a trusted project, as Claude
 // Code does for the folder an agent file came from (a repository would otherwise run commands of its choosing). A name
 // that collides with another server only in the tool namespace (`a-b` and `a_b`) is skipped: the two would share tools.
@@ -403,6 +416,7 @@ export function resolveChild(
 		() => options.mcpServers ?? configuredMcpServers(parent),
 		parent.trusted,
 	);
+	const extensions = childExtensions(def, parent.trusted);
 	const cwd = options.worktree ? join(options.worktree.path, options.worktree.subdir ?? "") : parent.cwd;
 	const memory = def.memory
 		? memorySection(memoryDir(def, parent, options), tools.memoryReadOnly, tools.warnings)
@@ -426,6 +440,10 @@ export function resolveChild(
 		thinking,
 		...tools.args,
 		...(tools.mcpConfig ? ["--mcp-config", tools.mcpConfig] : []),
+		// The agent's own extensions. --strict-extensions: one that cannot load stops the child (a `failed` result)
+		// instead of running a guarded agent without its guard.
+		...extensions.flatMap((e) => ["-e", e]),
+		...(extensions.length > 0 ? ["--strict-extensions"] : []),
 		...(def.omitClaudeMd ? ["--no-context-files"] : []),
 		parent.trusted ? "--approve" : "--no-approve",
 		...session,
@@ -446,6 +464,7 @@ export function resolveChild(
 			model,
 			...tools.args,
 			tools.mcpConfig ?? "", // the servers' tools are declared before the system prompt
+			extensions.join("\n"), // and so are the tools extensions register
 			def.omitClaudeMd ? "no context files" : "",
 			system.head,
 			findGitPaths(parent.cwd)?.repoDir ?? parent.cwd, // the same for a child in a worktree of this checkout

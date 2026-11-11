@@ -36,6 +36,7 @@ export interface Args {
 	noBuiltinTools?: boolean;
 	extensions?: string[];
 	noExtensions?: boolean;
+	strictExtensions?: boolean;
 	noMcp?: boolean;
 	print?: boolean;
 	export?: string;
@@ -191,6 +192,8 @@ export function parseArgs(args: string[]): Args {
 			result.extensions.push(args[++i]);
 		} else if (arg === "--no-extensions" || arg === "-ne") {
 			result.noExtensions = true;
+		} else if (arg === "--strict-extensions") {
+			result.strictExtensions = true;
 		} else if (arg === "--no-mcp") {
 			result.noMcp = true;
 		} else if (arg === "--skill" && i + 1 < args.length) {
@@ -329,6 +332,8 @@ ${chalk.bold("Options:")}
   --thinking <level>             Set thinking level: off, minimal, low, medium, high, xhigh, max
   --extension, -e <path>         Load an extension file or builtin:<name> (can be used multiple times)
   --no-extensions, -ne           Disable extension discovery and built-in extensions (explicit -e paths still work)
+  --strict-extensions            An -e package that fails to install stops the start (a missing path or an
+                                 extension that throws while loading always does)
   --no-mcp                       Disable built-in MCP support: no servers connect and no MCP tools
   --skill <path>                 Load a skill file or directory (can be used multiple times)
   --no-skills, -ns               Disable skills discovery and loading

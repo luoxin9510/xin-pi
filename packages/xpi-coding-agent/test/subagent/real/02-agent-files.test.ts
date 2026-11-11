@@ -123,7 +123,7 @@ test("unsupported Claude Code fields warn; unknown keys are ignored; same-folder
 	assert.ok(!t.notes.some((n) => n.includes('"color" has no effect')));
 	assert.ok(
 		t.notes.includes(
-			'subagent: inert: field "hooks" has no effect in subagent: xpi has no hooks; extensions do that work',
+			`subagent: inert: field "hooks" has no effect in subagent: Claude Code's hook commands do not run in xpi; list extensions in the agent's \`extensions\` field instead (their tool_call and tool_result handlers do what hooks do)`,
 		),
 	);
 	assert.ok(!t.notes.some((n) => n.includes("whatever")));
@@ -131,7 +131,9 @@ test("unsupported Claude Code fields warn; unknown keys are ignored; same-folder
 	assert.match(t.tool.description, /- dup: first/);
 	const r = await t.result({ subagent_type: "inert", prompt: REPLY_OK });
 	assert.equal(r.status, "completed", r.error ?? "");
-	assert.deepEqual(r.warnings, ['field "hooks" has no effect in subagent: xpi has no hooks; extensions do that work']);
+	assert.deepEqual(r.warnings, [
+		`field "hooks" has no effect in subagent: Claude Code's hook commands do not run in xpi; list extensions in the agent's \`extensions\` field instead (their tool_call and tool_result handlers do what hooks do)`,
+	]);
 });
 
 test("every supported field of a Claude Code file reaches the child; comma and list tools both work", async () => {

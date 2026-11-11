@@ -154,6 +154,8 @@ Additional paths via `settings.json`:
 
 Settings also accept built-in extensions as `builtin:<name>` entries; see [Settings](settings.md#resources). To share extensions via npm or git as Pi packages, see [packages.md](packages.md).
 
+A subagent's agent file can list extensions in its `extensions` field; they load only into that subagent's process, which is how an agent gets hooks (a `tool_call` handler that blocks a tool, say). See [Extensions as hooks](subagent.md#extensions-as-hooks).
+
 ## Available Imports
 
 | Package | Purpose |

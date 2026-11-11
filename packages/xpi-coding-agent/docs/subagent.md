@@ -25,7 +25,8 @@ return [a.output, b.output].join("\n---\n");
 - Calling agents: [The Agent tool](#the-agent-tool), [Background work](#background-work),
   [Structured output](#structured-output), [Names and SendMessage](#names-and-sendmessage), [Fork](#fork)
 - Per-agent options: [Worktree isolation](#worktree-isolation), [Agent memory](#agent-memory), [MCP](#mcp),
-  [Permission mode plan](#permission-mode-plan), [Codemode-only children](#codemode-only-children)
+  [Permission mode plan](#permission-mode-plan), [Extensions as hooks](#extensions-as-hooks),
+  [Codemode-only children](#codemode-only-children)
 - Scripts: [Workflows](#workflows) (saved workflows, runs and relaunch, pause and resume)
 - Interactive xpi: [Watching and talking to subagents](#watching-and-talking-to-subagents) (the panel, the subagent screen,
   the script screen)
@@ -84,7 +85,8 @@ continued on indented lines is still invalid: quote it or use a `|` block.
 | `mcpServers` | MCP servers for this agent: names of servers configured in `mcp.json`, inline definitions (a mapping with the server name as key, in `mcp.json`'s shape), or a list mixing both. The agent gets those servers' tools and no other server's; `[]` means no MCP. An unknown name warns in the result. See [MCP](#mcp). |
 | `background` | `true`: a call for this agent without `run_in_background` returns at once with `status: "running"`, and the result arrives as a message. The call's own `run_in_background` wins; print mode waits. |
 | `permissionMode` | `plan` makes the agent read-only; see [Permission mode plan](#permission-mode-plan). Claude Code's other values (`default`, `manual`, `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`) are accepted and change nothing: xpi never asks for permission, so they run as `bypassPermissions` (one warning at discovery). Any other value skips the file. |
-| `autoCompactWindow`, `hooks`, `initialPrompt`, `experimental` | Accepted, no effect; the warning says why (xpi compacts by reserve tokens, has no hooks, and has no agent-as-main-session for `initialPrompt`). |
+| `extensions` | xpi's own field: extensions loaded only into this agent's child, a list or a comma-separated string. This is how an agent gets hooks. See [Extensions as hooks](#extensions-as-hooks). |
+| `autoCompactWindow`, `hooks`, `initialPrompt`, `experimental` | Accepted, no effect; the warning says why (xpi compacts by reserve tokens, Claude Code's hook commands do not run in xpi (use `extensions`), and xpi has no agent-as-main-session for `initialPrompt`). |
 
 ### An agent file or a skill
 
@@ -433,8 +435,51 @@ the child's tools:
 - Agent [memory](#agent-memory) is read-only: the prompt says so, and only `read` comes with it.
 - The prompt tail tells the agent it is a read-only planning agent.
 
-Tools that extensions register in the child are not available either, since the tool list is fixed. (Fork does not read
-agent fields, so `plan` does not apply to it.)
+Tools that extensions register in the child are not available either, since the tool list is fixed; their event
+handlers (an agent's [extensions](#extensions-as-hooks)) still run. (Fork does not read agent fields, so `plan` does not
+apply to it.)
+
+## Extensions as hooks
+
+Claude Code's `hooks` field runs shell commands on tool events; xpi does that with [extensions](extensions.md). The
+`extensions` field lists extensions that load only into this agent's child:
+
+```yaml
+---
+name: careful-refactor
+description: Refactors without touching the shell
+extensions:
+  - ./guards/no-bash.ts      # relative to this agent file
+  - npm:@acme/audit-log
+---
+```
+
+```typescript
+// .pi/agents/guards/no-bash.ts
+export default function (pi) {
+  pi.on("tool_call", (event) => {
+    if (event.toolName === "bash") return { block: true, reason: "This agent may not use the shell." };
+  });
+}
+```
+
+- `tool_call` can block a call or change its input, `tool_result` can change a result, `agent_before_settle` can keep
+  the agent going. Calls a codemode script makes go through the same handlers.
+- Each entry is one `-e` for the child. A local path is resolved against the agent file's directory (for
+  [`--agents`](#agents-on-the-command-line), against the working directory) and passed absolute, so it also works in a
+  [worktree](#worktree-isolation). `npm:`, `git:` and `builtin:` sources are passed as given. Use the list form for a
+  path that contains a comma. A local path that does not exist warns at discovery and is still passed, so the call
+  fails until it exists.
+- The child runs with [`--strict-extensions`](cli.md#resource-options): an extension that cannot load (a failed
+  install, a missing file, an error while loading, a source that yields no extension, a package not installed in
+  offline mode) stops it, and the result is `failed` with the error. A guarded agent never runs without its guard.
+- Their event handlers always run. Tools they register appear only for an agent without a `tools` list: a `tools`
+  list (and [`plan`](#permission-mode-plan)) names exactly the tools the child has.
+- Trust: a project agent file's extensions load only in a [trusted](security.md#understand-project-trust) project.
+  In an untrusted one the call fails with the reason instead of running without them. Those of user agent files,
+  `--agents` and built-ins always load.
+- They are part of the agent's [prompt-cache group](#cost-caching-and-limits): the tools they register come before the
+  system prompt.
 
 ## Codemode-only children
 
