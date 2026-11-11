@@ -227,7 +227,11 @@ export function definitionFromFields(
 			);
 		}
 		const plan = permissionMode === "plan";
-		if (plan && f.mcpServers !== undefined && f.mcpServers !== null) {
+		const noServers =
+			f.mcpServers === undefined ||
+			f.mcpServers === null ||
+			(Array.isArray(f.mcpServers) && f.mcpServers.length === 0);
+		if (plan && !noServers) {
 			warnings.push('mcpServers is ignored with permissionMode "plan": MCP tools can change things');
 		}
 		const servers = plan ? {} : mcpServersField(f.mcpServers, scope, warnings);

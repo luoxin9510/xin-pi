@@ -37,8 +37,10 @@ Spec: `../08-mcp-permission-extensions.md`. One branch per PR.
 - [x] Offline tests (argv for each combination: tools list, none, codemode-only, schema, memory, mcpServers), real
       Haiku: a `plan` agent asked to write a file cannot, and says so
 - [x] Docs: `docs/subagent.md`
-- Implementation note: a direct-tools (`codemode: false`) plan child also gets `codemode` excluded, so the MCP extension
-  cannot turn it on and reach extension tools from scripts; a codemode-only plan child keeps it (spec: allowed).
+- Implementation notes: a `plan` child also gets `--no-mcp` (no server starts; `mcp__*` alone missed the resource
+  tools). With the fixed `--tools` list no extension tool registers either, so `plan` is stricter than decision 3's
+  "extensions' tools are not policed": extension event handlers still run, their tools do not exist. Memory adds
+  `read`.
 
 ## PR 3: `extensions` (branch `subagent-extensions`)
 

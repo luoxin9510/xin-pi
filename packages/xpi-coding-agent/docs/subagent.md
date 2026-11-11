@@ -415,16 +415,16 @@ the child's tools:
 - The agent gets `read`, `grep`, `find` and `ls` (and `codemode` when it is codemode-only, `StructuredOutput` for a
   call with `schema`). A `tools` list narrows that set: `tools: Read, Write, Grep` gives `read` and `grep`. If nothing
   is left, the call fails with "has no usable tools".
-- `write`, `edit`, `bash`, `powershell` and every MCP tool (`mcp__*`) are excluded, so they never register and a
-  codemode script cannot reach them either. MCP tools are out because they can change things; `mcpServers` is ignored
+- The child has exactly those tools: no other tool registers, so a codemode script cannot reach one either.
+  `write`, `edit`, `bash`, `powershell` and `mcp__*` are also excluded by name.
+- No MCP: the child runs with `--no-mcp`, so no server starts (MCP tools can change things). `mcpServers` is ignored
   with a warning at discovery.
 - `disallowedTools` still applies.
-- Agent [memory](#agent-memory) is read-only: the prompt says so, and no write tool comes with it.
+- Agent [memory](#agent-memory) is read-only: the prompt says so, and only `read` comes with it.
 - The prompt tail tells the agent it is a read-only planning agent.
 
-Tools that extensions register in the child are not policed: an extension is the agent author's own code. A
-codemode-only child can call such a tool from a script when its exposure is `codemode` or `deferred`. (Fork does not
-read agent fields, so `plan` does not apply to it.)
+Tools that extensions register in the child are not available either, since the tool list is fixed. (Fork does not read
+agent fields, so `plan` does not apply to it.)
 
 ## Codemode-only children
 

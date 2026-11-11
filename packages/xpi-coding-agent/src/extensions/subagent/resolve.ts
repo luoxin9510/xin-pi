@@ -86,9 +86,9 @@ const BUILTIN_TOOL_MAP: Record<string, string> = {
 	LS: "ls",
 };
 
-// permissionMode "plan": the tools an agent may have (intersected with its `tools` list), and those excluded so that
-// nothing can reach them, a codemode script included. MCP tools can change things, and a script reaches any MCP tool
-// whatever --tools lists; only an excluded tool never registers.
+// permissionMode "plan": the tools an agent may have (intersected with its `tools` list). With an explicit --tools list
+// no other tool registers, extension tools included, so a codemode script cannot reach them either. The child also
+// runs with --no-mcp (no server starts, no MCP or resource tool); the exclusions are a second guard.
 const PLAN_TOOLS = ["read", "grep", "find", "ls"];
 const PLAN_EXCLUDED = ["write", "edit", "bash", "powershell", "mcp__*"];
 const PLAN_PROMPT =
@@ -284,9 +284,9 @@ function resolveTools(
 	return { args, ...(mcpConfig ? { mcpConfig } : {}), warnings, memoryReadOnly };
 }
 
-// permissionMode "plan": an explicit --tools list from PLAN_TOOLS (the agent's `tools` narrow it; memory adds nothing,
-// it is read-only), the write, shell and MCP tools excluded, and codemode excluded unless the child is codemode-only
-// (otherwise the MCP extension could turn it on and reach extension tools from scripts). `disallowedTools` still applies.
+// permissionMode "plan": an explicit --tools list from PLAN_TOOLS (the agent's `tools` narrow it; memory adds `read`,
+// as for a read-only memory elsewhere), the write, shell and MCP tools excluded, and codemode excluded unless the child
+// is codemode-only (a second guard: it is not in the list). `disallowedTools` still applies.
 function planTools(
 	def: AgentDefinition,
 	codemode: boolean,
@@ -295,7 +295,8 @@ function planTools(
 	map: (names: string[]) => string[],
 	warnings: string[],
 ): { args: string[]; warnings: string[]; memoryReadOnly: MemoryReadOnly } {
-	const wanted = def.tools === undefined ? PLAN_TOOLS : map(def.tools).filter((t) => PLAN_TOOLS.includes(t));
+	const listed = def.tools === undefined ? PLAN_TOOLS : map(def.tools).filter((t) => PLAN_TOOLS.includes(t));
+	const wanted = def.memory && !listed.includes("read") ? ["read", ...listed] : listed;
 	const allow = wanted.filter((t) => !deny.includes(t));
 	if (allow.length === 0) throw new Error(`agent "${def.name}" has no usable tools`);
 	const selected = [...(codemode ? ["codemode"] : []), ...allow, ...(structured ? [STRUCTURED_OUTPUT_TOOL] : [])];
@@ -305,7 +306,7 @@ function planTools(
 		...(codemode ? [] : ["codemode"]),
 	];
 	return {
-		args: ["--tools", selected.join(","), "--exclude-tools", [...new Set(excluded)].join(",")],
+		args: ["--tools", selected.join(","), "--exclude-tools", [...new Set(excluded)].join(","), "--no-mcp"],
 		warnings,
 		memoryReadOnly: def.memory ? "plan" : false,
 	};

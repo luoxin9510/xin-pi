@@ -36,6 +36,10 @@ test("parsing: a mode other than plan warns once (at discovery); plan ignores mc
 	const quiet = parse("permissionMode: plan");
 	assert.ok(quiet.ok);
 	assert.deepEqual(quiet.def.warnings, []);
+	// An empty list asks for no MCP anyway: nothing to warn about.
+	const empty = parse("permissionMode: plan\nmcpServers: []");
+	assert.ok(empty.ok);
+	assert.deepEqual(empty.def.warnings, []);
 });
 
 async function run(fields: string, settings: Record<string, unknown> = {}, params: Record<string, unknown> = {}) {
@@ -51,6 +55,7 @@ async function run(fields: string, settings: Record<string, unknown> = {}, param
 		tools: flag(record.argv, "--tools"),
 		exclude: flag(record.argv, "--exclude-tools"),
 		mcpConfig: flag(record.argv, "--mcp-config"),
+		noMcp: record.argv.includes("--no-mcp"),
 		tail: record.systemPromptTail ?? "",
 	};
 }
@@ -61,6 +66,9 @@ test("plan without a tools list: the reading tools only; write, shell and MCP to
 	const codemodeOnly = await run("permissionMode: plan");
 	assert.equal(codemodeOnly.tools, "codemode,read,grep,find,ls");
 	assert.equal(codemodeOnly.exclude, EXCLUDED);
+	// No MCP server starts (mcp.json configures one), so no MCP or resource tool exists in the child.
+	assert.ok(codemodeOnly.noMcp);
+	assert.ok(!(await run("model: haiku")).noMcp);
 	const direct = await run("permissionMode: plan\ncodemode: false");
 	assert.equal(direct.tools, "read,grep,find,ls");
 	// Without codemode in the selection the MCP extension must not turn it on: it is excluded too.
@@ -101,6 +109,8 @@ test("plan: agent memory is read-only, in plan mode's words, and no write tool c
 	assert.match(r.tail, /This memory is read-only in plan mode: read it, do not change it\./);
 	assert.doesNotMatch(r.tail, /Save what a later run would want to know/);
 	assert.deepEqual(r.r.warnings, []);
+	// Memory brings `read` to a tools list without it, as a read-only memory does elsewhere.
+	assert.equal((await run("permissionMode: plan\nmemory: project\ntools: Grep")).tools, "codemode,read,grep");
 });
 
 test("a mode other than plan changes nothing in the child", async () => {
