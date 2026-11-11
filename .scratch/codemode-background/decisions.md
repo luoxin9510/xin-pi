@@ -8,7 +8,7 @@ subagent extension delivers its result as a steer and lists background scripts i
 nothing today; nested tool calls emit `tool_execution_start/update/end` with `parentToolCallId`; bash has no background
 option of its own.
 
-## Grill 1 (2026-11-11): waiting for the owner
+## Grill 1 (2026-11-11): accepted (owner answered "all yes")
 
 Each line is worded so "yes" accepts the proposal.
 

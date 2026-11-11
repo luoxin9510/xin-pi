@@ -1,6 +1,6 @@
 # 01: Codemode scripts in the background, and a screen to watch them
 
-Status: draft, waiting for Grill 1 (`decisions.md`). No code until the owner approves.
+Status: accepted (Grill 1, `decisions.md`). Ticket in `issues/`.
 
 Origin: omp's bash auto-background with job widgets, and Claude Code's background shells (a footer count, a task list,
 Enter shows the command's output, `k` kills it). xpi already has the machinery: a running codemode script can move to
