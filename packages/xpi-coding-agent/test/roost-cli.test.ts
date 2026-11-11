@@ -1,22 +1,25 @@
 // `xpi roost`: what xpi supplies to xpi-roost (entry files, the detach key from the keybindings, the settings
 // section) and the messages when roost cannot run here. The commands themselves are tested in xpi-roost against a
 // real daemon; the last test here runs two through runRoostCommand with xpi-roost's built entries.
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Compile } from "typebox/compile";
 import { afterEach, describe, expect, it } from "vitest";
 import { DaemonClient } from "xpi-roost";
-import { resolveRoostEntries } from "../src/config.ts";
+import { ENV_SESSION_DIR, resolveRoostEntries } from "../src/config.ts";
 import { KeybindingsManager } from "../src/core/keybindings.ts";
+import { getDefaultSessionDir } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
 import { SettingsSchema } from "../src/core/settings-schema.ts";
+import { ProjectTrustStore } from "../src/core/trust-manager.ts";
 import {
 	BINARY_MESSAGE,
 	detachMatcher,
 	PTY_HINT,
 	roostUnavailable,
 	runRoostCommand,
+	scheduleLaunch,
 	WINDOWS_MESSAGE,
 } from "../src/extensions/roost/cli.ts";
 import { roostSettings } from "../src/extensions/roost/settings.ts";
@@ -120,6 +123,71 @@ describe('the "roost" settings section (T12)', () => {
 			envAllowList: ["MINE"],
 			envDenyList: [],
 		});
+	});
+});
+
+describe("phase 2: a schedule's launch, built by the wrapper (decision 9)", () => {
+	function dirs() {
+		const agentDir = mkdtempSync(join(tmpdir(), "xroost-sl-"));
+		made.push(agentDir);
+		const work = join(agentDir, "work");
+		// something to trust: a project's skills (xpi would ask)
+		mkdirSync(join(work, ".agents", "skills"), { recursive: true });
+		return { agentDir, work };
+	}
+	const o = (agentDir: string, env: NodeJS.ProcessEnv = { PATH: "/p" }) => ({
+		agentDir,
+		env,
+		execPath: "/opt/node",
+		entry: "/opt/xpi/cli.js",
+	});
+
+	it("the session's command: this xpi, a {{run}} file in the session directory xpi would use, the task", () => {
+		const { agentDir, work } = dirs();
+		const l = scheduleLaunch({ cwd: work, task: "check it", name: "nightly" }, o(agentDir));
+		const file = join(getDefaultSessionDir(work, agentDir), "{{run}}.jsonl");
+		expect(l).toMatchObject({ cwd: work, sessionFile: file, name: "nightly", origin: "dispatch" });
+		expect(l.command).toEqual(["/opt/node", "/opt/xpi/cli.js", "--session", file, "--no-approve", "--", "check it"]);
+		// the environment's session directory, else the settings'
+		const env = scheduleLaunch({ cwd: work, name: "n" }, o(agentDir, { [ENV_SESSION_DIR]: join(agentDir, "s1") }));
+		expect(env.sessionFile).toBe(join(agentDir, "s1", "{{run}}.jsonl"));
+		writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ sessionDir: join(agentDir, "s2") }));
+		expect(scheduleLaunch({ cwd: work, name: "n" }, o(agentDir)).sessionFile).toBe(
+			join(agentDir, "s2", "{{run}}.jsonl"),
+		);
+	});
+
+	it("trust: only a decision stored for the directory, never this process's command line", () => {
+		const { agentDir, work } = dirs();
+		const argv = process.argv;
+		process.argv = [...argv, "--approve"];
+		try {
+			expect(scheduleLaunch({ cwd: work, name: "n" }, o(agentDir)).command).toContain("--no-approve");
+			new ProjectTrustStore(agentDir).set(work, true);
+			const trusted = scheduleLaunch({ cwd: work, name: "n" }, o(agentDir)).command;
+			expect(trusted).toContain("--approve");
+			expect(trusted).not.toContain("--no-approve");
+		} finally {
+			process.argv = argv;
+		}
+	});
+
+	it("the environment filtered by the roost settings; model and thinking given, else the settings'", () => {
+		const { agentDir, work } = dirs();
+		writeFileSync(
+			join(agentDir, "settings.json"),
+			JSON.stringify({
+				roost: { envDenyList: ["SECRET_*"], dispatchModel: "prov/default", dispatchThinking: "low" },
+			}),
+		);
+		const env = { PATH: "/made/here", SECRET_TOKEN: "s", KEEP_ME: "k" };
+		const l = scheduleLaunch({ cwd: work, name: "n" }, o(agentDir, env));
+		expect(l.env).toMatchObject({ PATH: "/made/here", KEEP_ME: "k" });
+		expect(l.env.SECRET_TOKEN).toBeUndefined();
+		expect(l).toMatchObject({ model: "prov/default", thinking: "low", envDeny: ["SECRET_*"] });
+		expect(l.command).toEqual(expect.arrayContaining(["--model", "prov/default", "--thinking", "low"]));
+		const given = scheduleLaunch({ cwd: work, name: "n", model: "prov/mine", thinking: "high" }, o(agentDir, env));
+		expect(given).toMatchObject({ model: "prov/mine", thinking: "high" });
 	});
 });
 

@@ -7,12 +7,24 @@
  * sessions an older daemon still runs can be listed, read, replied to and stopped.
  */
 
-import { type DetachKeyMatcher, runRoostCli } from "xpi-roost";
+import { join, resolve } from "node:path";
+import {
+	buildLaunch,
+	type DetachKeyMatcher,
+	type DispatchArgs,
+	RUN_SLOT,
+	runRoostCli,
+	type ScheduleLaunchInput,
+} from "xpi-roost";
 import { isKeyRelease } from "xpi-tui";
-import { getRoostEntries } from "../../config.ts";
+import { ENV_SESSION_DIR, expandTildePath, getRoostEntries, VERSION } from "../../config.ts";
 import { KeybindingsManager } from "../../core/keybindings.ts";
+import { getDefaultSessionDir } from "../../core/session-manager.ts";
+import { SettingsManager } from "../../core/settings-manager.ts";
+import { sessionTrust } from "./background.ts";
 import { loadHubMain } from "./hub.lazy.ts";
 import { BINARY_MESSAGE, PTY_HINT, ptyInstalled, roostUnavailable } from "./messages.ts";
+import { launchSettings } from "./settings.ts";
 
 export { BINARY_MESSAGE, PTY_HINT, ptyInstalled, roostUnavailable, WINDOWS_MESSAGE } from "./messages.ts";
 
@@ -22,6 +34,46 @@ const WITHOUT_TEXT = /^(\x1b\[[\d:]+;[\d:]+);[\d:]*u$/;
 /** Decision 11: the detach key of an attached session is the user's `app.suspend`, pressed (not released). */
 export function detachMatcher(keybindings: KeybindingsManager): DetachKeyMatcher {
 	return (key) => !isKeyRelease(key) && keybindings.matches(key.replace(WITHOUT_TEXT, "$1u"), "app.suspend");
+}
+
+/**
+ * Phase 2 (decision 9): a schedule's launch, built here as `xpi --bg` builds one, by this xpi for the schedule's
+ * directory. Trust: only a decision stored for the directory (else `--no-approve`), so a run never waits at the trust
+ * question. Model and thinking: the given ones, else the `roost` settings'. The session directory xpi would use there
+ * (the environment's, else the settings', else the default), each run's file `{{run}}.jsonl` in it. The environment:
+ * this process's, filtered by the `roost` settings; the daemon stores it with the schedule.
+ */
+export function scheduleLaunch(
+	input: ScheduleLaunchInput,
+	o: { agentDir: string; env?: NodeJS.ProcessEnv; execPath?: string; entry?: string },
+): DispatchArgs {
+	const trusted = sessionTrust(input.cwd, [], undefined, o.agentDir);
+	const settings = launchSettings(input.cwd, trusted, o.agentDir);
+	const env = o.env ?? process.env;
+	const envSessionDir = env[ENV_SESSION_DIR];
+	const sessionDir = resolve(
+		input.cwd,
+		(envSessionDir ? expandTildePath(envSessionDir) : undefined) ??
+			SettingsManager.create(input.cwd, o.agentDir, { projectTrusted: trusted }).getSessionDir() ??
+			getDefaultSessionDir(input.cwd, o.agentDir),
+	);
+	const execPath = o.execPath ?? process.execPath;
+	return buildLaunch({
+		task: input.task ?? "",
+		cwd: input.cwd,
+		sessionFile: join(sessionDir, `${RUN_SLOT}.jsonl`),
+		name: input.name,
+		origin: "dispatch",
+		// this xpi's executable and entry; no flags of the `xpi roost` command line
+		argv: [execPath, o.entry ?? process.argv[1]!],
+		execPath,
+		env,
+		trusted,
+		...settings.env,
+		...((input.model ?? settings.model) ? { model: input.model ?? settings.model } : {}),
+		...((input.thinking ?? settings.thinking) ? { thinking: input.thinking ?? settings.thinking } : {}),
+		piVersion: VERSION,
+	});
 }
 
 export async function runRoostCommand(
@@ -48,6 +100,7 @@ export async function runRoostCommand(
 		detachKeyName: detachKeys.join(" or ") || "app.suspend",
 		ptyHint: PTY_HINT,
 		ptyInstalled: (options.ptyInstalled ?? ptyInstalled)(),
+		scheduleLaunch: (input) => scheduleLaunch(input, { agentDir: options.agentDir }),
 		hub: async (rest) => {
 			const { runHub } = await loadHubMain();
 			return runHub(rest, { cwd: process.cwd(), agentDir: options.agentDir });

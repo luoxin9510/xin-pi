@@ -16,6 +16,7 @@ export type {
 	OpArgs,
 	OpResults,
 	ReplyMode,
+	ScheduleRow,
 	WaitingFor,
 	WorkerReport,
 } from "./protocol-schema.ts";

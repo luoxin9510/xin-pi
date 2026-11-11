@@ -13,7 +13,9 @@ export type EventKind =
 	/** DM-5: a session whose agent process crashed mid-run will be started again by itself. */
 	| "resume"
 	/** A job's record was removed. */
-	| "removed";
+	| "removed"
+	/** Phase 2: a schedule started a run (why: due, catch-up, now) or skipped one (why: skip, text: the reason). */
+	| "schedule";
 
 export interface RoostEvent {
 	seq: number;
@@ -28,7 +30,7 @@ export interface RoostEvent {
 	waitingFor?: WaitingFor;
 	/** A short text: the question, the result, the reply, the error. */
 	text?: string | null;
-	/** Who caused it: "user". */
+	/** Who caused it: "user", a schedule's name. */
 	who?: string | null;
 	/** The job that caused it, when a job did (names can be shared; ids cannot). */
 	whoId?: string | null;
@@ -189,6 +191,10 @@ export function eventLine(e: RoostEvent): string {
 			return `${e.name} restarts by itself${e.why ? ` (${e.why})` : ""}${e.text ? `: ${e.text}` : ""}`;
 		case "removed":
 			return `${e.name} removed`;
+		case "schedule":
+			return e.why === "skip"
+				? `schedule ${e.who ?? e.name} skipped${e.text ? `: ${e.text}` : ""}`
+				: `schedule ${e.who ?? "?"} started ${e.name}${e.why ? ` (${e.why})` : ""}`;
 		default:
 			return `${e.kind} ${e.name}`;
 	}

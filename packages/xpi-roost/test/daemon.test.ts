@@ -1,5 +1,14 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -9,7 +18,7 @@ import { TEST_DIR_PREFIX } from "../src/lib/orphans.ts";
 import { daemonSocketPath, jobDir } from "../src/lib/paths.ts";
 import { isAlive, processStartToken } from "../src/lib/proc.ts";
 import type { Event, JobRow } from "../src/lib/protocol.ts";
-import { listJobIds, readJob, readState } from "../src/lib/store.ts";
+import { listJobIds, readJob, readState, updateState } from "../src/lib/store.ts";
 
 const DAEMON = resolve("src/daemon/main.ts");
 const HOST = resolve("src/host/main.ts");
@@ -34,6 +43,7 @@ const ENV_NAMES = [
 	"ROOST_CLEANUP_DAYS",
 	"ROOST_CLEANUP_CHECK_MS",
 	"ROOST_STOP_WAIT_MS",
+	"ROOST_SCHEDULE_TICK_MS",
 ];
 const saved = Object.fromEntries(ENV_NAMES.map((k) => [k, process.env[k]]));
 
@@ -1203,5 +1213,210 @@ describe("DM-5: a crashed run carries on; a session whose host is gone ends", ()
 		expect((await find(client, id))?.state).toBe("stopped");
 		await new Promise((r) => setTimeout(r, 3300));
 		expect((await find(client, id))?.pid).toBeNull();
+	});
+});
+
+describe("phase 2: schedules in the daemon", () => {
+	/** A launch as the CLI builds one: an executable and an entry that exist, `{{run}}` in the session file. */
+	function launch(script: string, task?: string) {
+		const entry = join(work, "fake-xpi.sh");
+		writeFileSync(entry, `${script}\n`);
+		const sessionFile = join(work, "runs", "{{run}}.jsonl");
+		mkdirSync(join(work, "runs"), { recursive: true });
+		return {
+			cwd: work,
+			sessionFile,
+			command: ["/bin/sh", entry, "--session", sessionFile, "--no-approve", ...(task ? ["--", task] : [])],
+			env: { PATH: process.env.PATH ?? "/usr/bin:/bin", SCHEDULE_KEY: "from-the-maker" },
+			name: "x",
+			origin: "dispatch" as const,
+		};
+	}
+	const runsOf = async (c: DaemonClient, name: string) =>
+		(await c.request("list", {})).jobs.filter((j) => j.schedule === name);
+
+	it("run now: a job named after the schedule, its record and row carry it, a fresh session file, its environment", async () => {
+		const { client } = await startDaemon();
+		const events: Event[] = [];
+		await client.request("subscribe", {});
+		client.onEvent((e) => events.push(e));
+		const added = await client.request("schedule-add", {
+			name: "nightly",
+			when: "manual",
+			task: "the task",
+			launch: launch('echo "$SCHEDULE_KEY"; sleep 0.3', "the task"),
+		});
+		expect(added).toMatchObject({ name: "nightly", when: "manual", nextAt: null, cwd: work });
+		// the store: the daemon's, 0600, environment kept
+		const file = join(home, "schedules.json");
+		expect(statSync(file).mode & 0o777).toBe(0o600);
+		expect(JSON.parse(readFileSync(file, "utf8"))[0].launch.env.SCHEDULE_KEY).toBe("from-the-maker");
+		const first = await client.request("schedule-run", { name: "nightly" });
+		// the op answers with the schedule's name and the run's job
+		expect(first.name).toBe("nightly");
+		expect((await find(client, first.id))?.name).toBe("nightly");
+		const rec = readJob(first.id)!;
+		expect(rec.schedule).toBe("nightly");
+		expect(rec.env.SCHEDULE_KEY).toBe("from-the-maker");
+		expect(rec.sessionFile).toMatch(/\/runs\/\d{4}-\d\d-\d\dT[\d-]+Z_[0-9a-f-]{36}\.jsonl$/);
+		expect(rec.command[3]).toBe(rec.sessionFile);
+		await waitFor(async () => (await find(client, first.id))?.state === "done");
+		const second = await client.request("schedule-run", { name: "nightly" });
+		expect((await find(client, second.id))?.name).toBe("nightly (2)");
+		expect(readJob(second.id)!.sessionFile).not.toBe(rec.sessionFile);
+		const row = await find(client, second.id);
+		expect(row?.schedule).toBe("nightly");
+		expect((await find(client, first.id))?.schedule).toBe("nightly");
+		// the feed: the schedule's own event, not a dispatch
+		const feed = (await client.request("events", { limit: 100 })).events;
+		expect(feed.filter((e) => e.kind === "dispatch")).toEqual([]);
+		expect(feed.filter((e) => e.kind === "schedule").map((e) => [e.name, e.who, e.why])).toEqual([
+			["nightly", "nightly", "now"],
+			["nightly (2)", "nightly", "now"],
+		]);
+		const list = (await client.request("schedules", {})).schedules;
+		expect(list[0]).toMatchObject({ name: "nightly", lastJob: second.id, lastRunWhy: "now", nextAt: null });
+	});
+
+	it("run now while the previous run works is busy and recorded; a missing executable skips with the edit hint", async () => {
+		const { client } = await startDaemon();
+		await client.request("schedule-add", { name: "long", when: "daily 03:00", launch: launch("sleep 30") });
+		const r = await client.request("schedule-run", { name: "long" });
+		await expect(client.request("schedule-run", { name: "long" })).rejects.toMatchObject({
+			code: "busy",
+			message: "previous run still working",
+		});
+		expect((await client.request("schedules", {})).schedules[0]).toMatchObject({
+			lastJob: r.id,
+			lastSkip: { why: "previous run still working" },
+		});
+		await client.request("stop", { id: r.id });
+		await waitFor(async () => (await find(client, r.id))?.state === "stopped");
+		rmSync(join(work, "fake-xpi.sh"));
+		await expect(client.request("schedule-run", { name: "long" })).rejects.toMatchObject({
+			message: `xpi not found at ${join(work, "fake-xpi.sh")}: run \`xpi roost schedule edit long\` to update it`,
+		});
+	});
+
+	it("add refuses a missing directory; edit cannot move it", async () => {
+		const { client } = await startDaemon();
+		const l = launch("true");
+		await expect(
+			client.request("schedule-add", { name: "gone", when: "every 1h", launch: { ...l, cwd: join(work, "nope") } }),
+		).rejects.toMatchObject({ code: "bad_request", message: `cwd is not a directory: ${join(work, "nope")}` });
+		await client.request("schedule-add", { name: "here", when: "every 1h", launch: l });
+		await expect(
+			client.request("schedule-edit", { name: "here", launch: { ...l, cwd: home } }),
+		).rejects.toMatchObject({ code: "bad_request", message: expect.stringMatching(/directory cannot change/) });
+	});
+
+	it("at start: a missed slot runs once as a catch-up, a due one on the tick; retention keeps 3 ended runs", async () => {
+		process.env.ROOST_SCHEDULE_TICK_MS = "200";
+		const now = Date.now();
+		const l = launch("sleep 0.2");
+		const entry = (name: string, nextAt: number) => ({
+			name,
+			when: "every 1h",
+			launch: l,
+			paused: false,
+			createdAt: now - 3 * 3600_000,
+			anchor: now - 3 * 3600_000,
+			nextAt,
+		});
+		writeFileSync(
+			join(home, "schedules.json"),
+			JSON.stringify([entry("missed", now - 3600_000), entry("due", now + 300)]),
+		);
+		const { client } = await startDaemon();
+		const missed = await waitFor(async () => (await runsOf(client, "missed"))[0]);
+		const due = await waitFor(async () => (await runsOf(client, "due"))[0]);
+		const rows = (await client.request("schedules", {})).schedules;
+		expect(rows.find((r) => r.name === "missed")).toMatchObject({ lastJob: missed.id, lastRunWhy: "catch-up" });
+		expect(rows.find((r) => r.name === "due")).toMatchObject({ lastJob: due.id, lastRunWhy: "due" });
+		for (const r of rows) expect(r.nextAt! > Date.now()).toBe(true);
+		// retention: five ended runs of "due", one pinned: the pinned one and the newest three stay
+		await waitFor(async () => (await find(client, due.id))?.state === "done");
+		await client.request("pin", { id: due.id, pinned: true });
+		const later: string[] = [];
+		for (let i = 0; i < 4; i++) {
+			const r = await client.request("schedule-run", { name: "due" });
+			later.push(r.id);
+			await waitFor(async () => (await find(client, r.id))?.state === "done");
+		}
+		await waitFor(async () => ((await runsOf(client, "due")).length === 4 ? true : undefined));
+		expect((await runsOf(client, "due")).map((j) => j.id).sort()).toEqual([due.id, ...later.slice(1)].sort());
+		// logged as such
+		expect(readFileSync(join(home, "daemon.log"), "utf8")).toContain("schedule run removed");
+	});
+
+	it("retention on the real daemon: a run that ended on a question counts once it has no process, unless it is the last; a reply or a restart waiting keeps a run", async () => {
+		process.env.ROOST_SCHEDULE_TICK_MS = "100";
+		const { client } = await startDaemon();
+		await client.request("schedule-add", { name: "q", when: "manual", launch: launch("sleep 0.5") });
+		const asking = {
+			state: "blocked" as const,
+			status: "waiting" as const,
+			waitingFor: "question" as const,
+			summary: "which one?",
+			question: "which one?",
+			choices: [],
+			tool: null,
+			error: null,
+			name: null,
+			model: null,
+		};
+		/** A run that asks and then exits: blocked, no process. */
+		const askingRun = async () => {
+			const { id } = await client.request("schedule-run", { name: "q" });
+			await waitFor(async () => (await find(client, id))?.pid);
+			const w = await DaemonClient.connect();
+			clients.push(w);
+			await w.request("report", { id, token: readState(id)?.jobToken as string, report: asking });
+			await waitFor(async () => (await find(client, id))?.endedAt);
+			expect((await find(client, id))?.state).toBe("blocked");
+			return id;
+		};
+		const settle = () => new Promise((r) => setTimeout(r, 500));
+		const ids = [await askingRun(), await askingRun(), await askingRun(), await askingRun()];
+		await settle();
+		// three that are not the last: none goes (the last, waiting for its answer, does not count)
+		expect((await runsOf(client, "q")).map((j) => j.id).sort()).toEqual([...ids].sort());
+		ids.push(await askingRun());
+		await waitFor(async () => !(await find(client, ids[0]!)));
+		expect((await runsOf(client, "q")).map((j) => j.id).sort()).toEqual(ids.slice(1).sort());
+
+		// "d": runs that end done; a reply waiting or a restart waiting keeps a run out of the count
+		await client.request("schedule-add", { name: "d", when: "manual", launch: launch("true") });
+		const doneRun = async () => {
+			const { id } = await client.request("schedule-run", { name: "d" });
+			await waitFor(async () => (await find(client, id))?.state === "done");
+			return id;
+		};
+		const d = [await doneRun(), await doneRun()];
+		updateState(d[0]!, { resumeAt: Date.now() + 3600_000 });
+		updateState(d[1]!, { pendingReplies: [{ seq: 1, text: "later" }] });
+		d.push(await doneRun(), await doneRun());
+		await settle();
+		expect((await runsOf(client, "d")).length).toBe(4);
+		updateState(d[0]!, { resumeAt: undefined });
+		updateState(d[1]!, { pendingReplies: [] });
+		await waitFor(async () => !(await find(client, d[0]!)));
+		expect((await runsOf(client, "d")).map((j) => j.id).sort()).toEqual(d.slice(1).sort());
+	}, 40_000);
+
+	it("a schedules.json that does not parse is moved aside, not overwritten; the list and the log say so", async () => {
+		writeFileSync(join(home, "schedules.json"), '[{"name": "half');
+		const { client } = await startDaemon();
+		const r = await client.request("schedules", {});
+		expect(r.schedules).toEqual([]);
+		expect(r.problem).toMatch(
+			/^schedules\.json could not be read \(.+\); it was moved to .+schedules\.json\.bad-.+; no schedules were loaded$/,
+		);
+		const bad = readdirSync(home).filter((f) => f.startsWith("schedules.json.bad-"));
+		expect(bad).toHaveLength(1);
+		expect(readFileSync(join(home, bad[0]!), "utf8")).toBe('[{"name": "half');
+		await client.request("schedule-add", { name: "fresh", when: "manual", launch: launch("true") });
+		expect(readFileSync(join(home, bad[0]!), "utf8")).toBe('[{"name": "half');
+		expect(readFileSync(join(home, "daemon.log"), "utf8")).toContain("schedules file unreadable");
 	});
 });

@@ -119,6 +119,84 @@ you left off.", up to three times in a row. A shell command's row goes away five
 the machine restarts, or a session's host process dies, the session ends and does not resume on its own: reply to it,
 attach, or `xpi roost respawn` it to start it again from its session file.
 
+## Schedules
+
+A schedule starts a new background session on a time rule: "every weekday at 9, review yesterday's commits", "every 2
+hours, check the deploy". Each run is a session of its own in the list, like one started with `xpi --bg`.
+
+```bash
+xpi roost schedule add standup weekdays 09:00 "summarise yesterday's commits"
+xpi roost schedule add deploy every 2h "check the deploy" --cwd ~/work/site --thinking low
+xpi roost schedule list
+```
+
+| Command | What it does |
+|---|---|
+| `xpi roost schedule add <name> <when> <task> [--cwd <dir>] [--model <m>] [--thinking <t>]` | Add a schedule for the current directory (or `--cwd`) and print its next run |
+| `xpi roost schedule list [--json]` | Every schedule: its rule, next run, last run (or why it was skipped), directory and task |
+| `xpi roost schedule run <name>` | Run it now, also when it is paused or `manual`; its next run does not move |
+| `xpi roost schedule pause <name>` / `resume <name>` | Stop and start its slots; a resumed `every` counts from now |
+| `xpi roost schedule edit <name> [--when <when>] [--task <task>] [--model <m>] [--thinking <t>]` | Change it; what you leave out keeps its value, and `--model default` or `--thinking default` goes back to the settings' |
+| `xpi roost schedule rm <name>` | Remove it; its runs stay in the list until you remove them |
+
+Rules are in local time:
+
+| Rule | Runs |
+|---|---|
+| `every <n>m`, `every <n>h`, `every <n>d` | every n minutes, hours or days, counted from when it was added, resumed or its rule edited |
+| `daily HH:MM` | every day at that time |
+| `weekdays HH:MM` | Monday to Friday |
+| `weekly <mon..sun> HH:MM` | one day a week |
+| `cron "<minute hour day month weekday>"` | a cron rule: lists, ranges and steps; Sunday is 0 or 7; when both day fields are given, either matches |
+| `manual` | only when you run it |
+
+Two runs are never less than five minutes apart: `every` under `5m` is refused, and so is a cron rule with two times
+of day under five minutes apart (`*/2 * * * *`, or `1,58 0,23 * * *`, whose 23:58 and 00:01 are three minutes apart). Names are a letter or
+digit, then up to 39 of letters, digits, `_`, `.` and `-`. A task is at most 64 KiB, and there are at most 50
+schedules. A cron rule that never matches a date (`0 9 31 2 *`) is refused.
+
+Clock changes follow local time: on the day clocks go back, a rule for a time in the repeated hour (`daily 01:30`)
+may run twice; on the day they go forward, one for a time in the skipped hour (`daily 02:30`) does not run that day.
+`every 1d` is 24 hours, so it moves by an hour against the clock across a change; `daily HH:MM` keeps the time.
+
+**What a run is.** A new session named after the schedule (`standup`, `standup (2)`), with a new session file in the
+session directory xpi would use for that folder; `xpi roost ls` shows it as `standup (2) ← standup`. It starts with
+what the schedule was made with: the directory, the model and thinking level (the flags, else the `roost` settings'
+`dispatchModel` and `dispatchThinking`), this xpi's executable, and your environment as `add` or the last `edit` saw
+it, filtered by the `roost` settings (see [Settings](#settings)). It is stored with the schedule, readable by you only.
+So edit a schedule after changing a key or variable it needs: `xpi roost schedule edit <name>` with no flags builds
+the launch again in your current terminal. The trust decision is the one stored for the directory (see
+[Understand project trust](security.md#understand-project-trust)); without one the run starts with `--no-approve`, so it never waits at the trust question.
+
+**When runs happen.** Only while the agent directory's daemon runs: it looks every 15 seconds. Any `xpi roost`
+command (other than `daemon ...` and `schedule list`), the hub and `xpi --bg` start the daemon; `xpi roost daemon stop`
+stops the schedules with it. A slot missed while the daemon was off or the machine slept runs once when it is back, if
+it fell within the last seven days, marked as a catch-up in `schedule list` and `xpi roost log`; older ones are
+dropped.
+
+**Skipped slots.** A slot is skipped while the schedule's previous run is still working, starting or about to restart
+after a crash; a previous run that waits for your answer does not hold it back (the new run starts, the old one stays
+in the list waiting). A slot is also skipped when the directory is gone, or when the xpi it was made with has moved
+(`run xpi roost schedule edit <name> to update it`). `schedule list` shows the last skip and why; `xpi roost log` too.
+
+**Old runs.** Each schedule keeps its three newest ended runs that are not pinned; older ones are removed as
+`xpi roost rm` would. Their session files stay, and `/resume` finds them when the schedule uses the default session
+directory. A run that ended on a question counts as ended once its process is gone (it was reaped, or it exited),
+unless it is the schedule's latest run, which stays in the list as Needs input. A run you start again by replying, or
+one with a reply or a crash restart waiting, counts as running until it ends again. An old run whose worker still
+waits idle is removed once idle reaping has stopped it (at once when `reapIdleMinutes` is `0`). A removed schedule's
+runs stay until you remove them; a schedule added again under the same name does not take them over.
+
+**The schedules file.** The daemon keeps the schedules in `<agent dir>/xpi-roost/schedules.json`. When it cannot read
+the file, it moves it to `schedules.json.bad-<time>`, starts with none and says so in `schedule list` and its log.
+Entries it cannot run (edited by hand, or from a newer xpi) are left in the file as they are, and `schedule list`
+counts them.
+
+**Inside a background session**, `xpi roost schedule add`, `edit` and `run` refuse (the session's environment has
+`ROOST_JOB_ID`); `list`, `pause`, `resume` and `rm` work. This keeps a model from adding schedules by accident, not on
+purpose: it could clear the variable. The daemon takes the schedule operations from people only, never from a
+session's connection.
+
 ## The hub
 
 The hub lists the sessions the daemon runs and lets you start, watch, answer and open them. `/agents` opens it in a
@@ -228,8 +306,8 @@ so `xpi roost` inside it reaches the same daemon.
 ## Where things are
 
 - **State**: `<agent dir>/xpi-roost/`: one directory per session in `jobs/` (its record, its state, its last screen,
-  its command list), the running hosts (`roster.json`), the event log (`events.jsonl`) and the daemon's log
-  (`daemon.log`). The agent directory is `~/.pi/agent` unless `XPI_CODING_AGENT_DIR` says
+  its command list), the running hosts (`roster.json`), the schedules (`schedules.json`), the event log
+  (`events.jsonl`) and the daemon's log (`daemon.log`). The agent directory is `~/.pi/agent` unless `XPI_CODING_AGENT_DIR` says
   otherwise.
 - **Sockets**: `$XDG_RUNTIME_DIR/xpi-roost-<key>` or `/tmp/xpi-roost-<uid>/<key>`, one per agent directory.
 - **One daemon per agent directory**. It starts on demand with the first command that needs it and stops with
@@ -256,7 +334,9 @@ After an upgrade, a running daemon still has the old code: run `xpi roost daemon
 ## Not in this version
 
 Background sessions came from pi-roost; this version has its daemon, `xpi roost`, the hub and the session side. Not
-here: sessions resuming on their own after an interruption and schedules (planned next); messages between sessions and
+here: sessions resuming on their own after a machine restart (left out: restarting unattended can repeat half-done
+work; reply to a session or `xpi roost respawn` it instead), schedules in the hub (planned next; the command line has
+them, see [Schedules](#schedules)); messages between sessions and
 watches (with agent teams, later); subagents in the hub (each session shows its own); the task board and workspaces,
 the concierge, worktree isolation, pull request status, fan-out and `/compare`, sessions from agent definitions,
 terminal agents other than xpi, the summary model, pi-mobile and telemetry. The list, with the decision behind each,

@@ -17,12 +17,12 @@ describe("M63: callers", () => {
 
 	it("a row for every op, and none for anything else", () => {
 		expect(Object.keys(POLICY).sort()).toEqual([...OPS].sort());
-		expect(OPS).toHaveLength(18);
+		expect(OPS).toHaveLength(24);
 		expect(policyKey("nonsense")).toBeUndefined();
 		// a name from the prototype is not a row
 		expect(policyKey("toString")).toBeUndefined();
 		// pi-roost's ops that are not ported have no row: the daemon answers them as unknown
-		for (const op of ["peers", "send", "spawn", "handback", "peer_register", "task", "concierge", "schedules"])
+		for (const op of ["peers", "send", "spawn", "handback", "peer_register", "task", "concierge"])
 			expect(policyKey(op)).toBeUndefined();
 	});
 
@@ -38,6 +38,12 @@ describe("M63: callers", () => {
 			"shutdown",
 			"subscribe",
 			"reply",
+			"schedules",
+			"schedule-add",
+			"schedule-edit",
+			"schedule-rm",
+			"schedule-pause",
+			"schedule-run",
 		]) {
 			expect(allow(person, op)).toBeNull();
 			for (const c of [job, unregistered])

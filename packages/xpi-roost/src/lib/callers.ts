@@ -68,6 +68,13 @@ export const POLICY: Record<PolicyKey, Policy> = {
 	reorder: personOnly,
 	reply: personOnly,
 	shutdown: personOnly,
+	// phase 2: schedules start sessions unattended, so only the person makes and runs them
+	schedules: personOnly,
+	"schedule-add": personOnly,
+	"schedule-edit": personOnly,
+	"schedule-rm": personOnly,
+	"schedule-pause": personOnly,
+	"schedule-run": personOnly,
 	events: { person: "allow", session: FEED, unregistered: FEED },
 };
 

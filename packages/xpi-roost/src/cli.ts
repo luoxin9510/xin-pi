@@ -1,16 +1,34 @@
 // `xpi roost <subcommand>`: the command line over the daemon (pi-roost's bin/pi-roost.ts).
 // xpi supplies what this library cannot know: the agent directory, the daemon's and the
 // host's entry files, the detach key (the user's keybinding) and its own install hints.
-import { existsSync, readFileSync } from "node:fs";
-import { resolve as resolvePath } from "node:path";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { join, resolve as resolvePath } from "node:path";
+import { readJson } from "./lib/atomic.ts";
 import { attachToHost, type DetachKeyMatcher } from "./lib/attach.ts";
 import { DaemonClient, DaemonError, type DaemonStart, daemonEnv, requestOnce } from "./lib/client.ts";
 import { eventAgo, eventLine, type RoostEvent } from "./lib/events.ts";
 import { hostControl } from "./lib/hostclient.ts";
-import { formatList } from "./lib/list-format.ts";
-import { checkRuntimeDir, daemonLogPath, hostSocketPath, ROOST_LOCATION_ENV, runtimeDir } from "./lib/paths.ts";
-import type { JobRow } from "./lib/protocol.ts";
+import { readJobEnv } from "./lib/identity.ts";
+import { formatList, formatSchedules } from "./lib/list-format.ts";
+import {
+	checkRuntimeDir,
+	daemonLogPath,
+	hostSocketPath,
+	ROOST_LOCATION_ENV,
+	roostHome,
+	runtimeDir,
+} from "./lib/paths.ts";
+import type { DispatchArgs, JobRow, ScheduleRow } from "./lib/protocol.ts";
 import { ensureLive } from "./lib/resume.ts";
+import {
+	checkTask,
+	parseWhen,
+	SCHEDULE_NAME,
+	type Schedule,
+	scheduleRow,
+	untilText,
+	WHEN_HELP,
+} from "./lib/schedule.ts";
 import { screenPath } from "./lib/store.ts";
 import { ROOST_VERSION } from "./lib/version.ts";
 
@@ -35,6 +53,13 @@ export interface RoostCliOptions {
 	ptyInstalled?: boolean;
 	/** `xpi roost hub [dir]`: the hub runs on xpi's terminal and settings, so xpi supplies it (none: not available). */
 	hub?: (args: string[]) => Promise<number>;
+	/**
+	 * Phase 2: a schedule's launch, built by xpi as for any new session (decision 9): its environment filtered by the
+	 * `roost` settings, the stored trust decision for `cwd`, the session directory xpi would use there with `{{run}}`
+	 * for each run's file, this xpi's executable and entry, and the model and thinking (the given ones, else the
+	 * settings'). None: `schedule add` and `edit` are not available.
+	 */
+	scheduleLaunch?: (input: ScheduleLaunchInput) => DispatchArgs;
 	/** How long a daemon may take to start (tests). */
 	startTimeoutMs?: number;
 	stdout?: Out;
@@ -42,6 +67,23 @@ export interface RoostCliOptions {
 }
 
 const ENDED_CUTOFF_MS = 48 * 60 * 60 * 1000;
+
+/** What a schedule's launch is built from. */
+export interface ScheduleLaunchInput {
+	cwd: string;
+	/** The first prompt (none: the run starts idle). */
+	task?: string;
+	model?: string;
+	thinking?: string;
+	name: string;
+}
+
+/** `cron 0 9 * * 1` (the shell took the quotes) is kept as `cron "0 9 * * 1"`, as rules are written. */
+export function normalizeWhen(when: string): string {
+	const s = when.trim().replace(/\s+/g, " ");
+	const m = /^cron\s+["']?(.*?)["']?$/i.exec(s);
+	return m ? `cron "${m[1]}"` : s;
+}
 
 export function roostUsage(detachKeyName: string): string {
 	return `xpi roost ${ROOST_VERSION}: background xpi sessions
@@ -60,12 +102,25 @@ usage:
   xpi roost rm <id|name>           stop it and delete its record
   xpi roost respawn <id|name>      start an ended session again (or restart a live one)
   xpi roost respawn --all          restart running xpi sessions (after an upgrade)
+  xpi roost schedule list [--json]
+                                   schedules: rule, next run, last run or skip (works
+                                   without the background service running)
+  xpi roost schedule add <name> <when> <task> [--cwd <dir>] [--model <m>] [--thinking <t>]
+                                   start <task> as a new background session on <when>:
+                                   every 30m, daily 09:00, weekdays 09:00, weekly mon 09:00,
+                                   cron "0 9 * * 1-5", manual (local time; 5 minutes apart at least)
+  xpi roost schedule edit <name> [--when <when>] [--task <task>] [--model <m>] [--thinking <t>]
+                                   change it; the launch (environment, xpi, trust) is built again
+  xpi roost schedule run <name>    run it now (also paused or manual)
+  xpi roost schedule pause|resume|rm <name>
   xpi roost daemon status|logs|stop [--keep-workers]
   xpi roost hub [dir]              the hub: every session, peek, reply, attach, start new ones
                                    (new sessions start in dir, default the current one)`;
 }
 
 class UsageError extends Error {}
+/** A value that is not good (a rule, a name, a task): its message and a one-line hint, not the whole usage. */
+class InputError extends Error {}
 
 // A finished turn still has a live worker to attach to; only the process matters.
 const isLive = (row: JobRow) => row.pid !== null;
@@ -264,6 +319,195 @@ export async function runRoostCli(argv: string[], opts: RoostCliOptions): Promis
 		else stdout.write(formatList(rows, { width: process.stdout.columns || 100 }));
 	}
 
+	/** Decision 8: a session the daemon runs does not make, change or run schedules (a person does). */
+	function refuseInSession(what: string): void {
+		if (readJobEnv(process.env, "id"))
+			throw new DaemonError(
+				`schedule ${what} is refused inside a background session (ROOST_JOB_ID is set): schedules are made by a person; run it from your own terminal or the hub`,
+				"in_session",
+			);
+	}
+
+	/** `--flag value` pairs taken out of the arguments; `--` ends them. */
+	function flags(args: string[], known: string[]): { values: Record<string, string>; rest: string[] } {
+		const values: Record<string, string> = {};
+		const rest: string[] = [];
+		for (let i = 0; i < args.length; i++) {
+			const a = args[i]!;
+			if (a === "--") {
+				rest.push(...args.slice(i + 1));
+				break;
+			}
+			const eq = a.indexOf("=");
+			const name = a.startsWith("--") ? (eq === -1 ? a : a.slice(0, eq)) : undefined;
+			if (name && known.includes(name)) {
+				const v = eq === -1 ? args[++i] : a.slice(eq + 1);
+				if (v === undefined || v === "") throw new UsageError(`${name} needs a value`);
+				values[name.slice(2)] = v;
+			} else if (name && a.length > 2) throw new UsageError(`schedule: unknown option ${name}`);
+			else rest.push(a);
+		}
+		return { values, rest };
+	}
+
+	const nextText = (r: ScheduleRow) =>
+		r.paused
+			? "paused"
+			: r.nextAt === null
+				? `runs when asked: xpi roost schedule run ${r.name}`
+				: `next run ${untilText(r.nextAt)} (${new Date(r.nextAt).toLocaleString()})`;
+
+	function launchFor(input: ScheduleLaunchInput): DispatchArgs {
+		if (!opts.scheduleLaunch) throw new DaemonError("schedules cannot be made here", "unsupported");
+		return opts.scheduleLaunch(input);
+	}
+
+	async function cmdSchedule(sub: string | undefined, args: string[]): Promise<void> {
+		switch (sub) {
+			case "list":
+			case "ls": {
+				const json = args.includes("--json");
+				for (const a of args) if (a !== "--json") throw new UsageError(`schedule list: unknown option ${a}`);
+				// decision 5: without starting the service, as `daemon status`
+				let rows: ScheduleRow[];
+				let note = "";
+				let client: DaemonClient | undefined;
+				try {
+					client = await DaemonClient.connect();
+				} catch (err) {
+					if (err instanceof DaemonError && err.code === "no_roost") throw err;
+				}
+				if (client) {
+					try {
+						await warnOnce(client);
+						const r = await client.request("schedules", {});
+						rows = r.schedules;
+						if (r.problem) note += `${r.problem}\n`;
+						if (r.unread)
+							note += `${r.unread} entr${r.unread === 1 ? "y" : "ies"} of schedules.json this xpi cannot run (from a newer xpi, or edited by hand) left as they are\n`;
+					} finally {
+						client.close();
+					}
+				} else {
+					const file = join(roostHome(), "schedules.json");
+					const saved = readJson<unknown>(file);
+					if (saved === undefined && existsSync(file))
+						note += "schedules.json could not be read; the daemon moves it aside when it starts\n";
+					rows = (Array.isArray(saved) ? (saved as Schedule[]) : [])
+						.filter((x) => x && typeof x.name === "string" && x.launch && typeof x.launch.cwd === "string")
+						.map(scheduleRow)
+						.sort((a, b) => a.name.localeCompare(b.name));
+					note +=
+						"the background service is not running: no schedule runs until it does (any xpi roost command but daemon and schedule list starts it)\n";
+				}
+				if (json) stdout.write(`${JSON.stringify(rows, null, 2)}\n`);
+				else stdout.write(formatSchedules(rows, { width: process.stdout.columns || 100 }));
+				if (note) stderr.write(note);
+				return;
+			}
+			case "add": {
+				refuseInSession("add");
+				const { values, rest } = flags(args, ["--cwd", "--model", "--thinking"]);
+				const [name, ...words] = rest;
+				if (!name || words.length === 0) throw new UsageError("schedule add <name> <when> <task>");
+				if (!SCHEDULE_NAME.test(name))
+					throw new InputError(
+						`not a schedule name: ${name} (a letter or digit, then up to 39 of A-Z a-z 0-9 _ . -)`,
+					);
+				const split = splitArgsWhen(words);
+				if (!split) throw new InputError(`not a rule: ${words.join(" ")}`);
+				const task = split.task;
+				if (!task.trim()) throw new UsageError("schedule add needs a task");
+				parseWhenOrUsage(split.when);
+				try {
+					checkTask(task);
+				} catch (err) {
+					throw new InputError((err as Error).message);
+				}
+				const cwd = resolvePath(values.cwd ?? process.cwd());
+				if (!isDirectory(cwd)) throw new DaemonError(`no directory ${cwd}`, "bad_request");
+				const chosen = (v: string | undefined) => (v === "default" ? undefined : v);
+				const launch = launchFor({
+					cwd,
+					task,
+					model: chosen(values.model),
+					thinking: chosen(values.thinking),
+					name,
+				});
+				const row = await withDaemon((c) => c.request("schedule-add", { name, when: split.when, task, launch }));
+				stdout.write(`added · ${row.name} · ${row.when} · ${nextText(row)}\n`);
+				return;
+			}
+			case "edit": {
+				refuseInSession("edit");
+				const { values, rest } = flags(args, ["--when", "--task", "--model", "--thinking"]);
+				const [name, ...extra] = rest;
+				if (!name || extra.length > 0)
+					throw new UsageError(
+						"schedule edit <name> [--when <when>] [--task <task>] [--model <m>] [--thinking <t>]",
+					);
+				const when = values.when === undefined ? undefined : normalizeWhen(values.when);
+				if (when !== undefined) parseWhenOrUsage(when);
+				if (values.task !== undefined) {
+					try {
+						checkTask(values.task);
+					} catch (err) {
+						throw new InputError((err as Error).message);
+					}
+				}
+				const row = await withDaemon(async (c) => {
+					const cur = (await c.request("schedules", {})).schedules.find((x) => x.name === name);
+					if (!cur) throw new DaemonError(`no schedule named ${name}`, "not_found");
+					// decision 8: what is not given keeps its stored value; the rest of the launch is built again here
+					const task = values.task ?? cur.task ?? undefined;
+					const launch = launchFor({
+						cwd: cur.cwd,
+						task,
+						// `default`: the stored one is dropped, the roost settings' (or xpi's) is used
+						model: values.model === "default" ? undefined : (values.model ?? cur.model ?? undefined),
+						thinking: values.thinking === "default" ? undefined : (values.thinking ?? cur.thinking ?? undefined),
+						name,
+					});
+					return c.request("schedule-edit", {
+						name,
+						...(when !== undefined ? { when } : {}),
+						...(values.task !== undefined ? { task: values.task } : {}),
+						launch,
+					});
+				});
+				stdout.write(`edited · ${row.name} · ${row.when} · ${nextText(row)}\n`);
+				return;
+			}
+			case "run": {
+				refuseInSession("run");
+				const name = oneName(args, "run");
+				await withDaemon(async (c) => {
+					const r = await c.request("schedule-run", { name });
+					const job = (await c.request("list", {})).jobs.find((j) => j.id === r.id);
+					stdout.write(`started · ${r.id} · ${job?.name ?? name}\n`);
+				});
+				return;
+			}
+			case "pause":
+			case "resume": {
+				const name = oneName(args, sub);
+				const row = await withDaemon((c) => c.request("schedule-pause", { name, paused: sub === "pause" }));
+				stdout.write(`${sub === "pause" ? "paused" : "resumed"} · ${row.name} · ${nextText(row)}\n`);
+				return;
+			}
+			case "rm": {
+				const name = oneName(args, "rm");
+				await withDaemon((c) => c.request("schedule-rm", { name }));
+				stdout.write(`removed · ${name} (its runs stay listed until removed)\n`);
+				return;
+			}
+			default:
+				throw new UsageError(
+					sub ? `schedule: unknown command ${sub}` : "schedule needs list, add, edit, run, pause, resume or rm",
+				);
+		}
+	}
+
 	async function cmdDaemon(sub: string | undefined, args: string[]): Promise<void> {
 		if (sub === "logs") {
 			const file = daemonLogPath();
@@ -339,6 +583,10 @@ export async function runRoostCli(argv: string[], opts: RoostCliOptions): Promis
 			case "daemon":
 				await cmdDaemon(rest[0], rest.slice(1));
 				return 0;
+			case "schedule":
+			case "schedules":
+				await cmdSchedule(rest[0], rest.slice(1));
+				return 0;
 			case "hub":
 				if (opts.hub) return await opts.hub(rest);
 				stderr.write("xpi roost: the hub is not available here; list sessions with: xpi roost ls\n");
@@ -353,6 +601,12 @@ export async function runRoostCli(argv: string[], opts: RoostCliOptions): Promis
 				throw new UsageError(`unknown command: ${cmd}`);
 		}
 	} catch (err) {
+		if (err instanceof InputError) {
+			stderr.write(
+				`xpi roost: ${err.message}\nwhen: ${WHEN_HELP}; name: a letter or digit, then up to 39 of A-Z a-z 0-9 _ . - (xpi roost --help)\n`,
+			);
+			return 2;
+		}
 		if (err instanceof UsageError) {
 			stderr.write(`xpi roost: ${err.message}\n\n${usage}\n`);
 			return 2;
@@ -360,4 +614,53 @@ export async function runRoostCli(argv: string[], opts: RoostCliOptions): Promis
 		stderr.write(`xpi roost: ${(err as Error).message}\n`);
 		return 1;
 	}
+}
+
+function isDirectory(p: string): boolean {
+	try {
+		return statSync(p).isDirectory();
+	} catch {
+		return false;
+	}
+}
+
+function parseWhenOrUsage(when: string): void {
+	try {
+		parseWhen(when);
+	} catch (err) {
+		throw new InputError((err as Error).message);
+	}
+}
+
+function oneName(args: string[], what: string): string {
+	if (args.length !== 1 || !args[0]) throw new UsageError(`schedule ${what} <name>`);
+	return args[0];
+}
+
+/**
+ * `<when> <task...>` as the shell split them: `every 2h`, `daily 09:00`, `weekly mon 09:00`, `manual`, or `cron` and
+ * its five fields (one quoted argument, or five).
+ */
+export function splitArgsWhen(words: string[]): { when: string; task: string } | undefined {
+	// a rule given as one argument ("every 2h", "cron 0 9 * * 1"): its words
+	const first = words[0]?.trim().split(/\s+/) ?? [];
+	const [w0, ...more] =
+		first.length > 1 && /^(every|daily|weekdays|weekly|cron|manual)$/i.test(first[0]!)
+			? [...first, ...words.slice(1)]
+			: words;
+	if (!w0) return undefined;
+	const head = w0.toLowerCase();
+	const take = (n: number) =>
+		more.length >= n ? { when: [w0, ...more.slice(0, n)].join(" "), task: more.slice(n).join(" ") } : undefined;
+	if (head === "manual") return { when: "manual", task: more.join(" ") };
+	const norm = (r: { when: string; task: string } | undefined) => (r ? { ...r, when: normalizeWhen(r.when) } : r);
+	if (head === "every" || head === "daily" || head === "weekdays") return norm(take(1));
+	if (head === "weekly") return norm(take(2));
+	if (head === "cron") {
+		if (more[0] && more[0].trim().split(/\s+/).length === 5)
+			return { when: normalizeWhen(`cron ${more[0]}`), task: more.slice(1).join(" ") };
+		const r = take(5);
+		return r ? { when: normalizeWhen(r.when), task: r.task } : undefined;
+	}
+	return undefined;
 }

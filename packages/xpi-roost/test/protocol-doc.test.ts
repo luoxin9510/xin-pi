@@ -23,7 +23,7 @@ describe("docs/protocol.md", () => {
 });
 
 describe("the schemas", () => {
-	it("have a result for each op, and a callers row for each op: decision 4's eighteen", () => {
+	it("have a result for each op, and a callers row for each op: decision 4's eighteen and spec 02's six", () => {
 		expect(Object.keys(ResultSchemas).sort()).toEqual([...OPS].sort());
 		for (const op of OPS) expect(Object.hasOwn(POLICY, op)).toBe(true);
 		expect([...OPS].sort()).toEqual(
@@ -46,6 +46,12 @@ describe("the schemas", () => {
 				"reply",
 				"shutdown",
 				"events",
+				"schedules",
+				"schedule-add",
+				"schedule-edit",
+				"schedule-rm",
+				"schedule-pause",
+				"schedule-run",
 			].sort(),
 		);
 	});
