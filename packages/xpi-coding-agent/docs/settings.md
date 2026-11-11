@@ -177,7 +177,7 @@ Resource paths in user settings resolve from the agent directory. Paths in proje
 
 Resource arrays support glob exclusions with `!pattern`, exact inclusion with `+path`, and exact exclusion with `-path`. Pi loads resources listed in both user-level and project settings.
 
-The built-in extensions are named `builtin:mcp`, `builtin:llama.cpp`, `builtin:codemode`, `builtin:tool-search`, `builtin:subagent`, `builtin:relay`, `builtin:upstream`, and `builtin:commit` in `extensions`. They load by default; `-builtin:mcp` disables one. A `+builtin:<name>` or `-builtin:<name>` entry in project settings overrides the user setting. `pi config` lists them under Built-in. `--no-extensions` disables them too, and `-e builtin:<name>` loads one explicitly.
+The built-in extensions are named `builtin:mcp`, `builtin:llama.cpp`, `builtin:codemode`, `builtin:tool-search`, `builtin:subagent`, `builtin:relay`, `builtin:upstream`, `builtin:commit`, and `builtin:roost` in `extensions`. They load by default; `-builtin:mcp` disables one. A `+builtin:<name>` or `-builtin:<name>` entry in project settings overrides the user setting. `pi config` lists them under Built-in. `--no-extensions` disables them too, and `-e builtin:<name>` loads one explicitly.
 
 ## Subagents
 
@@ -203,12 +203,12 @@ The built-in `commit` extension (`/commit`) reads a `commit` block:
 
 ## Background sessions
 
-The `roost` block configures background sessions (`xpi roost`, see [CLI](cli.md#background-session-commands)). The
+The `roost` block configures background sessions (`xpi --bg`, `xpi roost`; see [Background Sessions](roost.md)). The
 daemon of an agent directory reads `reapIdleMinutes` and `cleanupDays` from `<agent dir>/settings.json` itself, each
-time it uses them, so they come from your settings only. Where xpi reads the block in a project, a project's
-`.pi/settings.json` adds to yours key by key, but never the environment keys (marked "user only"): a cloned repository
-must not choose which of your environment reaches its sessions. A `roost.json` file is not read. Keys of the wrong
-type are ignored.
+time it uses them, so they come from your settings only. `xpi --bg` reads the block of the directory it starts the
+session in: a trusted project's `.pi/settings.json` adds to yours key by key, but never the environment keys (marked
+"user only"): a cloned repository must not choose which of your environment reaches its sessions. A `roost.json` file
+is not read. Keys of the wrong type are ignored.
 
 | Setting | Type | Default | Description |
 |---|---|---|---|
@@ -218,8 +218,8 @@ type are ignored.
 | `roost.envAllowList` | `string[]` | `[]` | User only. Variables carried even when `inheritEnv` is off or `envDenyList` names them. |
 | `roost.envDenyList` | `string[]` | `[]` | User only. Variables never carried; `"PREFIX*"` names a prefix. |
 | `roost.workspaceEnv` | `"shell" \| "direnv" \| "off"` | `"shell"` | User only. The session directory's own environment on top: what its shell's cd hooks set (direnv, mise, fnm, ...), direnv only, or nothing. |
-| `roost.dispatchModel` | string | Session default | Model of a new background session, `"provider/model"`. |
-| `roost.dispatchThinking` | string | Session default | Thinking level of a new background session. |
+| `roost.dispatchModel` | string | Session default | Model of a new background session, `"provider/model"`; `--model` or `--provider` on the `xpi --bg` command line wins. |
+| `roost.dispatchThinking` | string | Session default | Thinking level of a new background session; `--thinking` on the command line wins. |
 | `roost.presets` | object | None | Saved choices for new sessions by name: `{ "fast": { "model": "provider/model", "thinking": "low", "dir": "sub/dir" } }`. `dir` is relative to the hub's directory and never above it. The user's and a project's presets merge by name, a project's winning. |
 | `roost.leftArrowOpensAgents` | boolean | `true` | The left arrow on an empty editor opens the hub. |
 | `roost.groupBy` | `"state" \| "directory"` | `"state"` | How the hub groups sessions. |
@@ -227,8 +227,8 @@ type are ignored.
 | `roost.rowDetails` | boolean | `true` | Each row of the hub shows its model and context use. |
 | `roost.notify` | `"auto" \| "osc9" \| "osc777" \| "bell" \| "off"` | `"auto"` | How the hub makes the terminal notify. |
 
-The environment, dispatch, preset and hub keys take effect with `xpi --bg` and the hub, which are not in this version
-yet.
+The environment and dispatch keys apply to each session `xpi --bg` starts. The preset and hub keys take effect with the
+hub, which is not in this version yet.
 
 ## Updates, telemetry, and warnings
 

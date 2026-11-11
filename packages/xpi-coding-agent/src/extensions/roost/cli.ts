@@ -7,41 +7,13 @@
  * sessions an older daemon still runs can be listed, read, replied to and stopped.
  */
 
-import { createRequire } from "node:module";
 import { type DetachKeyMatcher, runRoostCli } from "xpi-roost";
 import { isKeyRelease } from "xpi-tui";
 import { getRoostEntries } from "../../config.ts";
 import { KeybindingsManager } from "../../core/keybindings.ts";
+import { BINARY_MESSAGE, PTY_HINT, ptyInstalled, roostUnavailable } from "./messages.ts";
 
-/** How to get node-pty: it is an optional dependency of the npm package. */
-export const PTY_HINT =
-	"node-pty (a native module, an optional dependency of xpi) is needed to run background sessions. Reinstall xpi with npm, without --ignore-scripts or --omit=optional: npm install -g xpi-coding-agent. On Linux node-pty compiles during the install and needs python3, make and a C++ compiler. Then restart the daemon: xpi roost daemon stop --keep-workers";
-
-export const WINDOWS_MESSAGE =
-	"xpi roost: background sessions are not supported on Windows (they need Unix pseudo-terminals and sockets). Use macOS or Linux, for example WSL.";
-
-export const BINARY_MESSAGE =
-	"xpi roost: background sessions need the npm installation of xpi: they run as Node processes with the native module node-pty, which a standalone binary does not carry. Install it with: npm install -g xpi-coding-agent";
-
-/** Why roost cannot run here at all, or undefined (a missing node-pty is not such a reason). */
-export function roostUnavailable(o: {
-	platform: NodeJS.Platform;
-	entries: ReturnType<typeof getRoostEntries>;
-}): string | undefined {
-	if (o.platform === "win32") return WINDOWS_MESSAGE;
-	if (!o.entries) return BINARY_MESSAGE;
-	return undefined;
-}
-
-/** Whether node-pty is installed where this process would find it (resolved, never loaded). */
-export function ptyInstalled(): boolean {
-	try {
-		createRequire(import.meta.url).resolve("node-pty");
-		return true;
-	} catch {
-		return false;
-	}
-}
+export { BINARY_MESSAGE, PTY_HINT, ptyInstalled, roostUnavailable, WINDOWS_MESSAGE } from "./messages.ts";
 
 // kitty's "report associated text" adds a third field (`CSI 122;5;26u`); the key is the same
 const WITHOUT_TEXT = /^(\x1b\[[\d:]+;[\d:]+);[\d:]*u$/;

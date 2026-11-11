@@ -157,6 +157,10 @@
           "path": "relay.md"
         },
         {
+          "title": "Background Sessions",
+          "path": "roost.md"
+        },
+        {
           "title": "Slash Commands",
           "path": "slash-commands.md"
         },

@@ -170,13 +170,13 @@ Notes (PR 2):
 
 ## PR 3: `builtin:roost`, the session side (branch `roost-session`)
 
-- [ ] T13 The extension, listed in `src/extensions/index.ts`; does nothing in a subagent child
+- [x] T13 The extension, listed in `src/extensions/index.ts`; does nothing in a subagent child
       (`XPI_SUBAGENT_DEPTH`); where roost cannot run it only gives the messages of T11. The session write lock
       (DM-8): taken at `session_start`, released at `session_shutdown`, in every xpi session
-- [ ] T14 `xpi --bg "<task>"` and `--bg-name`: an xpi session started under the daemon, with the agent directory,
+- [x] T14 `xpi --bg "<task>"` and `--bg-name`: an xpi session started under the daemon, with the agent directory,
       state and runtime directories in its environment (the allow and deny lists do not apply to these); the hint
       it prints says `xpi roost attach` and `xpi roost ls --json`
-- [ ] T15 Worker role (`worker.ts`, the parts of `worker-extras.ts` in scope): reports of state, waiting, dialogs,
+- [x] T15 Worker role (`worker.ts`, the parts of `worker-extras.ts` in scope): reports of state, waiting, dialogs,
       context and model; replies delivered and acked; the session's slash-command list written for the peek; the
       earlier history (M53); detach keys from the user's keybindings (`app.suspend`, `app.clear` twice, `app.exit`
       twice; the first `app.clear` still clears the editor; key releases skipped; with a dialog open only the
@@ -184,12 +184,50 @@ Notes (PR 2):
       the recap on attach without the summary model's branch; `attachSignal: true` reported only with the SIGUSR2
       handler installed; no repaint on attach (M14, dead with a current host), no automatic naming, `handback`,
       peers or agent tools
-- [ ] Tests (in `xpi-coding-agent`): reply queue, reporter, worker wiring, earlier history, detach keys with default
+- [x] Tests (in `xpi-coding-agent`): reply queue, reporter, worker wiring, earlier history, detach keys with default
       and rebound keybindings, the write lock, an attach does not end a session (SIGUSR2); real Haiku: `xpi --bg`
       starts a session that reports working then idle, `xpi roost reply` gets an answer, `xpi roost attach` shows
       the session and detaches
-- [ ] Docs: `packages/xpi-coding-agent/docs/roost.md` (first version: background sessions and the CLI), `cli.md`,
+- [x] Docs: `packages/xpi-coding-agent/docs/roost.md` (first version: background sessions and the CLI), `cli.md`,
       `docs.json`, `extensions.md` if the extension API is touched
+
+Notes (PR 3):
+
+- Tests: the real Haiku part is the coordinator's check after this PR; the rest is ticked.
+- T13: `src/extensions/roost/index.ts` is the factory (async). It returns at once when `XPI_SUBAGENT_DEPTH` is set.
+  An ordinary start imports only `xpi-roost/session` (a new light entry: the locks and the job identity, budgeted
+  at 6 files and forbidden to reach the client, the daemon or the host in `check-entry-graphs.mjs`) and
+  `./messages.ts` (the "cannot run here" texts, split out of `cli.ts`; it imports only `node:module`). `background.ts`
+  (`--bg`) and `worker.ts` (a session the daemon runs, `isRoostSession()`: `ROOST_JOB_ID` and `ROOST_SOCKET` set) are
+  dynamic imports, so lazy chunks in the bundle. `--bg` where roost cannot run is stopped by the flag's `validate`
+  (an empty task, Windows, a standalone binary, no node-pty), before any session starts; without `--bg` the
+  extension says nothing. `--bg-name` without `--bg` is a warning, not an error.
+- DM-8: the lock is taken at `session_start` on the session file (`<file>.lock`, pid and start token), released at
+  `session_shutdown` and on a switch (`/new`, `/resume`, fork, reload); not on Windows, not without a session file
+  (`--no-session`). Someone else holding it gives a notice, not a refusal. Cost to an ordinary start: one `ps -o
+  lstart=` for the start token (about 1.5 to 2 ms, measured), one small file next to the session file (the session
+  directory is created at start anyway). The `--bg` process takes no lock: it hands its session file to the daemon.
+- T14: `background.ts`. `--bg` runs at `session_start` (reason `startup`) in interactive mode, dispatches through
+  `DaemonClient.connectOrStart` and `buildLaunch` (origin `bg`; the flags that choose extensions and model are
+  passed through, `-e` and `--session-dir` made absolute, plus `--session <file>`), prints the hint after the TUI has stopped (`atExit`), and shuts down. Errors exit 1 with
+  `xpi --bg: <message>`. `launchSettings` reads the global and project settings files with `SettingsManager.create`
+  (not `pi.getSettings()`, which is merged and would let a project set the user-only keys). `--model`/`--provider`
+  on the command line beat `dispatchModel`, `--thinking` beats `dispatchThinking`. The location variables come
+  from the host's `roostEnvironment`, past the lists; the job token is not carried (the worker deletes it from its
+  own environment after reading it). The TUI is drawn briefly before `--bg` exits (seen in the faux end-to-end run).
+- T15: `worker.ts` (reporter, `ReplyQueue` without agent items, tracker wiring, `commands.json`), `detach-keys.ts`,
+  `recap.ts`, `earlier-history.ts`. Detach: `hostControl` on `host-<id>.sock` next to `ROOST_SOCKET`. The submit key
+  for `/quit` is `tui.input.submit`, so a rebound submit key works too. `app.exit`'s first press notifies
+  `<key> again to detach (the session keeps running)` and is consumed (xpi's own exit never runs in a roost
+  session). The hello's capabilities: report, replies, steer, usage, context, model-switch, transcript.
+  `attachSignal` is `sigusr2Handled()`: a process-wide SIGUSR2 handler installed once (a `Symbol.for` guard), so the
+  signal never ends the process between two sessions of a `/new`. Entry and widget names: `roost-recap`,
+  `roost-history`. The recap's deterministic list moved to `xpi-roost/src/lib/recap.ts`. Not ported: the summary
+  model, naming, `handback`, peers, agent tools, `api.ts` (cut, decision 1), `setJobEventBus` (the hub's, PR 4).
+- A manual end-to-end run with a faux-model extension (`-e`) against the built bundle in a pty: `--bg` printed the
+  hint and exited 0; `roost ls` showed `done` with the faux answer; `roost reply` gave a second turn; `roost attach`
+  showed the TUI with "While you were away: 2 turns finished"; `ctrl+z`, `ctrl+c` twice, `ctrl+d` twice, the left
+  arrow and `/quit` each detached; the session kept running; `daemon stop` released the lock.
 
 ## PR 4: the hub (branch `roost-hub`)
 

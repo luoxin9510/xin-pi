@@ -17,8 +17,8 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
   `.scratch/xpi-roost/01-roost-core.md`). It imports nothing of xpi: the caller gives it the agent directory and the
   daemon and host entry files, and they travel to the daemon, hosts and sessions in `ROOST_*` variables. State is in
   `<agent dir>/xpi-roost/`, sockets in a runtime directory keyed by the agent directory, settings in the `"roost"` section
-  of `settings.json`. Its README, `docs/protocol.md` and `docs/port-inventory.md` describe it. `builtin:roost`
-  (`xpi --bg`, `/bg`) and the hub are not there yet.
+  of `settings.json`. Its README, `docs/protocol.md` and `docs/port-inventory.md` describe it. The hub and `/bg`
+  are not there yet.
 - `xpi roost <subcommand>` (user docs: [CLI](../packages/xpi-coding-agent/docs/cli.md#background-session-commands)) is
   dispatched in `coding-agent/src/main.ts` next to `xpi mcp`, through `src/extensions/roost/cli.lazy.ts`. The commands
   live in `xpi-roost/src/cli.ts` (`runRoostCli`); `src/extensions/roost/cli.ts` supplies the agent directory, the entry
@@ -32,8 +32,8 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
   `xpi-roost/host` (their `dist`). xpi-roost is a `devDependency` of coding-agent and is inlined, `@xterm/headless` and
   `@xterm/addon-serialize` too (pure JS, in the host entry only). node-pty is the one external; the build fails if
   any output other than the host imports it. `npm run build` builds xpi-roost (`tsc -p tsconfig.build.json`) before
-  coding-agent, and `check-entry-graphs.mjs` budgets its three entries (`.`, `./daemon`, `./host`), each forbidden to
-  pull in the others.
+  coding-agent, and `check-entry-graphs.mjs` budgets its four entries (`.`, `./session`, `./daemon`, `./host`), each
+  forbidden to pull in the others; `./session` may not reach the client or anything else that connects.
 - node-pty is an `optionalDependencies` entry of `xpi-coding-agent` (pinned), so an install that cannot compile it on
   Linux still succeeds; `xpi roost respawn` and `attach` to a session that is not running then say how to get it. The install lock allows its install script
   (`allowedInstallScriptPackages` in `scripts/generate-coding-agent-install-lock.mjs`, with the reason: no Linux
@@ -45,7 +45,7 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
 - Removed from the monorepo: `packages/chord`, `packages/durable`, `packages/env`, `apps/p2`, `apps/p3` (coding-agent, ai,
   agent-core and tui did not depend on them), together with their build, workspace, tsconfig and CI wiring. The
   version check is skipped by default (`XPI_SKIP_VERSION_CHECK ??= "1"` in `coding-agent/src/cli/setup.ts`).
-- Four built-in extensions, registered in `coding-agent/src/extensions/index.ts` and not replaceable:
+- Five built-in extensions, registered in `coding-agent/src/extensions/index.ts` and not replaceable:
   - `subagent` (`src/extensions/subagent/`, off with `-builtin:subagent`): the `Agent`, `SendMessage` and `Workflow` tools
     for codemode scripts, the script helpers (`agent`, `parallel`, `pipeline`, `phase`, `log`), saved workflows
     (`/<name>`, `/workflows`), built-in workflows (`builtin/workflows/*.js`, found last by `discoverWorkflows`, runnable
@@ -63,6 +63,21 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
     `AGENTS.md`/`CLAUDE.md`, the last 20 subjects), asks `ctx.complete` for `{ type, scope?, summary, body? }` with the
     model of `commit.model` (default `haiku`), opens `ui.editor`, and runs `git commit -F <temp file>`. Extension API
     only; no core change besides the settings entry. Tests: `test/suite/commit.test.ts` (faux provider, temp repo).
+  - `roost` (`src/extensions/roost/`, off with `-builtin:roost`): the session side of background sessions. In every
+    session (not in a subagent child) the session write lock, `<session file>.lock`, taken at `session_start` and
+    released at `session_shutdown` (DM-8: the daemon refuses to start a session on a locked file). It imports only
+    `xpi-roost/session` (files and the environment) and `messages.ts`: an ordinary start connects to nothing; the lock
+    costs one `ps` for the process's start time (about 2 ms) and one small file. `--bg "<task>"` and `--bg-name`
+    (`background.ts`, loaded only with the flag; the flag's `validate` gives the Windows, binary and node-pty messages
+    before the start): the task goes to the daemon as a `dispatch` with `buildLaunch` and the `"roost"` settings
+    (`launchSettings` reads the files: the extension API's merged settings would let a project's environment keys
+    through), then xpi exits and prints the hint. In a session the daemon started (`isRoostSession`: the host's
+    `ROOST_JOB_*`), the worker role (`worker.ts`, loaded only then): reports through xpi-roost's `Reporter`, the
+    `ReplyQueue`, `commands.json` for the hub's peek, the detach keys (`detach-keys.ts`, from the keybindings; the left
+    arrow is AGENTS.md's exemption), the recap on attach (`recap.ts`; it installs the process's SIGUSR2 handler, and
+    reports say `attachSignal: true` only once it is in) and the earlier history (`earlier-history.ts`, M53, xpi's own
+    message components). Extension API only; no core change. User docs:
+    [roost.md](../packages/xpi-coding-agent/docs/roost.md).
 - `coding-agent/package.json`: `copy-assets` also copies `src/extensions/subagent/builtin/*.md` to
   `dist/extensions/subagent/builtin` and `builtin/workflows/*.js` to `dist/extensions/subagent/builtin/workflows`.
   `scripts/build-binaries.sh` copies `dist/extensions/subagent/builtin` next to the standalone executable (where
@@ -413,7 +428,10 @@ token would leave the user's file with a dead refresh token. Send one message in
 workers, no model), so the package has no `test` script and root `npm test`, `./test.sh` and CI's `test (other)` skip it.
 Run `npm run test:roost` in `packages/xpi-roost` (about a minute); CI runs it in the `test (roost)` job on Linux after
 `npm rebuild node-pty`. The suite sweeps what a killed run leaves, before and after (test processes are marked by
-`ROOST_PARENT_PID` and a home under `<tmp>/xroost-*`); check for leftovers after a run anyway. `npm run release:local`
+`ROOST_PARENT_PID` and a home under `<tmp>/xroost-*`); check for leftovers after a run anyway. The tests of
+`builtin:roost` are in `packages/xpi-coding-agent/test/roost-*.test.ts` (vitest, no model: a fake xpi and a fake
+daemon socket); the one that starts a real daemon and a session (`roost-session.test.ts`, `xpi --bg under a real
+daemon`) needs xpi-roost's `dist` and a built node-pty, and is skipped without them. `npm run release:local`
 also runs a roost smoke on the packed install (`smokeTestRoost` in `scripts/coding-agent-smoke.mjs`, skipped on
 Windows, `npm rebuild node-pty` first on Linux): `xpi roost ls` starts the daemon, `daemon status` reports node-pty, a
 shell-command session runs in a PTY host and its screen is read with `logs`, then the daemon is stopped.
