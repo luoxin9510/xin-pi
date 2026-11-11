@@ -1,6 +1,7 @@
 # 02: xpi-roost, phase 2: schedules
 
-Status: draft for the owner's approval. Decisions: Grills 4 and 5 of `decisions.md` (2026-11-12).
+Status: approved by the owner on 2026-11-12, after four rounds of independent review (PR #74). Decisions: Grills 4
+and 5 of `decisions.md`.
 
 ## Goal
 
@@ -133,7 +134,7 @@ Checked on main (5f2cf66e1, v1.9.0) and pi-roost's main.
      while the previous run is working it is refused as busy (and recorded as a skip).
    - Edit: every `edit`, also `edit <name>` with no flags and the hub list's "edit", builds the launch again in the
      editing process (decision 9: environment, executable and entry, session directory, trust decision; the directory
-     stays) with any new task, model or thinking. A new rule also sets the anchor to now and `nextAt` to its first slot
+     stays) with any new task, model or thinking; what is not given keeps its stored value. A new rule also sets the anchor to now and `nextAt` to its first slot
      after now; otherwise `nextAt` is kept.
    - Not in an ordinary xpi session: `/schedule` there is not registered, so that a later `/loop` is not confused with
      it.

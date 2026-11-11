@@ -130,3 +130,5 @@ when the schedule is made or edited and stored with it, as a job's record stores
 was computed at run time, which the code does not do, and a login service's daemon has almost no environment); the
 login service runs once per login with no restart, `KillMode=process` on systemd and a per-agent-directory name;
 `schedule list` does not start the daemon; the hub's `/schedule` works inside a roost session.
+
+The owner approved spec 02 as reviewed on 2026-11-12.
