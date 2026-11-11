@@ -72,7 +72,8 @@ test("schema: the tool joins an agent's own tool list, and a direct-tools agent 
 	await t.run({ subagent_type: "reader", schema: SCHEMA });
 	assert.equal(flag(s.record().argv, "--tools"), "codemode,read,grep,StructuredOutput");
 	await t.run({ subagent_type: "direct", schema: SCHEMA });
-	assert.equal(flag(s.record().argv, "--tools"), "-codemode,+StructuredOutput");
+	assert.equal(flag(s.record().argv, "--tools"), "+StructuredOutput");
+	assert.equal(flag(s.record().argv, "--exclude-tools"), "codemode");
 });
 
 test("schema: invalid calls go back to the model; a later valid one is the result", async () => {

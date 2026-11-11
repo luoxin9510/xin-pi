@@ -177,8 +177,9 @@ This keeps `read`, `bash`, `edit`, and `write`. For one invocation, remove it wi
 pi --tools -codemode
 ```
 
-A `--tools` list of plain names leaves `codemode` out unless it names it. An MCP server with `codemode` exposure turns it
-on again; set `"autoEnableCodemode": false` next to `mcpServers` to keep it off (see [MCP](mcp.md#control-tool-exposure)).
+With either, an MCP server with `codemode` exposure turns it on again; set `"autoEnableCodemode": false` next to
+`mcpServers` to keep it off (see [MCP](mcp.md#control-tool-exposure)), or exclude it with `--exclude-tools codemode`. A
+`--tools` list of plain names leaves `codemode` out unless it names it, and MCP cannot turn it on then.
 
 Codemode is useful without MCP: scripts can run several tool calls in parallel, filter large output before it reaches the model, call classifier models such as TypeSafe's Jev through `models.classify()` (see [Classifier models](models.md#use-classifier-models)), and generate images through `models.generateImages()` (see [Image models](models.md#use-image-models)).
 

@@ -26,8 +26,8 @@ test("YAML that is broken for another reason still skips the file with the parse
 	assert.match(r.reason, /^invalid YAML: /);
 });
 
-test("a trailing ' #' comment on such a value stays a comment", () => {
-	const r = parse("name: x\ndescription: Use when: fixing bugs # see the wiki");
+test("such a value keeps the rest of the line, '#' included", () => {
+	const r = parse("name: x\ndescription: Use when: issue #12 is open");
 	assert.ok(r.ok, r.ok ? "" : r.reason);
-	assert.equal(r.def.description, "Use when: fixing bugs");
+	assert.equal(r.def.description, "Use when: issue #12 is open");
 });
