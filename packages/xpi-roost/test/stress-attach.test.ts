@@ -9,7 +9,7 @@ import { encodeFrame, encodeJsonFrame, FrameDecoder, FrameType, parseJsonPayload
 import { connectHost, hostControl } from "../src/lib/hostclient.ts";
 import { newJobId } from "../src/lib/ids.ts";
 import { TEST_DIR_PREFIX } from "../src/lib/orphans.ts";
-import { ensureDirs, hostSocketPath } from "../src/lib/paths.ts";
+import { ensureDirs } from "../src/lib/paths.ts";
 import { createJob, type JobRecord, updateState } from "../src/lib/store.ts";
 
 // M22: attach/detach under stress. A worker that keeps printing and echoes what it is
@@ -25,10 +25,14 @@ let hosts: ChildProcess[] = [];
 let socks: Socket[] = [];
 const saved = { home: process.env.ROOST_HOME, rt: process.env.ROOST_RUNTIME_DIR };
 
-async function waitFor<T>(fn: () => T | undefined | false, timeout = 5000, what = "condition"): Promise<T> {
+async function waitFor<T>(
+	fn: () => T | undefined | false | Promise<T | undefined | false>,
+	timeout = 5000,
+	what = "condition",
+): Promise<T> {
 	const start = Date.now();
 	for (;;) {
-		const v = fn();
+		const v = await fn();
 		if (v) return v;
 		if (Date.now() - start > timeout) throw new Error(`waitFor timed out: ${what}`);
 		await new Promise((r) => setTimeout(r, 5));
@@ -107,7 +111,16 @@ async function startHost(): Promise<{ id: string; child: ChildProcess }> {
 		env: { ...process.env, ROOST_PARENT_PID: String(process.pid) },
 	});
 	hosts.push(child);
-	await waitFor(() => existsSync(hostSocketPath(id)), 8000, "host socket");
+	// the socket file appears at bind; a connect before listen is refused: wait for an answer
+	await waitFor(
+		() =>
+			hostControl(id, "status").then(
+				() => true,
+				() => false,
+			),
+		8000,
+		"host socket",
+	);
 	// attachSignal: from now on the host signals the worker on every attach and detach, as
 	// with pi. Not before its handler is in: SIGUSR2's default action ends the process (on
 	// Linux an attach right after the host listens beat node's start-up)

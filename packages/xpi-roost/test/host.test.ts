@@ -80,7 +80,13 @@ async function startHost(
 		env: { ...process.env, ...hostEnv, ROOST_PARENT_PID: String(process.pid) },
 	});
 	hosts.push(child);
-	await waitFor(() => existsSync(hostSocketPath(id)));
+	// The socket file appears at bind; a connect before listen is refused. Wait for an answer, not for the file.
+	await waitFor(() =>
+		hostControl(id, "status").then(
+			() => true,
+			() => false,
+		),
+	);
 	return { id, child };
 }
 
@@ -274,13 +280,11 @@ describe("host", () => {
 		expect(await hostControl(sh.id, "command", 3000, { text: "/session" })).toEqual({
 			error: "command is for xpi sessions",
 		});
+		// M30's `input` op is not ported: the live host says so
+		expect(await hostControl(sh.id, "input" as "status", 3000, { data: "x" })).toEqual({
+			error: "unknown op: input",
+		});
 		await hostControl(sh.id, "terminate");
-		// M30's `input` op is not ported
-		expect(
-			await hostControl(sh.id, "input" as "status", 3000, { data: "x" }).catch(() => ({
-				error: "unknown op: input",
-			})),
-		).toEqual({ error: "unknown op: input" });
 	});
 
 	it("decision 7: a session gets its roost's location, and the agent directory as xpi reads it, whatever its own environment held", async () => {
