@@ -28,9 +28,9 @@ const client = await DaemonClient.connectOrStart({ agentDir, daemonEntry, hostEn
 - State: `<agent dir>/xpi-roost/` (jobs, roster, the event feed, the daemon's log).
 - Sockets and the daemon's lock: `$XDG_RUNTIME_DIR/xpi-roost-<key>`, or `/tmp/xpi-roost-<uid>/<key>`, where `<key>` is
   a hash of the agent directory. A temporary agent directory therefore gets a daemon of its own.
-- `ROOST_HOME` and `ROOST_RUNTIME_DIR` override both, for this process's own roost only: when no agent directory is
-  given, or the one given is `ROOST_AGENT_DIR`. A process inside a session that asks for another agent directory gets
-  that directory's daemon, never its session's. Only `ROOST_*` names are read.
+- `ROOST_HOME` and `ROOST_RUNTIME_DIR` override both, unless `ROOST_AGENT_DIR` names another agent directory than the
+  one given. A session carries its roost's three variables, so a process inside it that asks for another agent
+  directory gets that directory's daemon, never its session's. Only `ROOST_*` names are read.
 - A client checks each level of the runtime directory (a directory of its own, not a link) before it connects. The
   daemon also locks the state directory, so one agent directory never has two daemons (a client that works out another
   runtime directory is told where the running one is).

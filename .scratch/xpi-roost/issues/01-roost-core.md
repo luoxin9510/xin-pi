@@ -59,6 +59,10 @@ Notes on PR 1 (details the spec left open, settled while building it):
   directory's real path; an XDG path too long for a socket falls back to `/tmp/xpi-roost-<uid>/<key>`.
 - `cleanable` (the `cleanupDays` removal) skips a session whose DM-5 restart is pending (`resumeAt` set), so a waiting
   restart is never removed under it.
+- After the second review round: the state lock is `state.lock` (two files when `ROOST_HOME` and `ROOST_RUNTIME_DIR`
+  are one directory); the locks are released in the reverse of the order taken; the overrides are ignored only when
+  `ROOST_AGENT_DIR` is set and names another agent directory (a user's own override, set alone, applies). For PR 2: a
+  client of a host socket (`attach`) runs the runtime-directory check before it connects.
 - After the review of PR 1 (#65): `ROOST_HOME` and `ROOST_RUNTIME_DIR` apply only to this process's own roost (no agent
   directory given, or the one given is `ROOST_AGENT_DIR`, compared by real path); an agent directory is made absolute
   where it enters (`DaemonStart`, the path functions); every level of the runtime directory is checked (owner, not a

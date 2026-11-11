@@ -1376,8 +1376,10 @@ async function shutdown(keepWorkers: boolean): Promise<void> {
 	persistRoster();
 	// M35: the last group of durable writes reaches the disk before the process goes
 	await durable().catch(() => {});
-	releaseDaemonLock();
+	// The reverse of the order they were taken in: a daemon starting now never finds the state locked
+	// behind a free runtime lock.
 	releaseStateLock();
+	releaseDaemonLock();
 	server.close();
 	for (const c of conns) c.sock.destroy();
 	try {
@@ -1577,8 +1579,8 @@ server.on("error", (err) => {
 });
 await new Promise<void>((res) => {
 	server.once("error", (err) => {
-		releaseDaemonLock();
 		releaseStateLock();
+		releaseDaemonLock();
 		console.error(`daemon cannot listen: ${err}`);
 		process.exit(1);
 	});

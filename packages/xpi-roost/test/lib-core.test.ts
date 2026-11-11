@@ -179,6 +179,14 @@ describe("paths by agent directory (decision 14)", () => {
 		expect(roostHome()).toBe(home);
 	});
 
+	it("without ROOST_AGENT_DIR the overrides are the user's own and apply to the agent directory in use", () => {
+		const b = bare();
+		Object.assign(process.env, { ROOST_HOME: home, ROOST_RUNTIME_DIR: rt });
+		delete process.env.ROOST_AGENT_DIR;
+		expect(roostHome(b)).toBe(home);
+		expect(runtimeDir(b)).toBe(rt);
+	});
+
 	it("a relative agent directory is made absolute everywhere it travels", () => {
 		const a = bare();
 		const rel = relative(process.cwd(), a);

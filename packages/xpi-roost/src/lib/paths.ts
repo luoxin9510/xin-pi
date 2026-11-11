@@ -32,15 +32,16 @@ function realAgentDir(agentDir: string): string {
 }
 
 /**
- * Whether ROOST_HOME and ROOST_RUNTIME_DIR describe the roost asked for: when no agent
- * directory is given (this process's own roost), or the one given is the one in
- * ROOST_AGENT_DIR. A process inside a session carries its roost's location; asked for
- * another agent directory (a test's, a temporary one), it must not reach its own daemon.
+ * Whether ROOST_HOME and ROOST_RUNTIME_DIR describe the roost asked for. They do not when
+ * ROOST_AGENT_DIR names another agent directory than the one given: a process inside a
+ * session carries its roost's location, and asked for another agent directory (a test's, a
+ * temporary one) it must not reach its own daemon. Without ROOST_AGENT_DIR they are the
+ * user's own overrides and apply to whatever agent directory is used.
  */
 function overridesApply(agentDir: string | undefined): boolean {
 	if (agentDir === undefined) return true;
 	const own = envAgentDir();
-	return own !== undefined && realAgentDir(own) === realAgentDir(agentDir);
+	return own === undefined || realAgentDir(own) === realAgentDir(agentDir);
 }
 
 function requireAgentDir(agentDir: string | undefined): string {
@@ -86,7 +87,8 @@ export const daemonSocketPath = (agentDir?: string) => join(runtimeDir(agentDir)
 export const hostSocketPath = (id: string, agentDir?: string) => join(runtimeDir(agentDir), `host-${id}.sock`);
 export const daemonLockPath = (agentDir?: string) => join(runtimeDir(agentDir), "daemon.lock");
 /** The daemon's second lock, in the state directory: one daemon per state, whatever its runtime directory. */
-export const stateLockPath = (agentDir?: string) => join(roostHome(agentDir), "daemon.lock");
+// Not "daemon.lock": ROOST_HOME and ROOST_RUNTIME_DIR may be one directory, and the two locks two files.
+export const stateLockPath = (agentDir?: string) => join(roostHome(agentDir), "state.lock");
 export const daemonLogPath = () => join(roostHome(), "daemon.log");
 export const rosterPath = () => join(roostHome(), "roster.json");
 

@@ -11,15 +11,15 @@ Each agent directory has its own roost. Its state is in `<agent dir>/xpi-roost/`
 sockets are in a runtime directory keyed by the agent directory:
 `$XDG_RUNTIME_DIR/xpi-roost-<key>`, or `/tmp/xpi-roost-<uid>/<key>`, where `<key>` is the
 first 12 hex digits of the SHA-256 of the agent directory's real path (made absolute
-first). `ROOST_HOME` and `ROOST_RUNTIME_DIR` override both, but only for this process's own
-roost: when no agent directory is asked for, or the one asked for is `ROOST_AGENT_DIR`. A
-process inside a session that asks for another agent directory gets that directory's roost,
-never its session's. The daemon's socket is `daemon.sock` in the runtime directory; each
+first). `ROOST_HOME` and `ROOST_RUNTIME_DIR` override both, unless `ROOST_AGENT_DIR` names another
+agent directory than the one asked for: a session carries its roost's three variables, and a
+process inside it that asks for another agent directory gets that directory's roost, never
+its session's. Set without `ROOST_AGENT_DIR`, they are the user's own overrides. The daemon's socket is `daemon.sock` in the runtime directory; each
 host's is `host-<id>.sock`.
 
 Before connecting, a client checks each level of the runtime directory that exists (both
 under `/tmp`): a directory, not a link, owned by the user; otherwise it refuses. The daemon
-holds two locks: `daemon.lock` in the runtime directory and `daemon.lock` in the state
+holds two locks: `daemon.lock` in the runtime directory and `state.lock` in the state
 directory, so two clients of one agent directory that work out different runtime
 directories (one with `XDG_RUNTIME_DIR`, one without) never start two daemons over one
 state; the second client is told where the running daemon is.

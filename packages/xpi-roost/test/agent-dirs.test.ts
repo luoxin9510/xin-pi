@@ -153,6 +153,18 @@ describe("decision 14: a roost per agent directory", () => {
 		expect(existsSync(join(tmpRuntime, "daemon.sock"))).toBe(false);
 	}, 30_000);
 
+	it("ROOST_HOME and ROOST_RUNTIME_DIR as one directory: the daemon's two locks are two files and it starts", async () => {
+		const a = agentDir();
+		const one = mkdtempSync("/tmp/xone-");
+		made.push(one);
+		Object.assign(process.env, { ROOST_HOME: one, ROOST_RUNTIME_DIR: one });
+		const c = await start(a);
+		const status = await c.request("status", {});
+		expect(status.socketDir).toBe(one);
+		expect(existsSync(join(one, "daemon.lock"))).toBe(true);
+		expect(existsSync(join(one, "state.lock"))).toBe(true);
+	}, 30_000);
+
 	it("two agent directories: two daemons, no shared socket, job or roster", async () => {
 		const a = agentDir();
 		const b = agentDir();
