@@ -42,7 +42,8 @@ flags that choose its extensions and model (`-e`, `--no-extensions`, `--model`, 
 
 The `roost` settings choose a new session's model, thinking level and environment; see [Settings](#settings).
 
-The whole task is the value of `--bg`: quote it as one argument. Nothing else may be sent with it, because this xpi
+The whole task is the value of `--bg`: quote it as one argument. For a task that starts with `-` or `@`, write
+`--bg="<task>"`. Nothing else may be sent with it, because this xpi
 would send it to the model itself before exiting, so `--bg` refuses other messages, `@file` arguments, `-p`, `--mode`
 and redirected input or output (it needs a terminal). It also refuses `--no-session`: a background session needs a
 session file. It does not start the daemon's session when roost cannot run here; it says why instead (see

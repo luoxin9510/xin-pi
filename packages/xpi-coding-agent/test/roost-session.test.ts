@@ -409,6 +409,20 @@ setTimeout(() => {}, 30000);
 					client = await DaemonClient.connect();
 					const status = await client.request("status", {});
 					await client.request("shutdown", {});
+					// The daemon answers, then ends its hosts and writes its state. Wait for it to be gone: a directory
+					// removed under it fails with ENOTEMPTY, or comes back with what it writes last.
+					const alive = () => {
+						try {
+							process.kill(status.pid, 0);
+							return true;
+						} catch {
+							return false;
+						}
+					};
+					for (const deadline = Date.now() + 10_000; alive() && Date.now() < deadline; ) {
+						await new Promise((r) => setTimeout(r, 50));
+					}
+					if (alive()) process.kill(status.pid, "SIGKILL");
 					rmSync(status.socketDir, { recursive: true, force: true });
 				} catch {
 					// no daemon
