@@ -23,6 +23,13 @@ import { describeWorkflows, runToRelaunch, workflowTool } from "./workflow-tool.
 import { discoverWorkflows, parseArgs, type Workflow } from "./workflows.ts";
 import { workflowsCommand } from "./workflows-command.ts";
 
+// A message for the user: a notification with a UI, a line on stderr without one (print mode), where it does not mix
+// with the answer on stdout.
+function tell(ctx: ExtensionContext, message: string, level: "info" | "warning" | "error"): void {
+	if (ctx.hasUI) ctx.ui.notify(message, level);
+	else process.stderr.write(`${message}\n`);
+}
+
 export default function subagent(pi: ExtensionAPI) {
 	// Children run with XPI_SUBAGENT_DEPTH=1. Nesting is fixed at one level, so they get no Agent tool. A codemode-only child
 	// gets `codemode` in mode "only" here, which replaces pi's built-in codemode extension.
@@ -83,9 +90,11 @@ export default function subagent(pi: ExtensionAPI) {
 	const runWorkflowCommand = async (name: string, text: string, ctx: ExtensionCommandContext, relaunch?: string) => {
 		const workflow = runnableWorkflows(ctx).get(name);
 		if (!workflow) {
-			const message = `workflow ${name} is not available here (removed, or a project workflow in an untrusted project)`;
-			if (ctx.hasUI) ctx.ui.notify(message, "error");
-			else process.stderr.write(`${message}\n`);
+			tell(
+				ctx,
+				`workflow ${name} is not available here (removed, or a project workflow in an untrusted project)`,
+				"error",
+			);
 			return;
 		}
 		let earlier: Run | undefined;
@@ -97,9 +106,7 @@ export default function subagent(pi: ExtensionAPI) {
 					relaunch,
 				);
 			} catch (err) {
-				const message = `subagent: ${(err as Error).message}`;
-				if (ctx.hasUI) ctx.ui.notify(message, "error");
-				else process.stderr.write(`${message}\n`);
+				tell(ctx, `subagent: ${(err as Error).message}`, "error");
 				return;
 			}
 		}
@@ -153,8 +160,7 @@ export default function subagent(pi: ExtensionAPI) {
 	let subtask: ((task: string, ctx: ExtensionCommandContext) => Promise<void>) | undefined;
 	let subtasks = 0;
 	const runSubtask = async (agent: ReturnType<typeof agentTool>, task: string, ctx: ExtensionCommandContext) => {
-		const say = (message: string, level: "info" | "error") =>
-			ctx.hasUI ? ctx.ui.notify(message, level) : process.stderr.write(`${message}\n`);
+		const say = (message: string, level: "info" | "error") => tell(ctx, message, level);
 		if (task.trim() === "") return void say("subagent: /subtask needs a task: /subtask <what to do>", "error");
 		try {
 			const result = await agent.execute(
@@ -282,7 +288,7 @@ export default function subagent(pi: ExtensionAPI) {
 					});
 				},
 			);
-			for (const warning of [...warnings, ...discovery.warnings]) ctx.ui.notify(`subagent: ${warning}`, "warning");
 		}
+		for (const warning of [...warnings, ...discovery.warnings]) tell(ctx, `subagent: ${warning}`, "warning");
 	});
 }

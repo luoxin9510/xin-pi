@@ -180,7 +180,7 @@ test("fork is a reserved type: listed for the model, and an agent file cannot ta
 	);
 	await t.run({ subagent_type: "fork" });
 	assert.equal(s.record().argv.includes("--system-prompt"), false, "the reserved type ran, not the file");
-	await assert.rejects(t.run({ subagent_type: "nope" }), /Available: .*general-purpose.*, fork$/);
+	await assert.rejects(t.run({ subagent_type: "nope" }), /Available: .*general-purpose.*, fork$/m);
 });
 
 test("/subtask starts a fork in the background with no model turn; its result arrives as a message", async () => {
