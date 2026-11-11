@@ -1,6 +1,6 @@
 # Subagents v4: closing the gap to Claude Code's subagents and dynamic workflows
 
-Status: specs 1-3 approved by the owner on 2026-11-10 (Grill 1, `decisions.md`); 1, 2 and 3 done (`issues/`); 4 (`04-fork.md`) and 5 (`05-inert-fields.md`) approved on 2026-11-10 (Grill 2); 4 and 5 done (`issues/`): the roadmap is complete; `06-workflows-2.md` (Claude Code workflow files, restart an agent) done (`issues/06-workflows-2.md`); `07-relaunch-and-pause.md` built, real-model checks not yet run (`issues/07-relaunch-and-pause.md`)
+Status: specs 1-3 approved by the owner on 2026-11-10 (Grill 1, `decisions.md`); 1, 2 and 3 done (`issues/`); 4 (`04-fork.md`) and 5 (`05-inert-fields.md`) approved on 2026-11-10 (Grill 2); 4 and 5 done (`issues/`): the roadmap is complete; `06-workflows-2.md` (Claude Code workflow files, restart an agent) done (`issues/06-workflows-2.md`); `07-relaunch-and-pause.md` done and checked on real Haiku before merge (PR #22, `issues/07-relaunch-and-pause.md`). Since then (2026-11-11): Agent and SendMessage declarations shortened (#41), agent files with an unquoted `: ` in a value load (#44), codemode is a default tool (#45), skipped agent files are reported in print mode and in the call's error (#46). Open: built-in workflows and `/review` (#43)
 
 Compared on 2026-11-10 against Claude Code's docs (`code.claude.com/docs/en/sub-agents`, `.../workflows`) and
 `packages/xpi-coding-agent/docs/subagent.md`.

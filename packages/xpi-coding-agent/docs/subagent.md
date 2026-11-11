@@ -19,6 +19,18 @@ const [a, b] = await Promise.all([
 return [a.output, b.output].join("\n---\n");
 ```
 
+## Contents
+
+- Setting up: [Enabling](#enabling), [Agent definitions](#agent-definitions), [Model selection](#model-selection)
+- Calling agents: [The Agent tool](#the-agent-tool), [Background work](#background-work),
+  [Structured output](#structured-output), [Names and SendMessage](#names-and-sendmessage), [Fork](#fork)
+- Per-agent options: [Worktree isolation](#worktree-isolation), [Agent memory](#agent-memory), [MCP](#mcp),
+  [Codemode-only children](#codemode-only-children)
+- Scripts: [Workflows](#workflows) (saved workflows, runs and relaunch, pause and resume)
+- Interactive xpi: [Watching and talking to subagents](#watching-and-talking-to-subagents) (the panel, the subagent screen)
+- Reference: [Config](#config), [Cost, caching and limits](#cost-caching-and-limits), [Development](#development),
+  [Porting to another pi-based agent](#porting-to-another-pi-based-agent)
+
 ## Enabling
 
 The extension is built in (source: `src/extensions/subagent/`) and on by default; `-builtin:subagent` turns it off. The
@@ -127,7 +139,7 @@ result a value (see [Structured output](#structured-output));
 `name` names the agent (see [Names and SendMessage](#names-and-sendmessage)). Children run as `xpi --mode rpc` and get the prompt as a protocol message on stdin, not as a command
 line argument, so prompts of any size work.
 
-`run_in_background`: omitted, the first `Agent` call moves its codemode script to the background; `false` keeps the script in the foreground; `true` returns `status: "running"` at once and main gets a message when the agent ends (output cut at 8 KB), without moving the script.
+`run_in_background`: omitted, the first `Agent` call moves its codemode script to the background; `false` keeps the script in the foreground; `true` returns `status: "running"` at once and main gets a message when the agent ends (output cut at 8 KB), without moving the script. See [Background work](#background-work).
 
 Result:
 
@@ -160,15 +172,37 @@ cannot be resumed, and the subagent screen cannot show them: the panel shows a o
 `Agent` tool itself works as before. A resume without `subagent_type` reuses the agent type of the first run; a different
 `subagent_type` is an error. Children inherit the parent's project trust.
 
-### What the tool costs in every prompt
+## Background work
 
-The tool's description, parameters and result type are part of each request of a session that has codemode on,
-whether or not an agent is ever started. They are kept short for that reason: one line per parameter, a result type
-that names the fields a script uses (the full result is the one above), a short line per built-in agent, and a
-`SendMessage` declaration that does not repeat the Agent result. (Leaving `SendMessage` out of the prompt altogether
-was tried: Haiku then started a second agent in place of a message in 2 of 17 runs, against 0 of 17.) In the
-evaluation (`npm run eval:delegation`) neither Haiku nor Opus started a subagent on its own in any task, small or
-long, so this fixed cost is what most sessions pay for the tool.
+Delegating does not block main. When a codemode script starts an `Agent`, the whole script moves to the background:
+the `codemode` call returns to main at once ("Script moved to the background (id S1) ..."), main's turn can end, and
+you can keep talking to main. The script keeps running and keeps orchestrating (`await tools.Agent(...)` still returns
+the full result, so it can filter and combine). When it ends, main gets a message with the script's return value, its
+error if it threw, and the agents it ran (id, type, status, cost). The message is always sent as a steer that
+triggers a turn: if main is running it arrives as a steer, otherwise (idle, or compacting) a new turn starts. A return value over 8 KB is cut in the message and the full text is written to
+a file whose path the message gives (in the parent session's `subagents/<session id>/` directory).
+
+| `run_in_background` on an `Agent` call | Effect |
+|---|---|
+| omitted | the first call moves its script to the background |
+| `false` | the script stays in the foreground (and is pinned there for its later calls), so main can use the result in the same turn |
+| `true` | the call returns `status: "running"` with its `agentId` at once and the script is not moved; main gets a message when that agent ends |
+
+**ctrl+b** moves a running foreground script to the background (for example a slow script that starts no agent). It
+works only when the editor is empty; with text in the editor, or with no script running, ctrl+b stays cursor-left.
+
+**Panel.** Each background script is a row (`S1`, state, agents running, elapsed, cost) with its agents indented below.
+Finished rows linger like agent rows. `x` on a script row stops the script and all its agents (their calls return
+`failed` / "stopped by user"; main gets the usual end message with the state `stopped`). `x` on an agent row stops only
+that agent, and the script carries on. Several scripts can run at once; their agents share the `maxConcurrent` limit.
+
+**Esc** aborts main's turn. It stops a script that is still in the foreground, as before, and leaves background scripts
+running. **Ending the session** (quit, reload, `/new`, resume) stops every background script and detached agent; the
+agents are marked stopped and stay resumable.
+
+`subagent.backgroundScripts: false` turns all of this off: the extension does not track scripts or move them (the codemode
+controller is simply never asked to), and a script that starts an agent waits for it. Print mode (`xpi -p`) behaves the same way on its own, since pi exits when the
+turn ends and a background result would be lost; there `run_in_background: true` waits too, and the tool description leaves the background rules out. Your `codemode` settings (`mode`, `inlineBudget`) are unaffected either way.
 
 ## Structured output
 
@@ -259,6 +293,87 @@ const r = await tools.Agent({ subagent_type: "fork", description: "write the tes
 - A fork is a normal child: it has no `Agent`, `SendMessage` or `Workflow`, so it cannot start a subagent or another
   fork.
 - An in-memory session (`--no-session`) has no file to copy: the call throws and says so.
+
+## Worktree isolation
+
+`isolation: "worktree"` (in the `Agent` call or the agent file; the call wins) runs the agent in its own git worktree
+on its own branch, so it can edit freely without touching your checkout or other agents.
+
+- The worktree is `<repo>/.pi/worktrees/<agentId>` on branch `subagent/<agentId>`, based on the main checkout's `HEAD`.
+  `/.pi/worktrees/` is added once to the repository's `info/exclude`, so worktrees never show up as untracked files.
+  Local repositories without a remote work. Outside a git repository, or in one without commits, the call throws.
+- The agent's working directory (and the `Working directory:` line in its prompt) is the worktree. When the calling
+  session's cwd is a subdirectory of the repository, it is the same subdirectory inside the worktree (if that directory
+  is not in the starting commit, the worktree root, with a warning). Uncommitted changes in your checkout are not in it:
+  the result carries a warning when there are any.
+- Files listed in `.worktreeinclude` at the repository root (gitignore syntax) are copied into the worktree, but only
+  those that are also gitignored, so tracked files are never duplicated. Directories are copied recursively.
+- When an exchange ends (completed, partial, failed or stopped), an unchanged worktree is removed with its branch. A
+  changed one is kept, and the result's `worktree` gives `path`, `branch`, `files`, `commits` and sometimes a `note`.
+  Changed means: uncommitted, untracked or new commits, or gitignored files the agent made (`dist/`, `.env`; not `.pi/`
+  and not unmodified `.worktreeinclude` copies), or HEAD no longer on `subagent/<agentId>` (detached, another branch), or
+  a stash made on that branch; the `note` says which of the last two. Unchanged: `worktree: { changed: false }`. Nothing is committed, merged or deleted for
+  you; remove a kept one with `git worktree remove --force <path>` and `git branch -D <branch>`.
+- Resuming an agent re-enters its worktree. If the worktree was unchanged and so removed, it is recreated at the same
+  path and branch from the current `HEAD`. If you removed a changed one but its branch remains, the call throws naming
+  the path. The `isolation` of a resume call is ignored with a warning: the agent keeps how it was started.
+- A `run_in_background: true` agent that keeps a worktree reports it in its end message.
+- `/subagents worktrees` lists the kept worktrees under `<repo>/.pi/worktrees/` of the current checkout (agent id, branch, files changed, commits,
+  path) and removes the ones you pick. Before removing it asks to confirm and names what would be lost (the changed files
+  and the commits on the branch). Removal deletes the worktree and its branch. It only looks at the checkout of the current
+  directory, not at other repositories.
+
+## Agent memory
+
+`memory: user | project | local` in an agent file gives the agent a persistent directory at Claude Code's paths, so agent
+files and their memories carry over from Claude Code. `<name>` is the agent's `name` field.
+
+| Scope | Directory |
+|---|---|
+| `user` | `~/.claude/agent-memory/<name>/` |
+| `project` | `<main checkout>/.claude/agent-memory/<name>/` (meant to be committed) |
+| `local` | `<main checkout>/.claude/agent-memory-local/<name>/` (added to the repository's `info/exclude` once) |
+
+- The main checkout is the repository root of the cwd of the session that calls `Agent` (from a linked worktree, the
+  main checkout), never the agent's worktree, so
+  memory survives a removed worktree. Outside a repository `project` and `local` use that cwd, and no exclude file is written.
+- The directory is created when the agent starts. The system prompt gets a "Persistent memory" section: where the
+  directory is, how to keep `MEMORY.md` a short index, and the first 200 lines or 25000 bytes of `MEMORY.md` (whichever
+  comes first, with a note when cut). A resumed agent reads the current file.
+- Read, Write and Edit are enabled for the agent when its `tools` list lacks them. If `disallowedTools` names Write or Edit,
+  they stay denied and the other one is removed too (a `tools` list is overridden): the memory is read-only, the prompt says so
+  and the result carries a warning. A parameterised deny such as `Write(*.md)` denies the whole tool (pi has no per-path
+  rules), and the warning says so. A `MEMORY.md` that cannot be read (a directory, permissions) counts as empty, with a
+  warning. Only the tools are
+  denied: an agent that still has Bash can write the file anyway, so deny Bash too when it must not change.
+- **Risk:** an agent with memory writes files outside its working directory (`~/.claude` for `user`, the main checkout
+  for `project` and `local`), and what it saves is fed back into its prompt on later runs. Use `disallowedTools` for a
+  read-only memory, and review `project` memory before committing it.
+
+## MCP
+
+MCP tools are excluded from a child whenever its agent file has a `tools` list without `mcp__` entries. An agent with
+no `tools` list gets your normal tools and every installed extension, MCP included.
+
+`mcpServers: [docs, slack]` in an agent file narrows that to the named servers (names as in `mcp.json`, the agent dir's
+and, in a trusted project, the project's). With a `tools` list, each server's tools join it as `mcp__<server>__*`.
+Without one, the configured servers the agent does not name are excluded (`--exclude-tools`); servers an extension
+registers at run time are not in `mcp.json` and are not excluded this way. `mcpServers: []` removes all MCP tools.
+
+## Codemode-only children
+
+By default a child sees only the `codemode` tool (pi's `codemode` extension in `only` mode, added with `-e`) and calls
+its allowed tools from scripts. The `tools` / `disallowedTools` of the agent still bind inside those scripts, and a
+`tools` list without `mcp__` entries still removes every MCP tool. The child's system prompt gets one extra line after
+its preamble: "Use the `codemode` tool for all tool calls, and put independent calls in one script."
+
+Why: fewer turns and less wall time. In the [comparison](#codemode-only-vs-direct-tools) below, codemode-only needed
+2 to 3 turns where direct tools needed 2.6 to 4.4, at about the same cost.
+
+Opt out:
+
+- per agent: `codemode: false` in the agent file
+- for everything: `"childCodemode": "inherit"` in `subagent` settings (direct tools)
 
 ## Workflows
 
@@ -363,65 +478,10 @@ the calls arrived. Agents that are already running finish their work (a model re
 their results are kept. Any script can be paused, saved or not. A paused script can be stopped (`x`); when the session
 ends it is stopped like any other, and a saved workflow's run can then be relaunched.
 
-## Worktree isolation
-
-`isolation: "worktree"` (in the `Agent` call or the agent file; the call wins) runs the agent in its own git worktree
-on its own branch, so it can edit freely without touching your checkout or other agents.
-
-- The worktree is `<repo>/.pi/worktrees/<agentId>` on branch `subagent/<agentId>`, based on the main checkout's `HEAD`.
-  `/.pi/worktrees/` is added once to the repository's `info/exclude`, so worktrees never show up as untracked files.
-  Local repositories without a remote work. Outside a git repository, or in one without commits, the call throws.
-- The agent's working directory (and the `Working directory:` line in its prompt) is the worktree. When the calling
-  session's cwd is a subdirectory of the repository, it is the same subdirectory inside the worktree (if that directory
-  is not in the starting commit, the worktree root, with a warning). Uncommitted changes in your checkout are not in it:
-  the result carries a warning when there are any.
-- Files listed in `.worktreeinclude` at the repository root (gitignore syntax) are copied into the worktree, but only
-  those that are also gitignored, so tracked files are never duplicated. Directories are copied recursively.
-- When an exchange ends (completed, partial, failed or stopped), an unchanged worktree is removed with its branch. A
-  changed one is kept, and the result's `worktree` gives `path`, `branch`, `files`, `commits` and sometimes a `note`.
-  Changed means: uncommitted, untracked or new commits, or gitignored files the agent made (`dist/`, `.env`; not `.pi/`
-  and not unmodified `.worktreeinclude` copies), or HEAD no longer on `subagent/<agentId>` (detached, another branch), or
-  a stash made on that branch; the `note` says which of the last two. Unchanged: `worktree: { changed: false }`. Nothing is committed, merged or deleted for
-  you; remove a kept one with `git worktree remove --force <path>` and `git branch -D <branch>`.
-- Resuming an agent re-enters its worktree. If the worktree was unchanged and so removed, it is recreated at the same
-  path and branch from the current `HEAD`. If you removed a changed one but its branch remains, the call throws naming
-  the path. The `isolation` of a resume call is ignored with a warning: the agent keeps how it was started.
-- A `run_in_background: true` agent that keeps a worktree reports it in its end message.
-- `/subagents worktrees` lists the kept worktrees under `<repo>/.pi/worktrees/` of the current checkout (agent id, branch, files changed, commits,
-  path) and removes the ones you pick. Before removing it asks to confirm and names what would be lost (the changed files
-  and the commits on the branch). Removal deletes the worktree and its branch. It only looks at the checkout of the current
-  directory, not at other repositories.
-
-## Agent memory
-
-`memory: user | project | local` in an agent file gives the agent a persistent directory at Claude Code's paths, so agent
-files and their memories carry over from Claude Code. `<name>` is the agent's `name` field.
-
-| Scope | Directory |
-|---|---|
-| `user` | `~/.claude/agent-memory/<name>/` |
-| `project` | `<main checkout>/.claude/agent-memory/<name>/` (meant to be committed) |
-| `local` | `<main checkout>/.claude/agent-memory-local/<name>/` (added to the repository's `info/exclude` once) |
-
-- The main checkout is the repository root of the cwd of the session that calls `Agent` (from a linked worktree, the
-  main checkout), never the agent's worktree, so
-  memory survives a removed worktree. Outside a repository `project` and `local` use that cwd, and no exclude file is written.
-- The directory is created when the agent starts. The system prompt gets a "Persistent memory" section: where the
-  directory is, how to keep `MEMORY.md` a short index, and the first 200 lines or 25000 bytes of `MEMORY.md` (whichever
-  comes first, with a note when cut). A resumed agent reads the current file.
-- Read, Write and Edit are enabled for the agent when its `tools` list lacks them. If `disallowedTools` names Write or Edit,
-  they stay denied and the other one is removed too (a `tools` list is overridden): the memory is read-only, the prompt says so
-  and the result carries a warning. A parameterised deny such as `Write(*.md)` denies the whole tool (pi has no per-path
-  rules), and the warning says so. A `MEMORY.md` that cannot be read (a directory, permissions) counts as empty, with a
-  warning. Only the tools are
-  denied: an agent that still has Bash can write the file anyway, so deny Bash too when it must not change.
-- **Risk:** an agent with memory writes files outside its working directory (`~/.claude` for `user`, the main checkout
-  for `project` and `local`), and what it saves is fed back into its prompt on later runs. Use `disallowedTools` for a
-  read-only memory, and review `project` memory before committing it.
-
 ## Watching and talking to subagents
 
-This part needs interactive pi. In `-p` mode only the `Agent` tool exists.
+The panel and the subagent screen need interactive xpi. In print mode (`-p`) agents, `/<workflow>` and `/subtask` run in
+the foreground and print or return their result; there is nothing to watch.
 
 ### The panel
 
@@ -452,9 +512,9 @@ drops out; running rows stay. Only subagents that ran in this pi process show as
 | `↓` / `↑` | move the selection (`↑` on the first row, or `Esc`, goes back to the editor) |
 | `Enter` | open the selected subagent's screen |
 | `x` | stop the selected subagent (nothing happens on a row that is not running) |
-| `r` | restart the selected running subagent: it starts over with the same task (see Restart below) |
+| `r` | restart the selected running subagent: it starts over with the same task (see **Restart** under [The subagent screen](#the-subagent-screen)) |
 | `s` | on a script row: save the script as a workflow |
-| `p` | on a running script's row: pause it, or resume it (see Pause and resume) |
+| `p` | on a running script's row: pause it, or resume it (see [Pause and resume](#pause-and-resume)) |
 | `shift+x` | stop everything of the session: every background script and every running subagent |
 
 While the panel has focus it takes `↑ ↓ Enter x r s p shift+x Esc` (`r`, `s` and `p` only on a row they apply to). Any other key (ctrl+c, ctrl+d, text) goes to pi as usual and gives the
@@ -511,81 +571,40 @@ taken once. Changes the earlier start made to files stay.
 kept in its meta file for later exchanges. The agent definition file is not touched. Only models pi lists as available
 are accepted.
 
-## Background work
+## Config
 
-Delegating does not block main. When a codemode script starts an `Agent`, the whole script moves to the background:
-the `codemode` call returns to main at once ("Script moved to the background (id S1) ..."), main's turn can end, and
-you can keep talking to main. The script keeps running and keeps orchestrating (`await tools.Agent(...)` still returns
-the full result, so it can filter and combine). When it ends, main gets a message with the script's return value, its
-error if it threw, and the agents it ran (id, type, status, cost). The message is always sent as a steer that
-triggers a turn: if main is running it arrives as a steer, otherwise (idle, or compacting) a new turn starts. A return value over 8 KB is cut in the message and the full text is written to
-a file whose path the message gives (in the parent session's `subagents/<session id>/` directory).
+Optional, in `.pi/settings.json` or `~/.pi/agent/settings.json`:
 
-| `run_in_background` on an `Agent` call | Effect |
-|---|---|
-| omitted | the first call moves its script to the background |
-| `false` | the script stays in the foreground (and is pinned there for its later calls), so main can use the result in the same turn |
-| `true` | the call returns `status: "running"` with its `agentId` at once and the script is not moved; main gets a message when that agent ends |
+```jsonc
+"subagent": {
+  "models": { "haiku": "anthropic/claude-haiku-5-5" },  // per-alias overrides of the defaults above
+  "defaultModel": "haiku",                         // default "haiku"; "inherit" follows the session model
+  "toolMap": { "WebFetch": "mcp__fetch__fetch" },  // merged over the built-in map
+  "maxConcurrent": 20,                             // running children per pi process; extra calls queue. The first session's value wins for the process
+  "maxAgentsPerScript": 1000,                      // agents one script run may start; the next Agent call throws
+  "childCodemode": "only",                         // "only" (default): children see only `codemode`; "inherit": direct tools
+  "backgroundScripts": true,                       // false: a script that starts an Agent waits for it (no background scripts)
+  "fork": true,                                    // false: no "fork" agent type and /subtask starts nothing
+  "staggerStart": false,                           // true: siblings with the same model, tools and project wait (at most 5 s) for the first one's response to begin, then read its cached prompt. See "Prompt caching"
+  "shutdownGraceMs": 10000,                        // how long a stopped child may take to shut down (SIGTERM) before SIGKILL; raise it for slow MCP servers
+  "panelLingerMs": 30000,                          // how long a finished subagent stays in the panel (the pty tests shorten it)
+  "piCommand": "xpi"                               // unset: children run the same build as this process; XPI_SUBAGENT_TEST_PI also overrides
+}
+```
 
-**ctrl+b** moves a running foreground script to the background (for example a slow script that starts no agent). It
-works only when the editor is empty; with text in the editor, or with no script running, ctrl+b stays cursor-left.
+## Cost, caching and limits
 
-**Panel.** Each background script is a row (`S1`, state, agents running, elapsed, cost) with its agents indented below.
-Finished rows linger like agent rows. `x` on a script row stops the script and all its agents (their calls return
-`failed` / "stopped by user"; main gets the usual end message with the state `stopped`). `x` on an agent row stops only
-that agent, and the script carries on. Several scripts can run at once; their agents share the `maxConcurrent` limit.
+### What the tool costs in every prompt
 
-**Esc** aborts main's turn. It stops a script that is still in the foreground, as before, and leaves background scripts
-running. **Ending the session** (quit, reload, `/new`, resume) stops every background script and detached agent; the
-agents are marked stopped and stay resumable.
+The tool's description, parameters and result type are part of each request of a session that has codemode on,
+whether or not an agent is ever started. They are kept short for that reason: one line per parameter, a result type
+that names the fields a script uses (the full result is in [The Agent tool](#the-agent-tool)), a short line per built-in agent, and a
+`SendMessage` declaration that does not repeat the Agent result. (Leaving `SendMessage` out of the prompt altogether
+was tried: Haiku then started a second agent in place of a message in 2 of 17 runs, against 0 of 17.) In the
+evaluation (`npm run eval:delegation`) neither Haiku nor Opus started a subagent on its own in any task, small or
+long, so this fixed cost is what most sessions pay for the tool.
 
-`subagent.backgroundScripts: false` turns all of this off: the extension does not track scripts or move them (the codemode
-controller is simply never asked to), and a script that starts an agent waits for it, as in v2. Print mode (`xpi -p`) behaves the same way on its own, since pi exits when the
-turn ends and a background result would be lost; there `run_in_background: true` waits too, and the tool description leaves the background rules out. Your `codemode` settings (`mode`, `inlineBudget`) are unaffected either way.
-
-## Codemode-only children
-
-By default a child sees only the `codemode` tool (pi's `codemode` extension in `only` mode, added with `-e`) and calls
-its allowed tools from scripts. The `tools` / `disallowedTools` of the agent still bind inside those scripts, and a
-`tools` list without `mcp__` entries still removes every MCP tool. The child's system prompt gets one extra line after
-its preamble: "Use the `codemode` tool for all tool calls, and put independent calls in one script."
-
-Why: fewer turns and less wall time. In the [comparison](#codemode-only-vs-direct-tools) below, codemode-only needed
-2 to 3 turns where direct tools needed 2.6 to 4.4, at about the same cost.
-
-Opt out:
-
-- per agent: `codemode: false` in the agent file
-- for everything: `"childCodemode": "inherit"` in `subagent` settings (direct tools, as in v1)
-
-## MCP
-
-MCP tools are excluded from a child whenever its agent file has a `tools` list without `mcp__` entries. An agent with
-no `tools` list gets your normal tools and every installed extension, MCP included.
-
-`mcpServers: [docs, slack]` in an agent file narrows that to the named servers (names as in `mcp.json`, the agent dir's
-and, in a trusted project, the project's). With a `tools` list, each server's tools join it as `mcp__<server>__*`.
-Without one, the configured servers the agent does not name are excluded (`--exclude-tools`); servers an extension
-registers at run time are not in `mcp.json` and are not excluded this way. `mcpServers: []` removes all MCP tools.
-
-## Limits and memory
-
-- The registry, panel and queues live in the memory of the pi process. After `/reload` or in a resumed session the
-  registry is rebuilt from the meta files; a meta file left in `running` (pi died) shows as `stopped`. A meta file that cannot be read is skipped with a
-  warning at session start.
-- `maxConcurrent` (default 20) caps running children per pi process; extra calls and extra exchanges queue.
-- Stopping a child: an rpc abort, then (after 2 s) SIGTERM, then SIGKILL after `shutdownGraceMs` (default 10 s; the child
-  can use that time to close its MCP servers). Each child runs in its own process group (POSIX), and every signal goes to
-  the whole group, so its MCP servers, bash tools and other descendants are stopped with it, and whatever is left of the
-  tree when the child exits is cleaned up too. When pi itself exits (`process.exit`, SIGINT, SIGTERM, SIGHUP) every live
-  group gets SIGTERM and, after the grace, SIGKILL from a small detached watchdog. A pi that is SIGKILLed or crashes
-  cannot clean up: its children see their rpc stdin close and exit by themselves, but a descendant that ignores that can
-  be left behind. Because children are in their own groups they no longer receive the terminal's ctrl+c directly; the TUI
-  reads ctrl+c as a key and stops subagents as before. On Windows children keep the plain `child.kill` behaviour.
-- Each child is a full `pi`, about 220 MB (see [Stress test](#stress-test)).
-- An in-memory parent session keeps nothing on disk: no meta files, no viewing, no resume.
-
-## Prompt caching
+### Prompt caching
 
 Anthropic caches the start of a request (tools, then the system prompt, then the messages) and bills a later request
 that begins with the same bytes at a tenth of the input price for that part. A child's system prompt is laid out so
@@ -614,7 +633,7 @@ What sharing depends on:
 Anthropic allows four cache breakpoints per request. A child uses all four: last message, last tool, tail, head. An
 extension that adds `cache_control` of its own to a child's request would go over the limit.
 
-### Siblings started at the same moment
+#### Siblings started at the same moment
 
 A cache entry can be read only once the response of the request that writes it has begun. Three children started
 together therefore write the same head three times. `subagent.staggerStart: true` avoids that: the first child of a
@@ -636,26 +655,22 @@ children run on an expensive model. With two siblings, a small prompt and Haiku 
 `npm run test:subagent:cache` (by hand, real Haiku 5.5, see [Development](#development)) measures all of the above
 in fresh repositories and fails when a later child reads less than 80% of the first one's prompt.
 
-## Config
+### Limits and memory
 
-Optional, in `.pi/settings.json` or `~/.pi/agent/settings.json`:
-
-```jsonc
-"subagent": {
-  "models": { "haiku": "anthropic/claude-haiku-5-5" },  // per-alias overrides of the defaults above
-  "defaultModel": "haiku",                         // default "haiku"; "inherit" follows the session model
-  "toolMap": { "WebFetch": "mcp__fetch__fetch" },  // merged over the built-in map
-  "maxConcurrent": 20,                             // running children per pi process; extra calls queue. The first session's value wins for the process
-  "maxAgentsPerScript": 1000,                      // agents one script run may start; the next Agent call throws
-  "childCodemode": "only",                         // "only" (default): children see only `codemode`; "inherit": v1 behaviour, direct tools
-  "backgroundScripts": true,                       // false: a script that starts an Agent waits for it, as in v2 (pi's own codemode)
-  "fork": true,                                    // false: no "fork" agent type and /subtask starts nothing
-  "staggerStart": false,                           // true: siblings with the same model, tools and project wait (at most 5 s) for the first one's response to begin, then read its cached prompt. See "Prompt caching"
-  "shutdownGraceMs": 10000,                        // how long a stopped child may take to shut down (SIGTERM) before SIGKILL; raise it for slow MCP servers
-  "panelLingerMs": 30000,                          // how long a finished subagent stays in the panel (the pty tests shorten it)
-  "piCommand": "xpi"                               // unset: children run the same build as this process; XPI_SUBAGENT_TEST_PI also overrides
-}
-```
+- The registry, panel and queues live in the memory of the pi process. After `/reload` or in a resumed session the
+  registry is rebuilt from the meta files; a meta file left in `running` (pi died) shows as `stopped`. A meta file that cannot be read is skipped with a
+  warning at session start.
+- `maxConcurrent` (default 20) caps running children per pi process; extra calls and extra exchanges queue.
+- Stopping a child: an rpc abort, then (after 2 s) SIGTERM, then SIGKILL after `shutdownGraceMs` (default 10 s; the child
+  can use that time to close its MCP servers). Each child runs in its own process group (POSIX), and every signal goes to
+  the whole group, so its MCP servers, bash tools and other descendants are stopped with it, and whatever is left of the
+  tree when the child exits is cleaned up too. When pi itself exits (`process.exit`, SIGINT, SIGTERM, SIGHUP) every live
+  group gets SIGTERM and, after the grace, SIGKILL from a small detached watchdog. A pi that is SIGKILLed or crashes
+  cannot clean up: its children see their rpc stdin close and exit by themselves, but a descendant that ignores that can
+  be left behind. Because children are in their own groups they no longer receive the terminal's ctrl+c directly; the TUI
+  reads ctrl+c as a key and stops subagents as before. On Windows children keep the plain `child.kill` behaviour.
+- Each child is a full `pi`, about 220 MB (see [Stress test](#stress-test)).
+- An in-memory parent session keeps nothing on disk: no meta files, no viewing, no resume.
 
 ## Development
 
@@ -685,7 +700,7 @@ usage arithmetic.
 Real-model smoke test (costs well under a cent with haiku). Run it from the repo root after `npm run build`:
 
 ```bash
-node packages/xpi-coding-agent/dist/bundle/cli.js --tools +codemode -p 'Use the codemode tool. Script:
+node packages/xpi-coding-agent/dist/bundle/cli.js -p 'Use the codemode tool. Script:
 const a = await tools.Agent({ description: "list builtins", prompt: "List file names in src/builtin. quick", subagent_type: "Explore" });
 const [b, c] = await Promise.all([
   tools.Agent({ description: "follow up", prompt: "What was the first file name you listed? One word.", resume: a.agentId }),
@@ -750,7 +765,7 @@ npm run test:subagent:stress -- --calls 20 --limit 20
 npm run test:subagent:stress -- --fake           # 200 calls against test/subagent/fake-pi.mjs: the extension's own overhead
 ```
 
-Last run (Apple M5, 10 cores, 24 GB; pi 1.5.0, v2 rpc codemode-only children; each call an Explore reading one file):
+Last run (Apple M5, 10 cores, 24 GB; pi 1.5.0, rpc codemode-only children; each call an Explore reading one file):
 
 | | 20 calls | 40 calls (limit 20) | 200 fake calls (limit 20, 550 ms each) |
 |---|---|---|---|
@@ -769,8 +784,9 @@ semaphore and never lets more than 20 children start.
 Each child is a full `pi` that loads your installed extensions, about 220 MB each. With the default limit of 20,
 plan for about 4.5 GB of memory while a large fan-out runs. Lower `maxConcurrent` on smaller machines.
 
-Design notes and tickets of the original extension: the pi-pipipi repository (`.scratch/`).
-The numbers in this document were measured there on pi 1.5.0 and have not been re-measured on xpi.
+Design notes and tickets of the original extension: the pi-pipipi repository (`.scratch/`). The stress test and the
+codemode-only comparison were measured there on pi 1.5.0 and have not been re-measured on xpi; the evals above were
+rerun on xpi 1.5.1.
 
 ## Porting to another pi-based agent
 
