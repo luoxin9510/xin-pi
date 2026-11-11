@@ -11,7 +11,7 @@ import { agentFile, ev, FAKE_PI, flag, loadTool, sandbox } from "../helpers.ts";
 
 const CLI = fileURLToPath(new URL("../../../src/cli.ts", import.meta.url));
 const AGENTS = {
-	reviewer: { description: "Reviews code", prompt: "You review code.", tools: "Read, Grep", model: "sonnet" },
+	auditor: { description: "Reviews code", prompt: "You review code.", tools: "Read, Grep", model: "sonnet" },
 	"quick-look": { description: "Looks quickly", prompt: "", maxTurns: 3, background: true },
 };
 
@@ -19,22 +19,22 @@ test("the JSON object: keys are names, `prompt` is the system prompt, the rest a
 	const s = sandbox();
 	assert.deepEqual(setCliAgents(JSON.stringify(AGENTS), s.repo), []);
 	const { agents } = discoverAgents(s.repo);
-	const reviewer = agents.get("reviewer")!;
-	assert.equal(reviewer.source, "--agents");
-	assert.equal(reviewer.prompt, "You review code.");
-	assert.deepEqual(reviewer.tools, ["Read", "Grep"]);
-	assert.equal(reviewer.model, "sonnet");
+	const auditor = agents.get("auditor")!;
+	assert.equal(auditor.source, "--agents");
+	assert.equal(auditor.prompt, "You review code.");
+	assert.deepEqual(auditor.tools, ["Read", "Grep"]);
+	assert.equal(auditor.model, "sonnet");
 	assert.equal(agents.get("quick-look")!.maxTurns, 3);
 	assert.equal(agents.get("quick-look")!.background, true);
 	setCliAgents(undefined, s.repo);
-	assert.equal(discoverAgents(s.repo).agents.get("reviewer"), undefined, "an unset flag clears them");
+	assert.equal(discoverAgents(s.repo).agents.get("auditor"), undefined, "an unset flag clears them");
 });
 
 test("a path to a JSON file works too; what is not such an object throws; a bad entry is skipped with a warning", () => {
 	const s = sandbox();
 	s.write(join(s.repo, "agents.json"), JSON.stringify(AGENTS));
 	assert.deepEqual(setCliAgents("agents.json", s.repo), []);
-	assert.ok(discoverAgents(s.repo).agents.has("reviewer"));
+	assert.ok(discoverAgents(s.repo).agents.has("auditor"));
 	assert.throws(() => setCliAgents("missing.json", s.repo), /--agents: cannot read .*missing\.json: ENOENT/);
 	assert.throws(() => setCliAgents("{ not json", s.repo), /--agents: invalid JSON/);
 	s.write(join(s.repo, "list.json"), "[]");
@@ -65,27 +65,27 @@ test("a path to a JSON file works too; what is not such an object throws; a bad 
 test("an --agents agent wins over a project file and a built-in of the same name, and runs with its prompt", async () => {
 	const s = sandbox();
 	s.write(
-		join(s.repo, ".pi/agents/reviewer.md"),
-		agentFile("name: reviewer\ndescription: from the file", "File prompt."),
+		join(s.repo, ".pi/agents/auditor.md"),
+		agentFile("name: auditor\ndescription: from the file", "File prompt."),
 	);
 	s.scenario({ lines: [ev.session(), ev.assistant("ok"), ev.turnEnd(), ev.settled()] });
 	const flags = {
 		agents: JSON.stringify({
-			reviewer: { description: "from the flag", prompt: "Flag prompt.", tools: "Read" },
+			auditor: { description: "from the flag", prompt: "Flag prompt.", tools: "Read" },
 			Explore: { description: "my own Explore", prompt: "Mine." },
 		}),
 	};
 	const t = await loadTool({}, { cwd: s.repo, flags });
-	assert.match(t.tool.description, /- reviewer: from the flag/);
+	assert.match(t.tool.description, /- auditor: from the flag/);
 	assert.match(t.tool.description, /- Explore: my own Explore/);
 	assert.doesNotMatch(t.tool.description, /from the file/);
-	const r = (await t.run({ subagent_type: "reviewer" })).structuredContent;
+	const r = (await t.run({ subagent_type: "auditor" })).structuredContent;
 	assert.equal(r.status, "completed");
 	const rec = s.record();
 	assert.match(rec.systemPromptTail!, /Flag prompt\./);
 	assert.equal(flag(rec.argv, "--tools"), "codemode,read");
 	const plain = await loadTool({}, { cwd: s.repo });
-	assert.match(plain.tool.description, /- reviewer: from the file/, "a session without the flag has the files again");
+	assert.match(plain.tool.description, /- auditor: from the file/, "a session without the flag has the files again");
 });
 
 test("invalid --agents stops the session start with the reason", async () => {
