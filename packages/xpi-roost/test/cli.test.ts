@@ -1,9 +1,11 @@
 // `xpi roost <subcommand>` against a real daemon in a temporary agent directory. Users get
 // their first way to start a session in a later PR; here a shell-command session is started
 // through the client library, as `xpi --bg` will through the same daemon.
+import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import pty from "node-pty";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runRoostCli } from "../src/cli.ts";
 import { DaemonClient } from "../src/lib/client.ts";
@@ -104,7 +106,6 @@ describe("xpi roost", () => {
 		expect(help.code).toBe(0);
 		expect(help.out).toContain("xpi roost ls [--all] [--cwd <dir>] [--json]");
 		expect(help.out).toContain("ctrl+z detaches");
-		expect(help.out).not.toContain("daemon run");
 		expect((await roost()).code).toBe(2);
 		const bad = await roost("frobnicate");
 		expect(bad.code).toBe(2);
@@ -186,4 +187,121 @@ describe("xpi roost", () => {
 		expect(existsSync(join(agentDir, "xpi-roost", "jobs"))).toBe(true);
 		expect(existsSync(join(other, "xpi-roost"))).toBe(false);
 	}, 30_000);
+
+	it("daemon stop without --keep-workers ends the sessions", async () => {
+		const id = await shellSession("sleeper", "sleep 60");
+		const row = await waitFor(async () => {
+			const rows = JSON.parse((await roost("ls", "--json")).out) as { id: string; pid: number | null }[];
+			return rows.find((j) => j.id === id && j.pid !== null);
+		});
+		const stop = await roost("daemon", "stop");
+		expect(stop.out).toBe("daemon stopped\n");
+		await waitFor(async () => !pidAlive(row.pid!));
+		await waitFor(async () => (await roost("daemon", "status")).out.includes("daemon not running"));
+	}, 30_000);
+
+	it("log --follow keeps printing what happens", async () => {
+		const id = await shellSession("follow-me", "sleep 60");
+		const child = spawn(process.execPath, ["--input-type=module", "-e", driver(["log", "--follow"]), agentDir], {
+			cwd: process.cwd(),
+			env: process.env,
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+		let out = "";
+		child.stdout.on("data", (d) => {
+			out += d;
+		});
+		try {
+			await waitFor(async () => out.includes("started follow-me"));
+			expect(out).not.toContain("follow-me stopped");
+			await roost("stop", id);
+			await waitFor(async () => out.includes("follow-me stopped"));
+			expect(child.exitCode).toBeNull();
+		} finally {
+			child.kill();
+		}
+	}, 30_000);
+
+	it("attach: starts an ended session first, types into it, detaches with the caller's key; without node-pty only a running one", async () => {
+		const id = await shellSession("echoer", 'while read l; do echo "got:$l"; done');
+		await waitFor(async () => {
+			const rows = JSON.parse((await roost("ls", "--json")).out) as { id: string; pid: number | null }[];
+			return rows.find((j) => j.id === id && j.pid !== null);
+		});
+		await roost("stop", id);
+		await waitFor(async () => {
+			const rows = JSON.parse((await roost("ls", "--json")).out) as { id: string; endedAt: number | null }[];
+			return rows.find((j) => j.id === id)?.endedAt !== null;
+		});
+
+		// without node-pty, an ended session cannot be started: refused, with the hint
+		const refused = await attachInPty("0");
+		await refused.exited;
+		expect(refused.out()).toContain(
+			"attaching to echoer, which is not running, starts a session process, which needs node-pty. (install hint)",
+		);
+		expect(refused.out()).toContain("[exit 1]");
+
+		// AT-1: started again, then attached
+		const first = await attachInPty("1");
+		await first.type("hello", "got:hello");
+		first.term.write("\x1a");
+		await first.exited;
+		expect(first.out()).toContain(`detached · ${id} · echoer`);
+		expect(first.out()).toContain("[exit 0]");
+
+		// running now: attaching needs no node-pty in this process
+		const second = await attachInPty("0");
+		await second.type("again", "got:again");
+		second.term.write("\x1a");
+		await second.exited;
+		expect(second.out()).toContain("[exit 0]");
+	}, 60_000);
 });
+
+/** A process that runs one `xpi roost` command for the agent directory in argv[1] (argv[2]: node-pty installed?). */
+function driver(argv: string[]): string {
+	return `
+		import { resolve } from "node:path";
+		import { runRoostCli } from "./src/cli.ts";
+		const [agentDir, pty] = process.argv.slice(1);
+		const code = await runRoostCli(${JSON.stringify(argv)}, {
+			start: { agentDir, daemonEntry: resolve("src/daemon/main.ts"), hostEntry: resolve("src/host/main.ts") },
+			isDetachKey: (k) => k === "\\x1a",
+			detachKeyName: "ctrl+z",
+			ptyHint: "(install hint)",
+			ptyInstalled: pty !== "0",
+			startTimeoutMs: 10000,
+		});
+		process.stdout.write("\\r\\n[exit " + code + "]\\r\\n");
+		process.exit(code);
+	`;
+}
+
+/** `xpi roost attach echoer` in a terminal of its own. */
+async function attachInPty(ptyInstalled: "0" | "1") {
+	const term = pty.spawn(
+		process.execPath,
+		["--input-type=module", "-e", driver(["attach", "echoer"]), agentDir, ptyInstalled],
+		{ cols: 100, rows: 30, cwd: process.cwd(), env: process.env as Record<string, string> },
+	);
+	let out = "";
+	term.onData((d) => {
+		out += d;
+	});
+	const exited = new Promise<void>((r) => term.onExit(() => r()));
+	return {
+		term,
+		out: () => out,
+		exited,
+		// a line typed until its echo shows (the first keys may come before the attach is up)
+		type: async (text: string, echo: string) => {
+			await waitFor(async () => {
+				if (out.includes(echo)) return true;
+				term.write(`${text}\r`);
+				await new Promise((r) => setTimeout(r, 300));
+				return out.includes(echo);
+			}, 15_000);
+		},
+	};
+}

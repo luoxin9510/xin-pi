@@ -364,7 +364,7 @@ commands below; starting a session from xpi (`xpi --bg`, `/bg`) and the hub come
 | Command | Description |
 |---|---|
 | `xpi roost ls [--all] [--cwd <dir>] [--json]` | List sessions (also `list`). Ended sessions older than 48 hours are shown with `--all`; `--cwd` keeps the sessions of one directory; `--json` prints the rows for programs |
-| `xpi roost attach <id\|name>` | Open a session in this terminal. The `app.suspend` key (default `ctrl+z`, see [Keybindings](keybindings.md)) detaches and leaves it running. An ended session is started again first. Needs a terminal |
+| `xpi roost attach <id\|name>` | Open a session in this terminal. The `app.suspend` key (default `ctrl+z`, see [Keybindings](keybindings.md)) detaches and leaves it running. An ended session is started again first; one that failed is told to continue where it left off. Needs a terminal |
 | `xpi roost logs <id\|name>` | Print the session's current screen, or its last one when it has ended |
 | `xpi roost log [-n <count>] [--follow] [<id\|name>]` | What happened lately (started, finished, stopped, ...), oldest first; `--follow` keeps printing |
 | `xpi roost reply <id\|name> <text>` | Send a reply to an xpi session; queued as a follow-up while it works. Exits with `1` when it was not delivered |
@@ -387,9 +387,11 @@ Requirements:
 - macOS or Linux. On Windows the commands exit with a message (use WSL).
 - The npm installation of xpi. A standalone binary has no Node runtime for the daemon and says to install xpi with
   `npm install -g xpi-coding-agent`.
-- node-pty, an optional dependency installed with xpi. When it is missing (`--omit=optional`, `--ignore-scripts`, or a
-  failed compile on Linux, which needs python3, make and a C++ compiler), the commands say how to reinstall it; only
-  `xpi roost --help` and `xpi roost daemon ...` work without it.
+- node-pty, an optional dependency installed with xpi, for each session's process. When it is missing
+  (`--omit=optional`, `--ignore-scripts`, or a failed compile on Linux, which needs python3, make and a C++ compiler),
+  `respawn` and `attach` to a session that is not running say how to reinstall it. The other commands still work, so
+  the sessions a running daemon already has can be listed, read, replied to, attached to and stopped; they warn when
+  the daemon itself cannot load node-pty.
 
 Each agent directory has its own daemon, state (`<agent dir>/xpi-roost/`) and sockets. The `roost` block of
 `settings.json` configures it; see [Settings](settings.md#background-sessions).

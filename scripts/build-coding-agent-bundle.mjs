@@ -26,7 +26,9 @@ const allowedExternalPackages = new Set([
 	"kerberos",
 	// Optional debug output coloring.
 	"supports-color",
-	// xpi roost's native PTY, an optional dependency. Only the roost host entry may import it (checked below).
+	// xpi roost's native PTY, an optional dependency. Only the roost host entry may import it (checked below; the
+	// check sees static imports only, so a runtime createRequire(...)("node-pty") elsewhere is not caught: the
+	// daemon's probe loads it to report ptyError, and the CLI only resolves its path).
 	"node-pty",
 ]);
 
@@ -252,6 +254,7 @@ const roostResult = await build({
 	outdir: dirname(bedrockLoaderOutput),
 	splitting: false,
 });
+// Static imports only (esbuild's metafile): a runtime createRequire(...)("node-pty") is not seen here.
 for (const metafile of [mainResult.metafile, lazyResult.metafile, codemodeWorkerResult.metafile, roostResult.metafile]) {
 	for (const [outputPath, output] of Object.entries(metafile.outputs)) {
 		if (!output.imports.some((imported) => imported.path === "node-pty")) continue;

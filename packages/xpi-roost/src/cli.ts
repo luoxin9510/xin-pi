@@ -3,7 +3,6 @@
 // host's entry files, the detach key (the user's keybinding) and its own install hints.
 import { existsSync, readFileSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
-import { pathToFileURL } from "node:url";
 import { attachToHost, type DetachKeyMatcher } from "./lib/attach.ts";
 import { DaemonClient, DaemonError, type DaemonStart, daemonEnv, requestOnce } from "./lib/client.ts";
 import { eventAgo, eventLine, type RoostEvent } from "./lib/events.ts";
@@ -28,6 +27,12 @@ export interface RoostCliOptions {
 	detachKeyName: string;
 	/** What to tell the user when the daemon cannot load node-pty (how to install it). */
 	ptyHint: string;
+	/**
+	 * Whether node-pty is installed for this xpi (default true). Without it only what starts a
+	 * session process (a PTY host) is refused: `respawn`, and `attach` to a session that is not
+	 * running. Everything else talks to the daemon and to running hosts, which have theirs.
+	 */
+	ptyInstalled?: boolean;
 	/** How long a daemon may take to start (tests). */
 	startTimeoutMs?: number;
 	stdout?: Out;
@@ -72,6 +77,11 @@ export async function runRoostCli(argv: string[], opts: RoostCliOptions): Promis
 	for (const name of ROOST_LOCATION_ENV) process.env[name] = location[name];
 
 	let warned = false;
+	/** Refuses what would start a PTY host when node-pty is not installed here. */
+	const needPty = (what: string) => {
+		if (opts.ptyInstalled === false)
+			throw new DaemonError(`${what} starts a session process, which needs node-pty. ${opts.ptyHint}`, "no_pty");
+	};
 	const connect = () => DaemonClient.connectOrStart(start, opts.startTimeoutMs);
 
 	/** DM-9: a daemon of another version keeps running old code; a daemon without node-pty starts nothing. */
@@ -110,6 +120,8 @@ export async function runRoostCli(argv: string[], opts: RoostCliOptions): Promis
 		if (!process.stdin.isTTY || !process.stdout.isTTY) throw new DaemonError("attach needs a terminal", "no_tty");
 		const row = await withDaemon(async (c) => {
 			const r = await findRow(c, query);
+			// a running session's host is there already: attaching needs no node-pty here
+			if (!isLive(r)) needPty(`attaching to ${r.name}, which is not running,`);
 			// AT-1: a reaped or ended session starts again; its last screen shows meanwhile
 			await ensureLive(c, r, process.stdout);
 			return r;
@@ -194,6 +206,7 @@ export async function runRoostCli(argv: string[], opts: RoostCliOptions): Promis
 		const all = args.includes("--all");
 		const query = args.find((a) => a !== "--all");
 		if (!all && !query) throw new UsageError("respawn needs <id|name> or --all");
+		needPty("respawn");
 		return withDaemon(async (c) => {
 			const id = all ? undefined : (await findRow(c, query)).id;
 			const { results } = await c.request("respawn", all ? { all: true } : { id, restart: true });
@@ -254,11 +267,6 @@ export async function runRoostCli(argv: string[], opts: RoostCliOptions): Promis
 			if (!existsSync(file)) throw new DaemonError(`no daemon log at ${file}`, "no_log");
 			const lines = readFileSync(file, "utf8").trimEnd().split("\n");
 			stdout.write(`${lines.slice(-50).join("\n")}\n`);
-			return;
-		}
-		if (sub === "run") {
-			// internal: the daemon in this process (its entry file runs when it is loaded)
-			await import(pathToFileURL(start.daemonEntry).href);
 			return;
 		}
 		if (sub !== "status" && sub !== "stop") throw new UsageError("daemon needs status, logs or stop");

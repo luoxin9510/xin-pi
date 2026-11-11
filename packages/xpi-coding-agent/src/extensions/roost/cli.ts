@@ -3,6 +3,8 @@
  * commands and knows nothing of xpi; this supplies the agent directory, the daemon's and the
  * host's entry files, the detach key from the user's keybindings, and what to tell the user
  * when roost cannot run here. node-pty is never loaded in this process: only a host loads it.
+ * Without node-pty here, only what starts a host is refused (xpi-roost's `ptyInstalled`): the
+ * sessions an older daemon still runs can be listed, read, replied to and stopped.
  */
 
 import { createRequire } from "node:module";
@@ -21,22 +23,18 @@ export const WINDOWS_MESSAGE =
 export const BINARY_MESSAGE =
 	"xpi roost: background sessions need the npm installation of xpi: they run as Node processes with the native module node-pty, which a standalone binary does not carry. Install it with: npm install -g xpi-coding-agent";
 
-export const NO_PTY_MESSAGE = `xpi roost: node-pty is not installed. ${PTY_HINT}`;
-
-/** Why roost cannot run here, or undefined. `ptyFound` is asked only after the platform and runtime checks. */
+/** Why roost cannot run here at all, or undefined (a missing node-pty is not such a reason). */
 export function roostUnavailable(o: {
 	platform: NodeJS.Platform;
 	entries: ReturnType<typeof getRoostEntries>;
-	ptyFound: () => boolean;
 }): string | undefined {
 	if (o.platform === "win32") return WINDOWS_MESSAGE;
 	if (!o.entries) return BINARY_MESSAGE;
-	if (!o.ptyFound()) return NO_PTY_MESSAGE;
 	return undefined;
 }
 
 /** Whether node-pty is installed where this process would find it (resolved, never loaded). */
-function ptyInstalled(): boolean {
+export function ptyInstalled(): boolean {
 	try {
 		createRequire(import.meta.url).resolve("node-pty");
 		return true;
@@ -53,17 +51,12 @@ export function detachMatcher(keybindings: KeybindingsManager): DetachKeyMatcher
 	return (key) => !isKeyRelease(key) && keybindings.matches(key.replace(WITHOUT_TEXT, "$1u"), "app.suspend");
 }
 
-/** Commands that work without node-pty: they only read or stop. */
-const WITHOUT_PTY = new Set(["help", "-h", "--help", "hub"]);
-
-export async function runRoostCommand(args: string[], options: { agentDir: string }): Promise<number> {
+export async function runRoostCommand(
+	args: string[],
+	options: { agentDir: string; ptyInstalled?: () => boolean },
+): Promise<number> {
 	const entries = getRoostEntries();
-	const needsPty = !(args.length === 0 || WITHOUT_PTY.has(args[0]!) || args[0] === "daemon");
-	const problem = roostUnavailable({
-		platform: process.platform,
-		entries,
-		ptyFound: () => !needsPty || ptyInstalled(),
-	});
+	const problem = roostUnavailable({ platform: process.platform, entries });
 	if (problem || !entries) {
 		process.stderr.write(`${problem ?? BINARY_MESSAGE}\n`);
 		return 1;
@@ -81,5 +74,6 @@ export async function runRoostCommand(args: string[], options: { agentDir: strin
 		isDetachKey: detachMatcher(keybindings),
 		detachKeyName: detachKeys.join(" or ") || "app.suspend",
 		ptyHint: PTY_HINT,
+		ptyInstalled: (options.ptyInstalled ?? ptyInstalled)(),
 	});
 }

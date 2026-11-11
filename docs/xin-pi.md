@@ -23,8 +23,9 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
   dispatched in `coding-agent/src/main.ts` next to `xpi mcp`, through `src/extensions/roost/cli.lazy.ts`. The commands
   live in `xpi-roost/src/cli.ts` (`runRoostCli`); `src/extensions/roost/cli.ts` supplies the agent directory, the entry
   files (`getRoostEntries()` in `config.ts`), the detach key (a matcher over the user's `app.suspend` binding: the
-  library has no key of its own) and the messages for Windows, a standalone binary and a missing node-pty. The daemon
-  runs as `node <roost-daemon.js>`; `xpi roost daemon run` runs it in-process and is not in the help.
+  library has no key of its own) and the messages for Windows and a standalone binary. Without node-pty only what
+  starts a session process is refused (`respawn`, `attach` to a session that is not running: xpi-roost's
+  `ptyInstalled`). The daemon runs as `node <roost-daemon.js>`.
 - Bundle: `scripts/build-coding-agent-bundle.mjs` builds `roost-daemon.js` and `roost-host.js` from xpi-roost's built
   `dist/daemon/main.js` and `dist/host/main.js` into the chunk directory, next to `config.ts`'s chunk, where
   `resolveRoostEntries` looks for them (like `codemode-worker.js`). Unbundled runs resolve `xpi-roost/daemon` and
@@ -34,7 +35,7 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
   coding-agent, and `check-entry-graphs.mjs` budgets its three entries (`.`, `./daemon`, `./host`), each forbidden to
   pull in the others.
 - node-pty is an `optionalDependencies` entry of `xpi-coding-agent` (pinned), so an install that cannot compile it on
-  Linux still succeeds; only `xpi roost` then says how to get it. The install lock allows its install script
+  Linux still succeeds; `xpi roost respawn` and `attach` to a session that is not running then say how to get it. The install lock allows its install script
   (`allowedInstallScriptPackages` in `scripts/generate-coding-agent-install-lock.mjs`, with the reason: no Linux
   prebuild), and the generator marks packages reached only through `optionalDependencies` (node-pty, node-addon-api)
   `optional: true`.

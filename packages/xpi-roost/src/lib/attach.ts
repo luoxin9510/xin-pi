@@ -17,8 +17,14 @@ export interface AttachIO {
  */
 export type DetachKeyMatcher = (key: string) => boolean;
 
-/** The start of an escape sequence a chunk may end in (sent on: only the scan waits for the rest). */
-const PARTIAL_ESC = /\x1b(?:\[[\d;:]*)?$/;
+/**
+ * A key a read ended inside waits this long for the rest before it goes to the session as it
+ * is (a terminal sends a key in one write; this is for one that never ends). A lone ESC is not
+ * held: it is sent at once, as pi-roost did, so the Escape key has no delay.
+ */
+const HOLD_MS = 100;
+/** More than this unfinished (an OSC string without its end) is sent on, not held. */
+const HOLD_MAX = 64;
 /** No input for this long while in a paste: its end marker was lost. */
 const PASTE_IDLE_MS = 1000;
 
@@ -56,7 +62,7 @@ export function keyLength(s: string, i: number): number | undefined {
 	const c = s.charCodeAt(i);
 	if (c !== 0x1b) {
 		const n = c >= 0xf0 ? 4 : c >= 0xe0 ? 3 : c >= 0xc0 ? 2 : 1;
-		return Math.min(n, s.length - i);
+		return n <= s.length - i ? n : undefined;
 	}
 	if (i + 1 >= s.length) return undefined;
 	const next = s[i + 1];
@@ -84,13 +90,14 @@ export function keyLength(s: string, i: number): number | undefined {
  * a terminal or multiplexer that batches input, or a lock key held on can put it among
  * other bytes; sent on, it would reach the session's xpi, which suspends itself, and
  * nothing in the background would ever continue it. Inside a bracketed paste it is text.
- * `pasting` carries a paste across chunks. Offsets are bytes (latin1).
+ * `pasting` carries a paste across chunks. `done` is where the whole keys end (the rest is
+ * a key the input ends inside). Offsets are bytes (latin1).
  */
 export function localDetachAt(
 	s: string,
 	isDetachKey: DetachKeyMatcher,
 	pasting = false,
-): { at: number; end: number; pasting: boolean } {
+): { at: number; end: number; pasting: boolean; done: number } {
 	for (let i = 0; i < s.length; ) {
 		if (s.startsWith(PASTE_START, i)) {
 			pasting = true;
@@ -103,12 +110,67 @@ export function localDetachAt(
 			continue;
 		}
 		const n = keyLength(s, i);
-		if (n === undefined) break;
+		if (n === undefined) return { at: -1, end: -1, pasting, done: i };
 		if (!pasting && isDetachKey(Buffer.from(s.slice(i, i + n), "latin1").toString("utf8")))
-			return { at: i, end: i + n, pasting };
+			return { at: i, end: i + n, pasting, done: i + n };
 		i += n;
 	}
-	return { at: -1, end: -1, pasting };
+	return { at: -1, end: -1, pasting, done: s.length };
+}
+
+/**
+ * The input of an attached terminal, read by read (bytes as latin1): what goes to the
+ * session now, and whether the detach key came. A key that a read ends inside (an escape
+ * sequence of any kind, a UTF-8 character) is held until it is whole, so the first half of
+ * the detach key never reaches the session; `flush` sends a held key that never finished.
+ * A lone ESC is sent at once and still read again with what follows.
+ */
+export class DetachScanner {
+	/** The unfinished key; its first `sent` bytes went to the session already. */
+	private carry = "";
+	private sent = 0;
+	private pasting = false;
+	private lastInput = 0;
+	private readonly isDetachKey: DetachKeyMatcher;
+
+	constructor(isDetachKey: DetachKeyMatcher) {
+		this.isDetachKey = isDetachKey;
+	}
+
+	push(text: string, now: number): { send: string; detach: boolean; held: boolean } {
+		// a paste whose end marker was lost does not swallow the detach key for ever
+		if (this.pasting && now - this.lastInput > PASTE_IDLE_MS) this.pasting = false;
+		this.lastInput = now;
+		const scan = this.carry + text;
+		const r = localDetachAt(scan, this.isDetachKey, this.pasting);
+		this.pasting = r.pasting;
+		if (r.at !== -1) {
+			// what was typed before it still goes; what follows it is the view's
+			const send = r.at > this.sent ? scan.slice(this.sent, r.at) : "";
+			this.carry = "";
+			this.sent = 0;
+			return { send, detach: true, held: false };
+		}
+		let send = r.done > this.sent ? scan.slice(this.sent, r.done) : "";
+		this.carry = scan.slice(r.done);
+		this.sent = Math.max(0, this.sent - r.done);
+		if (this.carry === "\x1b" && this.sent === 0) {
+			send += this.carry;
+			this.sent = 1;
+		} else if (this.carry.length > HOLD_MAX) {
+			send += this.carry.slice(this.sent);
+			this.carry = "";
+			this.sent = 0;
+		}
+		return { send, detach: false, held: this.carry.length > this.sent };
+	}
+
+	/** The held bytes, now sent (still read again with the next input). */
+	flush(): string {
+		const out = this.carry.slice(this.sent);
+		this.sent = this.carry.length;
+		return out;
+	}
 }
 
 /**
@@ -137,35 +199,25 @@ export function attachToHost(
 		let greeted: boolean | undefined;
 
 		const size = () => ({ cols: stdout.columns || 80, rows: stdout.rows || 24 });
-		let pasting = false;
-		let lastInput = 0;
-		// the unfinished escape sequence a chunk ended in: the next chunk may finish it
-		let tail = "";
+		const scanner = new DetachScanner(opts.isDetachKey);
+		let holdTimer: NodeJS.Timeout | undefined;
+		const send = (bytes: string) => {
+			if (bytes) sock?.write(encodeFrame(FrameType.DATA, Buffer.from(bytes, "latin1")));
+		};
 		const onInput = (chunk: Buffer | string) => {
 			const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, "utf8");
-			const now = Date.now();
-			// a paste whose end marker was lost does not swallow the detach key for ever
-			if (pasting && now - lastInput > PASTE_IDLE_MS) pasting = false;
-			lastInput = now;
-			const text = buf.toString("latin1");
-			const scan = tail + text;
-			const r = localDetachAt(scan, opts.isDetachKey, pasting);
-			pasting = r.pasting;
-			const at = r.at - tail.length;
-			tail = (PARTIAL_ESC.exec(scan)?.[0] ?? "").slice(-32);
-			if (r.at === -1) {
-				sock?.write(encodeFrame(FrameType.DATA, buf));
-				return;
-			}
-			// what was typed before it still goes; what follows it is the view's
-			if (at > 0) sock?.write(encodeFrame(FrameType.DATA, buf.subarray(0, at)));
-			finish("local");
+			clearTimeout(holdTimer);
+			const r = scanner.push(buf.toString("latin1"), Date.now());
+			send(r.send);
+			if (r.detach) return finish("local");
+			if (r.held) holdTimer = setTimeout(() => send(scanner.flush()), HOLD_MS);
 		};
 		const onResize = () => sock?.write(encodeJsonFrame(FrameType.RESIZE, size()));
 
 		const finish = (reason: DetachReason) => {
 			if (settled) return;
 			settled = true;
+			clearTimeout(holdTimer);
 			stdin.off("data", onInput);
 			stdout.off("resize", onResize);
 			stdin.pause();

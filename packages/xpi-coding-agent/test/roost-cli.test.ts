@@ -14,7 +14,7 @@ import { SettingsSchema } from "../src/core/settings-schema.ts";
 import {
 	BINARY_MESSAGE,
 	detachMatcher,
-	NO_PTY_MESSAGE,
+	PTY_HINT,
 	roostUnavailable,
 	runRoostCommand,
 	WINDOWS_MESSAGE,
@@ -36,25 +36,15 @@ afterEach(() => {
 
 describe("where roost cannot run", () => {
 	const entries = { daemonEntry: "/d.js", hostEntry: "/h.js" };
-	it("Windows, a standalone binary, a missing node-pty: each says what to do", () => {
-		expect(roostUnavailable({ platform: "win32", entries, ptyFound: () => true })).toBe(WINDOWS_MESSAGE);
+	it("Windows and a standalone binary: each says what to do", () => {
+		expect(roostUnavailable({ platform: "win32", entries })).toBe(WINDOWS_MESSAGE);
 		expect(WINDOWS_MESSAGE).toMatch(/not supported on Windows.*WSL/);
-		expect(roostUnavailable({ platform: "darwin", entries: undefined, ptyFound: () => true })).toBe(BINARY_MESSAGE);
+		expect(roostUnavailable({ platform: "win32", entries: undefined })).toBe(WINDOWS_MESSAGE);
+		expect(roostUnavailable({ platform: "darwin", entries: undefined })).toBe(BINARY_MESSAGE);
 		expect(BINARY_MESSAGE).toContain("npm install -g xpi-coding-agent");
-		expect(roostUnavailable({ platform: "linux", entries, ptyFound: () => false })).toBe(NO_PTY_MESSAGE);
-		expect(NO_PTY_MESSAGE).toMatch(/node-pty is not installed.*python3, make and a C\+\+ compiler/);
-		// the platform first: no lookup of node-pty on Windows
-		let asked = false;
-		roostUnavailable({
-			platform: "win32",
-			entries,
-			ptyFound: () => {
-				asked = true;
-				return true;
-			},
-		});
-		expect(asked).toBe(false);
-		expect(roostUnavailable({ platform: "darwin", entries, ptyFound: () => true })).toBeUndefined();
+		expect(roostUnavailable({ platform: "linux", entries })).toBeUndefined();
+		// a missing node-pty is not one of them: see the last test
+		expect(PTY_HINT).toMatch(/npm install -g xpi-coding-agent.*python3, make and a C\+\+ compiler/);
 	});
 });
 
@@ -156,6 +146,31 @@ describe("xpi roost through xpi's wrapper", () => {
 		expect(code).toBe(0);
 		expect(out.join("")).toContain("no background sessions");
 		expect(existsSync(join(agentDir, "xpi-roost", "jobs"))).toBe(true);
+
+		// without node-pty here: listing still works, starting a session process is refused with the hint
+		const err: string[] = [];
+		const writeErr = process.stderr.write.bind(process.stderr);
+		process.stdout.write = ((s: string) => {
+			out.push(String(s));
+			return true;
+		}) as typeof process.stdout.write;
+		process.stderr.write = ((s: string) => {
+			err.push(String(s));
+			return true;
+		}) as typeof process.stderr.write;
+		let lsCode: number;
+		let respawnCode: number;
+		try {
+			lsCode = await runRoostCommand(["ls"], { agentDir, ptyInstalled: () => false });
+			respawnCode = await runRoostCommand(["respawn", "--all"], { agentDir, ptyInstalled: () => false });
+		} finally {
+			process.stdout.write = write;
+			process.stderr.write = writeErr;
+		}
+		expect(lsCode).toBe(0);
+		expect(respawnCode).toBe(1);
+		expect(err.join("")).toContain("xpi roost: respawn starts a session process, which needs node-pty.");
+		expect(err.join("")).toContain("python3, make and a C++ compiler");
 		const client = await DaemonClient.connect();
 		const status = await client.request("status", {});
 		made.push(status.socketDir);

@@ -6,7 +6,16 @@ import { hostSocketPath } from "./paths.ts";
 import type { JobRow } from "./protocol.ts";
 import { screenPath } from "./store.ts";
 
+/** M5a (DM-7): what a failed run is restarted with, so it carries on. */
+export const CONTINUE = "Continue where you left off.";
 const START_TIMEOUT_MS = 15_000;
+
+/**
+ * M5a: a failed run was cut off, so starting it again (an attach, a person's choice) carries
+ * on; anything else just reopens. Phase 1 cuts the daemon resuming on its own, not this.
+ */
+export const resumePrompt = (row: JobRow): string | undefined =>
+	row.kind !== "shell" && row.state === "failed" ? CONTINUE : undefined;
 /** M22: how long a respawn request may take before the attach gives up. */
 const RESPAWN_TIMEOUT_MS = 20_000;
 
@@ -35,8 +44,8 @@ export function startingFrame(id: string, cols: number, rows: number): string {
 
 /**
  * AT-1: make sure a job has a live worker before attaching. A reaped or ended job is
- * started again from its session file (it reopens; carrying on after an interruption is
- * phase 2's); meanwhile the last screen is shown dimmed.
+ * started again from its session file (a failed one told to carry on, `resumePrompt`);
+ * meanwhile the last screen is shown dimmed.
  */
 export async function ensureLive(
 	client: DaemonClient,
@@ -47,7 +56,7 @@ export async function ensureLive(
 	// M22: the terminal is the caller's meanwhile: never wait for ever
 	let timer: NodeJS.Timeout | undefined;
 	const { results } = await Promise.race([
-		client.request("respawn", { id: row.id }),
+		client.request("respawn", { id: row.id, prompt: resumePrompt(row) }),
 		new Promise<never>((_, reject) => {
 			timer = setTimeout(() => reject(new Error("the background service did not answer")), RESPAWN_TIMEOUT_MS);
 		}),
