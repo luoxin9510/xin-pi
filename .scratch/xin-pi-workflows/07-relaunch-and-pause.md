@@ -1,6 +1,6 @@
 # 07: Relaunch with saved results, pause and resume
 
-Status: built and tested offline (2026-11-10, `issues/07-relaunch-and-pause.md`); real-model checks not yet run. The owner asked for both features and ruled
+Status: done (2026-11-10, `issues/07-relaunch-and-pause.md`, PR #22); checked on real Haiku before merge. The owner asked for both features and ruled
 `/deep-research` out.
 
 ## Problem

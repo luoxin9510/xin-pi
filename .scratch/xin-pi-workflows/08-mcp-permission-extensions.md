@@ -1,6 +1,7 @@
 # 08: Inline MCP servers, permissionMode, and per-agent extensions
 
-Status: approved by the owner on 2026-11-11 (Grill 5, `decisions.md`); tickets in `issues/08-*.md`.
+Status: done (2026-11-11, `issues/08-mcp-permission-extensions.md`; #57, #59, #61); real-model regression passed on
+main e6e96329e. Approved by the owner on 2026-11-11 (Grill 5, `decisions.md`).
 
 ## Problem
 
