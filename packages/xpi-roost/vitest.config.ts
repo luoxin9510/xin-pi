@@ -1,6 +1,9 @@
 import { defineConfig } from "vitest/config";
+import { workspaceSourcePaths } from "../../vitest.base.ts";
 
 export default defineConfig({
+	// The hub draws with xpi-tui: from source, as the other packages' tests use it.
+	resolve: { alias: [{ find: /^xpi-tui$/, replacement: workspaceSourcePaths.tuiIndex }] },
 	test: {
 		include: ["test/**/*.test.ts"],
 		// Daemons, hosts and PTYs are real processes: one test file per fork, generous timeouts.

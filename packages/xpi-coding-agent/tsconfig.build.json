@@ -9,6 +9,7 @@
 			"xpi-ai/*": ["../xpi-ai/dist/*.d.ts", "../xpi-ai/dist/providers/*.d.ts"],
 			"xpi-roost": ["../xpi-roost/dist/index.d.ts"],
 			"xpi-roost/session": ["../xpi-roost/dist/session.d.ts"],
+			"xpi-roost/hub": ["../xpi-roost/dist/hub/index.d.ts"],
 			"xpi-tui": ["../xpi-tui/dist/index.d.ts"],
 			"xpi-tui/*": ["../xpi-tui/dist/*.d.ts", "../xpi-tui/dist/components/*.d.ts"]
 		},

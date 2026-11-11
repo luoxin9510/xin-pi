@@ -30,6 +30,7 @@
 			"typebox": ["./node_modules/typebox"],
 			"xpi-roost": ["./packages/xpi-roost/src/index.ts"],
 			"xpi-roost/session": ["./packages/xpi-roost/src/session.ts"],
+			"xpi-roost/hub": ["./packages/xpi-roost/src/hub/index.ts"],
 			"xpi-tui": ["./packages/xpi-tui/src/index.ts"],
 			"xpi-tui/*": ["./packages/xpi-tui/src/*"]
 		}
