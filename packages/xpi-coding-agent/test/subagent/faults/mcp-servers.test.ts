@@ -76,13 +76,22 @@ test("a name that is not configured warns and is left out", async () => {
 	assert.deepEqual(r.warnings, ['mcpServers: server "ghost" is not configured in mcp.json']);
 });
 
-test("a direct-tools agent excludes codemode, so MCP cannot turn it on again in the child", async () => {
+test("a direct-tools agent: codemode is taken out, and left to MCP only when the child has servers", async () => {
+	// Servers configured: MCP may turn codemode on again, for tools reachable only from scripts.
 	const direct = await run("codemode: false");
-	assert.equal(direct.tools, undefined);
-	assert.equal(direct.exclude, "codemode");
+	assert.equal(direct.tools, "-codemode");
+	assert.equal(direct.exclude, undefined);
+	const named = await run("codemode: false\nmcpServers: [docs]");
+	assert.equal(named.tools, "-codemode");
+	assert.equal(named.exclude, "mcp__my_slack__*,mcp__jira__*");
+	// No servers for this child: excluded, so nothing turns it on.
+	const none = await run("codemode: false\nmcpServers: []");
+	assert.equal(none.tools, undefined);
+	assert.equal(none.exclude, "codemode,mcp__*");
+	// A tools list never contains codemode, so MCP cannot turn it on there.
 	const listed = await run("codemode: false\ntools: Read\nmcpServers: []");
 	assert.equal(listed.tools, "read");
-	assert.equal(listed.exclude, "mcp__*,codemode");
+	assert.equal(listed.exclude, "mcp__*");
 	const codemodeOnly = await run("model: haiku");
 	assert.equal(codemodeOnly.tools, "+codemode");
 });

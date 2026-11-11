@@ -377,6 +377,10 @@ Opt out:
 - per agent: `codemode: false` in the agent file
 - for everything: `"childCodemode": "inherit"` in `subagent` settings (direct tools)
 
+Such a child gets direct tools and no `codemode`. One exception: a child without a `tools` list that has MCP servers
+(any configured server, or the ones its `mcpServers` names) gets `codemode` from the MCP extension when a server's tools
+are reachable only from scripts (`codemode` exposure, the default); otherwise it could not call them.
+
 ## Workflows
 
 A workflow is a codemode script that orchestrates subagents, saved to be rerun, in Claude Code's dynamic-workflow
