@@ -36,6 +36,20 @@ export function processStartTokenAsync(pid: number): Promise<string | undefined>
 	});
 }
 
+/** The parent of a live process, or undefined. */
+export function parentPid(pid: number): number | undefined {
+	try {
+		const out = execFileSync("ps", ["-o", "ppid=", "-p", String(pid)], {
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "ignore"],
+		}).trim();
+		const n = Number(out);
+		return out && Number.isInteger(n) ? n : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 export function sameProcess(pid: number, token: string): boolean {
 	return processStartToken(pid) === token;
 }

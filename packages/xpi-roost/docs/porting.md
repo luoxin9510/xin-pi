@@ -158,7 +158,11 @@ use.
 8. **The daemon** (`daemon/main.ts`). It takes its locks, loads the jobs, takes over the hosts that `roster.json` names
    and that are still the same processes, ends the others, and listens. A client that finds no daemon starts one
    (`DaemonClient.connectOrStart`: `spawn(process.execPath, [daemonEntry], { detached: true })`, then pings for up to
-   three seconds), without the job identity in its environment. Every second it checks the hosts. `dispatch` refuses a
+   three seconds), without the job identity in its environment. Every second it checks the hosts. `shutdown` without
+   `keepWorkers` (and `rm`) terminates hosts and waits six seconds; a host still there then is killed with SIGKILL, and
+   its session with it, but only while the host's pid is still that host (its start token, or this daemon's child
+   before the token was read) and the session's is that host's child; the daemon log says so. A session whose host
+   is already gone (an orphan) is not killed by the daemon. `dispatch` refuses a
    relative or missing directory, an empty command, a relative session file, and a file that is locked or already run
    by a job (`locked`); a taken name gets ` (2)`. Each job gets a random token, given to its worker by the host.
 9. **The command line** (`src/cli.ts`): `ls`/`list` (`--all`, `--cwd`, `--json`), `logs`, `log` (`-n`, `--follow`),
@@ -252,6 +256,8 @@ API of the runtime that loaded the extension last, and the hub reads it at each 
 - Drawing: `src/hub/agent-view.ts` with one view (the list or a row's peek) and one layer at a time (help, picker,
   rename, an overlay; M79), `overlay-host.ts` and `overlays/` (log, usage), `task-editor.ts` (xpi's editor for the
   task and the reply, M17). All daemon calls go through `RoostPort` (`roost-port.ts`).
+- Until the daemon's first list arrives the hub says it is connecting and shows no counts or groups (which would read
+  as "no sessions"); after a dropped connection it says it is reconnecting until the next list.
 - Attaching from the hub: stop the TUI, run the attach loop, start the TUI and redraw.
 - A model change in a peek counts when the worker reports it: the hub says "now uses …" or, after eight seconds,
   "model switch failed (credentials? envAllowList): still …".
@@ -301,6 +307,7 @@ user-only keys. `roost.json` is not read.
 | Frame size | 16 MiB | `lib/framing.ts` `MAX_FRAME` |
 | Host scrollback | 1000 lines | `host/main.ts` |
 | Terminate | SIGTERM, then SIGKILL after 5 s | `host/main.ts` |
+| A stop waits for a host | 6 s; then `shutdown` and `rm` SIGKILL it (a restart answers busy) | `daemon/main.ts` `WAIT_MS` |
 | Starting a daemon | 3 s of pings | `lib/client.ts` `connectOrStart` |
 | Host check | every 1 s | `daemon/main.ts` `checkHosts` |
 | Reaping check | every 30 s | `REAP_CHECK_MS` |
@@ -317,7 +324,7 @@ user-only keys. `roost.json` is not read.
 | Double press to detach | 1 s | `detach-keys.ts` `DOUBLE_PRESS_MS` |
 
 The daemon also reads tuning variables, for tests: `ROOST_REAP_MINUTES`, `ROOST_REAP_CHECK_MS`, `ROOST_CLEANUP_DAYS`,
-`ROOST_CLEANUP_CHECK_MS`, `ROOST_RESUME_DELAYS_MS`, `ROOST_SHELL_KEEP_MS`; and `ROOST_PARENT_PID` marks a test's
+`ROOST_CLEANUP_CHECK_MS`, `ROOST_RESUME_DELAYS_MS`, `ROOST_SHELL_KEEP_MS`, `ROOST_STOP_WAIT_MS`; and `ROOST_PARENT_PID` marks a test's
 processes (M78).
 
 ## Build and packaging

@@ -84,11 +84,12 @@ below gives each op's row.
 ### `hello`
 
 ```json
-{"op": "hello", "args": {"protocol": 1, "agent": {"name": "xpi", "version": "1.8.1"}, "capabilities": ["report", "replies"]}}
--> {"protocol": 1, "daemon": {"name": "roost", "version": "1.8.1"}, "capabilities": ["replies", "steer", "events"]}
+{"op": "hello", "args": {"protocol": 1, "agent": {"name": "xpi", "version": "<xpi version>"}, "capabilities": ["report", "replies"]}}
+-> {"protocol": 1, "daemon": {"name": "roost", "version": "<roost version>"}, "capabilities": ["replies", "steer", "events"]}
 ```
 
-On every new connection, before the first report. The daemon keeps the capabilities
+On every new connection, before the first report. Each side's `version` is its package
+version (xpi's and xpi-roost's are the same in a release). The daemon keeps the capabilities
 with the job (rows show them) and answers with its own.
 
 ### `report`
