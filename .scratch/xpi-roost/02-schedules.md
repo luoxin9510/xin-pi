@@ -131,8 +131,10 @@ Checked on main (5f2cf66e1, v1.9.0) and pi-roost's main.
      like `ls` (and `--json`); `add` prints the schedule's next run.
    - Run now (`schedule-run`): starts a run at once, also for a paused or `manual` schedule, without moving `nextAt`;
      while the previous run is working it is refused as busy (and recorded as a skip).
-   - Edit: a new rule sets the anchor to now and `nextAt` to its first slot after now; a new task, model or thinking
-     builds the launch again (decision 9) and keeps `nextAt`.
+   - Edit: every `edit`, also `edit <name>` with no flags and the hub list's "edit", builds the launch again in the
+     editing process (decision 9: environment, executable and entry, session directory, trust decision; the directory
+     stays) with any new task, model or thinking. A new rule also sets the anchor to now and `nextAt` to its first slot
+     after now; otherwise `nextAt` is kept.
    - Not in an ordinary xpi session: `/schedule` there is not registered, so that a later `/loop` is not confused with
      it.
    - Inside a session the daemon runs (its environment has `ROOST_JOB_ID`), `xpi roost schedule add|edit|run` refuse,
@@ -179,7 +181,8 @@ Checked on main (5f2cf66e1, v1.9.0) and pi-roost's main.
     (including rules whose closest times are across an hour or midnight), due, skipped, run-now while busy, catch-up
     within and beyond 7 days and after a sleep, retention (pinned and restarted runs), a missing directory and
     executable, the 50 limit, person-only ops, the refusal inside a session, the launch built with a stored trust
-    decision only and without environment; the service files generated for launchd and systemd (not installed by
+    decision only and with the environment filtered by the `roost` settings, stored, used by every run and rebuilt
+    by any `edit`; the service files generated for launchd and systemd (not installed by
     the tests); hub tests for `/schedule` and the list; CLI tests. Before each merge that changes what a session does,
     a real Haiku check: a `manual` schedule run now from the CLI and from the hub, an `every 5m` schedule seen to fire
     and to skip while its run is busy, a catch-up after a daemon restart; `daemon install`, `status` and `uninstall`

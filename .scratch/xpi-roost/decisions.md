@@ -121,7 +121,7 @@ owner accepted every recommendation.
 
 The author's corrections from the same review, not owner decisions: the 5-minute floor for cron rules is checked on
 the rule's times of day, not on the next two slots; the protocol version stays 1; the CLI builds a run's launch
-through the extension's wrapper and uses the stored trust decision only; a run's environment is not stored; a missing
+through the extension's wrapper and uses the stored trust decision only; a run's environment is not stored (corrected below: it is stored); a missing
 executable skips a run; run now, edit and retention are specified; each PR updates its own user docs; names follow
 pi-roost's pattern.
 
