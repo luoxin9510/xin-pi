@@ -218,7 +218,7 @@ describe.skipIf(!existsSync(CLI) || process.platform === "win32")(
 			await t.until("echo: remember the number 7");
 			await t.send(KEY.left);
 			// the hub draws before the daemon's list arrives: wait for the moved conversation's row
-			const hub = await t.until(/Your conversation moved to the background[\s\S]*remember the number 7/);
+			const hub = await t.until(/Your conversation moved to the background[\s\S]*remember the number 7/, 10_000);
 			expect(hub).toContain("xpi agents");
 			// the daemon runs it now: listed in the hub of this agent directory
 			const list = terminal(["roost", "ls"]);

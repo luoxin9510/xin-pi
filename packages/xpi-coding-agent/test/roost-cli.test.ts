@@ -187,5 +187,9 @@ describe("xpi roost through xpi's wrapper", () => {
 		};
 		for (const deadline = Date.now() + 10_000; alive() && Date.now() < deadline; )
 			await new Promise((r) => setTimeout(r, 50));
+		// "and stops it": a daemon still there after shutdown fails the test, and is not left behind
+		const stillAlive = alive();
+		if (stillAlive) process.kill(status.pid, "SIGKILL");
+		expect(stillAlive).toBe(false);
 	}, 30_000);
 });
