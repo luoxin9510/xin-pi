@@ -41,7 +41,8 @@ let root: string;
 let agentDir: string;
 let work: string;
 let env: Record<string, string>;
-const running: pty.IPty[] = [];
+/** Each xpi this test started, with a promise of its end taken at spawn (node-pty tells only listeners already there). */
+const running: { proc: pty.IPty; ended: () => boolean; done: Promise<void> }[] = [];
 
 beforeEach(() => {
 	root = mkdtempSync(join(tmpdir(), "roost-hub-pty-"));
@@ -68,31 +69,22 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-	// wait for each xpi to end: one still exiting writes into the agent directory while it is removed (ENOTEMPTY)
+	// wait for each xpi still running to end: one still exiting writes into the agent directory while it is removed
+	// (ENOTEMPTY); SIGKILL only one that has not ended, never a pid the system may have given to another process
 	await Promise.all(
-		running.splice(0).map(
-			(p) =>
-				new Promise<void>((resolve) => {
-					const timer = setTimeout(() => {
-						try {
-							p.kill("SIGKILL");
-						} catch {
-							// gone
-						}
-						resolve();
-					}, 5_000);
-					p.onExit(() => {
-						clearTimeout(timer);
-						resolve();
-					});
-					try {
-						p.kill();
-					} catch {
-						clearTimeout(timer);
-						resolve();
-					}
+		running.splice(0).map(async ({ proc, ended, done }) => {
+			if (ended()) return;
+			proc.kill();
+			let timer: NodeJS.Timeout | undefined;
+			await Promise.race([
+				done,
+				new Promise<void>((r) => {
+					timer = setTimeout(r, 5_000);
 				}),
-		),
+			]);
+			clearTimeout(timer);
+			if (!ended()) proc.kill("SIGKILL");
+		}),
 	);
 	// this agent directory's daemon, and its sessions with it
 	const saved = { dir: process.env.ROOST_AGENT_DIR, home: process.env.ROOST_HOME };
@@ -126,18 +118,23 @@ afterEach(async () => {
 	}
 	// a session the daemon ran may still be writing as it ends
 	rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
-});
+}, 30_000);
 
 function terminal(args: string[]) {
 	const cols = 100;
 	const rows = 30;
 	const term = new xterm.Terminal({ cols, rows, allowProposedApi: true });
 	const proc = pty.spawn(process.execPath, [CLI, ...args], { name: "xterm-256color", cols, rows, cwd: work, env });
-	running.push(proc);
 	let exit: number | undefined;
+	let ended!: () => void;
+	const done = new Promise<void>((r) => {
+		ended = r;
+	});
+	running.push({ proc, ended: () => exit !== undefined, done });
 	proc.onData((d) => term.write(d));
 	proc.onExit((e) => {
 		exit = e.exitCode;
+		ended();
 	});
 	// answer the terminal's own queries, as a real terminal does
 	term.onData((reply) => {
