@@ -41,10 +41,14 @@ Spec: `../08-mcp-permission-extensions.md`. One branch per PR.
       `resolvePath` against the agent file's directory (`--agents`: the cwd) to absolute paths; package sources and
       `builtin:<name>` passed as given; a missing local path is a warning at discovery
 - [ ] T7 `resolve.ts`: each passed to the child as `-e`, by `scope` and trust as for inline servers (skipped with a
-      warning otherwise); part of `prefixKey`; a package that fails to install fails the child's start (result `failed`)
+      warning otherwise); part of `prefixKey`; with `--strict-extensions` whenever there are any
+- [ ] T7a core: `--strict-extensions` (`cli/args.ts`, `resource-loader.ts`/`main.ts`): an explicit `-e` that fails to
+      install, does not exist or throws while loading stops the start with the error; a child that stops this way gives
+      a `failed` result with it
 - [ ] T8 `hooks` warning points to `extensions`
 - [ ] Offline tests; real Haiku: an extension that blocks `bash` in the child (`tool_call`), the agent reports the block
-- [ ] Docs: `docs/subagent.md`, `docs/extensions.md` (a note), `docs/subagent-porting.md`
+- [ ] Docs: `docs/subagent.md`, `docs/extensions.md` (a note), `docs/subagent-porting.md`, `docs/cli.md`
+      (`--strict-extensions`), `docs/xin-pi.md` (core change)
 
 ## After the three
 

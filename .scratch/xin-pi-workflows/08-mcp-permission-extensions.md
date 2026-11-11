@@ -46,8 +46,9 @@ on them lose their servers, their read-only mode or their guards without anythin
    flag of that name). It takes one value (an extension flag is a single string; the last one given wins). A child gets
    its agent's inline servers through it, as a JSON value in argv (no file: an in-memory parent has no session dir, and
    `spawn` does not go through a shell). Accepted types are those `validateMcpServerConfig` accepts (`stdio`, `http`,
-   `streamable-http`, or none); `sse` and `ws` are rejected by that validator, and the entry is skipped with its message
-   as a warning. JSON or a file that does not parse stops the start with the reason, as `--agents` does. Servers from
+   `streamable-http`, or none); other entries are rejected by that validator and skipped with a warning that names
+   the server and, for `sse` and `ws`, says the type is not supported (the validator's own message for `ws` is the
+   generic "needs either command or url"). JSON or a file that does not parse stops the start with the reason, as `--agents` does. Servers from
    the flag have their own config scope (`cli`): `/mcp` lists them, and a change to one is not saved (it says so).
 2. Inline servers follow Claude Code's trust rule. `AgentDefinition` gains `scope`: `project` (`.pi/agents`,
    `.claude/agents` in the project walk), `user` (`~/.pi/agent/agents`, `~/.claude/agents`), `cli` (`--agents`) or
@@ -69,7 +70,8 @@ on them lose their servers, their read-only mode or their guards without anythin
      mode").
    - The prompt tail says it is a read-only planning agent.
    - `disallowedTools` still applies. `extensions` still load: they are the agent author's own code, and `plan` does not
-     police the tools they register (the docs say so).
+     police the tools they register; a codemode-only child can call such a tool from a script when its exposure is
+     `codemode` or `deferred`. The docs say so. (The author's call, flagged to the owner.)
    - Fork does not read agent fields (`resolveFork`); nothing changes there.
    Every other value (`default`, `manual`, `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`) is accepted and
    changes nothing; discovery warns once (like the inert fields, not in every result): "xpi never asks for permission;
@@ -78,8 +80,11 @@ on them lose their servers, their read-only mode or their guards without anythin
    extensions loaded only into this subagent's child, one `-e` each. A local path (the loader's `isLocalPath`) is
    resolved against the agent file's directory (`--agents`: against the cwd) with `resolvePath` and passed absolute,
    since a child's cwd may be a worktree. Package sources (`npm:`, `git:`) and `builtin:<name>` pass as given, as the
-   owner approved ("也可以写 npm 包名"); a source that fails to install makes the child fail to start, and the result is
-   `failed` with that error. Same trust rule as inline servers (by `scope`). A local path that does not exist is a
+   owner approved ("也可以写 npm 包名"). Today a `-e` that fails to install, a missing path or an extension that throws
+   while loading is only a warning (`resource-loader.ts`, `installWarnings`, `extensionsResult.errors`) and the session
+   starts without it, which would run a guarded agent unguarded. So a new core flag `--strict-extensions` makes any such
+   failure of an explicit `-e` stop the start with the error; the subagent passes it whenever the agent has
+   `extensions`, and the result is `failed` with that error. Documented in `docs/cli.md` and `docs/xin-pi.md`. Same trust rule as inline servers (by `scope`). A local path that does not exist is a
    warning at discovery and the entry is dropped. Extensions are part of the prompt-cache prefix key.
 5. Claude Code's `hooks` field stays accepted with no effect; its warning now says to use `extensions`.
 6. Three PRs, in this order: inline MCP and `--mcp-config`; `permissionMode`; `extensions`. Each with an independent
