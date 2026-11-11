@@ -304,7 +304,7 @@ Notes (PR 4):
 - [x] T20 `roost.md` complete; README files; `docs/xin-pi.md`; `packages/xpi-roost/docs/porting.md` cut to phase 1;
       the inventory updated; what was left out and by which decision
 - [ ] T21 pi-roost: the README notice merged; the repository archived when the owner says so
-- [ ] Release (patch or minor, by what changed for users), Node smoke test including `xpi roost`
+- [x] Release (patch or minor, by what changed for users), Node smoke test including `xpi roost`
 
 Notes (PR 5):
 
@@ -320,6 +320,11 @@ Notes (PR 5):
   overlay, `/exit`, a section on how sessions end (DM-5 restarts, shell rows, a machine restart), and "Not in this
   version" in place of "Not there yet". The inventory's "later" class is gone (`fixtures/ask-extension.ts` is cut:
   only pi-roost's manual M2 check used it) and it gains a Docs section. No code changed.
+- T20 merged with #69. Release: v1.9.0 (minor: background sessions are new for users), released through #70; the pty
+  test's cleanup was fixed on the way in #71 to #73.
+- Follow-ups (branch `roost-followups`): the daemon's `shutdown` SIGKILLs hosts still alive after its wait (checked by
+  their start token; `rm` uses the same check), the hub says it is connecting until the daemon's first list and while
+  reconnecting, and `protocol.md`'s handshake example names no version.
 
 ## After phase 1
 

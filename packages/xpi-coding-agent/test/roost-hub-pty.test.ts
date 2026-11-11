@@ -113,8 +113,8 @@ afterEach(async () => {
 		process.env.ROOST_HOME = join(agentDir, "xpi-roost");
 		client = await DaemonClient.connect();
 		const status = await client.request("status", {});
-		// the daemon, its hosts and their sessions: the daemon waits for its hosts at most 6 s and then exits, so a host
-		// and its session may still write into the agent directory as they end
+		// the daemon, its hosts and their sessions: the daemon waits 6 s for its hosts, kills what is left and exits; a
+		// host and its session may still write into the agent directory as they end
 		const pids = [status.pid, ...sessionPids(join(agentDir, "xpi-roost", "jobs"))];
 		await client.request("shutdown", {});
 		const alive = (pid: number) => {

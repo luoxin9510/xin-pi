@@ -340,6 +340,9 @@ export class AgentView implements Component {
 	private attached = false;
 	private closed = false;
 	private connectError: string | undefined;
+	/** Whether the daemon's list has come on the connection now; and on any connection yet. */
+	private listed = false;
+	private everListed = false;
 	private nameWidth = 16;
 	/** M8: the model / context column, the same for every row of a render so it lines up. */
 	private columns: Columns = { mode: "none", modelW: 0, shareW: 0, ageW: 0, costW: 0 };
@@ -505,6 +508,8 @@ export class AgentView implements Component {
 			for (const j of jobs) this.checkSwitch(j); // a switch shown while we were away
 			this.client = client;
 			this.connectError = undefined;
+			this.listed = true;
+			this.everListed = true;
 			// AV-8: pushed events only; reconnect when the daemon goes away.
 			const live = client;
 			// M22: a push lost on the way (or never sent) shows up within RESYNC_MS
@@ -515,7 +520,9 @@ export class AgentView implements Component {
 				if (this.client !== live) return;
 				clearInterval(this.resync);
 				this.client = undefined;
-				this.connectError = "reconnecting…";
+				this.listed = false;
+				// the title says it is reconnecting; an error line comes only if reconnecting fails
+				this.connectError = undefined;
 				this.render0();
 				setTimeout(() => void this.connect(), 500).unref?.();
 			});
@@ -2626,7 +2633,13 @@ export class AgentView implements Component {
 		// M24: what the sessions spent
 		const spent = totalUsage([...this.rows.values()], now);
 		const money = spent.cost > 0 ? ` · ${formatCost(spent.today)} today · ${formatCost(spent.cost)} all` : "";
-		out.push(truncateToWidth(t.bold("xpi agents") + t.fg("dim", `  ${headerText(c)}${money}`), w));
+		// before the daemon's list (and while reconnecting) the counts would be guesses
+		const status = this.listed
+			? `${headerText(c)}${money}`
+			: this.everListed
+				? "reconnecting to the background service…"
+				: "connecting to the background service…";
+		out.push(truncateToWidth(t.bold("xpi agents") + t.fg("dim", `  ${status}`), w));
 		if (!short) out.push(t.fg("border", "─".repeat(w)));
 		this.headLines = out.length;
 		if (this.connectError)
@@ -2672,7 +2685,8 @@ export class AgentView implements Component {
 			return [...out, ...body].map((l) => (visibleWidth(l) > w ? truncateToWidth(l, w) : l));
 		}
 
-		const sections = this.sections();
+		// no groups before the first list: "0 working" and empty groups would say there are no sessions
+		const sections = this.everListed ? this.sections() : [];
 		const list = items(sections);
 		this.nameWidth = Math.max(
 			1,
