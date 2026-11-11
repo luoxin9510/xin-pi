@@ -1864,7 +1864,6 @@ export class AgentView implements Component {
 		return [...own, ...xpi];
 	}
 
-	/** T18: one of xpi's commands, with how a peek runs it. */
 	/** This xpi's commands; none when they cannot be read (the hub must not fail on a key because of them). */
 	private xpiCommands(): { name: string; source: string }[] {
 		try {
@@ -1874,6 +1873,7 @@ export class AgentView implements Component {
 		}
 	}
 
+	/** T18: one of xpi's commands, with how a peek runs it. */
 	private builtin(name: string): BuiltinCommand | undefined {
 		return this.o.builtins?.().find((c) => c.name === name);
 	}

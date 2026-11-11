@@ -46,7 +46,6 @@ export function hubDirProblem(dir: string): string | undefined {
 	return undefined;
 }
 
-/** Run the hub until the user leaves it; resolves to the exit code. */
 /**
  * The settings `xpi roost hub` reads for itself: its theme and where sessions live. A project's settings count only as
  * far as the sessions started here would trust the folder (a stored decision: the hub asks nobody).
@@ -63,6 +62,7 @@ export function standaloneSettings(cwd: string, agentDir: string): { theme?: str
 	};
 }
 
+/** Run the hub until the user leaves it; resolves to the exit code. */
 export async function runHub(args: string[], o: { cwd: string; agentDir: string }): Promise<number> {
 	if (args.length > 1 || args[0]?.startsWith("-")) {
 		process.stderr.write("usage: xpi roost hub [dir]\n");
