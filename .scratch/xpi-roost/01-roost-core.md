@@ -73,10 +73,16 @@ pi-roost:
   Its repaint on attach (M14) only serves hosts older than M21 and does nothing with a current host. While a session
   is attached, the worker turns the keys that would end or freeze it into a detach (`registerDetachKeys`, with fixed
   keys: Ctrl+Z, Ctrl+C twice, Ctrl+D twice, the left arrow on an empty editor, and a submitted `/exit` or `/quit`).
+  It skips key-release events and, except for Ctrl+Z, leaves keys alone while a dialog is open.
+- A worker's reports carry `attachSignal: true`, and the host then sends the session SIGUSR2 on attach and detach.
+  The handlers are installed by the repaint and by the recap shown on attach (AT-5, `registerRecap`); without one,
+  SIGUSR2 ends the process. The recap works without the summary model (a deterministic list first; the model only
+  replaces its text).
 - The session write lock (DM-8) has two halves: the daemon checks it at `dispatch` and `respawn`; the adapter takes it
   at `session_start` and releases it at `session_shutdown` (`adapters/pi/index.ts`), which is what lets `/bg` hand a
-  session over. The hub's log overlay and the CLI's `log` read the `events` op. `handback` is a child
-  session's report to its parent (M9), called only by the worker.
+  session over.
+- The hub's log overlay and the CLI's `log` read the `events` op. `handback` is a child session's report to its
+  parent (M9), called only by the worker.
 - A foreground pi becomes known to the daemon only through `peer_register` (M9, `adapters/pi/peer-link.ts`).
   `adapters/pi/foreground.ts` holds `/bg`, `/bg-fork` and the left-arrow key; after a hand-off it opens the hub.
 - Ops: `hello`, `report`, `ack`, `ping`, `list`, `resolve`, `status`, `dispatch`, `subscribe`, `stop`, `rm`,
@@ -118,8 +124,6 @@ Not known yet; settled in the PR that meets it, and a contradiction with a decis
 
 - Whether `xpi-tui` behaves as the `pi-tui` the hub was written against (xin-pi forked at pi 1.5.0, the version
   pi-roost was tested with).
-- Whether the recap shown on attach (AT-5, `registerRecap`) works without the summary model; it is kept if it does.
-  Automatic naming (DI-9) goes with the summary model.
 - Whether the host's `@xterm/headless` 6 and `@xterm/addon-serialize` are best bundled into the host entry or declared,
   given the pinned 5.5.0 the TUI tests use.
 
@@ -212,7 +216,10 @@ Not known yet; settled in the PR that meets it, and a contradiction with a decis
     gains the hub's files and the left arrow on an empty editor (it opens the hub in a foreground session and detaches
     in an attached one). Nothing else gets a hardcoded key: the detach keys of an attached session follow the user's
     keybindings, `app.suspend` once, `app.clear` twice and `app.exit` twice (Ctrl+Z, Ctrl+C and Ctrl+D by default),
-    so a rebound exit key is still caught. A submitted `/exit` or `/quit` detaches too.
+    so a rebound exit key is still caught. The first press of `app.clear` still clears the editor. A submitted `/quit`
+    detaches too, and so does `/exit` (not an xpi command; it would otherwise go to the model as a prompt).
+    The recap on attach is kept, without the summary model's branch; automatic naming (DI-9) goes with that model. A
+    session reports `attachSignal: true` only when it has installed the SIGUSR2 handler.
 12. **Names.** `ROOST_*` environment variables, op names and file layouts stay as they are: they are internal, and
     keeping them keeps the diff against pi-roost readable. User-facing text says `xpi` and `xpi roost`, hints included
     (`xpi roost attach`, `xpi roost ls --json`). The generated

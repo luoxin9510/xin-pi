@@ -65,15 +65,18 @@ Every PR updates the docs it touches and lists them in its description.
       (`XPI_SUBAGENT_DEPTH`); where roost cannot run it only gives the messages of T11. The session write lock
       (DM-8): taken at `session_start`, released at `session_shutdown`, in every xpi session
 - [ ] T14 `xpi --bg "<task>"` and `--bg-name`: an xpi session started under the daemon, with the agent directory,
-      state and runtime directories in its environment whatever `inheritEnv` says
+      state and runtime directories in its environment (the allow and deny lists do not apply to these); the hint
+      it prints says `xpi roost attach` and `xpi roost ls --json`
 - [ ] T15 Worker role (`worker.ts`, the parts of `worker-extras.ts` in scope): reports of state, waiting, dialogs,
       context and model; replies delivered and acked; the session's slash-command list written for the peek; the
       earlier history (M53); detach keys from the user's keybindings (`app.suspend`, `app.clear` twice, `app.exit`
-      twice), the left arrow on an empty editor (AGENTS.md exemption) and a submitted `/exit` or `/quit`; the recap
-      on attach if it works without the summary model; no repaint on attach (M14, dead with a current host), no
-      automatic naming, `handback`, peers or agent tools
+      twice; the first `app.clear` still clears the editor; key releases skipped; with a dialog open only the
+      suspend key acts), the left arrow on an empty editor (AGENTS.md exemption) and a submitted `/quit` or `/exit`;
+      the recap on attach without the summary model's branch; `attachSignal: true` reported only with the SIGUSR2
+      handler installed; no repaint on attach (M14, dead with a current host), no automatic naming, `handback`,
+      peers or agent tools
 - [ ] Tests (in `xpi-coding-agent`): reply queue, reporter, worker wiring, earlier history, detach keys with default
-      and rebound keybindings, the write lock; real Haiku: `xpi --bg`
+      and rebound keybindings, the write lock, an attach does not end a session (SIGUSR2); real Haiku: `xpi --bg`
       starts a session that reports working then idle, `xpi roost reply` gets an answer, `xpi roost attach` shows
       the session and detaches
 - [ ] Docs: `packages/xpi-coding-agent/docs/roost.md` (first version: background sessions and the CLI), `cli.md`,
