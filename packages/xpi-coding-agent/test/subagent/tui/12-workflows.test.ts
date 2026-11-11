@@ -19,17 +19,17 @@ test("the panel shows the name, the phase and the log line; s saves the script; 
 		pi.submit(SCRIPT);
 		const v = await pi.waitFor(
 			(s) =>
-				/● background · script S1 · 1 agents running .*halfway there/.test(s) &&
+				/● background · (?:script S1|.+ \(S1\)) · 1 agents running .*halfway there/.test(s) &&
 				/running · general-purpose\(kid\) panel kid · /.test(s),
 			90_000,
 		);
 		const lines = v.split("\n");
-		const script = lines.findIndex((l) => l.includes("script S1 ·"));
+		const script = lines.findIndex((l) => /(script S1|\(S1\)) ·/.test(l));
 		assert.equal(lines[script + 1]!.trim(), "work", "the phase title sits between the script and its agent");
 		assert.match(lines[script + 2]!, /general-purpose\(kid\) panel kid/);
 
 		pi.press("down");
-		await pi.waitFor((s) => /▸ .*script S1/.test(s) && s.includes("s save as workflow"));
+		await pi.waitFor((s) => /▸ .*(?:script S1|\(S1\))/.test(s) && s.includes("s save as workflow"));
 		pi.type("s");
 		await pi.waitFor("Save script as workflow: name");
 		pi.type("saved-one");
@@ -82,7 +82,7 @@ test("r on a running agent's row restarts it: the row stays running and the firs
 		}
 		// It is at work again, and nothing told main it had failed.
 		await pi.waitFor(/running · general-purpose\(stuck kid\) · [2-9]\d* turns · bash/, 60_000);
-		assert.doesNotMatch(pi.viewport(), /Background script S1 (failed|stopped)/);
+		assert.doesNotMatch(pi.viewport(), /Background script S1 (\([^)]*\) )?(failed|stopped)/);
 		pi.type("x");
 		await pi.waitFor(/(failed|stopped) · general-purpose\(stuck kid\)/, 30_000);
 	});
@@ -100,17 +100,17 @@ test("p on a script row pauses it: the running agent finishes and the next one w
 		pi.submit(TWO);
 		await pi.waitFor(/running · general-purpose\(first kid\) · [1-9]\d* turns/, 90_000);
 		pi.press("down");
-		await pi.waitFor((s) => /▸ .*script S1/.test(s) && s.includes("p pause"));
+		await pi.waitFor((s) => /▸ .*(?:script S1|\(S1\))/.test(s) && s.includes("p pause"));
 		pi.type("p");
-		await pi.waitFor((s) => /● paused · script S1/.test(s) && s.includes("p resume"));
+		await pi.waitFor((s) => /● paused · (?:script S1|.+ \(S1\))/.test(s) && s.includes("p resume"));
 		// The first agent finishes; the second is not started while the script is paused.
 		await pi.waitFor(/completed · general-purpose\(first kid\)/, 60_000);
 		await new Promise((r) => setTimeout(r, 4000));
 		assert.doesNotMatch(pi.viewport(), /general-purpose\(second kid\)/);
-		assert.match(pi.viewport(), /● paused · script S1/);
+		assert.match(pi.viewport(), /● paused · (?:script S1|.+ \(S1\))/);
 		pi.type("p");
 		await pi.waitFor(/running · general-purpose\(second kid\)/, 60_000);
-		await pi.waitFor("Background script S1 completed", 90_000);
+		await pi.waitFor(/Background script S1 (\([^)]*\) )?completed/, 90_000);
 		await pi.waitFor("chk:completedcompleted", 30_000);
 	});
 });
