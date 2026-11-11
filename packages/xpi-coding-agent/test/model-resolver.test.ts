@@ -19,6 +19,7 @@ import {
 } from "../src/core/model-resolver.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
+import { VIRTUAL_MODEL_API } from "../src/core/virtual-models.ts";
 import { createModelRegistry, getModelRuntime } from "./model-runtime-test-utils.ts";
 import { createTestResourceLoader } from "./utilities.ts";
 
@@ -769,6 +770,38 @@ describe("default model selection", () => {
 
 		expect(result.model?.provider).toBe("vercel-ai-gateway");
 		expect(result.model?.id).toBe("anthropic/claude-opus-4-6");
+	});
+
+	test("findInitialModel never falls back to a virtual model", async () => {
+		const physical: Model<"openai-completions"> = {
+			id: "local-model",
+			name: "Local",
+			api: "openai-completions",
+			provider: "spark-two",
+			baseUrl: "http://spark-two:8000/v1",
+			reasoning: false,
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 128000,
+			maxTokens: 8192,
+		};
+		const virtual = { ...physical, id: "auto", provider: "relay", api: VIRTUAL_MODEL_API } as unknown as Model<Api>;
+		const runtime = (models: Model<Api>[]) =>
+			({ getAvailableSnapshot: () => models }) as unknown as Parameters<typeof findInitialModel>[0]["modelRuntime"];
+
+		const withPhysical = await findInitialModel({
+			scopedModels: [],
+			isContinuing: false,
+			modelRuntime: runtime([virtual, physical]),
+		});
+		expect(withPhysical.model?.provider).toBe("spark-two");
+
+		const onlyVirtual = await findInitialModel({
+			scopedModels: [],
+			isContinuing: false,
+			modelRuntime: runtime([virtual]),
+		});
+		expect(onlyVirtual.model).toBeUndefined();
 	});
 
 	test("findInitialModel ignores an unauthenticated saved default", async () => {

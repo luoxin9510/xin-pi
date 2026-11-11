@@ -9,6 +9,7 @@ import { type Api, type AuthOperationOptions, type KnownProvider, type Model, mo
 import { isValidThinkingLevel } from "../cli/args.ts";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
 import type { ModelRuntime } from "./model-runtime.ts";
+import { isVirtualModel } from "./virtual-models.ts";
 
 /** Default chat model IDs for providers with built-in chat models. */
 export const defaultModelPerProvider: Partial<Record<KnownProvider, string>> = {
@@ -540,6 +541,15 @@ export interface InitialModelResult {
  * 2. Saved default from settings
  * 3. First available model with valid API key
  */
+/**
+ * Models a session may fall back to when none is named. A virtual model (such as `relay/auto`) needs no credentials of
+ * its own, so it is always available; it is used only when named (settings, --model, scoped models, a session), never
+ * as a fallback, where it would route to a model that may have none.
+ */
+function fallbackCandidates(modelRuntime: ModelRuntime): Model<Api>[] {
+	return modelRuntime.getAvailableSnapshot().filter((model) => !isVirtualModel(model));
+}
+
 export async function findInitialModel(options: {
 	scopedModels: ScopedModel[];
 	isContinuing: boolean;
@@ -589,7 +599,7 @@ export async function findInitialModel(options: {
 	}
 
 	// 3. Try first available model with valid API key
-	const availableModels = [...modelRuntime.getAvailableSnapshot()];
+	const availableModels = fallbackCandidates(modelRuntime);
 
 	if (availableModels.length > 0) {
 		// Try to find a default model from known providers
@@ -650,7 +660,7 @@ export async function restoreModelFromSession(
 	}
 
 	// Try to find any available model
-	const availableModels = [...modelRuntime.getAvailableSnapshot()];
+	const availableModels = fallbackCandidates(modelRuntime);
 
 	if (availableModels.length > 0) {
 		// Try to find a default model from known providers
