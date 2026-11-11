@@ -7,12 +7,12 @@ import { createRequire } from "node:module";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DaemonClient } from "xpi-roost";
 import { readWriterLock } from "xpi-roost/session";
 import { processStartToken } from "../../xpi-roost/src/lib/proc.ts";
 import { backgroundAndExit, backgroundedText, chosenOnCommandLine } from "../src/extensions/roost/background.ts";
-import roost, { bgProblem, registerWriteLock } from "../src/extensions/roost/index.ts";
+import roost, { bgArgsProblem, bgProblem, registerWriteLock } from "../src/extensions/roost/index.ts";
 import { BINARY_MESSAGE, NO_PTY_MESSAGE, WINDOWS_MESSAGE } from "../src/extensions/roost/messages.ts";
 import { launchSettings } from "../src/extensions/roost/settings.ts";
 
@@ -205,6 +205,36 @@ describe("an ordinary start", () => {
 		expect(imports("messages.ts")).toEqual(["node:module"]);
 	});
 
+	it("a process a roost session starts (the job's id and socket inherited, not its token) loads nothing of the worker; /reload keeps it", async () => {
+		const loaded: number[] = [];
+		vi.doMock("../src/extensions/roost/worker.ts", () => {
+			loaded.push(1);
+			return { registerWorker: () => loaded.push(2) };
+		});
+		try {
+			// a child: the worker took the token out of the environment before it ran anything
+			Object.assign(process.env, { ROOST_JOB_ID: "j9", ROOST_SOCKET: join(dir, "daemon.sock") });
+			const child = fakePi();
+			await roost(child.pi);
+			expect(loaded).toEqual([]);
+			expect([...child.handlers.keys()].sort()).toEqual(["session_shutdown", "session_start"]);
+
+			// the session itself: it has the token; after the worker took it out, a /reload is still the session
+			process.env.ROOST_JOB_TOKEN = "t";
+			await roost(fakePi().pi);
+			expect(loaded).toEqual([1, 2]);
+			delete process.env.ROOST_JOB_TOKEN;
+			await roost(fakePi().pi);
+			expect(loaded).toEqual([1, 2, 2]);
+			// another job's id inherited later (no token) is not this process's
+			process.env.ROOST_JOB_ID = "j10";
+			await roost(fakePi().pi);
+			expect(loaded).toEqual([1, 2, 2]);
+		} finally {
+			vi.doUnmock("../src/extensions/roost/worker.ts");
+		}
+	});
+
 	it("a subagent child gets nothing: no flags, no lock, no worker", async () => {
 		process.env.XPI_SUBAGENT_DEPTH = "1";
 		const { pi, handlers, registered } = fakePi();
@@ -217,16 +247,39 @@ describe("an ordinary start", () => {
 describe("--bg", () => {
 	const entries = { daemonEntry: "/d.js", hostEntry: "/h.js" };
 	it("says before the start why it cannot run here", () => {
-		expect(bgProblem("  ", { entries, ptyFound: () => true })).toMatch(/--bg needs a task/);
-		expect(bgProblem("go", { platform: "win32", entries, ptyFound: () => true })).toBe(WINDOWS_MESSAGE);
-		expect(bgProblem("go", { platform: "darwin", entries: null, ptyFound: () => true })).toBe(BINARY_MESSAGE);
-		expect(bgProblem("go", { platform: "linux", entries, ptyFound: () => false })).toBe(NO_PTY_MESSAGE);
+		const here = { argv: ["--bg", "go"], terminal: true, ptyFound: () => true };
+		expect(bgProblem("  ", { ...here, entries })).toMatch(/--bg needs a task/);
+		expect(bgProblem("go", { ...here, platform: "win32", entries })).toBe(WINDOWS_MESSAGE);
+		expect(bgProblem("go", { ...here, platform: "darwin", entries: null })).toBe(BINARY_MESSAGE);
+		expect(bgProblem("go", { ...here, platform: "linux", entries, ptyFound: () => false })).toBe(NO_PTY_MESSAGE);
 		expect(NO_PTY_MESSAGE).toMatch(/needs node-pty.*npm install -g xpi-coding-agent/);
-		expect(bgProblem("go", { platform: "darwin", entries, ptyFound: () => true })).toBeUndefined();
+		expect(bgProblem("go", { ...here, platform: "darwin", entries })).toBeUndefined();
+		expect(bgProblem("go", { ...here, argv: ["--bg", "go", "--no-session"], platform: "darwin", entries })).toMatch(
+			/--no-session/,
+		);
 		// the flag checks it: a message stops the start
 		const { pi, registered } = fakePi();
 		void roost(pi);
 		expect(registered.flags.get("bg").validate("  ", dir)).toMatch(/--bg needs a task/);
+	});
+
+	it("nothing else that xpi would send to the model before it exits, and not --no-session", () => {
+		const ok = (argv: string[]) => bgArgsProblem(argv, true);
+		expect(
+			ok(["--bg", "fix it", "--bg-name", "n", "--model", "a/b", "-e", "x.ts", "--thinking", "low"]),
+		).toBeUndefined();
+		expect(ok(["--session", "/s.jsonl", "--bg", "go on"])).toBeUndefined();
+		// extra messages and @files would be prompted by this process
+		expect(ok(["--bg", "fix it", "another message"])).toMatch(/whole task as its value/);
+		expect(ok(["--bg", "fix it", "@notes.md"])).toMatch(/whole task as its value/);
+		expect(ok(["--bg", "fix it", "--", "more"])).toMatch(/whole task as its value/);
+		// so would print mode
+		expect(ok(["-p", "--bg", "fix it"])).toMatch(/interactive mode/);
+		expect(ok(["--mode", "json", "--bg", "fix it"])).toMatch(/interactive mode/);
+		expect(bgArgsProblem(["--bg", "fix it"], false)).toMatch(/needs a terminal/);
+		expect(ok(["--no-session", "--bg", "fix it"])).toBe(
+			"--bg cannot be combined with --no-session: a background session needs a session file",
+		);
 	});
 
 	it("the hint names xpi roost attach and ls --json; the command line's model beats the settings'", () => {
@@ -266,7 +319,10 @@ describe("--bg", () => {
 });
 
 const ROOST_DIST = resolve(__dirname, "../../xpi-roost/dist");
-/** The session's host needs node-pty built (CI installs with --ignore-scripts: not on Linux there) and xpi-roost's dist. */
+/**
+ * The session's host needs node-pty built and xpi-roost's dist. CI builds both (`npm rebuild node-pty` in the
+ * coding-agent job), so there the test fails instead of skipping: a silent skip would hide the only end-to-end `--bg`.
+ */
 function canStartHosts(): boolean {
 	try {
 		createRequire(import.meta.url)("node-pty");
@@ -276,10 +332,13 @@ function canStartHosts(): boolean {
 	return existsSync(join(ROOST_DIST, "daemon/main.js")) && existsSync(join(ROOST_DIST, "host/main.js"));
 }
 
+const HOSTS = canStartHosts();
+
 describe("xpi --bg under a real daemon", () => {
-	it.skipIf(!canStartHosts())(
+	it.skipIf(!HOSTS && !process.env.CI)(
 		"starts the session with the task, the dispatch settings and the roost's location whatever the lists say",
 		async () => {
+			expect(HOSTS, "CI must start PTY hosts: run `npm rebuild node-pty` and build xpi-roost").toBe(true);
 			const agentDir = join(dir, "agent");
 			mkdirSync(agentDir, { recursive: true });
 			// the lists would keep every ROOST_* and XPI_* variable and the secret out

@@ -228,6 +228,14 @@ Notes (PR 3):
   hint and exited 0; `roost ls` showed `done` with the faux answer; `roost reply` gave a second turn; `roost attach`
   showed the TUI with "While you were away: 2 turns finished"; `ctrl+z`, `ctrl+c` twice, `ctrl+d` twice, the left
   arrow and `/quit` each detached; the session kept running; `daemon stop` released the lock.
+- After the review: `isRoostSession` needs the job's token too, so a process the session starts (`xpi -p` in bash, a
+  check script), which inherits the id and the socket but not the token (the worker takes it out), loads nothing of
+  the worker; the process keeps its answer for its job id, so `/reload` still is the session. `--bg` refuses, in the
+  flag's check, before anything starts: other messages and `@file`s (xpi would prompt them itself before exiting),
+  `-p`/`--mode`, redirected input or output, and `--no-session` (no session file to hand over; the fallback that
+  created one in the default directory is gone). The CI `test (coding-agent)` job builds node-pty, and the real-daemon
+  `--bg` test fails instead of skipping when `CI` is set and hosts cannot start. `roost.md`: xpi's own pickers are not
+  dialogs to the extension, so the left arrow and a double `app.clear` detach while one is open.
 
 ## PR 4: the hub (branch `roost-hub`)
 

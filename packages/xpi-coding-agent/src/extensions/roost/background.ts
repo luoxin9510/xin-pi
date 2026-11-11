@@ -8,7 +8,6 @@
 import { buildLaunch, DaemonClient, fallbackName, ROOST_VERSION, requestOnce } from "xpi-roost";
 import { getAgentDir, getRoostEntries, VERSION } from "../../config.ts";
 import type { ExtensionAPI, ExtensionContext } from "../../core/extensions/types.ts";
-import { SessionManager } from "../../core/session-manager.ts";
 import { BINARY_MESSAGE } from "./messages.ts";
 import { launchSettings } from "./settings.ts";
 
@@ -61,9 +60,10 @@ export async function backgroundAndExit(
 	const nameFlag = pi.getFlag("bg-name");
 	const name = typeof nameFlag === "string" && nameFlag.trim() ? nameFlag.trim() : fallbackName(task);
 	// The session file this start would have written (xpi --session <file> --bg continues that one); xpi writes session
-	// files lazily, so it need not exist. This process never opens it: it took no write lock.
-	const sessionFile = ctx.sessionManager.getSessionFile() ?? SessionManager.create(ctx.cwd).getSessionFile();
-	if (!sessionFile) return fail("could not allocate a session file");
+	// files lazily, so it need not exist. This process never opens it: it took no write lock. None: --no-session, which
+	// the flag's check refuses already.
+	const sessionFile = ctx.sessionManager.getSessionFile();
+	if (!sessionFile) return fail("cannot be combined with --no-session: a background session needs a session file");
 
 	const settings = launchSettings(ctx.cwd, ctx.isProjectTrusted());
 	const chosen = chosenOnCommandLine(argv.slice(2));

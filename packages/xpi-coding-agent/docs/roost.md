@@ -42,8 +42,11 @@ flags that choose its extensions and model (`-e`, `--no-extensions`, `--model`, 
 
 The `roost` settings choose a new session's model, thinking level and environment; see [Settings](#settings).
 
-`--bg` needs interactive mode: it cannot be combined with `-p` or `--mode`. It does not start the daemon's session
-when roost cannot run here; it says why instead (see [Requirements](#requirements)).
+The whole task is the value of `--bg`: quote it as one argument. Nothing else may be sent with it, because this xpi
+would send it to the model itself before exiting, so `--bg` refuses other messages, `@file` arguments, `-p`, `--mode`
+and redirected input or output (it needs a terminal). It also refuses `--no-session`: a background session needs a
+session file. It does not start the daemon's session when roost cannot run here; it says why instead (see
+[Requirements](#requirements)). Each of these stops xpi before anything starts.
 
 ## Work with sessions
 
@@ -79,8 +82,9 @@ While attached, the keys that would end or freeze the session detach instead, an
 | `/quit` or `/exit`, submitted | | the editor is cleared |
 
 They follow your [keybindings](keybindings.md): a rebound `app.suspend`, `app.clear` or `app.exit` detaches with the
-new key. While a dialog is open only `app.suspend` detaches; the dialog keeps its other keys. To end a session, use
-`xpi roost stop`.
+new key. While a dialog is open only `app.suspend` detaches; the dialog keeps its other keys. xpi's own pickers
+(`/tree`, `/resume`, the settings list) are not dialogs in this sense: while one is open, the left arrow (with the
+editor empty) and a double `app.clear` detach too. To end a session, use `xpi roost stop`.
 
 Attaching to an ended session starts it again first; one that failed is told to continue where it left off. When
 something happened while nobody watched, a dim line in the transcript says what: turns finished, tools used, the last

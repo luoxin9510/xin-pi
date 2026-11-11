@@ -12,9 +12,26 @@
  */
 
 import { acquireWriterLock, isRoostSession, releaseWriterLock } from "xpi-roost/session";
+import { parseArgs } from "../../cli/args.ts";
 import { getRoostEntries } from "../../config.ts";
 import type { ExtensionAPI, ExtensionContext } from "../../core/extensions/types.ts";
 import { NO_PTY_MESSAGE, ptyInstalled, roostUnavailable } from "./messages.ts";
+
+/**
+ * What else on the command line `--bg` cannot go with. This process only hands the task over, but xpi would still send
+ * any other message (positional, `@file`, `-p`, piped stdin) to the model before it exits, so those are refused, as is
+ * `--no-session`: the daemon's session needs a session file.
+ */
+export function bgArgsProblem(argv: string[], terminal: boolean): string | undefined {
+	const parsed = parseArgs(argv);
+	if (parsed.print || parsed.mode !== undefined)
+		return "--bg needs interactive mode: it cannot be combined with -p or --mode";
+	if (!terminal) return "--bg needs a terminal: its standard input and output cannot be redirected";
+	if (parsed.messages.length > 0 || parsed.fileArgs.length > 0)
+		return '--bg takes the whole task as its value: quote it as one argument, for example xpi --bg "fix the tests in src/"; other messages and @files are not allowed with it';
+	if (parsed.noSession) return "--bg cannot be combined with --no-session: a background session needs a session file";
+	return undefined;
+}
 
 /** Why `--bg` cannot start a session here, or undefined. Checked before the session starts. */
 export function bgProblem(
@@ -23,9 +40,18 @@ export function bgProblem(
 		platform?: NodeJS.Platform;
 		entries?: ReturnType<typeof getRoostEntries> | null;
 		ptyFound?: () => boolean;
+		/** xpi's arguments (default: this process's). */
+		argv?: string[];
+		/** Whether standard input and output are a terminal (default: this process's). */
+		terminal?: boolean;
 	} = {},
 ): string | undefined {
 	if (task.trim() === "") return '--bg needs a task, for example: xpi --bg "run the tests"';
+	const args = bgArgsProblem(
+		o.argv ?? process.argv.slice(2),
+		o.terminal ?? (process.stdin.isTTY === true && process.stdout.isTTY === true),
+	);
+	if (args) return args;
 	const entries = o.entries === undefined ? getRoostEntries() : (o.entries ?? undefined);
 	const problem = roostUnavailable({ platform: o.platform ?? process.platform, entries });
 	if (problem) return problem;

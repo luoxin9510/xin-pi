@@ -431,7 +431,8 @@ Run `npm run test:roost` in `packages/xpi-roost` (about a minute); CI runs it in
 `ROOST_PARENT_PID` and a home under `<tmp>/xroost-*`); check for leftovers after a run anyway. The tests of
 `builtin:roost` are in `packages/xpi-coding-agent/test/roost-*.test.ts` (vitest, no model: a fake xpi and a fake
 daemon socket); the one that starts a real daemon and a session (`roost-session.test.ts`, `xpi --bg under a real
-daemon`) needs xpi-roost's `dist` and a built node-pty, and is skipped without them. `npm run release:local`
+daemon`) needs xpi-roost's `dist` and a built node-pty: it is skipped without them, except under `CI`, where it fails
+instead (the `test (coding-agent)` job runs `npm rebuild node-pty` for it). `npm run release:local`
 also runs a roost smoke on the packed install (`smokeTestRoost` in `scripts/coding-agent-smoke.mjs`, skipped on
 Windows, `npm rebuild node-pty` first on Linux): `xpi roost ls` starts the daemon, `daemon status` reports node-pty, a
 shell-command session runs in a PTY host and its screen is read with `logs`, then the daemon is stopped.

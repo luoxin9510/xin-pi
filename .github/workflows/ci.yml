@@ -65,9 +65,10 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
-      # xpi-roost's tests start real PTYs: node-pty's native part is built here (install scripts are off above).
+      # xpi-roost's tests and coding-agent's builtin:roost tests start real PTYs: node-pty's native part is built here
+      # (install scripts are off above).
       - name: Build node-pty
-        if: matrix.name == 'roost'
+        if: matrix.name == 'roost' || matrix.name == 'coding-agent'
         run: npm rebuild node-pty
 
       - name: Build
