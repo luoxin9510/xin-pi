@@ -1,0 +1,106 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`M63: who may do what > each op, for each kind of caller 1`] = `
+{
+  "ack": {
+    "job": "not_found: no such job: nope",
+    "person": "not_found: no such job: nope",
+    "unregistered": "not_found: no such job: nope",
+  },
+  "dispatch": {
+    "job": "unsupported: this is the hub's and the CLI's: a session reports and takes replies",
+    "person": "bad_request: cwd is not a directory: undefined",
+    "unregistered": "unsupported: this is the hub's and the CLI's: a session reports and takes replies",
+  },
+  "events": {
+    "job": "unsupported: the event feed is read by the hub and the CLI, not by sessions",
+    "person": "ok",
+    "unregistered": "unsupported: the event feed is read by the hub and the CLI, not by sessions",
+  },
+  "hello": {
+    "job": "ok",
+    "person": "ok",
+    "unregistered": "ok",
+  },
+  "list": {
+    "job": "ok",
+    "person": "ok",
+    "unregistered": "ok",
+  },
+  "peers": {
+    "job": "bad_request: unknown op: peers",
+    "person": "bad_request: unknown op: peers",
+    "unregistered": "bad_request: unknown op: peers",
+  },
+  "pin": {
+    "job": "unsupported: this is the hub's and the CLI's: a session reports and takes replies",
+    "person": "not_found: no such job: nope",
+    "unregistered": "unsupported: this is the hub's and the CLI's: a session reports and takes replies",
+  },
+  "ping": {
+    "job": "ok",
+    "person": "ok",
+    "unregistered": "ok",
+  },
+  "rename": {
+    "job": "unsupported: this is the hub's and the CLI's: a session reports and takes replies",
+    "person": "not_found: no such job: nope",
+    "unregistered": "unsupported: this is the hub's and the CLI's: a session reports and takes replies",
+  },
+  "reorder": {
+    "job": "unsupported: this is the hub's and the CLI's: a session reports and takes replies",
+    "person": "bad_request: key required",
+    "unregistered": "unsupported: this is the hub's and the CLI's: a session reports and takes replies",
+  },
+  "reply": {
+    "job": "unsupported: this is the hub's and the CLI's: a session reports and takes replies",
+    "person": "not_found: no such job: nope",
+    "unregistered": "unsupported: this is the hub's and the CLI's: a session reports and takes replies",
+  },
+  "report": {
+    "job": "not_found: no such job: nope",
+    "person": "not_found: no such job: nope",
+    "unregistered": "not_found: no such job: nope",
+  },
+  "resolve": {
+    "job": "not_found: no job matches "nope"",
+    "person": "not_found: no job matches "nope"",
+    "unregistered": "not_found: no job matches "nope"",
+  },
+  "respawn": {
+    "job": "unsupported: this is the hub's and the CLI's: a session reports and takes replies",
+    "person": "not_found: no such job: nope",
+    "unregistered": "unsupported: this is the hub's and the CLI's: a session reports and takes replies",
+  },
+  "rm": {
+    "job": "unsupported: this is the hub's and the CLI's: a session reports and takes replies",
+    "person": "not_found: no such job: nope",
+    "unregistered": "unsupported: this is the hub's and the CLI's: a session reports and takes replies",
+  },
+  "shutdown": {
+    "job": "unsupported: this is the hub's and the CLI's: a session reports and takes replies",
+    "person": "(not run: it stops the daemon)",
+    "unregistered": "unsupported: this is the hub's and the CLI's: a session reports and takes replies",
+  },
+  "status": {
+    "job": "ok",
+    "person": "ok",
+    "unregistered": "ok",
+  },
+  "stop": {
+    "job": "unsupported: this is the hub's and the CLI's: a session reports and takes replies",
+    "person": "not_found: no such job: nope",
+    "unregistered": "unsupported: this is the hub's and the CLI's: a session reports and takes replies",
+  },
+  "subscribe": {
+    "job": "unsupported: this is the hub's and the CLI's: a session reports and takes replies",
+    "person": "ok",
+    "unregistered": "unsupported: this is the hub's and the CLI's: a session reports and takes replies",
+  },
+  "task": {
+    "job": "bad_request: unknown op: task",
+    "person": "bad_request: unknown op: task",
+    "unregistered": "bad_request: unknown op: task",
+  },
+}
+`;

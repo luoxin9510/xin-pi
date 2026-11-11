@@ -11,8 +11,14 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
   stays the shared `~/.pi/agent` (and `.pi/` in projects); override the agent dir with `XPI_CODING_AGENT_DIR` and the
   session dir with `XPI_CODING_AGENT_SESSION_DIR`.
 - Packages are unscoped `xpi-*`, directory name equal to package name: `xpi-ai`, `xpi-agent-core`, `xpi-tui`,
-  `xpi-coding-agent`, `xpi-codemode`, `xpi-mcp`, `xpi-schema`, `xpi-telemetry`, `xpi-evals`. All share one version. Only
-  `xpi-coding-agent` (the CLI, a self-contained bundle) is published to npm; see [Releasing](#releasing).
+  `xpi-coding-agent`, `xpi-codemode`, `xpi-mcp`, `xpi-schema`, `xpi-telemetry`, `xpi-evals`, `xpi-roost`. All share one
+  version. Only `xpi-coding-agent` (the CLI, a self-contained bundle) is published to npm; see [Releasing](#releasing).
+- `xpi-roost` (private) is pi-roost's daemon, PTY host and library, ported for background sessions (spec:
+  `.scratch/xpi-roost/01-roost-core.md`). It imports nothing of xpi: the caller gives it the agent directory and the
+  daemon and host entry files, and they travel to the daemon, hosts and sessions in `ROOST_*` variables. State is in
+  `<agent dir>/xpi-roost/`, sockets in a runtime directory keyed by the agent directory, settings in the `"roost"` section
+  of `settings.json`. Its README, `docs/protocol.md` and `docs/port-inventory.md` describe it. The `xpi roost`
+  commands, `builtin:roost` and the hub are not there yet.
 - App-config environment variables carry the prefix `XPI_` instead of `PI_` (`XPI_OFFLINE`, `XPI_TELEMETRY`,
   `XPI_PACKAGE_DIR`, `XPI_SKIP_VERSION_CHECK`, ...). The list of renamed names is `ENV_VARS` in `scripts/xpi-rename.mjs`.
   CI secrets, build constants and release tooling variables keep their names.
@@ -382,6 +388,12 @@ of `~/.pi/agent/auth.json` and nothing else, so the user's agent dir is never wr
 refused when its Anthropic OAuth token expires within 30 minutes (`test/subagent/user-auth.ts`): a copy that refreshes the
 token would leave the user's file with a dead refresh token. Send one message in xpi, then run again. Only Claude Haiku
 5.5 is used. `XPI_SUBAGENT_COST_LOG=<file>` makes each file append its cost on exit.
+
+`packages/xpi-roost` is tested on its own: its tests start real daemons, hosts and PTYs (shell commands and fake
+workers, no model), so the package has no `test` script and root `npm test`, `./test.sh` and CI's `test (other)` skip it.
+Run `npm run test:roost` in `packages/xpi-roost` (about a minute); CI runs it in the `test (roost)` job on Linux after
+`npm rebuild node-pty`. Leftover test processes are swept before and after the suite (they are marked by
+`ROOST_PARENT_PID` and a home under `<tmp>/xroost-*`).
 
 The codemode controller is exercised through `codemodeStandIn` in `test/subagent/helpers.ts` (a stand-in `codemode` tool
 whose scripts are JS functions, driving `beginCodemodeScript` the way `executeCodemode` does) in the fault suite, and

@@ -43,6 +43,7 @@ jobs:
       matrix:
         include:
           - name: coding-agent
+          - name: roost
           - name: other
     steps:
       - name: Checkout
@@ -64,6 +65,11 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
+      # xpi-roost's tests start real PTYs: node-pty's native part is built here (install scripts are off above).
+      - name: Build node-pty
+        if: matrix.name == 'roost'
+        run: npm rebuild node-pty
+
       - name: Build
         run: npm run build
 
@@ -71,6 +77,11 @@ jobs:
         env:
           SUITE: ${{ matrix.name }}
         run: |
+          if [ "$SUITE" = roost ]; then
+            # real daemons, hosts and PTYs: kept out of "other" and of ./test.sh (no "test" script)
+            npm run test:roost --workspace packages/xpi-roost
+            exit 0
+          fi
           if [ "$SUITE" != other ]; then
             npm run test --workspace "packages/xpi-$SUITE"
             exit 0
@@ -78,7 +89,7 @@ jobs:
           # Every other workspace, so new packages are tested without editing this workflow.
           args=()
           for dir in packages/*/; do
-            case "$dir" in packages/xpi-coding-agent/) continue ;; esac
+            case "$dir" in packages/xpi-coding-agent/ | packages/xpi-roost/) continue ;; esac
             args+=(--workspace "${dir%/}")
           done
           npm run test:scripts
