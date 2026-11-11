@@ -89,6 +89,8 @@ export async function backgroundAndExit(
 				argv,
 				execPath: process.execPath,
 				env: process.env,
+				// the answer this process got (the prompt, --approve, or a stored decision) goes with the session
+				trusted: ctx.isProjectTrusted(),
 				...settings.env,
 				...(!chosen.model && settings.model ? { model: settings.model } : {}),
 				...(!chosen.thinking && settings.thinking ? { thinking: settings.thinking } : {}),

@@ -40,6 +40,9 @@ The name defaults to the first six words of the task; `--bg-name` sets it. The s
 flags that choose its extensions and model (`-e`, `--no-extensions`, `--model`, `--provider`, `--thinking`,
 `--session-dir`, `--offline`). `xpi --session <file> --bg "<task>"` continues that session in the background.
 
+The session also gets this xpi's answer about the project folder's trust, as `--approve` or `--no-approve`, so it never
+waits at the trust question where nobody sees it: answer the question (or pass `--approve`) when you run `xpi --bg`.
+
 The `roost` settings choose a new session's model, thinking level and environment; see [Settings](#settings).
 
 The whole task is the value of `--bg`: quote it as one argument. For a task that starts with `-` or `@`, write
