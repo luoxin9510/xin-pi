@@ -89,8 +89,9 @@ export async function runHub(args: string[], o: { cwd: string; agentDir: string 
 		process.once(sig, () => process.exit(128 + (sig === "SIGTERM" ? 15 : 1)));
 	// as xpi draws by default: the alternate screen, the shell kept below
 	const tui = new TuiAltScreen(terminal);
+	let view: AgentView | undefined;
 	await new Promise<void>((done) => {
-		const view = new AgentView({
+		view = new AgentView({
 			tui,
 			theme: ansiTheme(),
 			...options,
@@ -106,6 +107,8 @@ export async function runHub(args: string[], o: { cwd: string; agentDir: string 
 	});
 	// keys still arriving (a kitty key release of the Esc that closed it) stay out of the shell
 	await terminal.drainInput(1000).catch(() => {});
+	// its daemon connection and timers go with it, so the process can end
+	view?.dispose();
 	tui.stop();
 	return 0;
 }

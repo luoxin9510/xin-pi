@@ -1617,8 +1617,11 @@ export class AgentView implements Component {
 						: mode === "steer"
 							? " · joins its current work"
 							: " · after its current work";
-				// M61: the session's own command says so
-				const own = name && this.sessionCommandList(row).some((c) => c.name.toLowerCase() === name);
+				// M61: the session's own command says so (T18: one of xpi's that its worker runs too)
+				const own =
+					name &&
+					(this.builtin(name)?.how === "reply" ||
+						this.sessionCommandList(row).some((c) => c.name.toLowerCase() === name));
 				this.say(
 					row.waitingFor === "dialog"
 						? "queued; attach (→) to answer the dialog"

@@ -1,0 +1,715 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`M74: overlay renders, pinned > log: every kind of event with its tone, newest first; scrolled; a long list cut at 200; empty 1`] = `
+"xpi agents  0 needs input · 1 working · 0 completed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ▾ Working (1)
+› ✽ fix tests  running bash                                                                    m  9m
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ _pi:c_pi:fc _pi:/fc describe a task and press Enter to start it in the background · Shift+Enter new line
+────────────────────────────────────────────────────────────────────────────────────────────────────
+nothing happened yet (the log starts with the next task or reply)
+↑↓ select · Enter/→ attach · Space peek · Ctrl+Enter start+attach · Ctrl+X stop · ? keys · Esc exit"
+`;
+
+exports[`M74: overlay renders, pinned > log: every kind of event with its tone, newest first; scrolled; a long list cut at 200; empty 2`] = `
+"xpi agents  0 needs input · 1 working · 0 completed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+Log · what happened lately (newest first)
+
+    5s  fix tests removed
+   10s  user → fix tests: main please
+    1m  fix tests restarts by itself (crashed)
+    5m  fix tests works again (was blocked)
+   10m  fix tests finished: all green
+   30m  fix tests failed: exit 1
+    1h  fix tests asks: Which branch?
+    2h  started fix tests ← user
+
+r reload · ↑↓ scroll · Esc close"
+`;
+
+exports[`M74: overlay renders, pinned > log: every kind of event with its tone, newest first; scrolled; a long list cut at 200; empty 3`] = `
+"xpi agents  0 needs input · 1 working[0m...[0m
+────────────────────────────────────────
+Log · what happened lately (newest fi[0m...[0m
+
+    5s  fix tests removed
+   10s  user → fix tests: main please
+    1m  fix tests restarts by itself [0m...[0m
+    5m  fix tests works again (was bl[0m...[0m
+   10m  fix tests finished: all green
+   30m  fix tests failed: exit 1
+    1h  fix tests asks: Which branch?
+    2h  started fix tests ← user
+
+r reload · ↑↓ scroll · Esc close"
+`;
+
+exports[`M74: overlay renders, pinned > log: every kind of event with its tone, newest first; scrolled; a long list cut at 200; empty 4`] = `
+"xpi agents  0 needs input · 1 working · 0 completed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+Log · what happened lately (newest first)
+
+    1s  user → fix tests: note 229
+    2s  user → fix tests: note 228
+    3s  user → fix tests: note 227
+    4s  user → fix tests: note 226
+    5s  user → fix tests: note 225
+    6s  user → fix tests: note 224
+    7s  user → fix tests: note 223
+    8s  user → fix tests: note 222
+    9s  user → fix tests: note 221
+   10s  user → fix tests: note 220
+   11s  user → fix tests: note 219
+   12s  user → fix tests: note 218
+   13s  user → fix tests: note 217
+   14s  user → fix tests: note 216
+   15s  user → fix tests: note 215
+   16s  user → fix tests: note 214
+   17s  user → fix tests: note 213
+   18s  user → fix tests: note 212
+   19s  user → fix tests: note 211
+   20s  user → fix tests: note 210
+   21s  user → fix tests: note 209
+   22s  user → fix tests: note 208
+
+r reload · ↑↓ scroll · Esc close"
+`;
+
+exports[`M74: overlay renders, pinned > log: every kind of event with its tone, newest first; scrolled; a long list cut at 200; empty 5`] = `
+"xpi agents  0 needs input · 1 working · 0 completed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+    4s  user → fix tests: note 226
+    5s  user → fix tests: note 225
+    6s  user → fix tests: note 224
+    7s  user → fix tests: note 223
+    8s  user → fix tests: note 222
+    9s  user → fix tests: note 221
+   10s  user → fix tests: note 220
+   11s  user → fix tests: note 219
+   12s  user → fix tests: note 218
+   13s  user → fix tests: note 217
+   14s  user → fix tests: note 216
+   15s  user → fix tests: note 215
+   16s  user → fix tests: note 214
+   17s  user → fix tests: note 213
+   18s  user → fix tests: note 212
+   19s  user → fix tests: note 211
+   20s  user → fix tests: note 210
+   21s  user → fix tests: note 209
+   22s  user → fix tests: note 208
+   23s  user → fix tests: note 207
+   24s  user → fix tests: note 206
+   25s  user → fix tests: note 205
+   26s  user → fix tests: note 204
+   27s  user → fix tests: note 203
+
+r reload · ↑↓ scroll · Esc close"
+`;
+
+exports[`M74: overlay renders, pinned > log: every kind of event with its tone, newest first; scrolled; a long list cut at 200; empty 6`] = `
+"xpi agents  0 needs input · 1 working · 0 completed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+   14s  user → fix tests: note 216
+   15s  user → fix tests: note 215
+   16s  user → fix tests: note 214
+   17s  user → fix tests: note 213
+   18s  user → fix tests: note 212
+   19s  user → fix tests: note 211
+   20s  user → fix tests: note 210
+   21s  user → fix tests: note 209
+   22s  user → fix tests: note 208
+   23s  user → fix tests: note 207
+   24s  user → fix tests: note 206
+   25s  user → fix tests: note 205
+   26s  user → fix tests: note 204
+   27s  user → fix tests: note 203
+   28s  user → fix tests: note 202
+   29s  user → fix tests: note 201
+   30s  user → fix tests: note 200
+   31s  user → fix tests: note 199
+   32s  user → fix tests: note 198
+   33s  user → fix tests: note 197
+   34s  user → fix tests: note 196
+   35s  user → fix tests: note 195
+   36s  user → fix tests: note 194
+   37s  user → fix tests: note 193
+
+r reload · ↑↓ scroll · Esc close"
+`;
+
+exports[`M74: overlay renders, pinned > log: every kind of event with its tone, newest first; scrolled; a long list cut at 200; empty 7`] = `
+"xpi agents  0 needs input · 1 working · 0 completed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+    4s  user → fix tests: note 226
+    5s  user → fix tests: note 225
+    6s  user → fix tests: note 224
+    7s  user → fix tests: note 223
+    8s  user → fix tests: note 222
+    9s  user → fix tests: note 221
+   10s  user → fix tests: note 220
+   11s  user → fix tests: note 219
+   12s  user → fix tests: note 218
+   13s  user → fix tests: note 217
+   14s  user → fix tests: note 216
+   15s  user → fix tests: note 215
+   16s  user → fix tests: note 214
+   17s  user → fix tests: note 213
+   18s  user → fix tests: note 212
+   19s  user → fix tests: note 211
+   20s  user → fix tests: note 210
+   21s  user → fix tests: note 209
+   22s  user → fix tests: note 208
+   23s  user → fix tests: note 207
+   24s  user → fix tests: note 206
+   25s  user → fix tests: note 205
+   26s  user → fix tests: note 204
+   27s  user → fix tests: note 203
+
+r reload · ↑↓ scroll · Esc close"
+`;
+
+exports[`M74: overlay renders, pinned > log: every kind of event with its tone, newest first; scrolled; a long list cut at 200; empty 8`] = `
+"xpi agents  0 needs input · 1 working · 0 completed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+    3m  user → fix tests: note 53
+    3m  user → fix tests: note 52
+    3m  user → fix tests: note 51
+    3m  user → fix tests: note 50
+    3m  user → fix tests: note 49
+    3m  user → fix tests: note 48
+    3m  user → fix tests: note 47
+    3m  user → fix tests: note 46
+    3m  user → fix tests: note 45
+    3m  user → fix tests: note 44
+    3m  user → fix tests: note 43
+    3m  user → fix tests: note 42
+    3m  user → fix tests: note 41
+    3m  user → fix tests: note 40
+    3m  user → fix tests: note 39
+    3m  user → fix tests: note 38
+    3m  user → fix tests: note 37
+    3m  user → fix tests: note 36
+    3m  user → fix tests: note 35
+    3m  user → fix tests: note 34
+    3m  user → fix tests: note 33
+    3m  user → fix tests: note 32
+    3m  user → fix tests: note 31
+    3m  user → fix tests: note 30
+
+r reload · ↑↓ scroll · Esc close"
+`;
+
+exports[`M74: overlay renders, pinned > log: filtered to one session with its title; nothing about it 1`] = `
+"xpi agents  0 needs input · 2 working · 0 completed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+Log · other (newest first)
+
+    1m  other finished: fine
+
+r reload · ↑↓ scroll · Esc close"
+`;
+
+exports[`M74: overlay renders, pinned > log: filtered to one session with its title; nothing about it 2`] = `
+"xpi agents  0 needs input · 2 working · 0 completed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+Log · other (newest first)
+
+    1m  started other ← user
+
+r reload · ↑↓ scroll · Esc close"
+`;
+
+exports[`M74: overlay renders, pinned > usage: several sessions and models, a subscription, at two widths; nothing spent 1`] = `
+"xpi agents  0 needs input · 4 working · 0 completed · $2.30 today · $13.90 all
+────────────────────────────────────────────────────────────────────────────────────────────────────
+Usage · sessions in this view
+
+  today $2.30 · all $13.90 · 168k tokens · $0.30 of it on a subscription (as if billed per token)
+
+  By model
+  claude-opus-5-5                             $13.50     76k tok  2 sessions
+  claude-haiku-5-5                             $0.40     92k tok  2 sessions
+
+  By session
+  big job                                     $12.50     56k tok  $2.00 today  claude-opus-5-5
+  mixed lines                                  $1.10     56k tok  claude-haiku-5-5
+  small job with a rather long name tha[0m...[0m     $0.30     56k tok  $0.30 today  (sub)  claude-haik[0m...[0m
+
+↑↓ scroll · Esc close"
+`;
+
+exports[`M74: overlay renders, pinned > usage: several sessions and models, a subscription, at two widths; nothing spent 2`] = `
+"xpi agents  0 needs input · 4 working · 0 compl[0m...[0m
+──────────────────────────────────────────────────
+Usage · sessions in this view
+
+  today $2.30 · all $13.90 · 168k tokens · $0.3[0m...[0m
+
+  By model
+  claude-opus-5-5         $13.50     76k tok  2[0m...[0m
+  claude-haiku-5-5         $0.40     92k tok  2[0m...[0m
+
+  By session
+  big job                 $12.50     56k tok  $[0m...[0m
+  mixed lines              $1.10     56k tok  c[0m...[0m
+  small job with a [0m...[0m     $0.30     56k tok  $[0m...[0m
+
+↑↓ scroll · Esc close"
+`;
+
+exports[`M74: overlay renders, pinned > usage: several sessions and models, a subscription, at two widths; nothing spent 3`] = `
+"xpi agents  0 needs input · 1 working · 0 completed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+Usage · sessions in this view
+
+  nothing spent yet (sessions report what they spend as they work)
+
+↑↓ scroll · Esc close"
+`;
+
+exports[`M79: views and layers, pinned > a rename over a peek, cancelled; over the list, done 1`] = `
+"--- " "
+xpi agents  1 needs input · 1 working · 0 completed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ▾ Needs input (1)
+› ✻ alpha work  which db?                                                                      m  1m
+    which db?
+    1. postgres
+    2. sqlite
+    /w · started 1m ago
+    needs input · waiting 30s · m1
+    p/m
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+     _pi:c_pi:fc _pi:/fc answer · Enter sends · 1-9 picks a choice · / commands
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+  ▾ Working (1)
+  ✽ beta work   running bash                                                                   m  1m
+
+Enter send · Alt+Enter after work · 1-9 pick · / commands · Esc close · ? keys
+--- "\\u0012"
+xpi agents  1 needs input · 1 working · 0 completed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ▾ Needs input (1)
+› ✻ alpha work  which db?                                                                      m  1m
+    which db?
+    1. postgres
+    2. sqlite
+    /w · started 1m ago
+    needs input · waiting 30s · m1
+    p/m
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+     _pi:c_pi:fc _pi:/fc answer · Enter sends · 1-9 picks a choice · / commands
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+  ▾ Working (1)
+  ✽ beta work   running bash                                                                   m  1m
+
+rename › alpha work_pi:c_pi:fc _pi:/fc                                                                                
+Enter rename · Esc cancel
+--- "z"
+xpi agents  1 needs input · 1 working · 0 completed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ▾ Needs input (1)
+› ✻ alpha work  which db?                                                                      m  1m
+    which db?
+    1. postgres
+    2. sqlite
+    /w · started 1m ago
+    needs input · waiting 30s · m1
+    p/m
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+     _pi:c_pi:fc _pi:/fc answer · Enter sends · 1-9 picks a choice · / commands
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+  ▾ Working (1)
+  ✽ beta work   running bash                                                                   m  1m
+
+rename › alpha workz_pi:c_pi:fc _pi:/fc                                                                               
+Enter rename · Esc cancel
+--- "\\u001b"
+xpi agents  1 needs input · 1 working · 0 completed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ▾ Needs input (1)
+› ✻ alpha work  which db?                                                                      m  1m
+    which db?
+    1. postgres
+    2. sqlite
+    /w · started 1m ago
+    needs input · waiting 30s · m1
+    p/m
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+     _pi:c_pi:fc _pi:/fc answer · Enter sends · 1-9 picks a choice · / commands
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+  ▾ Working (1)
+  ✽ beta work   running bash                                                                   m  1m
+
+Enter send · Alt+Enter after work · 1-9 pick · / commands · Esc close · ? keys
+--- "\\u001b"
+xpi agents  1 needs input · 1 working · 0 completed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ▾ Needs input (1)
+› ✻ alpha work  which db?                                                                      m  1m
+  ▾ Working (1)
+  ✽ beta work   running bash                                                                   m  1m
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ _pi:c_pi:fc _pi:/fc describe a task and press Enter to start it in the background · Shift+Enter new line
+────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ select · Enter/→ attach · Space peek · Ctrl+Enter start+attach · Ctrl+X stop · ? keys · Esc exit
+--- "\\u0012"
+xpi agents  1 needs input · 1 working · 0 completed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ▾ Needs input (1)
+› ✻ alpha work  which db?                                                                      m  1m
+  ▾ Working (1)
+  ✽ beta work   running bash                                                                   m  1m
+
+rename › alpha work_pi:c_pi:fc _pi:/fc                                                                                
+Enter rename · Esc cancel
+--- ""
+xpi agents  1 needs input · 1 working · 0 completed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ▾ Needs input (1)
+› ✻ alpha work  which db?                                                                      m  1m
+  ▾ Working (1)
+  ✽ beta work   running bash                                                                   m  1m
+
+rename › alpha wor_pi:c_pi:fc _pi:/fc                                                                                 
+Enter rename · Esc cancel
+--- ""
+xpi agents  1 needs input · 1 working · 0 completed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ▾ Needs input (1)
+› ✻ alpha work  which db?                                                                      m  1m
+  ▾ Working (1)
+  ✽ beta work   running bash                                                                   m  1m
+
+rename › alpha wo_pi:c_pi:fc _pi:/fc                                                                                  
+Enter rename · Esc cancel
+--- "q"
+xpi agents  1 needs input · 1 working · 0 completed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ▾ Needs input (1)
+› ✻ alpha work  which db?                                                                      m  1m
+  ▾ Working (1)
+  ✽ beta work   running bash                                                                   m  1m
+
+rename › alpha woq_pi:c_pi:fc _pi:/fc                                                                                 
+Enter rename · Esc cancel
+--- "\\r"
+xpi agents  1 needs input · 1 working · 0 completed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ▾ Needs input (1)
+› ✻ alpha work  which db?                                                                      m  1m
+  ▾ Working (1)
+  ✽ beta work   running bash                                                                   m  1m
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ _pi:c_pi:fc _pi:/fc describe a task and press Enter to start it in the background · Shift+Enter new line
+────────────────────────────────────────────────────────────────────────────────────────────────────
+renamed · alpha woq
+↑↓ select · Enter/→ attach · Space peek · Ctrl+Enter start+attach · Ctrl+X stop · ? keys · Esc exit"
+`;
+
+exports[`M79: views and layers, pinned > help over the list and over a peek; any key closes it 1`] = `
+"--- "?"
+xpi agents  1 needs input · 1 working · 0 completed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+
+  ↑ ↓ PgUp PgDn Home End  move                      Alt+1…9                 attach to row N of th[0m...[0m
+  Enter                   attach · start the t[0m...[0m   Ctrl+F                  find by name (n:)
+  →                       attach                    Ctrl+G                  write the task in $VI[0m...[0m
+  Space                   peek and reply            s: n: o:                filter by state, name[0m...[0m
+  Ctrl+Enter              start the typed task[0m...[0m   @dir task               start the task in tha[0m...[0m
+  Ctrl+X                  stop; again within 2[0m...[0m   ! command               run a shell command a[0m...[0m
+  Ctrl+S                  group by state / dir[0m...[0m   /model /thinking        defaults for new sess[0m...[0m
+  Ctrl+T                  pin / unpin (pinned [0m...[0m   Ctrl+L                  pick the model for ne[0m...[0m
+  Ctrl+O                  mark the row (on a h[0m...[0m   Ctrl+P Shift+Ctrl+P     next / previous enabl[0m...[0m
+  marked: type, Enter     send it to every mar[0m...[0m   Shift+Tab               next thinking level f[0m...[0m
+  in a peek: Alt+Enter    send after its curre[0m...[0m   in a peek: /model       switch that session's[0m...[0m
+  in a peek: /…           that session: /stop [0m...[0m   /resume                 open a past session ([0m...[0m
+  Tab · /                 complete: / the comm[0m...[0m   /usage                  what the sessions spe[0m...[0m
+  Ctrl+G · Ctrl+J         edit the task or rep[0m...[0m   /log                    what happened lately:[0m...[0m
+  marked: Ctrl+X Ctrl+T   stop / delete, pin /[0m...[0m   /preset [name]          saved choices for new[0m...[0m
+  Ctrl+R                  rename                    Esc                     close peek · clear in[0m...[0m
+  Shift+↑ Shift+↓         move the row within [0m...[0m   Ctrl+C                  clear input; twice to[0m...[0m
+  Alt+↑ Alt+↓             previous / next group     in a session            ← on an empty prompt,[0m...[0m
+
+any key to close
+--- "x"
+xpi agents  1 needs input · 1 working · 0 completed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ▾ Needs input (1)
+› ✻ alpha work  which db?                                                                      m  1m
+  ▾ Working (1)
+  ✽ beta work   running bash                                                                   m  1m
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ _pi:c_pi:fc _pi:/fc describe a task and press Enter to start it in the background · Shift+Enter new line
+────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ select · Enter/→ attach · Space peek · Ctrl+Enter start+attach · Ctrl+X stop · ? keys · Esc exit
+--- ""
+xpi agents  1 needs input · 1 working · 0 completed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ▾ Needs input (1)
+› ✻ alpha work  which db?                                                                      m  1m
+  ▾ Working (1)
+  ✽ beta work   running bash                                                                   m  1m
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ _pi:c_pi:fc _pi:/fc describe a task and press Enter to start it in the background · Shift+Enter new line
+────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ select · Enter/→ attach · Space peek · Ctrl+Enter start+attach · Ctrl+X stop · ? keys · Esc exit
+--- " "
+xpi agents  1 needs input · 1 working · 0 completed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ▾ Needs input (1)
+› ✻ alpha work  which db?                                                                      m  1m
+    which db?
+    1. postgres
+    2. sqlite
+    /w · started 1m ago
+    needs input · waiting 30s · m1
+    p/m
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+     _pi:c_pi:fc _pi:/fc answer · Enter sends · 1-9 picks a choice · / commands
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+  ▾ Working (1)
+  ✽ beta work   running bash                                                                   m  1m
+
+Enter send · Alt+Enter after work · 1-9 pick · / commands · Esc close · ? keys
+--- "?"
+xpi agents  1 needs input · 1 working · 0 completed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+
+  ↑ ↓ PgUp PgDn Home End  move                      Alt+1…9                 attach to row N of th[0m...[0m
+  Enter                   attach · start the t[0m...[0m   Ctrl+F                  find by name (n:)
+  →                       attach                    Ctrl+G                  write the task in $VI[0m...[0m
+  Space                   peek and reply            s: n: o:                filter by state, name[0m...[0m
+  Ctrl+Enter              start the typed task[0m...[0m   @dir task               start the task in tha[0m...[0m
+  Ctrl+X                  stop; again within 2[0m...[0m   ! command               run a shell command a[0m...[0m
+  Ctrl+S                  group by state / dir[0m...[0m   /model /thinking        defaults for new sess[0m...[0m
+  Ctrl+T                  pin / unpin (pinned [0m...[0m   Ctrl+L                  pick the model for ne[0m...[0m
+  Ctrl+O                  mark the row (on a h[0m...[0m   Ctrl+P Shift+Ctrl+P     next / previous enabl[0m...[0m
+  marked: type, Enter     send it to every mar[0m...[0m   Shift+Tab               next thinking level f[0m...[0m
+  in a peek: Alt+Enter    send after its curre[0m...[0m   in a peek: /model       switch that session's[0m...[0m
+  in a peek: /…           that session: /stop [0m...[0m   /resume                 open a past session ([0m...[0m
+  Tab · /                 complete: / the comm[0m...[0m   /usage                  what the sessions spe[0m...[0m
+  Ctrl+G · Ctrl+J         edit the task or rep[0m...[0m   /log                    what happened lately:[0m...[0m
+  marked: Ctrl+X Ctrl+T   stop / delete, pin /[0m...[0m   /preset [name]          saved choices for new[0m...[0m
+  Ctrl+R                  rename                    Esc                     close peek · clear in[0m...[0m
+  Shift+↑ Shift+↓         move the row within [0m...[0m   Ctrl+C                  clear input; twice to[0m...[0m
+  Alt+↑ Alt+↓             previous / next group     in a session            ← on an empty prompt,[0m...[0m
+
+any key to close
+--- "j"
+xpi agents  1 needs input · 1 working · 0 completed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ▾ Needs input (1)
+› ✻ alpha work  which db?                                                                      m  1m
+    which db?
+    1. postgres
+    2. sqlite
+    /w · started 1m ago
+    needs input · waiting 30s · m1
+    p/m
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+     _pi:c_pi:fc _pi:/fc answer · Enter sends · 1-9 picks a choice · / commands
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+  ▾ Working (1)
+  ✽ beta work   running bash                                                                   m  1m
+
+Enter send · Alt+Enter after work · 1-9 pick · / commands · Esc close · ? keys
+--- "\\u001b"
+xpi agents  1 needs input · 1 working · 0 completed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ▾ Needs input (1)
+› ✻ alpha work  which db?                                                                      m  1m
+  ▾ Working (1)
+  ✽ beta work   running bash                                                                   m  1m
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ _pi:c_pi:fc _pi:/fc describe a task and press Enter to start it in the background · Shift+Enter new line
+────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ select · Enter/→ attach · Space peek · Ctrl+Enter start+attach · Ctrl+X stop · ? keys · Esc exit"
+`;
+
+exports[`M79: views and layers, pinned > peek, a picker over it (Ctrl+L), back to the peek, closed 1`] = `
+"--- " "
+xpi agents  1 needs input · 1 working · 0 completed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ▾ Needs input (1)
+› ✻ alpha work  which db?                                                                      m  1m
+    which db?
+    1. postgres
+    2. sqlite
+    /w · started 1m ago
+    needs input · waiting 30s · m1
+    p/m
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+     _pi:c_pi:fc _pi:/fc answer · Enter sends · 1-9 picks a choice · / commands
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+  ▾ Working (1)
+  ✽ beta work   running bash                                                                   m  1m
+
+Enter send · Alt+Enter after work · 1-9 pick · / commands · Esc close · ? keys
+--- "\\f"
+xpi agents  1 needs input · 1 working · 0 completed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+Model for alpha work
+search: ▏
+
+› a/one
+  b/two
+
+type to search · ↑↓ choose · Enter pick · Esc cancel
+--- "\\u001b[B"
+xpi agents  1 needs input · 1 working · 0 completed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+Model for alpha work
+search: ▏
+
+  a/one
+› b/two
+
+type to search · ↑↓ choose · Enter pick · Esc cancel
+--- "\\u001b"
+xpi agents  1 needs input · 1 working · 0 completed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ▾ Needs input (1)
+› ✻ alpha work  which db?                                                                      m  1m
+    which db?
+    1. postgres
+    2. sqlite
+    /w · started 1m ago
+    needs input · waiting 30s · m1
+    p/m
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+     _pi:c_pi:fc _pi:/fc answer · Enter sends · 1-9 picks a choice · / commands
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+  ▾ Working (1)
+  ✽ beta work   running bash                                                                   m  1m
+
+Enter send · Alt+Enter after work · 1-9 pick · / commands · Esc close · ? keys
+--- "\\u001b"
+xpi agents  1 needs input · 1 working · 0 completed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ▾ Needs input (1)
+› ✻ alpha work  which db?                                                                      m  1m
+  ▾ Working (1)
+  ✽ beta work   running bash                                                                   m  1m
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ _pi:c_pi:fc _pi:/fc describe a task and press Enter to start it in the background · Shift+Enter new line
+────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ select · Enter/→ attach · Space peek · Ctrl+Enter start+attach · Ctrl+X stop · ? keys · Esc exit"
+`;
+
+exports[`M79: views and layers, pinned > the list's own keys do nothing in a peek (Ctrl+O mark, Ctrl+F), and do in the list 1`] = `
+"--- " "
+xpi agents  1 needs input · 1 working · 0 completed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ▾ Needs input (1)
+› ✻ alpha work  which db?                                                                      m  1m
+    which db?
+    1. postgres
+    2. sqlite
+    /w · started 1m ago
+    needs input · waiting 30s · m1
+    p/m
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+     _pi:c_pi:fc _pi:/fc answer · Enter sends · 1-9 picks a choice · / commands
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+  ▾ Working (1)
+  ✽ beta work   running bash                                                                   m  1m
+
+Enter send · Alt+Enter after work · 1-9 pick · / commands · Esc close · ? keys
+--- "\\u000f"
+xpi agents  1 needs input · 1 working · 0 completed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ▾ Needs input (1)
+› ✻ alpha work  which db?                                                                      m  1m
+    which db?
+    1. postgres
+    2. sqlite
+    /w · started 1m ago
+    needs input · waiting 30s · m1
+    p/m
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+     _pi:c_pi:fc _pi:/fc answer · Enter sends · 1-9 picks a choice · / commands
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+  ▾ Working (1)
+  ✽ beta work   running bash                                                                   m  1m
+
+Enter send · Alt+Enter after work · 1-9 pick · / commands · Esc close · ? keys
+--- "\\u0006"
+xpi agents  1 needs input · 1 working · 0 completed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ▾ Needs input (1)
+› ✻ alpha work  which db?                                                                      m  1m
+    which db?
+    1. postgres
+    2. sqlite
+    /w · started 1m ago
+    needs input · waiting 30s · m1
+    p/m
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+     _pi:c_pi:fc _pi:/fc answer · Enter sends · 1-9 picks a choice · / commands
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+  ▾ Working (1)
+  ✽ beta work   running bash                                                                   m  1m
+
+Enter send · Alt+Enter after work · 1-9 pick · / commands · Esc close · ? keys
+--- "\\u001b"
+xpi agents  1 needs input · 1 working · 0 completed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ▾ Needs input (1)
+› ✻ alpha work  which db?                                                                      m  1m
+  ▾ Working (1)
+  ✽ beta work   running bash                                                                   m  1m
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ _pi:c_pi:fc _pi:/fc describe a task and press Enter to start it in the background · Shift+Enter new line
+────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ select · Enter/→ attach · Space peek · Ctrl+Enter start+attach · Ctrl+X stop · ? keys · Esc exit
+--- "\\u000f"
+xpi agents  1 needs input · 1 working · 0 completed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ ✓▾ Needs input (1)
+ ✓✻ alpha work  which db?                                                                      m  1m
+› ▾ Working (1)
+  ✽ beta work   running bash                                                                   m  1m
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ _pi:c_pi:fc _pi:/fc describe a task and press Enter to start it in the background · Shift+Enter new line
+────────────────────────────────────────────────────────────────────────────────────────────────────
+1 marked · type and Enter to send to all · Ctrl+X stop · Ctrl+T pin · Esc unmark
+1 marked · type, Enter: send to all · /model /thinking · Ctrl+T pin · Ctrl+X stop · Ctrl+O mark ·[0m...[0m
+--- "\\u001b"
+xpi agents  1 needs input · 1 working · 0 completed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ▾ Needs input (1)
+  ✻ alpha work  which db?                                                                      m  1m
+› ▾ Working (1)
+  ✽ beta work   running bash                                                                   m  1m
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ _pi:c_pi:fc _pi:/fc describe a task and press Enter to start it in the background · Shift+Enter new line
+────────────────────────────────────────────────────────────────────────────────────────────────────
+marks cleared
+↑↓ select · Enter/→ attach · Space peek · Ctrl+Enter start+attach · Ctrl+X stop · ? keys · Esc exit
+--- "\\u0006"
+xpi agents  1 needs input · 1 working · 0 completed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ▾ Needs input (1)
+  ✻ alpha work  which db?                                                                      m  1m
+› ▾ Working (1)
+  ✽ beta work   running bash                                                                   m  1m
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ n:_pi:c_pi:fc _pi:/fc                                                                                                
+────────────────────────────────────────────────────────────────────────────────────────────────────
+marks cleared
+filtering (s: n: o:) · Enter/→ attach · Esc clear"
+`;

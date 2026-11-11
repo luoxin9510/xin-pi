@@ -134,7 +134,7 @@ export function hubOptions(h: XpiHost): Omit<AgentViewOptions, "tui" | "theme" |
 		presets: () => settingsNow().presets ?? {},
 		savePreset: (name: string, preset: Preset | null) => {
 			const s = userSettings(h);
-			const current = { ...((roostSettings(s) && userPresets(s)) ?? {}) };
+			const current = { ...(userPresets(s) ?? {}) };
 			if (preset) current[name] = preset;
 			else delete current[name];
 			s.setRoostSetting("presets", Object.keys(current).length > 0 ? current : undefined);
