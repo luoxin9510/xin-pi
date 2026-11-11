@@ -131,6 +131,8 @@ export class DetachScanner {
 	private sent = 0;
 	private pasting = false;
 	private lastInput = 0;
+	/** When a lone ESC was sent on and kept: it is read with what follows only for HOLD_MS. */
+	private escAt = 0;
 	private readonly isDetachKey: DetachKeyMatcher;
 
 	constructor(isDetachKey: DetachKeyMatcher) {
@@ -141,6 +143,12 @@ export class DetachScanner {
 		// a paste whose end marker was lost does not swallow the detach key for ever
 		if (this.pasting && now - this.lastInput > PASTE_IDLE_MS) this.pasting = false;
 		this.lastInput = now;
+		// An ESC already sent is the start of a key only while its rest can still be arriving. After that it
+		// was the Escape key: kept longer, it would turn the next key (the detach key too) into Alt+key.
+		if (this.carry === "\x1b" && this.sent === 1 && now - this.escAt > HOLD_MS) {
+			this.carry = "";
+			this.sent = 0;
+		}
 		const scan = this.carry + text;
 		const r = localDetachAt(scan, this.isDetachKey, this.pasting);
 		this.pasting = r.pasting;
@@ -157,6 +165,7 @@ export class DetachScanner {
 		if (this.carry === "\x1b" && this.sent === 0) {
 			send += this.carry;
 			this.sent = 1;
+			this.escAt = now;
 		} else if (this.carry.length > HOLD_MAX) {
 			send += this.carry.slice(this.sent);
 			this.carry = "";
@@ -165,10 +174,14 @@ export class DetachScanner {
 		return { send, detach: false, held: this.carry.length > this.sent };
 	}
 
-	/** The held bytes, now sent (still read again with the next input). */
+	/**
+	 * The held bytes, to send now: the key did not finish in time, so it is over. What comes next is read
+	 * on its own (kept, an unfinished OSC or UTF-8 lead would swallow the keys after it, the detach key too).
+	 */
 	flush(): string {
 		const out = this.carry.slice(this.sent);
-		this.sent = this.carry.length;
+		this.carry = "";
+		this.sent = 0;
 		return out;
 	}
 }

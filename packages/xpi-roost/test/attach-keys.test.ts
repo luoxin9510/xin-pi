@@ -77,6 +77,28 @@ describe("local detach key", () => {
 		expect(long.push(`\x1b]0;${"x".repeat(100)}`, 0)).toMatchObject({ held: false });
 	});
 
+	it("an Escape key, or a key that never finished, does not swallow the detach key that follows", () => {
+		// Esc to interrupt, later the detach key: it detaches (kept, the ESC made it Alt+Ctrl+Z)
+		const esc = new DetachScanner(ctrlZ);
+		expect(esc.push("\x1b", 0)).toEqual({ send: "\x1b", detach: false, held: false });
+		expect(esc.push("\x1a", 5000)).toEqual({ send: "", detach: true, held: false });
+		// within the hold window the ESC may still be the start of a key: the two are read as one
+		const quick = new DetachScanner(ctrlZ);
+		quick.push("\x1b", 0);
+		expect(quick.push("\x1a", 20)).toEqual({ send: "\x1a", detach: false, held: false });
+		// Alt+] looks like an OSC that never ends: flushed by the timer, then the next key is its own
+		const alt = new DetachScanner(ctrlZ);
+		expect(alt.push("\x1b]", 0).held).toBe(true);
+		expect(alt.flush()).toBe("\x1b]");
+		expect(alt.push("a", 200)).toEqual({ send: "a", detach: false, held: false });
+		expect(alt.push("\x1a", 300)).toEqual({ send: "", detach: true, held: false });
+		// a UTF-8 lead byte whose rest never comes
+		const lead = new DetachScanner(ctrlZ);
+		expect(lead.push(Buffer.from("é", "utf8").toString("latin1")[0]!, 0).held).toBe(true);
+		lead.flush();
+		expect(lead.push("\x1a", 200)).toMatchObject({ detach: true });
+	});
+
 	it("a paste across reads keeps the key as text; one whose end was lost stops after a second", () => {
 		const sc = new DetachScanner(ctrlZ);
 		expect(sc.push("\x1b[200~ab", 0).detach).toBe(false);
