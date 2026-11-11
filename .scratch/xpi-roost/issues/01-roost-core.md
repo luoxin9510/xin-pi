@@ -3,7 +3,7 @@
 Spec: `../01-roost-core.md`. One branch per PR, merged in order. Source: `~/Developer/pi-roost` at main `890cbe9`.
 Every PR updates the docs it touches and lists them in its description.
 
-**Status:** not started (spec approved by the owner on 2026-11-11)
+**Status:** PR 1 built on `roost-core` (spec approved by the owner on 2026-11-11)
 
 ## Before PR 1
 
@@ -12,34 +12,61 @@ Every PR updates the docs it touches and lists them in its description.
 
 ## PR 1: core processes (branch `roost-core`)
 
-- [ ] T1 `packages/xpi-roost`: package.json (private, version in step with the others), tsconfig, vitest config,
+- [x] T1 `packages/xpi-roost`: package.json (private, version in step with the others), tsconfig, vitest config,
       workspace and root tsconfig wiring, `npm run check` covers it
-- [ ] T2 `packages/xpi-roost/docs/port-inventory.md`: every pi-roost source and test file as ported, split or cut,
+- [x] T2 `packages/xpi-roost/docs/port-inventory.md`: every pi-roost source and test file as ported, split or cut,
       with the spec decision that cuts it
-- [ ] T3 `lib/` for phase 1. Moved whole: client, framing, atomic, locks, job-events, dispatch-input, worker-state,
+- [x] T3 `lib/` for phase 1. Moved whole: client, framing, atomic, locks, job-events, dispatch-input, worker-state,
       term-modes, attach, transcript, usage, schema, orphans, heuristics, identity, paths, workspace-env. Split (the
       kept part moves): protocol, protocol-schema, callers, config, dispatch, store, view-model, filter, events,
       agent-client (`Reporter` and `jobIdentity` only). Not moved: everything decision 6 names, `term-signals.ts`
       (profile jobs only), `pi-resolve.ts`, `pi-commands.ts`
-- [ ] T4 Paths: state in `<agent dir>/xpi-roost/`, the runtime directory keyed by the agent directory (two levels
+- [x] T4 Paths: state in `<agent dir>/xpi-roost/`, the runtime directory keyed by the agent directory (two levels
       under `/tmp`, both checked for owner and symlinks; short enough for a unix socket), `ROOST_HOME` and
       `ROOST_RUNTIME_DIR` overrides. Every `PI_ROOST_*` variable renamed `ROOST_*`, `PI_JOB_ID` and `PI_DAEMON_SOCK`
       too; the inventory lists the renames. The agent directory and the two entry paths are given to a client by its
       caller and travel to the daemon, hosts and sessions in their environment, never found by importing xpi
-- [ ] T5 `host/main.ts` without telemetry and profile jobs, with `fixSpawnHelper`
-- [ ] T6 `daemon/main.ts` with decision 4's ops: no task board, workspaces, concierge, orders, schedules, watches,
+- [x] T5 `host/main.ts` without telemetry and profile jobs, with `fixSpawnHelper`
+- [x] T6 `daemon/main.ts` with decision 4's ops: no task board, workspaces, concierge, orders, schedules, watches,
       messages, peers, `handback`, profiles, PR polling, worktree isolation, agent-definition dispatch or telemetry;
       `events` kept; restart of a session whose agent process crashed and reconciliation at start kept (DM-5), a
       session whose host is gone ends (no M38); settings read from the
       `"roost"` section of `<agent dir>/settings.json`; an unknown op answers as today
-- [ ] T7 Tests in scope moved; tests of cut features removed whole; one deleted guard per kept test file shows the
+- [x] T7 Tests in scope moved; tests of cut features removed whole; one deleted guard per kept test file shows the
       test failing; a test that two daemons with different agent directories do not share a socket, jobs or roster
-- [ ] T8 CI: job `test (roost)` on Linux with `npm rebuild node-pty`; `xpi-roost` out of `test (other)` and of
+- [x] T8 CI: job `test (roost)` on Linux with `npm rebuild node-pty`; `xpi-roost` out of `test (other)` and of
       `./test.sh`'s default walk; the orphan sweep after the suite; no roost test starts a test runner. `node-pty`,
       `@xterm/headless` 6 and `@xterm/addon-serialize` as the package's own dependencies (the pin check and the
       lockfile change reviewed in the PR)
-- [ ] Docs: `docs/xin-pi.md` (the new package, how it is tested), `packages/xpi-roost/README.md`, the inventory,
+- [x] Docs: `docs/xin-pi.md` (the new package, how it is tested), `packages/xpi-roost/README.md`, the inventory,
       `packages/xpi-roost/docs/protocol.md` generated with the test that keeps it current
+
+Notes on PR 1 (details the spec left open, settled while building it):
+
+- Layout: the code is in `src/lib`, `src/daemon` and `src/host`, as in every package of the monorepo, so the root
+  `tsc`, biome and check scripts cover it without new wiring (decision 1 names `lib/`, `daemon/`, `host/`; only their
+  parent differs). The generator of the op reference is `test/support/protocol-doc.ts` (`npm run docs:protocol`).
+- package.json: private, 1.8.1, no `os` field (it would fail `npm install` of the monorepo on Windows), and no `test`
+  script: root `npm test`, `./test.sh` and CI's `test (other)` skip the package through `--if-present`; CI's
+  `test (roost)` runs `test:roost`, and `test (other)` also skips `packages/xpi-roost/` by name.
+- Also moved, though T3's list does not name them: `hostclient`, `ids`, `proc`, `op`, `version` (the daemon and host
+  need them). `SessionCommand` and `sessionCommandsFrom` moved from `pi-commands.ts` (not ported) to `store.ts`.
+- Cut from modules listed as moved whole: `REPAINT_MARKER` in `attach.ts` (M14, dead) and the M19 tree helpers
+  `pathOf`/`neighboursOf` in `transcript.ts` (decision 3). The `ack` op loses `exact` (peer items only).
+- Location in the environment: the client sets `ROOST_AGENT_DIR`, `ROOST_HOME`, `ROOST_RUNTIME_DIR` and
+  `ROOST_HOST_ENTRY`; the host gives a session the same plus `XPI_CODING_AGENT_DIR` (a name, not an import), over
+  whatever the session's own environment held. The runtime key is the first 12 hex digits of SHA-256 of the agent
+  directory's real path; an XDG path too long for a socket falls back to `/tmp/xpi-roost-<uid>/<key>`.
+- DM-5: a crashed agent process is restarted with pi-roost's delays and budget (`resumeAt`, `ROOST_RESUME_DELAYS_MS`,
+  a pending restart taken up after a daemon restart); the `resume` event kind stays for these restarts. A host that is
+  gone, or a run that was interrupted, ends the session. `autoResume` is gone.
+- The node-pty probe in the daemon is `createRequire(import.meta.url)("node-pty")` in a try/catch (the reason shown
+  in `status.ptyError`). The job kind stays `"pi"` in records and rows (decision 12: formats unchanged).
+- Tests: temporary directories are `<tmp>/xroost-*` (`TEST_DIR_PREFIX`), so the sweep never matches pi-roost's own
+  test processes. The suite's global setup also sweeps after the run. New: `test/agent-dirs.test.ts`. The
+  `job-events` test gained a first-sighting case: its guard did not fail the ported test before.
+- For PR 2/3 to note: `src/lib/attach.ts` still scans for fixed detach keys (Ctrl+Z and its encodings); decision 11
+  wants them from the keybindings, which is the session side's and the CLI's to settle.
 
 ## PR 2: command line and packaging (branch `roost-cli`)
 
