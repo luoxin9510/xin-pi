@@ -3,7 +3,7 @@
 Spec: `../01-roost-core.md`. One branch per PR, merged in order. Source: `~/Developer/pi-roost` at main `890cbe9`.
 Every PR updates the docs it touches and lists them in its description.
 
-**Status:** not started (the spec waits for the owner's approval)
+**Status:** not started (spec approved by the owner on 2026-11-11)
 
 ## Before PR 1
 

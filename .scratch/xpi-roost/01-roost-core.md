@@ -1,6 +1,7 @@
 # 01: xpi-roost, phase 1: the daemon, the host, `xpi roost` and the hub
 
-Status: draft for the owner's approval (2026-11-11). Decisions: `decisions.md` (Grill 1, 2 and 3, all accepted).
+Status: approved by the owner on 2026-11-11, after five rounds of independent review (PR #64). Decisions:
+`decisions.md` (Grill 1, 2 and 3, all accepted).
 Tickets: `issues/01-roost-core.md`.
 
 ## Goal

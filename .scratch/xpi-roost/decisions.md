@@ -74,6 +74,8 @@ Decision 12's order stands (session side, then hub), with one move so that each 
 (A first revision swapped the two PRs; the second review showed that replies, the peek's commands and the earlier
 history need the session side first.)
 
+The owner approved the spec as reviewed, with these additions, on 2026-11-11.
+
 Added by the author after the third review, within decision 18 (no new exemption was needed): the keys that detach an
 attached session instead of ending it follow the user's keybindings (`app.suspend`, `app.clear` twice, `app.exit`
 twice) rather than fixed keys.
