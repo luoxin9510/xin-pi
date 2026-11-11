@@ -3,7 +3,17 @@
 // registers (it answers "echo: <the prompt>"), so nothing reaches a provider.
 // - `xpi roost hub`: start a session, peek, reply, attach, detach, stop and delete; a shell command; Ctrl+C twice exits.
 // - A foreground xpi: the left arrow on its empty prompt hands the conversation to the daemon and opens the hub on it.
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import xterm from "@xterm/headless";
@@ -119,9 +129,49 @@ afterEach(async () => {
 		if (saved.home === undefined) delete process.env.ROOST_HOME;
 		else process.env.ROOST_HOME = saved.home;
 	}
-	// a session the daemon ran may still be writing as it ends
-	rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+	await removeWhenQuiet(root);
 }, 30_000);
+
+/**
+ * Remove the test's directory, retrying for 15 s while something still writes into it. When it cannot, the error names
+ * what is left in it and the processes that mention it, so a failure in CI says who was writing.
+ */
+async function removeWhenQuiet(dir: string): Promise<void> {
+	const deadline = Date.now() + 15_000;
+	for (;;) {
+		try {
+			rmSync(dir, { recursive: true, force: true });
+			return;
+		} catch (err) {
+			if ((err as NodeJS.ErrnoException).code !== "ENOTEMPTY" || Date.now() > deadline) {
+				const left: string[] = [];
+				const walk = (d: string) => {
+					for (const name of existsSync(d) ? readdirSync(d) : []) {
+						const p = join(d, name);
+						try {
+							const st = statSync(p);
+							left.push(
+								`${p.slice(dir.length)} ${st.isDirectory() ? "dir" : st.size} ${new Date(st.mtimeMs).toISOString()}`,
+							);
+							if (st.isDirectory()) walk(p);
+						} catch {
+							// gone meanwhile
+						}
+					}
+				};
+				walk(dir);
+				const ps = spawnSync("ps", ["-eo", "pid,ppid,etime,args"], { encoding: "utf8" }).stdout ?? "";
+				const procs = ps
+					.split("\n")
+					.filter((l) => l.includes(dir) || l.includes("xpi-roost") || l.includes("cli.js"));
+				throw new Error(
+					`${(err as Error).message}\nleft in it:\n${left.slice(0, 80).join("\n")}\nprocesses:\n${procs.join("\n")}`,
+				);
+			}
+			await new Promise((r) => setTimeout(r, 200));
+		}
+	}
+}
 
 /**
  * The host and session pids of the jobs still running. An ended job's files keep pids the system may since have given
