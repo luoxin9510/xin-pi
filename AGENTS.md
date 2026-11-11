@@ -90,9 +90,9 @@ If rebase conflicts occur:
 
 See `CONTRIBUTING.md` for the quality bar for issues and PRs.
 
-Every PR an agent opens goes through an independent review before it is merged, including docs-only,
-one-line and release PRs. A smaller PR may get a shorter review, but it is still Claude Opus, in a fresh context, and
-recorded. Pull requests from outside contributors are merged by the owner.
+Every PR an agent opens goes through an independent review before it is merged, including docs-only, one-line and
+release PRs. A smaller PR may get a shorter review, but it is still Claude Opus, in a fresh context, and recorded. Pull
+requests from outside contributors are merged by the owner.
 
 1. Branch from `main`, implement, run the relevant tests (and `npm run check` for code changes), push, open the PR, wait
    for CI to pass.
@@ -108,8 +108,8 @@ recorded. Pull requests from outside contributors are merged by the owner.
    CI green on that commit; any later push needs another round, and nothing is merged while a round is pending. Merge
    with a merge commit and delete the branch.
 
-This gate applies to every merge; an agent may merge on its own once the gate is passed. CI passing alone never allows a
-merge.
+This gate applies to every merge of a PR an agent opened; an agent may merge such a PR on its own once the gate is
+passed. CI passing alone never allows a merge.
 
 When reviewing PRs:
 
