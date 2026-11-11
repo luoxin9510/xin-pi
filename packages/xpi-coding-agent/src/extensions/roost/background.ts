@@ -8,6 +8,7 @@
 import { buildLaunch, DaemonClient, fallbackName, ROOST_VERSION, requestOnce } from "xpi-roost";
 import { getAgentDir, getRoostEntries, VERSION } from "../../config.ts";
 import type { ExtensionAPI, ExtensionContext } from "../../core/extensions/types.ts";
+import { hasTrustRequiringProjectResources, ProjectTrustStore } from "../../core/trust-manager.ts";
 import { BINARY_MESSAGE } from "./messages.ts";
 import { launchSettings } from "./settings.ts";
 
@@ -89,8 +90,7 @@ export async function backgroundAndExit(
 				argv,
 				execPath: process.execPath,
 				env: process.env,
-				// the answer this process got (the prompt, --approve, or a stored decision) goes with the session
-				trusted: ctx.isProjectTrusted(),
+				trusted: sessionTrust(ctx.cwd, argv.slice(2), ctx.isProjectTrusted(), agentDir),
 				...settings.env,
 				...(!chosen.model && settings.model ? { model: settings.model } : {}),
 				...(!chosen.thinking && settings.thinking ? { thinking: settings.thinking } : {}),
@@ -116,4 +116,19 @@ export async function backgroundAndExit(
 	} finally {
 		client?.close();
 	}
+}
+
+/**
+ * The trust decision a session is started with, so that it never waits at the trust question where nobody sees it.
+ * It stays in the session's command, so every later start of the session uses it too. `trusted` is this process's
+ * answer: the question, `--approve` / `--no-approve`, or a stored decision. Where the folder has nothing that needs
+ * trust, xpi answers yes without asking anyone; that yes is not handed on, or it would load project extensions that
+ * appear later. Only a decision somebody made is: the command line's or a stored one, otherwise no.
+ */
+export function sessionTrust(cwd: string, args: string[], trusted: boolean, agentDir: string): boolean {
+	const flags = ["--approve", "-a", "--no-approve", "-na"];
+	// not the task or the name, which may be any text
+	const decided = args.some((arg, i) => flags.includes(arg) && args[i - 1] !== "--bg" && args[i - 1] !== "--bg-name");
+	if (decided || hasTrustRequiringProjectResources(cwd)) return trusted;
+	return new ProjectTrustStore(agentDir).get(cwd) ?? false;
 }

@@ -11,7 +11,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DaemonClient } from "xpi-roost";
 import { readWriterLock } from "xpi-roost/session";
 import { processStartToken } from "../../xpi-roost/src/lib/proc.ts";
-import { backgroundAndExit, backgroundedText, chosenOnCommandLine } from "../src/extensions/roost/background.ts";
+import { ProjectTrustStore } from "../src/core/trust-manager.ts";
+import {
+	backgroundAndExit,
+	backgroundedText,
+	chosenOnCommandLine,
+	sessionTrust,
+} from "../src/extensions/roost/background.ts";
 import roost, { bgArgsProblem, bgProblem, registerWriteLock } from "../src/extensions/roost/index.ts";
 import { BINARY_MESSAGE, NO_PTY_MESSAGE, WINDOWS_MESSAGE } from "../src/extensions/roost/messages.ts";
 import { launchSettings } from "../src/extensions/roost/settings.ts";
@@ -293,6 +299,25 @@ describe("--bg", () => {
 		expect(chosenOnCommandLine(["--bg", "use --model in docs"])).toEqual({ model: false, thinking: false });
 	});
 
+	it("the trust decision that goes with the session: one somebody made, never xpi's own yes for a folder with nothing to trust", () => {
+		const agentDir = join(dir, "trust-agent");
+		const plain = join(dir, "plain");
+		const guarded = join(dir, "guarded");
+		mkdirSync(plain, { recursive: true });
+		mkdirSync(join(guarded, ".agents", "skills"), { recursive: true });
+		// the folder has something to trust: this process's answer (the question, a flag or a stored decision)
+		expect(sessionTrust(guarded, ["--bg", "x"], true, agentDir)).toBe(true);
+		expect(sessionTrust(guarded, ["--bg", "x"], false, agentDir)).toBe(false);
+		// nothing to trust: xpi said yes without asking, and that yes would load extensions that appear later
+		expect(sessionTrust(plain, ["--bg", "x"], true, agentDir)).toBe(false);
+		expect(sessionTrust(plain, ["--approve", "--bg", "x"], true, agentDir)).toBe(true);
+		expect(sessionTrust(plain, ["-na", "--bg", "x"], false, agentDir)).toBe(false);
+		// the task and the name are text, not flags
+		expect(sessionTrust(plain, ["--bg", "-a", "--bg-name", "--approve"], true, agentDir)).toBe(false);
+		new ProjectTrustStore(agentDir).set(plain, true);
+		expect(sessionTrust(plain, ["--bg", "x"], true, agentDir)).toBe(true);
+	});
+
 	it("a new session's settings: the user's environment keys, a project's dispatch keys, never a project's environment", () => {
 		const agentDir = join(dir, "agent");
 		const project = join(dir, "project");
@@ -391,8 +416,9 @@ setTimeout(() => {}, 30000);
 					join(dir, "s1.jsonl"),
 					"--model",
 					"faux/m1",
-					// the trust this process had: the session must not stop at the "Trust project folder?" question
-					"--approve",
+					// a decision always goes with it, so the session never stops at the "Trust project folder?" question;
+					// nothing here needs trust and nobody decided, so it is no
+					"--no-approve",
 					"--",
 					"count the files",
 				]);
