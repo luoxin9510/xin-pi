@@ -97,3 +97,23 @@ The owner asked for both features and ruled `/deep-research` out. Each line is w
 7. Pause (`p` on the script row, and in `/workflows`): the script starts no new agent and its `Agent` calls wait;
    agents already running finish. `p` again resumes. Any script can be paused, saved or not.
 8. Not now: pausing by itself on a usage limit; relaunching ad hoc scripts.
+
+## Grill 5 (2026-11-11): inline MCP servers, permissionMode, per-agent extensions (`08-mcp-permission-extensions.md`). Accepted by the owner on 2026-11-11
+
+The owner chose to build the three remaining Claude Code agent-file fields worth having, to leave agent teams for when
+pi-roost comes into xin-pi, and to leave models that never delegate on their own as they are (the owner changes the
+system prompt when needed). Each line is worded so "yes" accepts the proposal.
+
+1. A public `--mcp-config <file or JSON>` adds servers on top of `mcp.json`; a child gets its inline servers through it.
+   `stdio` and `http`; `sse` and `ws` are skipped with a warning.
+2. Inline servers follow Claude Code's trust rule (project agent files only in a trusted project; user-level and
+   `--agents` always) and their tools are handled like a named server's.
+3. Hooks (Claude Code's format): rejected by the owner, who asked for xpi's own hook mechanism instead (extensions).
+   Questions 3 to 6 of the round (events, tool-name mapping, handler types, hook trust) were dropped with it.
+4. `permissionMode: plan` keeps only read-only tools and says so in the prompt; every other value is accepted with one
+   warning that xpi never asks for permission and runs as bypassPermissions.
+5. A new xpi field `extensions` lists extensions loaded only into that subagent's child (`-e`), paths relative to the
+   agent file; same trust rule as inline servers.
+6. Claude Code's `hooks` stays accepted with no effect; its warning points to `extensions`.
+7. Order: inline MCP and `--mcp-config`, then `permissionMode`, then `extensions`; one PR each with an Opus review and a
+   real Haiku check; then the full real-model regression, and the subagent work is wrapped up.
