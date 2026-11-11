@@ -58,8 +58,14 @@ describe("xpi roost ls", () => {
 	});
 
 	it("a name in wide characters or with control characters keeps the columns", () => {
-		const wide = row({ name: "修复登录页面的错误和测试覆盖率问题", summary: "line one\nline two\x1b[31m" });
-		const out = formatList([wide, row()], { width: 140 });
+		// working rows are listed newest state first: the wide one is the newer, whichever millisecond each was made in
+		const now = Date.now();
+		const wide = row({
+			name: "修复登录页面的错误和测试覆盖率问题",
+			summary: "line one\nline two\x1b[31m",
+			stateSince: now - 1_000,
+		});
+		const out = formatList([wide, row({ stateSince: now - 60_000 })], { width: 140, now });
 		const lines = out.trimEnd().split("\n");
 		expect(out).not.toContain("\x1b");
 		expect(lines[1]).toContain("line one line two");

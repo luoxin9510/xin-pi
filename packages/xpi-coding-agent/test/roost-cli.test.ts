@@ -27,7 +27,7 @@ const saved: Record<string, string | undefined> = {};
 for (const k of ENV_NAMES) saved[k] = process.env[k];
 
 afterEach(() => {
-	for (const d of made.splice(0)) rmSync(d, { recursive: true, force: true });
+	for (const d of made.splice(0)) rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 	for (const [k, v] of Object.entries(saved)) {
 		if (v === undefined) delete process.env[k];
 		else process.env[k] = v;
@@ -176,5 +176,20 @@ describe("xpi roost through xpi's wrapper", () => {
 		made.push(status.socketDir);
 		await client.request("shutdown", {});
 		client.close();
+		// the daemon still writes its log and state as it ends: wait for it, or removing its directory fails (ENOTEMPTY)
+		const alive = () => {
+			try {
+				process.kill(status.pid, 0);
+				return true;
+			} catch {
+				return false;
+			}
+		};
+		for (const deadline = Date.now() + 10_000; alive() && Date.now() < deadline; )
+			await new Promise((r) => setTimeout(r, 50));
+		// "and stops it": a daemon still there after shutdown fails the test, and is not left behind
+		const stillAlive = alive();
+		if (stillAlive) process.kill(status.pid, "SIGKILL");
+		expect(stillAlive).toBe(false);
 	}, 30_000);
 });
