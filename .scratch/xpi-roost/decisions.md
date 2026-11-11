@@ -79,3 +79,27 @@ The owner approved the spec as reviewed, with these additions, on 2026-11-11.
 Added by the author after the third review, within decision 18 (no new exemption was needed): the keys that detach an
 attached session instead of ending it follow the user's keybindings (`app.suspend`, `app.clear` twice, `app.exit`
 twice) rather than fixed keys.
+
+## Grill 4: phase 2 (2026-11-12)
+
+Facts gathered first: pi-roost's M38/M39/M40 and what xpi-roost on main already has; Claude Code's documented
+behaviour for scheduled tasks and for background sessions after an interruption. The owner accepted every
+recommendation.
+
+1. Resume after an interruption is not added: phase 1 already behaves as Claude Code does (crash restarts while the
+   daemon runs; after a machine restart, failed or stopped, resumed by the person). M38 and `autoResume` are not ported.
+2. Phase 2 is daemon schedules: each run is a new background session. A timer inside a session (`/loop`) is a core
+   xpi feature for a separate spec.
+3. Rules: pi-roost's four (`every`, `daily`, `weekdays`, `cron`) plus `weekly <day> HH:MM` and `manual`; local time;
+   at least 5 minutes apart; no one-shot schedules.
+4. Missed slots: as Claude Code, run once if the latest missed slot is within 7 days, else drop it; no `catchUp`
+   option; a catch-up is logged.
+5. A run is a new session named after the schedule; the list keeps a schedule's last 3 ended runs, older records are
+   removed (the session files stay, `/resume` finds them).
+6. Overlap: skip the slot and record why; no queue, no parallel runs.
+7. Made and managed in the hub (`/schedule`) and the command line (`xpi roost schedule ...`, including `add` and
+   `edit`); not in an ordinary session.
+8. A run's directory, model, thinking and trust decision are fixed when the schedule is made (trust: a stored decision
+   only, else `--no-approve`); `edit` changes them; a missing directory skips the run.
+9. Notifications as for any session; catch-ups and skips are logged, not notified.
+10. At most 50 schedules; names `[A-Za-z0-9._-]{1,40}`.
