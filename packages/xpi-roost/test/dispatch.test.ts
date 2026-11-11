@@ -55,6 +55,25 @@ describe("fallbackName", () => {
 });
 
 describe("buildLaunch", () => {
+	it("gives the session the caller's trust decision, so it never stops at the trust question", () => {
+		const base = {
+			task: "t",
+			cwd: "/work",
+			sessionFile: "/s/a.jsonl",
+			name: "t",
+			origin: "bg" as const,
+			argv: ["node", "/xpi/cli.js", "--approve", "--model", "a/b"],
+			execPath: "/bin/node",
+			env: { PATH: "/bin" },
+		};
+		const tail = (trusted?: boolean) =>
+			buildLaunch({ ...base, ...(trusted === undefined ? {} : { trusted }) }).command.slice(4);
+		expect(tail(true)).toEqual(["--model", "a/b", "--approve", "--", "t"]);
+		expect(tail(false)).toEqual(["--model", "a/b", "--no-approve", "--", "t"]);
+		// not said: the caller's own --approve is not repeated, and the session decides for itself
+		expect(tail()).toEqual(["--model", "a/b", "--", "t"]);
+	});
+
 	it("repeats extension flags, overrides model and thinking, appends the task", () => {
 		const launch = buildLaunch({
 			task: "fix the flaky test",

@@ -391,6 +391,8 @@ setTimeout(() => {}, 30000);
 					join(dir, "s1.jsonl"),
 					"--model",
 					"faux/m1",
+					// the trust this process had: the session must not stop at the "Trust project folder?" question
+					"--approve",
 					"--",
 					"count the files",
 				]);
