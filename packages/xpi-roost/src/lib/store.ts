@@ -1,0 +1,206 @@
+import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { readJson, writeJsonAtomic } from "./atomic.ts";
+import { jobDir, jobsDir, jobTmpDir } from "./paths.ts";
+
+export interface JobRecord {
+	id: string;
+	name: string;
+	cwd: string;
+	sessionFile: string; // may not exist yet: pi writes lazily
+	command: string[]; // full argv: [execPath, piCli, ...args]
+	env: Record<string, string>; // env captured at dispatch (M20: the whole env unless inheritEnv is off)
+	/** M20: how the worker's environment follows its workspace (absent: as carried). */
+	workspaceEnv?: "shell" | "direnv" | "off";
+	/** M20: names (or `PREFIX*`) a workspace's environment may not set. */
+	envDeny?: string[];
+	/** M20: names that pass envDeny (envAllowList). */
+	envForce?: string[];
+	model?: string;
+	thinking?: string;
+	origin: "bg" | "dispatch" | "adopt" | "fork";
+	/** DI-6: a shell command instead of xpi; absent means xpi. */
+	kind?: "pi" | "shell";
+	/** M36: the request id it was dispatched with (a resend finds this job). */
+	requestId?: string;
+	createdAt: number; // ms epoch
+	piVersion?: string;
+	roostVersion: string;
+}
+
+export interface JobState {
+	state: "working" | "blocked" | "done" | "failed" | "stopped";
+	hostPid?: number;
+	hostToken?: string; // processStartToken of the host
+	startedAt: number;
+	endedAt?: number;
+	updatedAt: number;
+	pinned?: boolean;
+	[k: string]: unknown;
+}
+
+export interface ExitRecord {
+	code: number | null;
+	signal: string | null;
+	at: number;
+}
+
+const jobFile = (id: string) => join(jobDir(id), "job.json");
+export const stateFile = (id: string) => join(jobDir(id), "state.json");
+export const screenPath = (id: string) => join(jobDir(id), "screen.txt");
+export const exitPath = (id: string) => join(jobDir(id), "exit.json");
+/** M61: a pi session's slash commands, written by its worker on every session_start. */
+export const commandsPath = (id: string) => join(jobDir(id), "commands.json");
+/** A command of an xpi session as its worker lists it (commands.json). */
+export interface SessionCommand {
+	name: string;
+	description?: string;
+	source: "extension" | "prompt" | "skill";
+}
+
+const MAX_SESSION_COMMANDS = 300;
+const MAX_DESCRIPTION = 200;
+
+/** The worker's command list as commands.json keeps it: bounded, one-line descriptions. */
+export function sessionCommandsFrom(list: unknown): SessionCommand[] {
+	if (!Array.isArray(list)) return [];
+	const out: SessionCommand[] = [];
+	for (const c of list) {
+		if (out.length >= MAX_SESSION_COMMANDS) break;
+		if (!c || typeof c !== "object") continue;
+		const { name, description, source } = c as Record<string, unknown>;
+		if (typeof name !== "string" || !name || (source !== "extension" && source !== "prompt" && source !== "skill"))
+			continue;
+		const d =
+			typeof description === "string" ? description.replace(/\s+/g, " ").trim().slice(0, MAX_DESCRIPTION) : "";
+		out.push({ name, ...(d ? { description: d } : {}), source });
+	}
+	return out;
+}
+
+export const writeCommands = (id: string, list: unknown): void =>
+	writeJsonAtomic(commandsPath(id), sessionCommandsFrom(list), false);
+export const readCommands = (id: string): SessionCommand[] => sessionCommandsFrom(readJson<unknown>(commandsPath(id)));
+
+export function createJob(record: JobRecord, state: JobState): void {
+	mkdirSync(jobDir(record.id), { recursive: true, mode: 0o700 });
+	mkdirSync(jobTmpDir(record.id), { recursive: true, mode: 0o700 });
+	writeJsonAtomic(jobFile(record.id), record);
+	writeJsonAtomic(stateFile(record.id), state);
+}
+
+export const readJob = (id: string): JobRecord | undefined => readJson<JobRecord>(jobFile(id));
+export const readState = (id: string): JobState | undefined => readJson<JobState>(stateFile(id));
+export const readExit = (id: string): ExitRecord | undefined => readJson<ExitRecord>(exitPath(id));
+export const writeExit = (id: string, rec: ExitRecord): void => writeJsonAtomic(exitPath(id), rec);
+export const clearExit = (id: string): void => rmSync(exitPath(id), { force: true });
+
+// The host's own record of its worker: state.json has a single writer, the daemon.
+const workerFile = (id: string) => join(jobDir(id), "worker.json");
+export const writeWorker = (id: string, pid: number): void => writeJsonAtomic(workerFile(id), { pid, at: Date.now() });
+export const clearWorker = (id: string): void => rmSync(workerFile(id), { force: true });
+export function readWorkerPid(id: string): number | undefined {
+	const pid = readJson<{ pid?: unknown }>(workerFile(id))?.pid;
+	return typeof pid === "number" ? pid : undefined;
+}
+
+/** The argv a host starts: a respawn replaces the dispatch command (no first prompt again). */
+export function launchCommand(rec: JobRecord, st: JobState | undefined): string[] {
+	const c = st?.command;
+	return Array.isArray(c) && c.length > 0 && c.every((v) => typeof v === "string") ? (c as string[]) : rec.command;
+}
+
+/** A first prompt as pi's argv: pi reads an argument starting with @ as a file, even after --. */
+export const taskArg = (task: string): string => (task.startsWith("@") ? ` ${task}` : task);
+
+/**
+ * Command for restarting a job from its session file: the dispatch command without
+ * its first prompt (already in the session), optionally with a new one. A session
+ * pi never wrote never saw the first prompt, so it keeps it.
+ *
+ * M8: a written session also drops the dispatch's --model, --provider and --thinking:
+ * they would undo a model switched while the job ran (/model from the agent view).
+ * `last` is what the worker last reported running; it is passed instead, because pi
+ * does not always record it in the session (a resumed session's model only once it
+ * has answered, a thinking level only when it changes). Without it pi restores what
+ * the session recorded.
+ */
+export function respawnCommand(
+	rec: JobRecord,
+	sessionWritten: boolean,
+	prompt?: string,
+	last: { model?: unknown; thinking?: unknown } = {},
+): string[] {
+	if (!sessionWritten) return rec.command;
+	const at = rec.command.indexOf("--", 2);
+	const base = withoutFlags(at === -1 ? rec.command : rec.command.slice(0, at), SESSION_RESTORED_FLAGS);
+	if (typeof last.model === "string" && /^[^/\s-][^\s]*\/\S+$/.test(last.model)) base.push("--model", last.model);
+	if (typeof last.thinking === "string" && /^[a-z]+$/.test(last.thinking)) base.push("--thinking", last.thinking);
+	return prompt ? [...base, "--", taskArg(prompt)] : base;
+}
+
+/** Flags pi restores from a written session by itself (and would override it if given). */
+export const SESSION_RESTORED_FLAGS = ["--model", "--provider", "--thinking"];
+
+/**
+ * argv without these value flags, in both `--flag value` and `--flag=value` form; the
+ * first `keep` entries (execPath, cli) are kept as they are. The value after a flag goes
+ * with it, whatever it looks like: argv here comes from passthroughArgs, which only
+ * copies known flags with their values.
+ */
+export function withoutFlags(argv: string[], flags: string[], keep = 2): string[] {
+	const out = argv.slice(0, keep);
+	for (let i = keep; i < argv.length; i++) {
+		const arg = argv[i]!;
+		if (flags.includes(arg)) i++;
+		else if (!flags.some((f) => arg.startsWith(`${f}=`))) out.push(arg);
+	}
+	return out;
+}
+
+/**
+ * M35: state the daemon may not lose in a machine crash: what the user said and has not
+ * been taken yet, choices the user made, how a job ends or starts again. A worker's
+ * report (state, summary, usage ...) is not: the next report replaces it, and a write
+ * that skips fsync costs the daemon's loop a fraction of a millisecond, not eight.
+ */
+const DURABLE_KEYS = new Set([
+	"requestIds",
+	"pendingReplies",
+	"replySeq",
+	"pinned",
+	"order",
+	"orderKey",
+	"pendingName",
+	"jobToken",
+	"command",
+	"endedAt",
+	"stopRequested",
+	"supersededBy",
+	"restartedAt",
+	"removeAt",
+	"resumeAt",
+]);
+
+/** `durable` overrides the rule above (an ack is not: a lost one only means a resend). */
+export function updateState(id: string, patch: Partial<JobState>, durable?: boolean): JobState {
+	const cur = readState(id);
+	if (!cur) throw new Error(`no state for job ${id}`);
+	const next: JobState = { ...cur, ...patch, updatedAt: Date.now() };
+	writeJsonAtomic(stateFile(id), next, durable ?? Object.keys(patch).some((k) => DURABLE_KEYS.has(k)));
+	return next;
+}
+
+export function listJobIds(): string[] {
+	let names: string[];
+	try {
+		names = readdirSync(jobsDir());
+	} catch {
+		return [];
+	}
+	return names.filter((n) => existsSync(jobFile(n)));
+}
+
+export function removeJob(id: string): void {
+	rmSync(jobDir(id), { recursive: true, force: true });
+}

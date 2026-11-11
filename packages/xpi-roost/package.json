@@ -1,0 +1,23 @@
+{
+	"name": "xpi-roost",
+	"version": "1.8.1",
+	"private": true,
+	"description": "Background sessions for xpi: the roost daemon, the PTY host and their shared library",
+	"type": "module",
+	"scripts": {
+		"test:roost": "vitest --run",
+		"docs:protocol": "node test/support/protocol-doc.ts"
+	},
+	"engines": {
+		"node": ">=22.19.0"
+	},
+	"dependencies": {
+		"@xterm/addon-serialize": "0.14.0",
+		"@xterm/headless": "6.0.0",
+		"node-pty": "1.1.0"
+	},
+	"devDependencies": {
+		"@types/node": "22.19.19",
+		"vitest": "4.1.12"
+	}
+}

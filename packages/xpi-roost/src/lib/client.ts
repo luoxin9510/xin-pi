@@ -1,0 +1,307 @@
+import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { existsSync } from "node:fs";
+import { connect, type Socket } from "node:net";
+import { resolve } from "node:path";
+import { JOB_ENV_NAMES } from "./identity.ts";
+import { readStateLock } from "./locks.ts";
+import { checkRuntimeDir, daemonSocketPath, ensureDirs, roostHome, runtimeDir } from "./paths.ts";
+import { type ArgsOf, type Event, encodeLine, LineReader, type Op, type Response, type ResultOf } from "./protocol.ts";
+
+export class DaemonError extends Error {
+	code: string | undefined;
+	/** M51: the daemon answered so (a refusal), not this side (no connection, no answer). */
+	fromDaemon = false;
+	constructor(message: string, code?: string) {
+		super(message);
+		this.code = code;
+	}
+}
+
+/** M51: a request id (docs/protocol.md "Request ids"): new for each request, the same for each resend of it. */
+export function newRequestId(tag: string): string {
+	return `${tag}.${process.pid.toString(36)}.${Date.now().toString(36)}.${randomBytes(4).toString("hex")}`
+		.replace(/[^A-Za-z0-9_.:-]/g, "")
+		.slice(0, 64);
+}
+
+/** M51: thrown by a `via` that will never give a connection (its caller is closing): requestOnce stops at once. */
+export class GiveUp extends Error {}
+
+/**
+ * M51: a reply or a dispatch whose answer may be lost: sent with a request id, and when
+ * no answer comes because the connection went (the daemon restarted), sent again with the
+ * same id on the connection `via(deadline)` gives then, until `timeoutMs`; the daemon
+ * takes it once. A refusal (the daemon answered it) is not sent again. Given up after it
+ * was sent, the error is a DaemonError with code `lost`: it may have been taken (a caller
+ * must not undo what a taken request made).
+ */
+export async function requestOnce<O extends "reply" | "dispatch">(
+	via: (deadline: number) => Promise<DaemonClient>,
+	op: O,
+	args: ArgsOf<O>,
+	opts: { timeoutMs?: number; tag?: string } = {},
+): Promise<ResultOf<O>> {
+	const a = {
+		...args,
+		requestId: (args as { requestId?: string }).requestId ?? newRequestId(opts.tag ?? op),
+	} as ArgsOf<O>;
+	const deadline = Date.now() + (opts.timeoutMs ?? 15_000);
+	let sent = false;
+	for (let wait = 200; ; wait = Math.min(wait * 2, 2000)) {
+		try {
+			const c = await via(deadline);
+			sent = true;
+			return await c.request(op, a);
+		} catch (err) {
+			if (err instanceof DaemonError && err.fromDaemon) throw err;
+			const over = err instanceof GiveUp || Date.now() + wait > deadline;
+			if (over)
+				throw sent
+					? new DaemonError(
+							`no answer from the background service (${(err as Error).message}): it may have been taken`,
+							"lost",
+						)
+					: err;
+			await new Promise((r) => setTimeout(r, wait).unref?.());
+		}
+	}
+}
+
+/** What starting a daemon needs from its caller. */
+export interface DaemonStart {
+	/** The agent directory whose roost this is. */
+	agentDir: string;
+	/** The daemon's entry file, run with the running Node. */
+	daemonEntry: string;
+	/** The host's entry file, which the daemon runs for each session. */
+	hostEntry: string;
+}
+
+/** The environment a daemon starts with: the caller's, less any job identity, plus where its roost is. */
+export function daemonEnv(start: DaemonStart, env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+	// The first client may be a worker: its job identity must not leak into the daemon.
+	const out = { ...env };
+	for (const key of JOB_ENV_NAMES) delete out[key];
+	// the location of the roost asked for: never the caller's own roost's (a session carries that one)
+	const agentDir = resolve(start.agentDir);
+	return {
+		...out,
+		ROOST_AGENT_DIR: agentDir,
+		ROOST_HOME: roostHome(agentDir),
+		ROOST_RUNTIME_DIR: runtimeDir(agentDir),
+		ROOST_HOST_ENTRY: resolve(start.hostEntry),
+	};
+}
+
+export class DaemonClient {
+	private sock: Socket;
+	private reader = new LineReader();
+	private nextId = 1;
+	private pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void; at?: number }>();
+	/** M22: lines received so far: an event's or a reply's place in the stream. */
+	private lines = 0;
+	private listeners = new Set<(event: Event) => void>();
+	private closeListeners = new Set<() => void>();
+	private closed = false;
+
+	private constructor(sock: Socket) {
+		this.sock = sock;
+		sock.on("data", (chunk) => {
+			let lines: string[];
+			try {
+				lines = this.reader.push(chunk);
+			} catch (err) {
+				// M49: a line past the reader's limit: this stream is not the protocol's any more
+				sock.destroy(err as Error);
+				return;
+			}
+			for (const line of lines) this.onLine(line);
+		});
+		const fail = (err: Error) => {
+			const first = !this.closed;
+			this.closed = true;
+			for (const p of this.pending.values()) p.reject(err);
+			this.pending.clear();
+			if (first) for (const l of this.closeListeners) l();
+		};
+		sock.on("error", fail);
+		sock.on("close", () => fail(new DaemonError("daemon connection closed", "closed")));
+	}
+
+	/**
+	 * Connect to a running daemon; rejects when none is listening. Without a socket path,
+	 * this process's own roost's (its location variables), its runtime directory checked first.
+	 */
+	static async connect(socketPath?: string): Promise<DaemonClient> {
+		let path = socketPath;
+		if (path === undefined) {
+			try {
+				checkRuntimeDir();
+				path = daemonSocketPath();
+			} catch (err) {
+				throw new DaemonError((err as Error).message, "no_roost");
+			}
+		}
+		return DaemonClient.connectTo(path);
+	}
+
+	private static connectTo(socketPath: string): Promise<DaemonClient> {
+		return new Promise((resolve, reject) => {
+			const sock = connect(socketPath);
+			sock.once("connect", () => {
+				sock.removeListener("error", reject);
+				resolve(new DaemonClient(sock));
+			});
+			sock.once("error", reject);
+		});
+	}
+
+	/**
+	 * Connect, starting the daemon first when it is not running. The caller says which
+	 * roost (its agent directory) and where the daemon's and the host's entry files are:
+	 * this library finds nothing of xpi itself. The daemon is started with the running
+	 * Node, and with the agent directory, the state and runtime directories and the host
+	 * entry in its environment (it hands them to every host and session).
+	 */
+	static async connectOrStart(start: DaemonStart, timeoutMs = 3000): Promise<DaemonClient> {
+		const agentDir = resolve(start.agentDir);
+		try {
+			checkRuntimeDir(agentDir);
+		} catch (err) {
+			throw new DaemonError((err as Error).message, "unsafe_runtime_dir");
+		}
+		const socket = daemonSocketPath(agentDir);
+		try {
+			return await DaemonClient.connectTo(socket);
+		} catch {
+			// not running (or a stale socket): start one below
+		}
+		ensureDirs(agentDir);
+		const elsewhere = () => {
+			const holder = readStateLock(agentDir);
+			const rt = runtimeDir(agentDir);
+			return holder && typeof holder.runtimeDir === "string" && holder.runtimeDir !== rt
+				? new DaemonError(
+						`a daemon for ${agentDir} already runs with another runtime directory (${holder.runtimeDir}, pid ${holder.pid}); this client looks in ${rt}: start it with the same XDG_RUNTIME_DIR and ROOST_RUNTIME_DIR`,
+						"other_runtime_dir",
+					)
+				: undefined;
+		};
+		const before = elsewhere();
+		if (before) throw before;
+		if (!existsSync(start.daemonEntry))
+			throw new DaemonError(`daemon entry not found: ${start.daemonEntry}`, "not_built");
+		const child = spawn(process.execPath, [start.daemonEntry], {
+			detached: true,
+			stdio: "ignore",
+			env: daemonEnv({ ...start, agentDir }),
+			cwd: "/",
+		});
+		let exited = false;
+		child.once("exit", () => {
+			exited = true;
+		});
+		child.unref();
+		const deadline = Date.now() + timeoutMs;
+		for (;;) {
+			try {
+				const client = await DaemonClient.connectTo(socket);
+				await client.request("ping", {});
+				return client;
+			} catch (err) {
+				// the daemon that was started gave up: another one holds this agent directory's state
+				const other = exited ? elsewhere() : undefined;
+				if (other) throw other;
+				if (Date.now() > deadline) {
+					throw new DaemonError(`daemon did not start: ${(err as Error).message}`, "start_timeout");
+				}
+				await new Promise((r) => setTimeout(r, 50));
+			}
+		}
+	}
+
+	request<O extends Op>(op: O, args: ArgsOf<O>): Promise<ResultOf<O>> {
+		return this.requestAt(op, args).then((r) => r.result);
+	}
+
+	/**
+	 * M22: a request and where its reply was in the stream: events with a higher `position()`
+	 * came after it (an event handled before the reply's continuation runs may be newer).
+	 */
+	requestAt<O extends Op>(op: O, args: ArgsOf<O>): Promise<{ result: ResultOf<O>; at: number }> {
+		if (this.closed) return Promise.reject(new DaemonError("daemon connection closed", "closed"));
+		const id = this.nextId++;
+		return new Promise((resolve, reject) => {
+			const entry: { resolve: (v: unknown) => void; reject: (e: Error) => void; at?: number } = {
+				resolve: (v) => resolve({ result: v as ResultOf<O>, at: entry.at ?? this.lines }),
+				reject,
+			};
+			this.pending.set(id, entry);
+			this.sock.write(encodeLine({ id, op, args }));
+		});
+	}
+
+	/** M22: the place in the stream of the line being handled now. */
+	position(): number {
+		return this.lines;
+	}
+
+	/** Receive pushed job events; call after request("subscribe", {}). */
+	onEvent(listener: (event: Event) => void): () => void {
+		this.listeners.add(listener);
+		return () => this.listeners.delete(listener);
+	}
+
+	/** M51: the connection is gone (dropped, or closed): a request on it fails at once. */
+	get isClosed(): boolean {
+		return this.closed;
+	}
+
+	/** Called once when the connection drops (not after close()). */
+	onClose(listener: () => void): () => void {
+		this.closeListeners.add(listener);
+		return () => this.closeListeners.delete(listener);
+	}
+
+	close(): void {
+		this.closeListeners.clear();
+		this.closed = true;
+		this.sock.end();
+		this.sock.destroy();
+	}
+
+	private onLine(line: string): void {
+		if (!line.trim()) return;
+		this.lines++;
+		let msg: Response | Event;
+		try {
+			msg = JSON.parse(line);
+		} catch {
+			return;
+		}
+		if ("event" in msg) {
+			// a listener that throws must not cost the lines after it in this chunk
+			for (const l of this.listeners) {
+				try {
+					l(msg);
+				} catch (err) {
+					queueMicrotask(() => {
+						throw err;
+					});
+				}
+			}
+			return;
+		}
+		const p = this.pending.get(msg.id);
+		if (!p) return;
+		this.pending.delete(msg.id);
+		p.at = this.lines;
+		if (msg.ok) p.resolve(msg.result);
+		else {
+			const err = new DaemonError(msg.error, msg.code);
+			err.fromDaemon = true;
+			p.reject(err);
+		}
+	}
+}

@@ -37,6 +37,7 @@
 - Never run the full vitest suite directly: it includes e2e tests that activate when endpoint/auth env vars are present. For all non-e2e tests, run `./test.sh` from the repo root. It runs `packages/*` only. Otherwise run specific tests from the package root:
   - Vitest: `node "$(git rev-parse --show-toplevel)/node_modules/vitest/dist/cli.js" --run test/specific.test.ts`
   - `packages/xpi-tui` (`node:test`): `node --test test/specific.test.ts`
+- `packages/xpi-roost` is not in `./test.sh` (it has no `test` script): run `npm run test:roost` from `packages/xpi-roost`, or single files with the vitest command above. Its tests start real daemons, hosts and PTYs (no model); after a run, check for leftover processes (`ps -axo pid,ppid,etime,command | grep -E "xroost|src/(daemon|host)/main"`) and kill only those of your own run (their home is under a temp `xroost-*` directory). The suite's global setup sweeps what a killed run leaves.
 - If you create or modify a test file, run it and iterate on test or implementation until it passes.
 - `packages/xpi-coding-agent/test/subagent/` holds the subagent extension's `node:test` suites; see "Testing the subagent extension" in `docs/xin-pi.md`. `npm run test:subagent` is offline. The `test:subagent:real|parent|tui|evals|stress|cache` scripts use real Haiku 5.5 and run by hand. Never start a test runner from inside a test (a past fork bomb).
 - For `packages/xpi-coding-agent/test/suite/`, use `test/suite/harness.ts` + the faux provider. No real provider APIs, keys, or paid tokens.
