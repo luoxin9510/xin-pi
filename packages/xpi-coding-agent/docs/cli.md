@@ -128,7 +128,7 @@ See [Settings](settings.md#tools) for configuring the default tool selection.
 - `-nt`, `--no-tools`<br>
   Starts with all built-in, extension, custom, and MCP tools disabled.
 
-Default enabled tools are `read`, `bash`, `edit`, and `write`, unless `defaultTools` changes them. `--tools` with plain names replaces the whole selection, so name every tool you want. Like `defaultTools`, it also accepts a list of only `+name` and `-name` entries, which adds tools to or removes them from the default selection: `pi --tools +codemode,-write` keeps the other default tools, enables `codemode`, and disables `write`. These entries take exact tool names, not `*` patterns; use `--exclude-tools` to disable tools by pattern. Plain names and `+name`/`-name` entries cannot be mixed. `/reload` enables tools newly added to `defaultTools`, but a tool removed with `-name` stays removed.
+Default enabled tools are `read`, `bash`, `edit`, `write`, and `codemode`, unless `defaultTools` changes them. `--tools` with plain names replaces the whole selection, so name every tool you want. Like `defaultTools`, it also accepts a list of only `+name` and `-name` entries, which adds tools to or removes them from the default selection: `pi --tools +grep,-write` keeps the other default tools, enables `grep`, and disables `write`. These entries take exact tool names, not `*` patterns; use `--exclude-tools` to disable tools by pattern. Plain names and `+name`/`-name` entries cannot be mixed. `/reload` enables tools newly added to `defaultTools`, but a tool removed with `-name` stays removed.
 
 <a id="mcp-tools"></a>
 
@@ -162,19 +162,21 @@ Built-in extensions add two more tools. They are off by default; the MCP extensi
 
 ### Enable codemode
 
-To turn on `codemode` for every session, add it to the default tools in `~/.pi/agent/settings.json` or a project's `.pi/settings.json`:
+`codemode` is one of the default tools, so it is on in every session. To turn it off for every session, remove it in `~/.pi/agent/settings.json` or a project's `.pi/settings.json`:
 
 ```json
 {
-  "defaultTools": ["+codemode"]
+  "defaultTools": ["-codemode"]
 }
 ```
 
-This keeps `read`, `bash`, `edit`, and `write` and adds `codemode`. For one invocation, add it with `--tools`:
+This keeps `read`, `bash`, `edit`, and `write`. For one invocation, remove it with `--tools`:
 
 ```sh
-pi --tools +codemode
+pi --tools -codemode
 ```
+
+A `--tools` list of plain names leaves `codemode` out unless it names it.
 
 Codemode is useful without MCP: scripts can run several tool calls in parallel, filter large output before it reaches the model, call classifier models such as TypeSafe's Jev through `models.classify()` (see [Classifier models](models.md#use-classifier-models)), and generate images through `models.generateImages()` (see [Image models](models.md#use-image-models)).
 

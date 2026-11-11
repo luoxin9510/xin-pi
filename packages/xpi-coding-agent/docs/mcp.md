@@ -229,7 +229,7 @@ Tools with `codemode` or `deferred` exposure can be reached through either indir
 
 `--tools` does not remove MCP tools unless one of its entries starts with `mcp__`; `pi --tools read,codemode,'mcp__radius__*'` keeps only the tools of `radius`. `--exclude-tools` accepts the same patterns, and `--no-mcp` disables MCP for one run (see [Tools](cli.md#tools)).
 
-To keep `codemode` active without MCP servers, add `"defaultTools": ["+codemode"]` to [settings](settings.md#tools). To prevent automatic codemode activation, set `"autoEnableCodemode": false` beside `mcpServers`. A project value overrides the user-level value. Pi warns once when neither `codemode` nor `tool_search` is active and non-direct tools cannot be called.
+`codemode` is a default tool, so it is active without MCP servers unless `defaultTools` removes it (`"-codemode"`, see [settings](settings.md#tools)). When it was removed, MCP servers with `codemode` exposure turn it on again; to prevent that, set `"autoEnableCodemode": false` beside `mcpServers`. A project value overrides the user-level value. Pi warns once when neither `codemode` nor `tool_search` is active and non-direct tools cannot be called.
 
 Text results over 20 KB reach the model with their middle removed around a `…N chars truncated…` marker. The full text is saved to a temporary file named in the result. Codemode scripts receive the complete result and can reduce it before returning output to the model.
 

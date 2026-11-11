@@ -6,6 +6,8 @@ project.
 
 What xin-pi adds to pi:
 
+- **Codemode on by default**: `codemode` is one of the default tools, so the model can run a script that calls other
+  tools in every session; `"defaultTools": ["-codemode"]` or `--tools -codemode` turns it off.
 - **Built-in subagents**: a Claude Code-compatible `Agent` tool for codemode scripts, a panel and a full-screen view of
   running subagents, `/subagents`, background scripts (a script that starts a subagent moves to the background and main
   keeps going), worktree isolation and agent memory.
