@@ -174,6 +174,12 @@ function configuredMcpServers(parent: ParentContext): string[] {
 	);
 }
 
+// Whether the session runs the built-in MCP extension, which children have too (same settings); set at session start.
+let builtinMcp = true;
+export function setBuiltinMcp(loaded: boolean): void {
+	builtinMcp = loaded;
+}
+
 // Every tool of a server, as the MCP extension names them (mcp__<server>__<tool>, other characters become "_").
 const serverTools = (server: string) => `mcp__${server.replace(/[^A-Za-z0-9_]/g, "_")}__*`;
 
@@ -224,11 +230,12 @@ function resolveTools(
 	if (def.mcpServers !== undefined) {
 		const known = configured();
 		const inline = inlineServers(def, known, trusted, warnings);
-		const skipped = Object.keys(def.inlineMcpServers ?? {}).filter((name) => !(name in inline));
-		servers = def.mcpServers.filter((name) => name in inline || (known.includes(name) && !skipped.includes(name)));
+		const isInline = (name: string) => Object.hasOwn(inline, name);
+		const skipped = Object.keys(def.inlineMcpServers ?? {}).filter((name) => !isInline(name));
+		servers = def.mcpServers.filter((name) => isInline(name) || (known.includes(name) && !skipped.includes(name)));
 		otherServers = known.filter((name) => !servers!.includes(name));
 		for (const name of def.mcpServers) {
-			if (!known.includes(name) && !(name in inline) && !skipped.includes(name)) {
+			if (!known.includes(name) && !isInline(name) && !skipped.includes(name)) {
 				warnings.push(`mcpServers: server "${name}" is not configured in mcp.json`);
 			}
 		}
@@ -273,24 +280,33 @@ function inlineServers(
 ): Record<string, McpServerConfig> {
 	const entries = Object.entries(def.inlineMcpServers ?? {});
 	if (entries.length === 0) return {};
-	if (def.scope === "project" && !trusted) {
+	const names = entries.map(([name]) => `"${name}"`).join(", ");
+	// The child takes them with the built-in MCP extension's --mcp-config. Without it (`-builtin:mcp` in the
+	// `extensions` setting, or an extension that replaces it) the flag would be unknown and the child would not start.
+	if (!builtinMcp) {
 		warnings.push(
-			`mcpServers: inline server${entries.length === 1 ? "" : "s"} ${entries.map(([name]) => `"${name}"`).join(", ")} skipped: the project is not trusted`,
+			`mcpServers: inline server${entries.length === 1 ? "" : "s"} ${names} skipped: the built-in MCP extension is not loaded`,
 		);
 		return {};
 	}
-	const accepted: Record<string, McpServerConfig> = {};
+	if (def.scope === "project" && !trusted) {
+		warnings.push(
+			`mcpServers: inline server${entries.length === 1 ? "" : "s"} ${names} skipped: the project is not trusted`,
+		);
+		return {};
+	}
+	const accepted = new Map<string, McpServerConfig>();
 	for (const [name, config] of entries) {
-		const clash = [...configured, ...Object.keys(accepted)].find(
+		const clash = [...configured, ...accepted.keys()].find(
 			(other) => other !== name && mcpNamespace(other) === mcpNamespace(name),
 		);
 		if (clash) {
 			warnings.push(`mcpServers: inline server "${name}" skipped: it conflicts with "${clash}"`);
 			continue;
 		}
-		accepted[name] = config;
+		accepted.set(name, config);
 	}
-	return accepted;
+	return Object.fromEntries(accepted);
 }
 
 // `parentCwd` is where skills are looked up; `cwd` is the child's working directory (a worktree when isolated).

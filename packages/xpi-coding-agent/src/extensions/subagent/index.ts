@@ -12,6 +12,7 @@ import { discoverAgents, parseCliAgents, setCliAgents } from "./discovery.ts";
 import { bindHost, limitConcurrency } from "./exchange.ts";
 import { installPanel } from "./panel.ts";
 import { registry } from "./registry.ts";
+import { setBuiltinMcp } from "./resolve.ts";
 import type { Run } from "./runs.ts";
 import { scriptHelpers } from "./script-helpers.ts";
 import { sendMessageTool } from "./send-message-tool.ts";
@@ -250,6 +251,7 @@ export default function subagent(pi: ExtensionAPI) {
 			throw err;
 		}
 		limitConcurrency(config.maxConcurrent);
+		setBuiltinMcp(pi.getCommands().some((c) => c.name === "mcp" && c.sourceInfo?.path === "builtin:mcp"));
 		disconnect?.();
 		disconnect = scripts.connect({
 			sessionId: () => current?.sessionManager.getSessionId(),

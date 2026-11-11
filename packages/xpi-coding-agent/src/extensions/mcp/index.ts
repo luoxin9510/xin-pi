@@ -287,7 +287,7 @@ export function createMcpExtension(options: McpExtensionOptions = {}): Extension
 				'MCP servers for this run, added after mcp.json: the path of a JSON file or JSON, {"mcpServers": {...}} as in mcp.json.',
 			// JSON or a file that does not parse stops the start: the run would lack servers it was asked for.
 			validate: (value, cwd) => {
-				parseMcpConfigFlag(value, cwd);
+				if (value !== "") parseMcpConfigFlag(value, cwd);
 				return undefined;
 			},
 		});
@@ -1132,7 +1132,8 @@ export function createMcpExtension(options: McpExtensionOptions = {}): Extension
 			try {
 				if (typeof flagValue === "string" && flagValue !== "") flag = parseMcpConfigFlag(flagValue, ctx.cwd);
 			} catch (error) {
-				// Checked at startup (validate above); a file changed since then is reported with the config errors.
+				// Checked at startup (validate above). After /new, a resume or a fork it is read again from the session's cwd;
+				// a failure then is reported with the config errors and the run goes on without those servers.
 				flagError = errorMessage(error);
 			}
 			const loaded = (options.loadConfig ?? defaultLoadConfig)(ctx, flag);

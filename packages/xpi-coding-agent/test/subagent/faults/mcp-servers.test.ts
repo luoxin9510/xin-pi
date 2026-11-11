@@ -193,3 +193,26 @@ test("discovery sets the scope: project files, user files, --agents and built-in
 		setCliAgents(undefined, s.repo);
 	}
 });
+
+test("without the built-in MCP extension the child could not take --mcp-config: inline servers are skipped with a warning", async () => {
+	const s = sandbox();
+	s.write(join(s.repo, ".pi/agents/x.md"), agentFile(`name: x\ndescription: d\ntools: Read\n${INLINE}`));
+	s.scenario({ lines: [ev.session(), ev.assistant("ok"), ev.turnEnd(), ev.settled()] });
+	const t = await loadTool({}, { cwd: s.repo, noBuiltinMcp: true });
+	const r = (await t.run({ subagent_type: "x" })).structuredContent;
+	assert.equal(r.status, "completed");
+	assert.equal(flag(s.record().argv, "--mcp-config"), undefined);
+	assert.deepEqual(r.warnings, [
+		'mcpServers: inline server "local" skipped: the built-in MCP extension is not loaded',
+		'mcpServers: server "docs" is not configured in mcp.json',
+	]);
+});
+
+test("server names that are Object.prototype keys are ordinary names", async () => {
+	const unknown = await run("tools: Read\nmcpServers: [toString]");
+	assert.equal(unknown.tools, "codemode,read");
+	assert.deepEqual(unknown.warnings, ['mcpServers: server "toString" is not configured in mcp.json']);
+	const inline = await run("tools: Read\nmcpServers:\n  __proto__:\n    command: x");
+	assert.deepEqual(Object.keys(inline.inline), ["__proto__"]);
+	assert.equal(inline.tools, "codemode,read,mcp____proto____*");
+});

@@ -72,7 +72,8 @@ function mcpServersField(
 	if (value === undefined || value === null) return {};
 	const entries = typeof value === "string" ? value.split(",").map((s) => s.trim()) : value;
 	const names: string[] = [];
-	const inline: Record<string, McpServerConfig> = {};
+	// A Map, then own properties: a server named "__proto__" stays an ordinary key.
+	const inline = new Map<string, McpServerConfig>();
 	const addInline = (definitions: Record<string, unknown>) => {
 		for (const [name, raw] of Object.entries(definitions)) {
 			if (names.includes(name)) {
@@ -91,7 +92,7 @@ function mcpServersField(
 				continue;
 			}
 			names.push(name);
-			inline[name] = config;
+			inline.set(name, config);
 		}
 	};
 	if (!Array.isArray(entries)) {
@@ -105,7 +106,7 @@ function mcpServersField(
 			else throw new Skip('"mcpServers" must be a list of server names or inline definitions');
 		}
 	}
-	return { names, ...(Object.keys(inline).length > 0 ? { inline } : {}) };
+	return { names, ...(inline.size > 0 ? { inline: Object.fromEntries(inline) } : {}) };
 }
 
 // The agent name becomes a directory name and a line in .git/info/exclude.
@@ -144,7 +145,8 @@ function quotePlainValues(yaml: string): string {
 }
 
 // `scope` is where the file was found (discovery passes it); it decides what its inline MCP servers may do.
-export function parseDefinition(source: string, text: string, scope: AgentScope = "user"): ParseResult {
+// Without one, the file counts as a project's: the scope that may do the least.
+export function parseDefinition(source: string, text: string, scope: AgentScope = "project"): ParseResult {
 	const lines = text.replace(/^﻿/, "").split(/\r?\n/);
 	if (lines[0]?.trim() !== "---") return { ok: false, reason: "file does not start with --- frontmatter" };
 	const end = lines.findIndex((line, i) => i > 0 && line.trim() === "---");
@@ -176,7 +178,7 @@ export function definitionFromFields(
 	source: string,
 	f: Record<string, unknown>,
 	prompt: string,
-	scope: AgentScope = "user",
+	scope: AgentScope = "project",
 ): ParseResult {
 	const name = f.name;
 	if (name === undefined || name === null) return { ok: false, reason: 'missing "name"' };

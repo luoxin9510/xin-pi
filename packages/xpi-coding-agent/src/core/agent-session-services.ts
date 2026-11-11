@@ -115,8 +115,10 @@ function applyExtensionFlagValues(
 			} catch (error) {
 				invalid = error instanceof Error ? error.message : String(error);
 			}
+			// At startup the error stops the run. The services are created again for /new, a resume or a fork, whose
+			// diagnostics nobody reads: the value is kept, so the extension's session_start reports the problem itself.
 			if (invalid !== undefined) diagnostics.push({ type: "error", message: invalid });
-			else extensionsResult.runtime.flagValues.set(name, value);
+			extensionsResult.runtime.flagValues.set(name, value);
 			continue;
 		}
 		diagnostics.push({

@@ -387,6 +387,10 @@ mcpServers:
 
 - Only the child connects to them, and it disconnects when it ends: the child gets them with
   [`--mcp-config`](mcp.md#add-servers-for-one-run), as JSON in its arguments. The parent session does not get them.
+  Values written out in the file (an `env` token, say) are visible in the process list then; use `${VAR}`, which the
+  child expands. Servers the parent got from its own `--mcp-config` are not passed on.
+- They need the built-in MCP extension. With it turned off (`-builtin:mcp` in the `extensions` setting) or replaced by
+  another MCP extension, they are skipped with a warning in the result.
 - Their tools are handled like a named server's: with a `tools` list, `mcp__<server>__*` joins it.
 - Types are those `mcp.json` accepts (`stdio`, `http`, `streamable-http`, or none). An entry it rejects (`sse`, `ws`, a
   bad field) is skipped with a warning at discovery that gives the reason.

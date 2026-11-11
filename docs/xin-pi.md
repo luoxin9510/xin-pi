@@ -319,7 +319,9 @@ An error thrown by a `session_start` handler is only reported, so an extension c
 unusable. xin-pi adds `validate(value, cwd)` to string flags (`registerFlag`, `ExtensionFlag` in
 `src/core/extensions/types.ts`, kept by `loader.ts`). `applyExtensionFlagValues` (`src/core/agent-session-services.ts`)
 calls it for a command-line value with the session cwd; a returned message or a throw becomes an `error` diagnostic,
-which stops the start in every mode, as an unknown option does. `--agents` (subagent) and `--mcp-config` (MCP) use it.
+which stops the start in every mode, as an unknown option does. The services are created again for `/new`, a resume or
+a fork, whose diagnostics are not shown: there the value is set anyway, so the extension's `session_start` reports the
+problem. `--agents` (subagent) and `--mcp-config` (MCP) use it.
 User docs: `extensions.md#piregisterflagname-options`. Tests: `test/extension-flag-validate.test.ts`,
 `test/subagent/faults/cli-agents.test.ts`.
 

@@ -2025,7 +2025,7 @@ pi.on("session_start", () => {
 });
 ```
 
-A string flag can take `validate(value, cwd)`. Pi calls it with a value given on the command line before the session starts, with the session's working directory. A returned message, or an error it throws, stops the start with that error, as an unknown option does. An error thrown by a `session_start` handler is only reported, so it cannot stop a run.
+A string flag can take `validate(value, cwd)`. Pi calls it with a value given on the command line before the session starts, with the session's working directory. A returned message, or an error it throws, stops the start with that error, as an unknown option does. An error thrown by a `session_start` handler is only reported, so it cannot stop a run. `/new`, a resume and a fork check the value again with that session's working directory; a failure there does not stop the run and the value is still set, so the extension's `session_start` should report it.
 
 ```typescript
 pi.registerFlag("config-file", {

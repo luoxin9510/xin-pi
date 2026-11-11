@@ -47,14 +47,16 @@ describe("extension flag validate", () => {
 		expect(services.resourceLoader.getExtensions().runtime.flagValues.get("shape")).toBe("round");
 	});
 
-	it("turns a returned message or a throw into an error diagnostic, which stops the start, and leaves the flag unset", async () => {
+	// At startup the error diagnostic stops the run (main.ts). Services are created again for /new, a resume or a fork,
+	// whose diagnostics are not shown: the value stays set, so the extension's session_start can report it.
+	it("turns a returned message or a throw into an error diagnostic and keeps the value for the extension", async () => {
 		for (const [value, message] of [
 			["square", '--shape: "square" is not round'],
 			["throw", "--shape: cannot read it"],
 		]) {
 			const { services } = await servicesWith(value!);
 			expect(services.diagnostics).toContainEqual({ type: "error", message });
-			expect(services.resourceLoader.getExtensions().runtime.flagValues.has("shape")).toBe(false);
+			expect(services.resourceLoader.getExtensions().runtime.flagValues.get("shape")).toBe(value);
 		}
 	});
 });

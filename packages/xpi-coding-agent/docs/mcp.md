@@ -81,7 +81,9 @@ pi --mcp-config '{"mcpServers": {"probe": {"command": "node", "args": ["probe-se
 pi --mcp-config ./ci-mcp.json
 ```
 
-JSON or a file that does not parse stops the start with the reason. An entry that is not valid is reported and skipped, as in `mcp.json`. The flag takes one value; the last one given wins. `/mcp` lists these servers with the scope `cli`, and changes to them last for the session only. Subagents use this flag to give a child the [inline servers](subagent.md#inline-servers) of its agent file.
+JSON or a file that does not parse stops the start with the reason. After `/new`, a resume or a fork a relative path is read again from that session's working directory; if that fails, the error is listed with the configuration problems and the run goes on without those servers. An entry that is not valid is reported and skipped, as in `mcp.json`. The flag takes one value; the last one given wins. `/mcp` lists these servers with the scope `cli`, and changes to them last for the session only.
+
+The servers belong to this process: subagents do not get them (an agent's `mcpServers` cannot name them). Subagents use this flag themselves to give a child the [inline servers](subagent.md#inline-servers) of its agent file.
 
 ### Configuration rules
 

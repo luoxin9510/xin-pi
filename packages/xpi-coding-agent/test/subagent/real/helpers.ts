@@ -90,7 +90,11 @@ export async function loadTool(settings: Record<string, unknown>, c: Ctx) {
 		on: (event: string, h: Function) => (handlers[event] ??= []).push(h),
 		registerTool: (t: any) => (tools[t.name] = t),
 		registerCommand: (name: string, c: any) => (commands[name] = c),
-		getCommands: () => Object.keys(commands).map((name) => ({ name })),
+		// The built-in MCP extension's /mcp, as a real session has it: inline mcpServers need it (resolve.ts).
+		getCommands: () => [
+			...Object.keys(commands).map((name) => ({ name })),
+			{ name: "mcp", sourceInfo: { path: "builtin:mcp" } },
+		],
 		registerFlag: () => {},
 		getFlag: () => undefined,
 		sendMessage: (message: any, options: any) => messages.push({ message, options }),

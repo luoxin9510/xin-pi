@@ -129,6 +129,7 @@ interface FakeCtx {
 	sessionId?: string;
 	sendThrows?: string; // pi.sendMessage throws an error with this message
 	otherCommands?: string[]; // command names other extensions registered
+	noBuiltinMcp?: boolean; // the built-in MCP extension is not loaded (no builtin /mcp command)
 	flags?: Record<string, string>; // CLI flag values, as pi.getFlag returns them (`agents`)
 	notes?: string[]; // collects ui notifications even when loading throws
 }
@@ -144,7 +145,10 @@ export async function loadTool(settings: Record<string, unknown>, c: FakeCtx) {
 		on: (event: string, h: Function) => (handlers[event] ??= []).push(h),
 		registerTool: (t: any) => (tools[t.name] = t),
 		registerCommand: (name: string, c: any) => (commands[name] = c),
-		getCommands: () => [...(c.otherCommands ?? []), ...Object.keys(commands)].map((name) => ({ name })),
+		getCommands: () => [
+			...[...(c.otherCommands ?? []), ...Object.keys(commands)].map((name) => ({ name })),
+			...(c.noBuiltinMcp ? [] : [{ name: "mcp", sourceInfo: { path: "builtin:mcp" } }]),
+		],
 		registerFlag: () => {},
 		getFlag: (name: string) => c.flags?.[name],
 		sendMessage: (m: any, o: any) => {
