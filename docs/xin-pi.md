@@ -17,8 +17,10 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
   `.scratch/xpi-roost/01-roost-core.md`). It imports nothing of xpi: the caller gives it the agent directory and the
   daemon and host entry files, and they travel to the daemon, hosts and sessions in `ROOST_*` variables. State is in
   `<agent dir>/xpi-roost/`, sockets in a runtime directory keyed by the agent directory, settings in the `"roost"` section
-  of `settings.json`. Its README, `docs/protocol.md` and `docs/port-inventory.md` describe it. The hub and `/bg`
-  are not there yet.
+  of `settings.json`. Its README, `docs/protocol.md` and `docs/port-inventory.md` describe it. The hub is its own entry,
+  `xpi-roost/hub` (`src/hub/`, drawn with `xpi-tui`, the only xpi package xpi-roost imports, and only there): xpi
+  supplies the daemon connection, the detach key, how sessions launch, models, presets and the command table
+  (`AgentViewOptions`).
 - `xpi roost <subcommand>` (user docs: [CLI](../packages/xpi-coding-agent/docs/cli.md#background-session-commands)) is
   dispatched in `coding-agent/src/main.ts` next to `xpi mcp`, through `src/extensions/roost/cli.lazy.ts`. The commands
   live in `xpi-roost/src/cli.ts` (`runRoostCli`); `src/extensions/roost/cli.ts` supplies the agent directory, the entry
@@ -32,8 +34,9 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
   `xpi-roost/host` (their `dist`). xpi-roost is a `devDependency` of coding-agent and is inlined, `@xterm/headless` and
   `@xterm/addon-serialize` too (pure JS, in the host entry only). node-pty is the one external; the build fails if
   any output other than the host imports it. `npm run build` builds xpi-roost (`tsc -p tsconfig.build.json`) before
-  coding-agent, and `check-entry-graphs.mjs` budgets its four entries (`.`, `./session`, `./daemon`, `./host`), each
-  forbidden to pull in the others; `./session` may not reach the client or anything else that connects.
+  coding-agent, and `check-entry-graphs.mjs` budgets its five entries (`.`, `./session`, `./hub`, `./daemon`, `./host`),
+  each forbidden to pull in the others; `./session` may not reach the client or anything else that connects, `./hub`
+  not the daemon, the host or the command line.
 - node-pty is an `optionalDependencies` entry of `xpi-coding-agent` (pinned), so an install that cannot compile it on
   Linux still succeeds; `xpi roost respawn` and `attach` to a session that is not running then say how to get it. The install lock allows its install script
   (`allowedInstallScriptPackages` in `scripts/generate-coding-agent-install-lock.mjs`, with the reason: no Linux
@@ -76,8 +79,15 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
     `ReplyQueue`, `commands.json` for the hub's peek, the detach keys (`detach-keys.ts`, from the keybindings; the left
     arrow is AGENTS.md's exemption), the recap on attach (`recap.ts`; it installs the process's SIGUSR2 handler, and
     reports say `attachSignal: true` only once it is in) and the earlier history (`earlier-history.ts`, M53, xpi's own
-    message components). Extension API only; no core change. User docs:
-    [roost.md](../packages/xpi-coding-agent/docs/roost.md).
+    message components). In every other session the foreground role (`foreground.ts`): `/bg` (`/background`),
+    `/bg-fork` and the left arrow on an empty prompt (`leftArrowOpensAgents`; AGENTS.md's exemption), which hand the
+    session file to the daemon through a never-written scratch session (`<agent dir>/xpi-roost/scratch/`, not locked)
+    and open the hub. In both, `/agents` (`open-view.ts`, `ctx.ui.custom`). `foreground.ts` loads light: the client,
+    the launch builder (`handoff.ts`) and the hub load through `hub.lazy.ts` when used. `hub-options.ts` is what the hub
+    gets from xpi (launch, resume, presets and grouping written back with `SettingsManager.setRoostSetting`, the trust
+    decision by `sessionTrust`'s rule); `commands.ts` classifies xpi's slash commands for the peek (T18,
+    `test/roost-commands.test.ts`); `hub-main.ts` is `xpi roost hub [dir]` (`runRoostCli`'s `hub` option). One core
+    change: `SettingsManager.setRoostSetting`. User docs: [roost.md](../packages/xpi-coding-agent/docs/roost.md).
 - `coding-agent/package.json`: `copy-assets` also copies `src/extensions/subagent/builtin/*.md` to
   `dist/extensions/subagent/builtin` and `builtin/workflows/*.js` to `dist/extensions/subagent/builtin/workflows`.
   `scripts/build-binaries.sh` copies `dist/extensions/subagent/builtin` next to the standalone executable (where

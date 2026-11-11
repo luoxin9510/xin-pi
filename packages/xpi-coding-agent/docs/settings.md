@@ -203,10 +203,10 @@ The built-in `commit` extension (`/commit`) reads a `commit` block:
 
 ## Background sessions
 
-The `roost` block configures background sessions (`xpi --bg`, `xpi roost`; see [Background Sessions](roost.md)). The
-daemon of an agent directory reads `reapIdleMinutes` and `cleanupDays` from `<agent dir>/settings.json` itself, each
-time it uses them, so they come from your settings only. `xpi --bg` reads the block of the directory it starts the
-session in: a trusted project's `.pi/settings.json` adds to yours key by key, but never the environment keys (marked
+The `roost` block configures background sessions (`xpi --bg`, the hub, `/bg`, `xpi roost`; see
+[Background Sessions](roost.md)). The daemon of an agent directory reads `reapIdleMinutes` and `cleanupDays` from
+`<agent dir>/settings.json` itself, each time it uses them, so they come from your settings only. `xpi --bg`, `/bg` and
+the hub read the block of the directory they run in: a trusted project's `.pi/settings.json` adds to yours key by key, but never the environment keys (marked
 "user only"): a cloned repository must not choose which of your environment reaches its sessions. A `roost.json` file
 is not read. Keys of the wrong type are ignored.
 
@@ -218,17 +218,17 @@ is not read. Keys of the wrong type are ignored.
 | `roost.envAllowList` | `string[]` | `[]` | User only. Variables carried even when `inheritEnv` is off or `envDenyList` names them. |
 | `roost.envDenyList` | `string[]` | `[]` | User only. Variables never carried; `"PREFIX*"` names a prefix. |
 | `roost.workspaceEnv` | `"shell" \| "direnv" \| "off"` | `"shell"` | User only. The session directory's own environment on top: what its shell's cd hooks set (direnv, mise, fnm, ...), direnv only, or nothing. |
-| `roost.dispatchModel` | string | Session default | Model of a new background session, `"provider/model"`; `--model` or `--provider` on the `xpi --bg` command line wins. |
-| `roost.dispatchThinking` | string | Session default | Thinking level of a new background session; `--thinking` on the command line wins. |
-| `roost.presets` | object | None | Saved choices for new sessions by name: `{ "fast": { "model": "provider/model", "thinking": "low", "dir": "sub/dir" } }`. `dir` is relative to the hub's directory and never above it. The user's and a project's presets merge by name, a project's winning. |
-| `roost.leftArrowOpensAgents` | boolean | `true` | The left arrow on an empty editor opens the hub. |
-| `roost.groupBy` | `"state" \| "directory"` | `"state"` | How the hub groups sessions. |
-| `roost.fullscreen` | boolean | `true` | The hub covers the whole terminal; `false` shows it below the conversation. |
+| `roost.dispatchModel` | string | Session default | Model of a new background session (`xpi --bg`, the hub), `"provider/model"`; `--model` or `--provider` on the `xpi --bg` command line, or the hub's `/model`, wins. |
+| `roost.dispatchThinking` | string | Session default | Thinking level of a new background session; `--thinking` on the command line, or the hub's `/thinking`, wins. |
+| `roost.presets` | object | None | Saved choices for new sessions by name: `{ "fast": { "model": "provider/model", "thinking": "low", "dir": "sub/dir" } }`. `dir` is relative to the hub's directory and never above it. The user's and a project's presets merge by name, a project's winning. The hub's `/preset save` and `/preset rm` change your own. |
+| `roost.leftArrowOpensAgents` | boolean | `true` | The left arrow on an empty editor hands the conversation over (`/bg`) and opens the hub. |
+| `roost.groupBy` | `"state" \| "directory"` | `"state"` | How the hub groups sessions; Ctrl+S in the hub saves it to your settings. |
+| `roost.fullscreen` | boolean | `true` | `/agents` covers the whole terminal; `false` shows the hub in place of the editor. `xpi roost hub` always covers it. |
 | `roost.rowDetails` | boolean | `true` | Each row of the hub shows its model and context use. |
 | `roost.notify` | `"auto" \| "osc9" \| "osc777" \| "bell" \| "off"` | `"auto"` | How the hub makes the terminal notify. |
 
-The environment and dispatch keys apply to each session `xpi --bg` starts. The preset and hub keys take effect with the
-hub, which is not in this version yet.
+The environment and dispatch keys apply to each session `xpi --bg`, `/bg`, `/bg-fork` and the hub start. What the hub
+changes (a preset, the grouping) is written to your own `settings.json`, never to a project's.
 
 ## Updates, telemetry, and warnings
 

@@ -361,10 +361,11 @@ Project `.pi/mcp.json` files are only read for projects that are already trusted
 
 `xpi roost` lists and controls background sessions: xpi sessions that a per-agent-directory daemon runs in
 pseudo-terminals, so they keep running after the terminal that started them closes. `xpi --bg "<task>"` starts one; see
-[Background Sessions](roost.md). The hub and `/bg` come later.
+[Background Sessions](roost.md). In a session, `/agents` opens the hub and `/bg` hands the conversation over.
 
 | Command | Description |
 |---|---|
+| `xpi roost hub [dir]` | The hub in this terminal: every session, peek, reply, attach, start new ones (in `dir`, default the current directory). A session it starts outside a folder with a stored trust decision gets `--no-approve`. Needs a terminal; see [The hub](roost.md#the-hub) |
 | `xpi roost ls [--all] [--cwd <dir>] [--json]` | List sessions (also `list`). Ended sessions older than 48 hours are shown with `--all`; `--cwd` keeps the sessions of one directory; `--json` prints the rows for programs |
 | `xpi roost attach <id\|name>` | Open a session in this terminal. The `app.suspend` key (default `ctrl+z`, see [Keybindings](keybindings.md)) detaches and leaves it running. An ended session is started again first; one that failed is told to continue where it left off. Needs a terminal |
 | `xpi roost logs <id\|name>` | Print the session's current screen, or its last one when it has ended |
@@ -379,7 +380,7 @@ pseudo-terminals, so they keep running after the terminal that started them clos
 | `xpi roost daemon stop [--keep-workers]` | Stop the daemon and its sessions; with `--keep-workers` the sessions keep running and the next daemon takes them over |
 
 The commands outside `daemon` start the agent directory's daemon when it is not running; `daemon ...` never starts one. A session is named by its id, a
-unique id prefix or its name. An unknown command exits with `2`; `xpi roost hub` says the hub is not in this version yet.
+unique id prefix or its name. An unknown command exits with `2`.
 
 After an upgrade the running daemon still has the old code, and every command warns about it until it is restarted:
 run `xpi roost daemon stop --keep-workers`, then `xpi roost respawn --all`.

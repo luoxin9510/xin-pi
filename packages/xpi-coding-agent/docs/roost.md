@@ -6,17 +6,19 @@ their screens, reply to them, and attach to one to use its whole TUI, then detac
 
 ```bash
 xpi --bg "run the tests and fix what fails"
+xpi roost hub
 xpi roost ls
 xpi roost reply <id> "use pnpm, not npm"
 xpi roost attach <id>
 ```
 
-The built-in `roost` extension provides `--bg` and the session side; `xpi roost` is the command line. They need macOS
-or Linux and the npm installation of xpi (see [Requirements](#requirements)). `-builtin:roost` in `extensions` turns
-the extension off: then there is no `--bg`, and a session the daemon runs neither reports nor takes replies.
+In a session, `/agents` (or the left arrow on an empty prompt) opens [the hub](#the-hub), where you start sessions,
+peek at them, reply and attach; `/bg` [hands the conversation you are in](#hand-a-conversation-over) to the daemon.
 
-This version has `--bg` and the command line. The hub (an overview of the sessions inside xpi, `/agents` and
-`xpi roost hub`) and handing a running session over with `/bg` come later.
+The built-in `roost` extension provides `--bg`, `/agents`, `/bg`, `/bg-fork` and the session side; `xpi roost` is the
+command line. They need macOS or Linux and the npm installation of xpi (see [Requirements](#requirements)).
+`-builtin:roost` in `extensions` turns the extension off: then there is no `--bg`, no `/agents` or `/bg`, and a
+session the daemon runs neither reports nor takes replies.
 
 ## Start a session
 
@@ -47,6 +49,13 @@ The answer is part of the session's command: every later start of that session (
 session, a restart after a crash) uses it without asking again, also an answer given for one run only. In a folder that
 has nothing to trust yet, the session gets `--no-approve` unless you passed `--approve` or a decision is stored, so
 project extensions that appear later do not load in it unasked.
+
+Every session the hub starts, resumes or is handed (`/bg`, `/bg-fork`) gets a decision by the same rule. In the folder
+of the xpi the hub runs in, that is this xpi's answer and command line, as for `--bg`. In any other folder (a session
+started with `@dir`, a preset's directory, a resumed session from elsewhere) and in `xpi roost hub`, which has no
+session of its own, only a stored decision counts: without one the session gets `--no-approve`, and its project
+extensions, skills and context files do not load. To run sessions in a folder with its project resources, store a
+decision there first: run xpi in it once and answer the question, or use `/trust`.
 
 The `roost` settings choose a new session's model, thinking level and environment; see [Settings](#settings).
 
@@ -102,14 +111,85 @@ question asked. It is not part of the model's context.
 In fullscreen xpi, scrolling a session's transcript to its top loads the conversation from before its latest
 compaction, a few messages at a time.
 
+## The hub
+
+The hub lists the sessions the daemon runs and lets you start, watch, answer and open them. `/agents` opens it in a
+session (over the conversation, or in place of the editor with `"fullscreen": false`); `xpi roost hub [dir]` opens it in
+a terminal of its own, with new sessions starting in `dir` (default: the current directory). A foreground xpi is not in
+the list until it is handed over with `/bg`; subagents are not listed (see `/subagents` in their session).
+
+Rows are grouped by state (needs input, working, completed; pinned first) or by directory. Each row shows its name, what
+it is doing or its last result, its model and context use, what it spent, and its age.
+
+| Key | What it does |
+|---|---|
+| type, Enter | Start the typed task as a new session in the hub's directory (`@dir task`: in that directory; `! command`: a shell command as a session) |
+| Ctrl+Enter | Start the typed task and attach to it |
+| Enter or → | Attach to the selected session (its own TUI); the [detach keys](#attach-and-detach) bring you back |
+| Space | Peek: its task, directory, state, model, cost, queued replies and the end of its transcript, with a reply box |
+| in a peek: Enter / Alt+Enter | Send the reply: it joins the current work (as in xpi), or waits for it to end |
+| in a peek: `/…` | Act on that session: `/stop`, `/respawn`, `/rm`, `/pin`, `/rename`, `/attach`, `/model`, `/thinking`, `/name`, `/compact`, `/continue`, `/log`, `/transcript`, the session's own commands, and xpi's (see below) |
+| Ctrl+X | Stop; again within 2 s deletes (on a group header: the group) |
+| Ctrl+T, Ctrl+R | Pin or unpin (pinned sessions are never stopped for being idle), rename |
+| Ctrl+O | Mark the row (on a header: the group); typed text, `/model`, `/thinking`, Ctrl+X and Ctrl+T then act on every marked session |
+| Shift+↑ Shift+↓, Alt+↑ Alt+↓ | Move the row within its group, jump to the previous or next group |
+| Alt+1…9 | Attach to row N of this directory |
+| Ctrl+S | Group by state or by directory (saved to your settings) |
+| Ctrl+F, `s:` `n:` `o:` | Filter by name, state or result |
+| Ctrl+L, Ctrl+P, Shift+Tab | The model for new sessions (in a peek: for that session), the next enabled model, the next thinking level |
+| Ctrl+G | Write the task or reply in `$VISUAL` / `$EDITOR` |
+| ? | All keys |
+| Esc, Ctrl+C twice | Close the peek, clear the input, unmark, then leave the hub (sessions keep running) |
+
+The hub's own commands, typed in the input:
+
+| Command | What it does |
+|---|---|
+| `/model [provider/model]`, `/thinking [level]` | The model and thinking level of new sessions (bare: pick; `default` resets) |
+| `/preset [name]` | Apply a saved choice of model, thinking level and directory for new sessions; `/preset save <name>`, `/preset rm <name>`, `/preset off` |
+| `/resume` | Open a past session in the background (xpi's session list: search, this directory or all) |
+| `/usage` | What the sessions spent: today, in all, by model and by session |
+| `/log` | What happened lately: starts, questions, results, replies, newest first |
+
+xpi's own commands typed in a peek run in that session's xpi: those that show something (`/session`, `/export`,
+`/hotkeys`, ...) show its screen in the hub; those that open a picker (`/tree`, `/settings`, `/resume`, ...) attach
+to it so you can use the picker; `/quit` asks twice. An extension command, `/subtask` or `/review` goes to the session
+as a reply and its xpi runs it. A shell command's session takes no replies; attach to type into it.
+
+The hub uses your keybindings for the detach key only; its other keys are fixed (listed in AGENTS.md's exemptions).
+
+## Hand a conversation over
+
+| Command | What it does |
+|---|---|
+| `/bg [prompt]` (also `/background`) | Hand this conversation to the daemon and open the hub on it; you get a fresh session here |
+| `/bg-fork [prompt]` | Copy this conversation into a new background session; this one carries on |
+| the left arrow on an empty prompt | `/bg`; with no saved conversation yet, it just opens the hub |
+
+`/bg` waits up to ten seconds for a running tool to finish (the left arrow again skips the wait), interrupts the turn,
+and the session continues in the background with "Continue where you left off." and your prompt. It leaves the
+session file first, so only the daemon's session writes to it. In the hub the moved session is shown in bold, with
+"Your conversation moved to the background" above the list; Esc goes into it. `/bg` refuses while a dialog is open,
+during compaction, and without a session file (`--no-session`).
+
+The session keeps this xpi's current model and thinking level, and gets this xpi's trust decision for the folder by
+the rule [above](#start-a-session). `"leftArrowOpensAgents": false` turns the left arrow off. In a session the daemon
+runs, the left arrow detaches instead (see [Attach and detach](#attach-and-detach)).
+
 ## Settings
 
 The `roost` block of `settings.json` (see [Settings](settings.md#background-sessions)):
 
 | Setting | Default | Applies to |
 |---|---|---|
-| `dispatchModel` | the session default | the model of a session `--bg` starts, unless the command line gives `--model` or `--provider` |
+| `dispatchModel` | the session default | the model of a session `--bg` or the hub starts, unless the command line gives `--model` or `--provider` |
 | `dispatchThinking` | the session default | its thinking level, unless the command line gives `--thinking` |
+| `presets` | none | the hub's saved choices for new sessions (`/preset`) |
+| `leftArrowOpensAgents` | `true` | the left arrow on an empty prompt hands the conversation over and opens the hub |
+| `groupBy` | `"state"` | how the hub groups its rows (Ctrl+S changes it) |
+| `fullscreen` | `true` | `/agents` covers the conversation; `false`: in place of the editor |
+| `rowDetails` | `true` | each row shows its model and context use |
+| `notify` | `"auto"` | how the hub makes the terminal notify when a session needs input or finishes: `"osc9"`, `"osc777"`, `"bell"` or `"off"` |
 | `inheritEnv` | `true` | the session starts with this shell's environment; `false`: only the login basics, `LC_*` and `envAllowList` |
 | `envAllowList` | `[]` | variables carried even when `inheritEnv` is off or `envDenyList` names them |
 | `envDenyList` | `[]` | variables never carried; `"PREFIX*"` names a prefix |
@@ -135,7 +215,8 @@ starts a session on a file another xpi has open.
 
 ## Requirements
 
-- **macOS or Linux.** On Windows `--bg` and `xpi roost` say background sessions are not supported (use WSL).
+- **macOS or Linux.** On Windows `--bg`, `/agents`, `/bg` and `xpi roost` say background sessions are not supported
+  (use WSL).
 - **The npm installation of xpi** (`npm install -g xpi-coding-agent`). A standalone binary has no Node runtime for the
   daemon and says so.
 - **node-pty**, an optional dependency installed with xpi. On Linux it compiles during the install and needs python3,
@@ -146,6 +227,4 @@ After an upgrade, a running daemon still has the old code: run `xpi roost daemon
 
 ## Not there yet
 
-- The hub: `/agents`, `xpi roost hub`, the left arrow that opens it.
-- `/bg` and `/bg-fork`, which hand the running session (or a copy) to the daemon.
 - Sessions resuming on their own after an interruption, schedules, and messages between sessions.
