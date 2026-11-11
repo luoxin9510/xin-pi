@@ -1,6 +1,6 @@
 # 02: xpi-roost, phase 2: schedules
 
-Status: draft for the owner's approval. Decisions: Grill 4 of `decisions.md` (2026-11-12).
+Status: draft for the owner's approval. Decisions: Grills 4 and 5 of `decisions.md` (2026-11-12).
 
 ## Goal
 
@@ -50,74 +50,135 @@ Checked on main (5f2cf66e1, v1.9.0) and pi-roost's main.
   (`packages/xpi-roost/src/lib/dispatch.ts`) with `trusted`; `sessionTrust`/`trustFor` (the trust rule, in the
   extension: the daemon cannot read xpi's trust store); idle reaping (`reapIdleMinutes`); hub notifications (`notify`);
   `rm` deletes a record and keeps the session file, which `/resume` still finds.
+- The daemon starts only when a client needs it (`xpi roost`, the hub, `xpi --bg`: `connectOrStart` in
+  `packages/xpi-roost/src/lib/client.ts`); nothing starts it at login, and `xpi roost daemon stop` stops it.
+- "Waiting for an answer" is a heuristic: a run whose last reply ends in a question (`worker-state.ts`,
+  `heuristics.ts`). A reaped run keeps `state: "blocked"` with `waitingFor` cleared. pi-roost treats a scheduled run
+  that ends on a question as done (M40).
+- The caller check (`callers.ts`) treats every connection that does not say it is an agent as a person. A session's
+  environment carries `ROOST_*`, so a command the model runs with bash (`xpi roost ...`) reaches the daemon as a
+  person; this is so for `dispatch` in phase 1 too.
+- `xpi roost` is `runRoostCli` in xpi-roost, which cannot import xpi's trust store or settings; the extension's
+  wrapper (`packages/xpi-coding-agent/src/extensions/roost/cli.ts`) passes it what it needs, as it does for `hub`.
+  The hub's `launch` uses `trustFor`, which takes the hub xpi's own answer in its directory.
+- The protocol version is `PROTOCOL_VERSION = 1` (`packages/xpi-roost/src/lib/protocol.ts`); an older daemon answers
+  an op it does not know with `bad_request: unknown op`, and `xpi roost` warns when the daemon's version differs.
 
 ## Decisions
 
 1. **Resume after an interruption is not added.** Phase 1's behaviour is Claude Code's (facts above); M38 is not
-   ported and there is no `autoResume` setting. Phase 2 is schedules only. Spec 01's decision 5 and `porting.md`'s
-   "Left out" table say so, with the reason: restarting unattended after a machine restart can repeat half-done work.
+   ported and there is no `autoResume` setting. Phase 2 is schedules only. Spec 01's decision 6 (which put resume in
+   phase 2) and `porting.md`'s "Left out" table say so, with the reason: restarting unattended after a machine restart
+   can repeat half-done work.
 2. **Daemon schedules only.** A schedule starts new background sessions. A timer inside one session (`/loop`) is a
    core xpi feature (it needs tools for the model) and gets its own spec if wanted.
 3. **Time rules.** Local time zone. `every <n>m|h|d`, `daily HH:MM`, `weekdays HH:MM`, `weekly <mon..sun> HH:MM`,
    `cron "<5 fields>"` (lists, ranges, steps; Sunday 0 or 7; day of month and day of week match as either), and
-   `manual` (runs only when asked). Nothing runs more often than every 5 minutes: an `every` under 5 m and a cron rule
-   whose next two slots are under 5 minutes apart are refused with that reason. No one-shot schedules. pi-roost's
-   parser and slot arithmetic (DST, at least 1 s ahead, `every` anchored at creation or resume) are ported.
-4. **Missed slots.** When the daemon starts, or finds on a tick that a slot passed while the machine slept, a schedule
-   whose latest missed slot is within the last 7 days runs once; older ones are dropped. No `catchUp` option. The run
-   is marked as a catch-up in the schedule's record and in the hub's log.
-5. **A run.** A new background session, never a reply into an earlier one, with a fresh session file in the launch's
+   `manual` (runs only when asked). Only a cron rule is quoted. No one-shot schedules. pi-roost's parser and slot
+   arithmetic (DST, at least 1 s ahead) are ported.
+   - The floor is 5 minutes and does not depend on when it is checked: `every` under 5 m is refused; a cron rule is
+     refused when two of its times of day (its minute and hour fields, the last of a day followed by the first of the
+     next) are under 5 minutes apart. Day fields only make slots further apart, so this is the closest two slots can
+     be.
+   - `every` is anchored when the schedule is made, resumed or its rule edited, so a gap never bursts.
+4. **Missed slots.** On each tick the daemon compares a schedule's `nextAt` with now. When `nextAt` has passed by more
+   than two ticks (the daemon was off or the machine slept), it finds the latest slot at or before now: if that slot
+   is within the last 7 days the schedule runs once, marked as a catch-up in its record and the hub's log; older ones
+   are dropped. Either way `nextAt` moves to the first slot after now. No `catchUp` option.
+5. **When schedules run.** Only while the agent directory's daemon runs. The daemon does not start at login by
+   default; `xpi roost daemon install` registers it as a per-user login service (macOS: a launchd agent in
+   `~/Library/LaunchAgents`; Linux: a systemd user unit), `daemon uninstall` removes it, `daemon status` says whether it
+   is installed. The service starts the same daemon `connectOrStart` would, for the agent directory it was installed
+   from. `xpi roost daemon stop` stops schedules with the daemon (an installed service starts it again at the next
+   login, or with `launchctl`/`systemctl` as the docs say). `xpi roost schedule list` says when the daemon is not
+   running that nothing runs until it does.
+6. **A run.** A new background session, never a reply into an earlier one, with a fresh session file in the launch's
    session directory. It is named after the schedule (`nightly`, `nightly (2)`) and its record carries the schedule's
-   name; the hub and `xpi roost ls` show it with the schedule's name. When a schedule has more than 3 runs that have
-   ended, the daemon removes the older ones' records (as `rm` does: the session file stays and `/resume` finds it).
-   Runs use the idle reaping every session gets; no auto-close.
-6. **Overlap.** A slot that comes while the schedule's previous run is working, starting, waiting to restart, or
-   waiting for an answer is skipped. The schedule records the time and reason ("previous run still working",
-   "previous run waiting for input"), shown in its list. Nothing queues, nothing runs in parallel.
-7. **Where schedules are made and managed.**
+   name; the hub and `xpi roost ls` show it with the schedule's name.
+   - Retention: when a schedule has more than 3 runs that have ended and are not pinned, the daemon removes the older
+     ones' records (as `rm` does: the session file stays and `/resume` finds it, unless the schedule's session
+     directory is not the default one, which the docs say). A run a reply starts again counts as running until it ends
+     again. A run the person removed simply no longer counts.
+   - Runs use the idle reaping every session gets; no auto-close.
+7. **Overlap.** A slot is skipped only while the schedule's previous run (its last one, `lastJob`) is working,
+   starting, or waiting to restart after a crash. A previous run that is waiting for an answer does not hold the
+   schedule back: the new run starts, the old one stays in the list as Needs input and notifies. A skip records its
+   time and "previous run still working", shown in the schedule's list.
+8. **Where schedules are made and managed.**
    - Hub: `/schedule <name> <when> <task>` adds one; `/schedule` alone opens the list (name, rule, next run, last run
-     with its result or skip, paused) with run now, pause, resume, edit the rule, remove. The `<when>` of a rule with
-     spaces is quoted.
+     with its result or skip, paused) with run now, pause, resume, edit the rule, remove.
    - Command line: `xpi roost schedule list|add|run|pause|resume|edit|rm`. `add <name> <when> <task>` takes `--cwd`,
-     `--model`, `--thinking`; `edit <name>` takes `--when`, `--task`, `--model`, `--thinking`.
+     `--model`, `--thinking`; `edit <name>` takes `--when`, `--task`, `--model`, `--thinking`. `list` prints a table
+     like `ls` (and `--json`); `add` prints the schedule's next run.
+   - Run now (`schedule-run`): starts a run at once, also for a paused or `manual` schedule, without moving `nextAt`;
+     while the previous run is working it is refused as busy (and recorded as a skip).
+   - Edit: a new rule sets the anchor to now and `nextAt` to its first slot after now; a new task, model or thinking
+     builds the launch again (decision 9) and keeps `nextAt`.
    - Not in an ordinary xpi session: `/schedule` there is not registered, so that a later `/loop` is not confused with
      it.
-   - Schedule ops are person-only (the hub, the CLI), as in pi-roost; a session cannot add or run schedules.
-8. **A run's launch.** Fixed when the schedule is made, by the xpi process that makes it (the hub or the CLI), with
-   `buildLaunch` as for any new session: the directory (where the hub or CLI is, or `--cwd`), the model and thinking
-   (the hub's for new sessions, or the flags), and the trust decision from `sessionTrust` for that directory with no
-   answer from the person (only a stored decision counts, else `--no-approve`), so a run never waits at the trust
-   question. The daemon stores the launch and starts it per run. `edit` builds the launch again. A run whose
-   directory is gone is skipped with that reason.
-9. **Notifications.** A run that finishes or needs input notifies as any session does (`notify`). A catch-up run, a
-   skipped slot and a missing directory are logged in the hub's log and the schedule's record, without a notification.
-10. **Limits.** At most 50 schedules, paused ones included. Names `[A-Za-z0-9._-]{1,40}`, unique. A task up to the
-    length a dispatch accepts.
-11. **State.** `<agent dir>/xpi-roost/schedules.json`, written by the daemon only, atomically and durably, as the
-    other state files. The schedule tick runs every 15 s next to the daemon's other intervals.
-12. **Protocol.** New ops `schedules`, `schedule-add`, `schedule-edit`, `schedule-rm`, `schedule-pause`,
+   - Inside a session the daemon runs (its environment has `ROOST_JOB_ID`), `xpi roost schedule add|edit|run` refuse,
+     saying why; `list` works. This stops a model from adding schedules by accident, not on purpose (it can clear the
+     variable), which the docs say. The schedule ops are person-only in `callers.ts`, which keeps agents out.
+9. **A run's launch.** Built when the schedule is made or edited, by the xpi process that does it (the hub, or the CLI
+   through the extension's wrapper), with `buildLaunch` as for any new session:
+   - the directory (where the hub or CLI is, or `--cwd`); a missing directory is refused at `add`, and a run whose
+     directory is gone later is skipped with that reason;
+   - the model and thinking: the flags, else the hub's for new sessions, else the `roost` settings' `dispatchModel` and
+     `dispatchThinking`, as for `xpi --bg`;
+   - the trust decision from `sessionTrust(dir, [], undefined, agentDir)`: only a decision stored for that directory
+     counts, else `--no-approve` (not the hub's `trustFor`, which would take the hub xpi's own answer); so a run never
+     waits at the trust question;
+   - the session directory xpi would use there (`--session-dir` of the hub xpi or the settings), into which each run
+     gets a new file;
+   - the xpi executable and entry (`execPath`, the CLI path) of the xpi that made it. A run whose executable or entry
+     no longer exists (xpi moved or upgraded elsewhere) is skipped with "run `xpi roost schedule edit <name>` to
+     update it".
+   - Not stored: environment variables. Each run gets its environment the way a session started from the hub does,
+     at run time, from the `roost` settings (`inheritEnv`, the allow and deny lists) and the daemon's environment, so
+     `schedules.json` holds no secrets.
+   - A run that fails to start is recorded in the schedule (`lastSkip` with the error) and logged.
+10. **Notifications.** A run that finishes or needs input notifies as any session does (`notify`). A catch-up run, a
+    skipped slot and a missing directory are logged in the hub's log and the schedule's record, without a
+    notification.
+11. **Limits.** At most 50 schedules, paused ones included. Names as pi-roost's: a letter or digit, then up to 39 of
+    `[A-Za-z0-9_.-]`, unique. A task up to 64 KiB.
+12. **State.** `<agent dir>/xpi-roost/schedules.json`, written by the daemon only, atomically and durably, as the
+    other state files. The schedule tick runs every 15 s next to the daemon's other intervals; `ROOST_SCHEDULE_TICK_MS`
+    overrides it in tests, as other `ROOST_*` overrides do.
+13. **Protocol.** New ops `schedules`, `schedule-add`, `schedule-edit`, `schedule-rm`, `schedule-pause`,
     `schedule-run`, person-only in `callers.ts`; a `schedule` field on a job's record and row; a `"schedule"` event
-    kind. `docs/protocol.md` documents them. The protocol version moves as phase 1's rules for a new op say.
-13. **Not ported from M39/M40.** Profiles and `!` commands as scheduled tasks, agent-definition launches, the worktree
-    check, subagent auto-close, the `PI_ROOST_SCHEDULE_TICK_MS` variable (a `ROOST_SCHEDULE_TICK_MS` test override is
-    allowed if the tests need it, as with other `ROOST_*` overrides).
-14. **Tests and checks.** pi-roost's schedule tests ported with an injected clock; daemon tests for due, skipped,
-    catch-up (within and beyond 7 days), retention of 3 ended runs, a missing directory, the 5-minute floor, the 50
-    limit, person-only ops; hub tests for `/schedule` and the list; CLI tests. Before each merge that changes what a
-    session does, a real Haiku check: a `manual` schedule run now from the CLI and from the hub, a short `every 5m`
-    schedule seen to fire and skip while its run is busy, a catch-up after a daemon restart.
-15. **How it is built.** After the owner approves this spec, the PRs below are built without stopping to ask, each
-    with an independent Opus review and green CI before merge; stop only for a fact that contradicts a decision.
+    kind. `docs/protocol.md` documents them. `PROTOCOL_VERSION` stays 1: an older daemon answers the new ops with
+    `unknown op`, and `xpi roost` already warns when the daemon's version differs and says how to restart it.
+14. **Not ported from M39/M40.** Profiles and `!` commands as scheduled tasks, agent-definition launches, the worktree
+    check, subagent auto-close, `catchUp`, the `PI_ROOST_SCHEDULE_TICK_MS` variable.
+15. **Tests and checks.** pi-roost's schedule tests ported with an injected clock; tests for the 5-minute floor
+    (including rules whose closest times are across an hour or midnight), due, skipped, run-now while busy, catch-up
+    within and beyond 7 days and after a sleep, retention (pinned and restarted runs), a missing directory and
+    executable, the 50 limit, person-only ops, the refusal inside a session, the launch built with a stored trust
+    decision only and without environment; the service files generated for launchd and systemd (not installed by
+    the tests); hub tests for `/schedule` and the list; CLI tests. Before each merge that changes what a session does,
+    a real Haiku check: a `manual` schedule run now from the CLI and from the hub, an `every 5m` schedule seen to fire
+    and to skip while its run is busy, a catch-up after a daemon restart; `daemon install`, `status` and `uninstall`
+    on macOS.
+16. **How it is built.** After the owner approves this spec, the PRs below are built without stopping to ask, each
+    with an independent Opus review and green CI before merge; stop only for a fact that contradicts a decision. Each
+    PR updates the user docs for what it adds (AGENTS.md).
 
 ## The PRs
 
-1. **Schedules in the daemon and the command line.** The rule parser and slot arithmetic, the store, the tick, the
-   ops, runs and their retention, skips and catch-up, `xpi roost schedule ...` with `add`, the protocol doc.
-2. **Schedules in the hub.** `/schedule` and the list, the run marker in rows, the log entries, notifications.
-3. **Docs and release.** `roost.md`, `porting.md` (phase 2 and the decision on resume), `port-inventory.md`, spec 01's
-   decision 5 note, README files, a release.
+1. **Schedules in the daemon and the command line.** The rule parser, slot arithmetic and the floor, the store, the
+   tick, the ops, runs and their retention, skips and catch-up, `xpi roost schedule ...` with the launch built
+   through the extension's wrapper, the refusal inside a session, the protocol doc; `roost.md` and `cli.md` for the
+   commands.
+2. **Schedules in the hub.** `/schedule` and the list, the run marker in rows, the log entries, notifications;
+   `roost.md` for the hub.
+3. **The login service.** `xpi roost daemon install|uninstall` and `status`'s line, for launchd and systemd; `roost.md`
+   and `cli.md`.
+4. **Wrap-up and release.** `porting.md` (phase 2 and the decision on resume; its stale "Grill 5" reference),
+   `port-inventory.md`, spec 01's decision 6 note, README files, a release.
 
 ## Out of scope
 
 `/loop` and other timers inside a session; one-shot schedules; cloud or always-on runs while the machine is off;
-running a schedule as a shell command or an agent definition; automatic resume after a machine restart.
+running a schedule as a shell command or an agent definition; automatic resume after a machine restart; starting the
+daemon at login unless `daemon install` is run.

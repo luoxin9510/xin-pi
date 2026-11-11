@@ -103,3 +103,24 @@ recommendation.
    only, else `--no-approve`); `edit` changes them; a missing directory skips the run.
 9. Notifications as for any session; catch-ups and skips are logged, not notified.
 10. At most 50 schedules; names `[A-Za-z0-9._-]{1,40}`.
+
+## Grill 5: phase 2 after the spec's first review (2026-11-12)
+
+The review found that the daemon starts only when a client needs it, that "waiting for an answer" is a heuristic
+(a reply ending in a question), and that a session's model can reach the daemon as a person through `xpi roost`. The
+owner accepted every recommendation.
+
+11. Schedules run only while the daemon runs. An opt-in `xpi roost daemon install` registers it as a per-user login
+    service (launchd on macOS, systemd user on Linux), with `uninstall` and a line in `status`; nothing is installed
+    by default.
+12. Revises Grill 4's item 6: a slot is skipped only while the previous run is working (starting, or waiting to
+    restart after a crash). A previous run waiting for an answer does not hold the schedule back: the new run starts
+    and the old one stays as Needs input.
+13. Inside a session the daemon runs (`ROOST_JOB_ID` set), `xpi roost schedule add|edit|run` refuse; `list` works.
+    It stops accidents, not a model that clears the variable, and the docs say so.
+
+The author's corrections from the same review, not owner decisions: the 5-minute floor for cron rules is checked on
+the rule's times of day, not on the next two slots; the protocol version stays 1; the CLI builds a run's launch
+through the extension's wrapper and uses the stored trust decision only; a run's environment is not stored; a missing
+executable skips a run; run now, edit and retention are specified; each PR updates its own user docs; names follow
+pi-roost's pattern.
