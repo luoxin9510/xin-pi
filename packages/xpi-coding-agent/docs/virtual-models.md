@@ -52,7 +52,7 @@ export default function (pi: ExtensionAPI) {
 }
 ```
 
-- `provider` is the provider the model is listed under. It can be any provider ID. A provider can list several virtual models next to its physical ones. On a physical provider, the virtual model is available when that provider has credentials. Under an ID that no provider uses, it is always available.
+- `provider` is the provider the model is listed under. It can be any provider ID. A provider can list several virtual models next to its physical ones. On a physical provider, the virtual model is available when that provider has credentials. Under an ID that no provider uses, it is always available. A virtual model is used only when it is named (`--model`, the default model in settings, scoped models, a resumed session); when pi picks a model on its own because none is named or the named one has no credentials, it skips virtual models.
 - `id` must not be the ID of a physical model of that provider. If a catalog refresh later adds a physical model with the same ID, the virtual model hides it.
 - `thinkingLevels` lists the levels offered for selection. It defaults to `["off"]`.
 - `contextWindow` and `maxTokens` are shown before the first response. Unset limits are unknown.
