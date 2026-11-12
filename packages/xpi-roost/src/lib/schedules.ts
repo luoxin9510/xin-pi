@@ -129,6 +129,8 @@ export function createSchedules(deps: SchedulesDeps): Schedules {
 	const kept: unknown[] = [];
 	/** Why the file was not read (it was moved aside), for `schedules`. */
 	let problem: string | undefined;
+	/** The unreadable file could not be moved aside: never written over until the daemon starts again. */
+	let frozen = false;
 
 	function load(): void {
 		let saved: unknown;
@@ -141,9 +143,10 @@ export function createSchedules(deps: SchedulesDeps): Schedules {
 			try {
 				where = store.setAside();
 			} catch (e) {
+				frozen = true;
 				log("error", "schedules file not moved aside", { error: String(e) });
 			}
-			problem = `schedules.json could not be read (${(err as Error).message})${where ? `; it was moved to ${where}` : ""}; no schedules were loaded`;
+			problem = `schedules.json could not be read (${(err as Error).message})${where ? `; it was moved to ${where}` : ""}; no schedules were loaded${frozen ? "; it could not be moved aside, so changes are not saved until the daemon restarts" : ""}`;
 			log("warn", "schedules file unreadable", { error: String(err), movedTo: where ?? null });
 			return;
 		}
@@ -182,6 +185,10 @@ export function createSchedules(deps: SchedulesDeps): Schedules {
 	}
 
 	function save(): void {
+		if (frozen) {
+			log("warn", "schedules not saved: the unreadable file could not be moved aside");
+			return;
+		}
 		try {
 			store.write([...schedules.values(), ...kept]);
 		} catch (err) {

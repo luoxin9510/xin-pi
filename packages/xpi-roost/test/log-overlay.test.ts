@@ -234,4 +234,38 @@ describe("M74: the log overlay", () => {
 		expect((await open(() => many, {}, { termRows: 0 })).overlay.render(100)).toHaveLength(24 + 2);
 		expect((await open(() => many, {}, { termRows: 2 })).overlay.render(100)).toHaveLength(3 + 2);
 	});
+
+	it("phase 2: a schedule's runs and skips are lines of the log; a skip (a missing directory too) is a warning", async () => {
+		const feed = [
+			ev(1, 3000, { kind: "schedule", id: "j1", name: "nightly (2)", who: "nightly", why: "catch-up" }),
+			ev(2, 2000, {
+				kind: "schedule",
+				id: "j1",
+				name: "nightly",
+				who: "nightly",
+				why: "skip",
+				text: "previous run still working",
+			}),
+			ev(3, 1000, {
+				kind: "schedule",
+				id: "",
+				name: "nightly",
+				who: "nightly",
+				why: "skip",
+				text: "directory not found: /gone",
+			}),
+		];
+		const out = (await open(() => feed, {}, { tag: true })).overlay.render(120);
+		const plain = out.slice(2, 5).map((l) => l.replace(/⟨\/?[a-z]+⟩/g, ""));
+		expect(plain).toEqual([
+			"    1s  schedule nightly skipped: directory not found: /gone",
+			"    2s  schedule nightly skipped: previous run still working",
+			"    3s  schedule nightly started nightly (2) (catch-up)",
+		]);
+		expect(out.slice(2, 5).map((l) => /⟨dim⟩[^⟩]*⟨\/dim⟩ {2}⟨([a-z]+)⟩/.exec(l)![1])).toEqual([
+			"warning",
+			"warning",
+			"muted",
+		]);
+	});
 });

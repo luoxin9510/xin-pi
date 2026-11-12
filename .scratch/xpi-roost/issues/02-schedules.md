@@ -37,12 +37,19 @@ Haiku check when it changes what a session does, and the user docs for what it a
 
 ## PR 2: schedules in the hub (branch `roost-schedules-hub`)
 
-- [ ] S8 `/schedule <name> <when> <task>` and `/schedule` (the list overlay: run now, pause, resume, edit, remove), the
+- [x] S8 `/schedule <name> <when> <task>` and `/schedule` (the list overlay: run now, pause, resume, edit, remove), the
       launch built as the CLI does; works in a hub opened inside a roost session; not registered in an ordinary xpi
       session (decisions 2, 8)
-- [ ] S9 the run marker in rows, log entries for catch-ups, skips and missing directories; notifications as any
+      Done: `src/hub/overlays/schedules.ts` (list: rule, next run, last run with catch-up, task, directory, last skip; Enter run now, `p` pause/resume, `e` edit the rule in place (checked, launch rebuilt with the stored task/model/thinking in its directory), `x` twice remove, `r` reload; what an action answered is drawn above its keys); `/schedule <name> <when> <task>` and `/schedule` in `agent-view.ts`, offered only when the host gives `scheduleLaunch`; the hub options build it with the CLI wrapper's `scheduleLaunch` (stored trust only, the hub's `--session-dir`); the port gains `schedules`. Works with `selfId` (a hub inside a session); `roost-commands.test.ts` checks no `/schedule` command is registered in a session.
+- [x] S9 the run marker in rows, log entries for catch-ups, skips and missing directories; notifications as any
       session (decision 10)
-- [ ] S10 docs: `roost.md`; tests
+      Done: a run's row shows `↻ <schedule>` before its sentence; `/log` shows runs (catch-up marked) and skips (missing directory included) with skips as warnings; notifications unchanged (runs are jobs; schedule events are feed-only, never pushed, so they never notify).
+- [x] S10 docs: `roost.md`; tests
+      Done: `roost.md` (hub commands table, row marker, `/log`, notifications, `/schedule` inside a session and not in an ordinary one). Tests: `schedules-overlay.test.ts` (7), `agent-view.test.ts` phase 2 (7), `log-overlay.test.ts` (+1), `roost-hub-options.test.ts` (+1), `roost-commands.test.ts` (+1), `roost-hub-pty.test.ts` (+1: `/schedule` add, list, run now in the built hub with the fake model); 13 guards checked to fail when removed.
+      Review round 1 (PR #77): the list shows the last run's result from its hub row (nothing once it is not listed);
+      the rule field takes bracketed pastes and kitty-encoded keys; `/schedule ...` keeps the text until the daemon
+      takes it; `x`'s second press resets when the selection moves; the last removal closes the overlay only when it
+      is the one shown (+5 tests, 6 guards checked). Also from the #76 review: a file that cannot be moved aside freezes saving until restart (`schedules.test.ts` +1); the `cli.test.ts` list flake (`+ 30 * 60_000`).
 
 ## PR 3: the login service (branch `roost-service`)
 

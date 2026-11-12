@@ -55,6 +55,14 @@ describe("the hub's table of xpi's slash commands", () => {
 		}
 	});
 
+	it("spec 02 decision 8: /schedule is the hub's, never a command of an ordinary xpi session", () => {
+		const found = extensionCommandNames();
+		for (const name of ["schedule", "schedules"]) {
+			expect(found).not.toContain(name);
+			expect(BUILTIN_SLASH_COMMANDS.map((c) => c.name)).not.toContain(name);
+		}
+	});
+
 	it("each row has a class the hub knows; a required argument has a hint", () => {
 		for (const row of builtinCommands()) {
 			expect(["hub", "screen", "picker", "confirm", "reply"]).toContain(row.how);

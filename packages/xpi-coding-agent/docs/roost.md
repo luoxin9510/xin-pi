@@ -130,6 +130,8 @@ xpi roost schedule add deploy every 2h "check the deploy" --cwd ~/work/site --th
 xpi roost schedule list
 ```
 
+In the hub, `/schedule <name> <when> <task>` adds one and `/schedule` alone lists them; see [The hub](#the-hub).
+
 | Command | What it does |
 |---|---|
 | `xpi roost schedule add <name> <when> <task> [--cwd <dir>] [--model <m>] [--thinking <t>]` | Add a schedule for the current directory (or `--cwd`) and print its next run |
@@ -177,7 +179,8 @@ dropped.
 **Skipped slots.** A slot is skipped while the schedule's previous run is still working, starting or about to restart
 after a crash; a previous run that waits for your answer does not hold it back (the new run starts, the old one stays
 in the list waiting). A slot is also skipped when the directory is gone, or when the xpi it was made with has moved
-(`run xpi roost schedule edit <name> to update it`). `schedule list` shows the last skip and why; `xpi roost log` too.
+(`run xpi roost schedule edit <name> to update it`). `schedule list` shows the last skip and why; `xpi roost log` and the hub's `/log` too. A run notifies as any session
+does when it needs input or finishes; a catch-up or a skipped slot does not notify.
 
 **Old runs.** Each schedule keeps its three newest ended runs that are not pinned; older ones are removed as
 `xpi roost rm` would. Their session files stay, and `/resume` finds them when the schedule uses the default session
@@ -193,7 +196,9 @@ Entries it cannot run (edited by hand, or from a newer xpi) are left in the file
 counts them.
 
 **Inside a background session**, `xpi roost schedule add`, `edit` and `run` refuse (the session's environment has
-`ROOST_JOB_ID`); `list`, `pause`, `resume` and `rm` work. This keeps a model from adding schedules by accident, not on
+`ROOST_JOB_ID`); `list`, `pause`, `resume` and `rm` work, and so does `/schedule` in a hub opened there with
+`/agents`, where you are the one typing. `/schedule` is the hub's command only: an ordinary xpi session has none, so it
+is not confused with a timer inside one session. This keeps a model from adding schedules by accident, not on
 purpose: it could clear the variable. The daemon takes the schedule operations from people only, never from a
 session's connection.
 
@@ -213,7 +218,8 @@ delete or restart it, or run xpi's commands in it: leave the hub to use it.
 
 Until the daemon's list arrives the hub says it is connecting to the background service (and reconnecting, after the
 daemon went away). Rows are grouped by state (needs input, working, completed; pinned first) or by directory. Each row shows its name, what
-it is doing or its last result, its model and context use, what it spent, and its age.
+it is doing or its last result, its model and context use, what it spent, and its age. A schedule's run shows
+`↻ <schedule>` before what it is doing.
 
 | Key | What it does |
 |---|---|
@@ -246,7 +252,9 @@ The hub's own commands, typed in the input:
 | `/preset [name]` | Apply a saved choice of model, thinking level and directory for new sessions; `/preset save <name>`, `/preset rm <name>`, `/preset off` |
 | `/resume` | Open a past session in the background (xpi's session list: search, this directory or all) |
 | `/usage` | What the sessions spent: today, in all, by model and by session |
-| `/log` | What happened lately: starts, questions, results, replies, newest first |
+| `/log` | What happened lately: starts, questions, results, replies, schedules' runs (catch-ups marked) and skipped slots (a missing directory too), newest first |
+| `/schedule <name> <when> <task>` | Add a [schedule](#schedules) in the hub's directory (the text stays in the input when the daemon refuses it): a new session on the rule, with the model and thinking level chosen for new sessions (else the `roost` settings'). The launch is built as `xpi roost schedule add` builds it: the trust decision stored for the directory only, your environment as the hub's process has it, filtered by the `roost` settings, and the hub's session directory |
+| `/schedule` | The schedules: rule, next run, last run with its result (done, failed, needs input, ...; while the run is still listed) or skip. Enter runs the selected one now, `p` pauses or resumes it, `e` edits its rule (the launch is built again here, with its stored task, model and thinking), `x` twice removes it, `r` reloads |
 | `/exit` | Leave the hub (also `/quit`) |
 
 xpi's own commands typed in a peek run in that session's xpi: those that show something (`/session`, `/export`,

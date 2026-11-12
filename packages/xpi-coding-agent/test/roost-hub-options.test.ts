@@ -67,6 +67,26 @@ describe("the trust decision a session the hub starts gets (xpi --bg's rule)", (
 		expect(trustFor(work, host())).toBe(false);
 	});
 
+	it("spec 02 decision 9: a schedule's launch takes only a stored decision, never the host's own answer", () => {
+		mkdirSync(join(work, ".agents", "skills"), { recursive: true });
+		// the host trusts its folder (its answer): a new session gets --approve, a schedule does not
+		expect(trustFor(work, host())).toBe(true);
+		const o = hubOptions(host());
+		const l = o.scheduleLaunch!({ cwd: work, task: "check", name: "nightly" });
+		expect(l.command).toContain("--no-approve");
+		expect(l.command).not.toContain("--approve");
+		expect(l.sessionFile.endsWith("/{{run}}.jsonl")).toBe(true);
+		expect(l.command.slice(-2)).toEqual(["--", "check"]);
+		new ProjectTrustStore(agentDir).set(work, true);
+		expect(hubOptions(host()).scheduleLaunch!({ cwd: work, task: "check", name: "n" }).command).toContain(
+			"--approve",
+		);
+		// the host's --session-dir holds the runs
+		const custom = join(home, "sessions");
+		const d = hubOptions(host({ sessionDir: () => custom })).scheduleLaunch!({ cwd: work, name: "n" });
+		expect(d.sessionFile).toBe(join(custom, "{{run}}.jsonl"));
+	});
+
 	it("a new session and a resumed one carry it in their command", () => {
 		const o = hubOptions(host());
 		new ProjectTrustStore(agentDir).set(other, true);

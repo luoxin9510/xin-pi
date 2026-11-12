@@ -1,7 +1,7 @@
 // M71: the hub's one port to the daemon: every call the hub makes, as a typed method grouped by
 // area. `roostPort(client)` is the adapter over `DaemonClient`; each method is one request and
 // returns its result as it came. Tests use `test/support/roost-port.ts`. Phase 1: the sessions
-// and the event feed (no task board, concierge or schedules: decision 6).
+// and the event feed (no task board or concierge: decision 6); phase 2: the schedules.
 import { type DaemonClient, requestOnce } from "../lib/client.ts";
 import type { ArgsOf, Event, ResultOf } from "../lib/protocol.ts";
 
@@ -33,6 +33,16 @@ export interface RoostPort {
 	events: {
 		/** The event feed (what happened). */
 		list(args: ArgsOf<"events">): Promise<ResultOf<"events">>;
+	};
+
+	/** Phase 2: the schedules (spec 02). */
+	schedules: {
+		list(): Promise<ResultOf<"schedules">>;
+		add(args: ArgsOf<"schedule-add">): Promise<ResultOf<"schedule-add">>;
+		edit(args: ArgsOf<"schedule-edit">): Promise<ResultOf<"schedule-edit">>;
+		rm(name: string): Promise<ResultOf<"schedule-rm">>;
+		pause(name: string, paused: boolean): Promise<ResultOf<"schedule-pause">>;
+		run(name: string): Promise<ResultOf<"schedule-run">>;
 	};
 }
 
@@ -76,5 +86,14 @@ export function roostPort(
 		},
 
 		events: { list: (args) => client.request("events", args) },
+
+		schedules: {
+			list: () => client.request("schedules", {}),
+			add: (args) => client.request("schedule-add", args),
+			edit: (args) => client.request("schedule-edit", args),
+			rm: (name) => client.request("schedule-rm", { name }),
+			pause: (name, paused) => client.request("schedule-pause", { name, paused }),
+			run: (name) => client.request("schedule-run", { name }),
+		},
 	};
 }

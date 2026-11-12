@@ -916,6 +916,30 @@ describe("Schedules: start and the file", () => {
 		}
 	});
 
+	it("a file that cannot be moved aside is never written over until the daemon starts again", async () => {
+		let writes = 0;
+		const t = setup({
+			store: {
+				read: () => {
+					throw new SyntaxError("Unexpected end of JSON input");
+				},
+				write: () => {
+					writes++;
+				},
+				setAside: () => {
+					throw new Error("EACCES");
+				},
+			},
+		});
+		const s = t.make();
+		const list = (await s.op("schedules", {})) as { problem?: string };
+		expect(list.problem).toMatch(/could not be moved aside, so changes are not saved until the daemon restarts$/);
+		await s.op("schedule-add", { name: "new", when: "manual", launch: template() });
+		await s.op("schedule-run", { name: "new" });
+		expect(writes).toBe(0);
+		expect(t.logs).toContainEqual(expect.objectContaining({ level: "error", msg: "schedules file not moved aside" }));
+	});
+
 	it("more than 50 in the file: 50 are loaded, the rest kept", async () => {
 		const t = setup({ initial: Array.from({ length: 52 }, (_, i) => saved({ name: `s${i}`, id: `id${i}` })) });
 		const s = t.make();

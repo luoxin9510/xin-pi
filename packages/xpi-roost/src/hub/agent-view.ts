@@ -32,6 +32,7 @@ import { forgetJob, observeJob } from "../lib/job-events.ts";
 import { hostSocketPath } from "../lib/paths.ts";
 import type { DispatchArgs, Event, JobRow, ReplyMode } from "../lib/protocol.ts";
 import { ensureLive } from "../lib/resume.ts";
+import { normalizeWhen, parseScheduleInput, type ScheduleLaunchInput, untilText } from "../lib/schedule.ts";
 import { commandsPath, readCommands, type SessionCommand, screenPath } from "../lib/store.ts";
 import { readTail, transcriptItems } from "../lib/transcript.ts";
 import { formatCost, totalUsage } from "../lib/usage.ts";
@@ -57,6 +58,7 @@ import {
 } from "../lib/view-model.ts";
 import { DOUBLE_PRESS_MS, type Overlay, type OverlayHost } from "./overlay-host.ts";
 import { createLogOverlay } from "./overlays/log.ts";
+import { createSchedulesOverlay } from "./overlays/schedules.ts";
 import { createUsageOverlay } from "./overlays/usage.ts";
 import { type RoostPort, roostPort, sends } from "./roost-port.ts";
 import { TaskEditor } from "./task-editor.ts";
@@ -170,6 +172,12 @@ export interface HubLaunching {
 	savePreset?: (name: string, preset: Preset | null) => void | Promise<void>;
 	/** M27: whether the user's own settings have this preset (a project's cannot be removed here). */
 	userPreset?: (name: string) => boolean;
+	/**
+	 * Phase 2 (decision 9): a schedule's launch, built as `xpi roost schedule add` builds it (the stored trust decision
+	 * of its directory only, the roost settings' environment, the session directory with `{{run}}`). None: no
+	 * `/schedule` here.
+	 */
+	scheduleLaunch?: (input: ScheduleLaunchInput) => DispatchArgs;
 }
 
 /** M80: The models to pick from and the default. */
@@ -1102,6 +1110,16 @@ export class AgentView implements Component {
 			case "preset":
 				if (this.presetCommand(arg)) return done();
 				return true;
+			case "schedule":
+			case "schedules":
+				if (!this.o.scheduleLaunch) break;
+				// the text stays until the daemon takes it (a refusal leaves it to be changed)
+				if (arg) {
+					this.addSchedule(arg);
+					return true;
+				}
+				void this.showSchedules();
+				return done();
 		}
 		const known = this.xpiCommands().find((c) => c.name === name);
 		if (known && (known.source === "prompt" || known.source === "skill")) return false;
@@ -1217,6 +1235,66 @@ export class AgentView implements Component {
 	/** M24 /usage: what the sessions spent, by model and by session; Esc closes, ↑↓ scroll. */
 	private showUsage(): void {
 		this.openLayer({ kind: "overlay", overlay: createUsageOverlay(this.hostBase()) });
+		this.o.tui.requestRender();
+	}
+
+	/**
+	 * Phase 2 /schedule <name> <when> <task>: a schedule here (the hub's directory), with the model and thinking chosen
+	 * for new sessions, else the roost settings'. The input is cleared once the daemon has it (still as typed); a
+	 * refusal leaves it. False when it was not sent.
+	 */
+	private addSchedule(arg: string): boolean {
+		const typed = this.input.getValue();
+		const port = this.port;
+		const build = this.o.scheduleLaunch;
+		if (!port || !build) {
+			this.say("background service unavailable", "error");
+			return false;
+		}
+		const p = parseScheduleInput(arg);
+		if ("error" in p) {
+			this.say(p.error, "warning");
+			return false;
+		}
+		const when = normalizeWhen(p.when);
+		let launch: DispatchArgs;
+		try {
+			launch = build({ cwd: this.o.cwd, task: p.task, model: this.model, thinking: this.thinking, name: p.name });
+		} catch (err) {
+			this.say((err as Error).message, "error");
+			return false;
+		}
+		void port.schedules
+			.add({ name: p.name, when, task: p.task, launch })
+			.then((r) => {
+				if (this.input.getValue() === typed) this.input.setValue("");
+				this.say(
+					`schedule ${r.name}: ${r.when} · ${r.nextAt === null ? "runs when asked (/schedule: the list)" : `next run ${untilText(r.nextAt)}`}`,
+					"success",
+				);
+			})
+			.catch((err: unknown) => this.say(`schedule ${p.name}: ${(err as Error).message}`, "warning"));
+		return true;
+	}
+
+	/** Phase 2 /schedule: the schedules, with run now, pause, resume, edit the rule, remove. */
+	private async showSchedules(): Promise<void> {
+		const port = this.port;
+		const build = this.o.scheduleLaunch;
+		if (!port || !build) return this.say("background service unavailable", "error");
+		const o = await createSchedulesOverlay(this.overlayHost(port), {
+			// decision 8: its directory, its stored task, model and thinking; the rest built again in this process
+			rebuild: (s) =>
+				build({
+					cwd: s.cwd,
+					task: s.task ?? undefined,
+					model: s.model ?? undefined,
+					thinking: s.thinking ?? undefined,
+					name: s.name,
+				}),
+		});
+		if (!o) return;
+		this.openLayer({ kind: "overlay", overlay: o });
 		this.o.tui.requestRender();
 	}
 
@@ -1863,6 +1941,15 @@ export class AgentView implements Component {
 				getArgumentCompletions: (p) =>
 					starts(names([...Object.keys(this.o.presets?.() ?? {}), "save", "rm", "off"]), p),
 			},
+			...(this.o.scheduleLaunch
+				? [
+						{
+							name: "schedule",
+							description: "a new session on a schedule; alone: the schedules",
+							argumentHint: "<name> <when> <task>",
+						},
+					]
+				: []),
 			{ name: "exit", description: "leave the hub" },
 		];
 		const xpi = this.xpiCommands()
@@ -2783,7 +2870,9 @@ export class AgentView implements Component {
 				? t.fg(
 						row.id === this.o.selfId ? "accent" : row.pid === null ? "dim" : "muted",
 						truncateToWidth(
-							oneLine(`${row.id === this.o.selfId ? `${SELF_MARK} · ` : ""}${sentenceOf(row)}`),
+							oneLine(
+								`${row.id === this.o.selfId ? `${SELF_MARK} · ` : ""}${row.schedule ? `${SCHEDULE_MARK}${row.schedule} · ` : ""}${sentenceOf(row)}`,
+							),
 							room,
 						),
 					)
@@ -3049,6 +3138,12 @@ export class AgentView implements Component {
 			["/usage", "what the sessions spent: today, all, by model, by session"],
 			["/log", "what happened lately: starts, questions, results, replies (newest first)"],
 			["/preset [name]", "saved choices for new sessions (save <name>, rm <name>, off)"],
+			...(this.o.scheduleLaunch
+				? ([
+						["/schedule n when task", 'a new session on a schedule (every 30m, daily 09:00, cron "…", manual)'],
+						["/schedule", "the schedules: run now, pause, resume, edit the rule, remove"],
+					] as [string, string][])
+				: []),
 			["Esc", "close peek · clear input · unmark · exit"],
 			["Ctrl+C", "clear input; twice to exit"],
 			["in a session", `← on an empty prompt, /exit or ${detach} detaches`],
@@ -3084,6 +3179,8 @@ export function presetText(p: Preset): string {
 		.join(" · ");
 }
 
+/** Phase 2 (decision 6): how a schedule's run is marked, before its schedule's name. */
+const SCHEDULE_MARK = "↻ ";
 /** How the row of the session the hub runs in is marked. */
 const SELF_MARK = "this session";
 /** The peek commands refused on the session the hub runs in. */

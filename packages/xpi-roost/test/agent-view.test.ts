@@ -7,7 +7,8 @@ import { AgentView, type AgentViewOptions } from "../src/hub/agent-view.ts";
 import type { DaemonClient } from "../src/lib/client.ts";
 import type { Preset } from "../src/lib/config.ts";
 import type { RoostEvent } from "../src/lib/events.ts";
-import type { Event, JobRow } from "../src/lib/protocol.ts";
+import type { Event, JobRow, ScheduleRow } from "../src/lib/protocol.ts";
+import type { ScheduleLaunchInput } from "../src/lib/schedule.ts";
 import { BUILTINS } from "./support/builtins.ts";
 
 // The hub finds a session's host socket in the roost of ROOST_AGENT_DIR (xpi sets it for the hub's process): a
@@ -64,6 +65,24 @@ function row(over: Partial<JobRow> = {}): JobRow {
 	};
 }
 
+function scheduleRow(name: string, over: Partial<ScheduleRow> = {}): ScheduleRow {
+	return {
+		name,
+		when: "every 2h",
+		task: "check it",
+		cwd: "/w",
+		model: null,
+		thinking: null,
+		paused: false,
+		nextAt: Date.now() + 3600_000,
+		lastRunAt: null,
+		lastJob: null,
+		lastRunWhy: null,
+		lastSkip: null,
+		...over,
+	};
+}
+
 class FakeClient {
 	requests: { op: string; args: unknown }[] = [];
 	events: ((e: Event) => void)[] = [];
@@ -74,6 +93,8 @@ class FakeClient {
 	replyResult: unknown = { delivered: true, saved: false };
 	/** M43: what /log shows. */
 	log: RoostEvent[] = [];
+	/** Phase 2: what /schedule lists. */
+	schedules: ScheduleRow[] = [];
 	constructor(rows: JobRow[]) {
 		this.rows = rows;
 	}
@@ -124,6 +145,17 @@ class FakeClient {
 		if (op === "rename") return args;
 		if (op === "pin") return { id: (args as { id: string }).id, pinned: (args as { pinned: boolean }).pinned };
 		if (op === "events") return { events: this.log, cursor: this.log.length };
+		// phase 2: the schedules
+		if (op === "schedules") return { schedules: this.schedules };
+		if (op === "schedule-add") {
+			const a = args as { name: string; when: string; task?: string };
+			if (a.name === "dup") {
+				await new Promise((r) => setTimeout(r, 5));
+				throw Object.assign(new Error("a schedule named dup exists (remove it first)"), { code: "exists" });
+			}
+			return { ...scheduleRow(a.name), when: a.when, task: a.task ?? null, nextAt: Date.now() + 2 * 3600_000 };
+		}
+		if (op === "schedule-run") return { name: (args as { name: string }).name, id: "run1" };
 		return {};
 	}
 }
@@ -2265,5 +2297,153 @@ describe("the hub before the daemon's list", () => {
 		await sleep(700);
 		expect(view.render(120).join("\n")).toContain("0 needs input · 1 working · 0 completed");
 		view.dispose();
+	});
+});
+
+describe("phase 2: /schedule in the hub (spec 02, decisions 8-10)", () => {
+	const built: ScheduleLaunchInput[] = [];
+	const scheduleLaunch = (input: ScheduleLaunchInput) => {
+		built.push(input);
+		return {
+			cwd: input.cwd,
+			sessionFile: "/s/{{run}}.jsonl",
+			command: ["node", "xpi", "--session", "/s/{{run}}.jsonl", "--no-approve", "--", input.task ?? ""],
+			env: { PATH: "/hub" },
+			name: input.name,
+			origin: "dispatch" as const,
+		};
+	};
+	beforeEach(() => {
+		built.length = 0;
+	});
+	const submit = async (view: AgentView, text: string) => {
+		type(view, text);
+		view.handleInput("\r");
+		await sleep(20);
+	};
+
+	it("/schedule <name> <when> <task> adds one here, with the hub's model for new sessions; the next run is said", async () => {
+		const { view, client } = setup([], { extra: { scheduleLaunch } });
+		await view.start();
+		await submit(view, "/model a/one");
+		await submit(view, "/schedule nightly cron 0 3 * * * check the build");
+		expect(built).toEqual([
+			{ cwd: "/w", task: "check the build", model: "a/one", thinking: undefined, name: "nightly" },
+		]);
+		const add = client.requests.filter((r) => r.op === "schedule-add");
+		expect(add).toEqual([
+			{
+				op: "schedule-add",
+				args: {
+					name: "nightly",
+					when: 'cron "0 3 * * *"',
+					task: "check the build",
+					launch: scheduleLaunch(built[0]!),
+				},
+			},
+		]);
+		// the answer comes back on its own time: wait for the notice
+		let out = "";
+		for (let i = 0; i < 50 && !out.includes("schedule nightly:"); i++) {
+			out = view.render(120).join("\n");
+			if (!out.includes("schedule nightly:")) await sleep(20);
+		}
+		expect(out).toMatch(/schedule nightly: cron "0 3 \* \* \*" · next run in (2h|1h 59m)/);
+		// the input is cleared
+		expect(out).not.toContain("check the build");
+	});
+
+	it("the input is cleared once the daemon takes it; a refusal says why and leaves the text to be changed", async () => {
+		const { view, client } = setup([], { extra: { scheduleLaunch } });
+		await view.start();
+		await submit(view, "/schedule dup every 2h check");
+		await sleep(30);
+		const out = view.render(120).join("\n");
+		expect(out).toContain("schedule dup: a schedule named dup exists (remove it first)");
+		expect(out).toContain("/schedule dup every 2h check");
+		expect(client.requests.filter((r) => r.op === "schedule-add")).toHaveLength(1);
+	});
+
+	it("a bad rule or name is said; nothing is sent, the text stays", async () => {
+		const { view, client } = setup([], { extra: { scheduleLaunch } });
+		await view.start();
+		await submit(view, "/schedule nightly every 1m check");
+		expect(view.render(120).join("\n")).toContain("every: five minutes at least");
+		expect(view.render(120).join("\n")).toContain("/schedule nightly every 1m check");
+		expect(client.requests.filter((r) => r.op === "schedule-add")).toEqual([]);
+		expect(built).toEqual([]);
+	});
+
+	it("/schedule alone opens the list; Enter runs the selected one now; Esc closes", async () => {
+		const { view, client } = setup([], { extra: { scheduleLaunch } });
+		client.schedules = [scheduleRow("nightly"), scheduleRow("ask", { when: "manual", nextAt: null })];
+		await view.start();
+		await submit(view, "/schedule");
+		const out = view.render(120).join("\n");
+		expect(out).toContain("Schedules");
+		expect(out).toMatch(/nightly {2}every 2h {2}· next in (59m|1h)/);
+		expect(out).toContain("ask  manual  · runs when asked");
+		view.handleInput("\x1b[B");
+		view.handleInput("\r");
+		await sleep(20);
+		expect(client.requests.filter((r) => r.op === "schedule-run")).toEqual([
+			{ op: "schedule-run", args: { name: "ask" } },
+		]);
+		view.handleInput("\x1b");
+		expect(view.render(120).join("\n")).not.toContain("Schedules");
+	});
+
+	it("the list's edit builds the launch again with the schedule's directory, task, model and thinking", async () => {
+		const { view, client } = setup([], { extra: { scheduleLaunch } });
+		client.schedules = [scheduleRow("nightly", { cwd: "/elsewhere", model: "b/two", thinking: "low" })];
+		await view.start();
+		await submit(view, "/model a/one");
+		await submit(view, "/schedule");
+		view.handleInput("e");
+		for (let i = 0; i < "every 2h".length; i++) view.handleInput("\x7f");
+		type(view, "every 3h");
+		view.handleInput("\r");
+		await sleep(20);
+		expect(built).toEqual([
+			{ cwd: "/elsewhere", task: "check it", model: "b/two", thinking: "low", name: "nightly" },
+		]);
+		const edit = client.requests.filter((r) => r.op === "schedule-edit");
+		expect(edit).toHaveLength(1);
+		expect(edit[0]!.args).toMatchObject({ name: "nightly", when: "every 3h", launch: { cwd: "/elsewhere" } });
+	});
+
+	it("not offered without a launch builder (an ordinary hub without schedules); offered in a hub inside a session", async () => {
+		const plain = setup([]);
+		await plain.view.start();
+		await submit(plain.view, "/schedule nightly every 2h x");
+		expect(plain.view.render(120).join("\n")).toContain("/schedule isn't available in the hub");
+		const inSession = setup([row({ id: "me", name: "me" })], { extra: { scheduleLaunch, selfId: "me" } });
+		await inSession.view.start();
+		await submit(inSession.view, "/schedule nightly every 2h x");
+		expect(inSession.client.requests.filter((r) => r.op === "schedule-add")).toHaveLength(1);
+		// the help lists it
+		inSession.view.handleInput("?");
+		expect(inSession.view.render(120).join("\n")).toContain("/schedule n when task");
+	});
+
+	it("a schedule's run is marked with the schedule's name in its row", async () => {
+		const { view } = setup([
+			row({ name: "nightly (2)", schedule: "nightly", summary: "checking" }),
+			row({ name: "plain" }),
+		]);
+		await view.start();
+		const out = view.render(140);
+		expect(out.find((l) => l.includes("nightly (2)"))).toContain("↻ nightly · checking");
+		expect(out.find((l) => l.includes("plain"))).not.toContain("↻");
+	});
+
+	it("decision 10: a schedule's run notifies as any session does when it finishes", async () => {
+		const notified: [string, string][] = [];
+		const run = row({ id: "r1", name: "nightly", schedule: "nightly" });
+		const { view, client } = setup([run], { extra: { notify: (r, kind) => void notified.push([r.name, kind]) } });
+		await view.start();
+		client.emit({ event: "job", job: { ...run, state: "working" } });
+		client.emit({ event: "job", job: { ...run, state: "done", status: "idle", endedAt: Date.now() } });
+		expect(notified).toEqual([["nightly", "completed"]]);
 	});
 });

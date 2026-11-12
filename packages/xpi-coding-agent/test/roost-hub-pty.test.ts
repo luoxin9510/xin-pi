@@ -311,6 +311,30 @@ describe.skipIf(!existsSync(CLI) || process.platform === "win32")(
 			expect(t.exited()).toBe(0);
 		}, 90_000);
 
+		it("spec 02: /schedule adds a schedule; /schedule lists it, Enter runs it now; the run is marked in its row", async () => {
+			const t = terminal(["roost", "hub", work]);
+			await t.until("xpi agents");
+			await t.send("/schedule ask manual say scheduled hello");
+			await t.send(KEY.enter);
+			await t.until("schedule ask: manual · runs when asked");
+			await t.send("/schedule");
+			await t.send(KEY.enter);
+			await t.until("Enter run now");
+			expect(t.screen()).toContain("ask  manual  · runs when asked · not run yet");
+			await t.send(KEY.enter);
+			await t.until(/ask: started [0-9a-f]{8}/);
+			await t.send(KEY.esc);
+			await t.until("↻ ask");
+			await t.until("echo: say scheduled hello");
+			// the command line sees it too
+			const list = terminal(["roost", "schedule", "list"]);
+			await list.until(() => list.exited() !== undefined, 15_000);
+			expect(list.screen()).toMatch(/ask\s+manual\s+on request\s+\S+ ago \(now\)/);
+			await t.send(KEY.ctrlC);
+			await t.send(KEY.ctrlC);
+			await t.until(() => t.exited() !== undefined, 10_000);
+		}, 90_000);
+
 		it("a foreground xpi: the left arrow on its empty prompt moves the conversation to the hub", async () => {
 			const t = terminal(["--approve"]);
 			await t.until("(faux) echo");
