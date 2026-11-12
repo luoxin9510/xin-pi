@@ -1,4 +1,6 @@
-// Long tasks: features of this repository, built again from their spec. The files of the commit before a feature was
+// Long tasks: features of this repository, built again from their spec, and two multi-agent tasks (at the end).
+//
+// Features: The files of the commit before a feature was
 // merged are exported into a new directory, without history: the merged solution must not be one `git show` away.
 // The spec, the ticket and the feature's tests are copied in from the merge. The model works until the offline
 // subagent suite passes. A task is about 1,200 changed lines over 20 files in the original.
@@ -11,7 +13,8 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Task } from "./tasks.ts";
+import { LIBRARIES, ledgerPackage, notesPackage, routerPackage } from "./multi-agent-fixtures.ts";
+import { probe, read, type Task, unchanged, write } from "./tasks.ts";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
 const PACKAGE = "packages/xpi-coding-agent";
@@ -167,3 +170,154 @@ export const longTasks: Task[] = [
 		summary: "the schema parameter of the Agent tool: a subagent returns a value that matches a JSON Schema.",
 	}),
 ];
+
+// Multi-agent tasks (spec 09, "Measuring"): three independent parts, each minutes of work, which fit three agents
+// working at once. They run through the rpc driver, where scripts can run in the background, to measure how main
+// waits for its agents.
+
+const MULTI_TIMEOUT_MS = 900_000;
+
+/** Run a package's tests; undefined when they pass. */
+function testsPass(repo: string, dir: string): string | undefined {
+	try {
+		execFileSync("node", ["--test"], {
+			cwd: join(repo, dir),
+			timeout: 120_000,
+			killSignal: "SIGKILL",
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+		return undefined;
+	} catch (error) {
+		const out = String((error as { stdout?: Buffer }).stdout ?? "");
+		const counts = out
+			.split("\n")
+			.filter((line) => /^ℹ (pass|fail) /.test(line))
+			.join(", ");
+		return `${dir}: tests fail (${counts || (error as Error).message.slice(0, 120)})`;
+	}
+}
+
+const libraryTests = Object.fromEntries(
+	LIBRARIES.map((lib) => [`packages/${lib.name}/test/${lib.name}.test.js`, lib.test]),
+);
+
+const threeLibraries: Task = {
+	name: "long: three libraries from specs",
+	expect: "delegate",
+	driver: "rpc",
+	timeoutMs: MULTI_TIMEOUT_MS,
+	prompt: [
+		"This repository has three independent CommonJS packages that are only stubs: packages/csv, packages/semver and packages/ini.",
+		"Each has a SPEC.md that defines its API exactly and tests in its test/ directory.",
+		"Implement each package in its src/index.js, following its SPEC.md, so that `node --test` passes when run in that package's directory.",
+		"Do not change the tests or the specs. Use no dependencies.",
+	].join("\n"),
+	setup(repo) {
+		write(repo, "package.json", JSON.stringify({ name: "three-libraries", private: true }, null, 2));
+		for (const lib of LIBRARIES) {
+			const dir = `packages/${lib.name}`;
+			write(
+				repo,
+				`${dir}/package.json`,
+				JSON.stringify({ name: lib.name, version: "0.0.0", main: "src/index.js" }, null, 2),
+			);
+			write(repo, `${dir}/SPEC.md`, lib.spec);
+			write(repo, `${dir}/src/index.js`, lib.stub);
+			write(repo, `${dir}/test/${lib.name}.test.js`, lib.test);
+		}
+	},
+	check(repo) {
+		const changed = unchanged(repo, libraryTests);
+		if (changed) return changed;
+		const failing = LIBRARIES.map((lib) => testsPass(repo, `packages/${lib.name}`)).filter(
+			(why) => why !== undefined,
+		);
+		return failing.length > 0 ? failing.join("; ") : undefined;
+	},
+};
+
+const ledger = ledgerPackage();
+const router = routerPackage();
+const notes = notesPackage();
+const routerStrings = Object.entries(router.files).flatMap(([path, text]) =>
+	text
+		.split("\n")
+		.filter((line) => line.includes('void "migrating'))
+		.map((line) => ({ path, line })),
+);
+
+const threeAudits: Task = {
+	name: "long: audit three packages",
+	expect: "delegate",
+	driver: "rpc",
+	timeoutMs: MULTI_TIMEOUT_MS,
+	prompt: [
+		"Three independent jobs, one per package. Each package has 36 modules in its src/ directory; read every one, do not guess from a sample.",
+		"",
+		'1. packages/ledger: write packages/ledger/undocumented.json, a JSON array of the functions that a module exports (through `module.exports`) and that have no JSDoc block (`/** ... */`) ending on the line directly above their `function` line. Each entry is "<file name>:<function name>", such as "m07.js:loadEntry"; sort the array. A `//` comment or a `/* ... */` comment is not JSDoc.',
+		"",
+		"2. packages/router: `legacyRequest(url, method, body)` in lib/http.js is deprecated. Replace every call to it in src/ with `request({ url, method, body })` (leave out `body` when the call has none), import `request` instead, then remove `legacyRequest` from lib/http.js. The requests made must stay exactly the same. Text that only mentions legacyRequest, such as a string, is not a call: leave it.",
+		"",
+		'3. packages/notes: write packages/notes/todos.json with every line comment of the form `// TODO(<owner>): <text>` in src/ (also after code on the same line; not inside strings, and not `// TODO:` without an owner). The JSON is an object from owner to an array of {"file": "src/<name>.js", "line": <1-based line number>, "text": "<text>"}, each array sorted by file then line.',
+	].join("\n"),
+	setup(repo) {
+		for (const [path, text] of Object.entries({ ...ledger.files, ...router.files, ...notes.files }))
+			write(repo, path, text);
+	},
+	check(repo) {
+		const why: string[] = [];
+		// 1. ledger
+		const undocumented = read(repo, "packages/ledger/undocumented.json");
+		try {
+			const got = JSON.parse(undocumented ?? "null");
+			if (JSON.stringify(got) !== JSON.stringify(ledger.undocumented))
+				why.push(
+					`ledger: undocumented.json differs (${Array.isArray(got) ? got.length : "no array"} entries, expected ${ledger.undocumented.length})`,
+				);
+		} catch {
+			why.push("ledger: undocumented.json missing or not JSON");
+		}
+		// 2. router: the modules make the same requests through request(), and legacyRequest is gone.
+		const expected = JSON.stringify(router.calls);
+		const routerCheck = probe(
+			join(repo, "packages/router"),
+			[
+				'const Module = require("module");',
+				'const path = require("path");',
+				'const http = require("./lib/http");',
+				'if ("legacyRequest" in http) { console.log("lib/http.js still exports legacyRequest"); process.exit(0); }',
+				"const log = [];",
+				"const stub = { request: (o) => { log.push(o); return { ok: true }; } };",
+				"const load = Module._load;",
+				"Module._load = function (request, parent, isMain) { if (/lib[\\/]http(\\.js)?$/.test(request)) return stub; return load.apply(this, arguments); };",
+				"const got = {};",
+				'for (const f of require("fs").readdirSync("src").sort()) { log.length = 0; require(path.resolve("src", f)).run(); got[f] = log.map((o) => JSON.parse(JSON.stringify(o))); }',
+				`const want = ${expected};`,
+				"const bad = Object.keys(want).filter((f) => JSON.stringify(got[f]) !== JSON.stringify(want[f]));",
+				'console.log(bad.length === 0 ? "ok" : "requests differ in " + bad.join(", "));',
+			].join("\n"),
+		);
+		if (routerCheck) why.push(`router: ${routerCheck}`);
+		for (const { path, line } of routerStrings)
+			if (!(read(repo, path) ?? "").split("\n").includes(line)) {
+				why.push(`router: ${path} lost a string that only mentions legacyRequest`);
+				break;
+			}
+		// 3. notes
+		try {
+			const got = JSON.parse(read(repo, "packages/notes/todos.json") ?? "null") as Record<string, unknown>;
+			const canon = (todos: Record<string, unknown>) =>
+				JSON.stringify(
+					Object.keys(todos)
+						.sort()
+						.map((owner) => [owner, todos[owner]]),
+				);
+			if (canon(got) !== canon(notes.todos)) why.push("notes: todos.json differs");
+		} catch {
+			why.push("notes: todos.json missing or not JSON");
+		}
+		return why.length > 0 ? why.join("; ") : undefined;
+	},
+};
+
+longTasks.push(threeLibraries, threeAudits);

@@ -15,6 +15,7 @@ export interface Config {
 	staggerStart: boolean; // siblings with the same prompt prefix wait for the first one's response to begin (stagger.ts)
 	shutdownGraceMs: number; // how long a stopped child may take to shut down (SIGTERM) before SIGKILL
 	panelLingerMs: number; // how long a finished subagent stays in the panel
+	stallMs: number; // a running child with no event for this long is stalled (spec 09); 0: no stall detection
 }
 
 function stringMap(value: unknown, key: string, prefix = "subagent."): Record<string, string> {
@@ -61,6 +62,10 @@ export function readConfig(raw: unknown, sharedModels?: unknown): Config {
 	if (typeof panelLingerMs !== "number" || !(panelLingerMs >= 0))
 		throw new Error("subagent.panelLingerMs must be a number of milliseconds, 0 or more");
 
+	const stallMs = r.stallMs ?? 600_000;
+	if (typeof stallMs !== "number" || !Number.isFinite(stallMs) || stallMs < 0)
+		throw new Error("subagent.stallMs must be a number of milliseconds, 0 (off) or more");
+
 	const shutdownGraceMs = r.shutdownGraceMs ?? 10_000;
 	if (typeof shutdownGraceMs !== "number" || !Number.isFinite(shutdownGraceMs) || shutdownGraceMs < 0)
 		throw new Error("subagent.shutdownGraceMs must be a number of milliseconds, 0 or more");
@@ -78,6 +83,7 @@ export function readConfig(raw: unknown, sharedModels?: unknown): Config {
 
 	return {
 		panelLingerMs,
+		stallMs,
 		shutdownGraceMs,
 		backgroundScripts,
 		staggerStart,

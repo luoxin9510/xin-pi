@@ -1,7 +1,13 @@
 // npm run eval:delegation -- [--long] [--runs N] [--only <substring>] [--arms solo,delegate,relay] [--parallel N]
-//                            [--force] [--selftest]
-// --long runs the long tasks (long-tasks.ts: features of this repository built again from their spec) in place of the
-// small ones.
+//                            [--force] [--selftest] [--cli <path to cli.js>]
+// --long runs the long tasks (long-tasks.ts: features of this repository built again from their spec, and the
+// multi-agent tasks) in place of the small ones.
+// --cli runs another build, such as a checkout of an older commit (`<checkout>/packages/xpi-coding-agent/dist/bundle/
+// cli.js`), for a before/after comparison. Default: this checkout's build.
+//
+// Tasks with `driver: "rpc"` (the multi-agent tasks) run through `xpi --mode rpc` (rpc-driver.ts), where scripts can
+// run in the background, and report how main waited for its agents: `wakes` (main's turns started after the first),
+// `timeoutMsSet`, `agentsStoppedByDeadline` and `released`. The other tasks run in print mode (`-p`).
 //
 // The same tasks, three ways of working, on real models:
 //   solo      the main model alone (the subagent and relay extensions are off)
@@ -23,11 +29,13 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { copyUserAuth } from "../subagent/user-auth.ts";
 import { longTasks, SOLUTION_PATH } from "./long-tasks.ts";
+import { type RpcEnd, runRpc, type WaitMetrics, waitMetrics } from "./rpc-driver.ts";
 import { tasks as smallTasks, type Task } from "./tasks.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, "..", "..");
-const PI = join(ROOT, "dist", "bundle", "cli.js");
+const flag = (name: string) => (process.argv.includes(name) ? process.argv[process.argv.indexOf(name) + 1] : undefined);
+const PI = resolve(flag("--cli") ?? join(ROOT, "dist", "bundle", "cli.js"));
 const HAIKU = "anthropic/claude-haiku-5-5";
 const MAIN = process.env.EVAL_MAIN ?? HAIKU;
 const BUDGET = Number(process.env.EVAL_BUDGET ?? 20);
@@ -38,7 +46,6 @@ const tasks = process.argv.includes("--long") ? longTasks : smallTasks;
 type Arm = "solo" | "delegate" | "relay";
 const ARMS: Arm[] = ["solo", "delegate", "relay"];
 
-const flag = (name: string) => (process.argv.includes(name) ? process.argv[process.argv.indexOf(name) + 1] : undefined);
 const runs = Number(flag("--runs") ?? 1);
 const only = flag("--only");
 const parallel = Number(flag("--parallel") ?? 3);
@@ -83,6 +90,8 @@ interface Row {
 	/** A session mentions this checkout's source of the feature: the run may have read the solution. */
 	leak: boolean;
 	dir: string;
+	/** rpc-driver tasks: how main waited for its agents, and how the run's end was found. */
+	wait?: WaitMetrics & { wakes: number; endedBy: RpcEnd; sawStatus: boolean };
 }
 
 function settingsFor(arm: Arm): Record<string, unknown> {
@@ -196,8 +205,8 @@ async function runOne(task: Task, arm: Arm, run: number): Promise<Row> {
 	git("commit", "-q", "--no-verify", "-m", "start");
 
 	const model = arm === "relay" ? "relay/auto" : MAIN;
-	const args = [
-		"-p",
+	const prompt = task.prompt + (force ? FORCED[arm] : "");
+	const options = [
 		"--model",
 		model,
 		"--thinking",
@@ -207,37 +216,50 @@ async function runOne(task: Task, arm: Arm, run: number): Promise<Row> {
 		"+codemode",
 		"--session-dir",
 		sessionDir,
-		task.prompt + (force ? FORCED[arm] : ""),
 	];
 	const started = Date.now();
 	let stderr = "";
-	const exit = await new Promise<string | undefined>((done) => {
-		const child = spawn(PI, args, {
+	let rpc: Awaited<ReturnType<typeof runRpc>> | undefined;
+	if (task.driver === "rpc")
+		rpc = await runRpc({
+			cli: PI,
 			cwd: repo,
 			env: childEnv(home, agentDir),
-			stdio: ["ignore", "ignore", "pipe"],
-			detached: true,
+			args: options,
+			prompt,
+			sessionDir,
+			capMs: task.timeoutMs ?? RUN_TIMEOUT_MS,
 		});
-		child.stderr.on("data", (chunk: Buffer) => {
-			stderr = (stderr + chunk.toString("utf8")).slice(-2000);
-		});
-		const timer = setTimeout(() => {
-			try {
-				if (child.pid) process.kill(-child.pid, "SIGKILL");
-			} catch {
-				// already gone
-			}
-			done("timed out");
-		}, task.timeoutMs ?? RUN_TIMEOUT_MS);
-		child.on("exit", (code) => {
-			clearTimeout(timer);
-			done(
-				code === 0
-					? undefined
-					: `xpi exited with ${code}: ${stderr.trim().split("\n").slice(-2).join(" | ").slice(0, 300)}`,
-			);
-		});
-	});
+	const args = ["-p", ...options, prompt];
+	const exit = rpc
+		? rpc.error
+		: await new Promise<string | undefined>((done) => {
+				const child = spawn(PI, args, {
+					cwd: repo,
+					env: childEnv(home, agentDir),
+					stdio: ["ignore", "ignore", "pipe"],
+					detached: true,
+				});
+				child.stderr.on("data", (chunk: Buffer) => {
+					stderr = (stderr + chunk.toString("utf8")).slice(-2000);
+				});
+				const timer = setTimeout(() => {
+					try {
+						if (child.pid) process.kill(-child.pid, "SIGKILL");
+					} catch {
+						// already gone
+					}
+					done("timed out");
+				}, task.timeoutMs ?? RUN_TIMEOUT_MS);
+				child.on("exit", (code) => {
+					clearTimeout(timer);
+					done(
+						code === 0
+							? undefined
+							: `xpi exited with ${code}: ${stderr.trim().split("\n").slice(-2).join(" | ").slice(0, 300)}`,
+					);
+				});
+			});
 	const ms = Date.now() - started;
 
 	const main: Record<string, Usage> = {};
@@ -246,6 +268,7 @@ async function runOne(task: Task, arm: Arm, run: number): Promise<Row> {
 	let handovers = 0;
 	let peakContext = 0;
 	let leak = false;
+	const metrics: WaitMetrics = { timeoutMsSet: 0, agentsStoppedByDeadline: 0, released: 0 };
 	for (const file of sessionFiles(sessionDir)) {
 		const usage = readUsage(file);
 		if (readFileSync(file, "utf8").includes(SOLUTION_PATH)) leak = true;
@@ -254,6 +277,8 @@ async function runOne(task: Task, arm: Arm, run: number): Promise<Row> {
 			merge(children, usage.byModel);
 		} else {
 			merge(main, usage.byModel);
+			const wait = waitMetrics(file);
+			for (const key of Object.keys(metrics) as (keyof WaitMetrics)[]) metrics[key] += wait[key];
 			handovers += usage.handovers;
 			peakContext = Math.max(peakContext, usage.peak);
 		}
@@ -275,6 +300,7 @@ async function runOne(task: Task, arm: Arm, run: number): Promise<Row> {
 		cost: sumCost(main) + sumCost(children),
 		leak,
 		dir,
+		...(rpc ? { wait: { ...metrics, wakes: rpc.wakes, endedBy: rpc.endedBy, sawStatus: rpc.sawStatus } } : {}),
 	};
 }
 
@@ -298,7 +324,7 @@ const avg = (values: number[]) => (values.length ? values.reduce((a, b) => a + b
 function report(rows: Row[]): void {
 	const mainOf = (row: Row) => row.main[MAIN] ?? noUsage();
 	console.log(
-		`\nmain model ${MAIN}; subagents and the relay worker on ${HAIKU}; ${runs} run(s) per cell${force ? "; delegation forced by the prompt" : ""}`,
+		`\nmain model ${MAIN}; subagents and the relay worker on ${HAIKU}; ${runs} run(s) per cell${force ? "; delegation forced by the prompt" : ""}; build ${PI}`,
 	);
 	console.log(
 		"main: tokens of the main model in the main session (fresh input + cache write / cache read / output)\n",
@@ -316,6 +342,7 @@ function report(rows: Row[]): void {
 		"peak ctx",
 		"agents",
 		"handovers",
+		...(rows.some((row) => row.wait) ? ["wakes", "timeout_ms", "deadline stops", "released"] : []),
 	];
 	const table: string[][] = [header];
 	for (const task of tasks) {
@@ -335,6 +362,11 @@ function report(rows: Row[]): void {
 				k(avg(cell.map((row) => row.peakContext))),
 				avg(cell.map((row) => row.subagents)).toFixed(1),
 				avg(cell.map((row) => row.handovers)).toFixed(1),
+				...(rows.some((row) => row.wait)
+					? (["wakes", "timeoutMsSet", "agentsStoppedByDeadline", "released"] as const).map((key) =>
+							cell.some((row) => row.wait) ? avg(cell.map((row) => row.wait?.[key] ?? 0)).toFixed(1) : "",
+						)
+					: []),
 			]);
 		}
 	}
@@ -373,7 +405,7 @@ async function main(): Promise<void> {
 			rows.push(row);
 			spent += row.cost;
 			console.log(
-				`${row.pass ? "PASS" : "FAIL"}  ${row.task} / ${row.arm} #${row.run}  ${(row.ms / 1000).toFixed(0)}s  $${row.cost.toFixed(4)}  agents ${row.subagents}  handovers ${row.handovers}${row.leak ? "  LEAK: read this checkout's source" : ""}${row.why ? `  ${row.why.slice(0, 120)}` : ""}`,
+				`${row.pass ? "PASS" : "FAIL"}  ${row.task} / ${row.arm} #${row.run}  ${(row.ms / 1000).toFixed(0)}s  $${row.cost.toFixed(4)}  agents ${row.subagents}  handovers ${row.handovers}${row.wait ? `  wakes ${row.wait.wakes}  timeout_ms ${row.wait.timeoutMsSet}  deadline stops ${row.wait.agentsStoppedByDeadline}  released ${row.wait.released}  end ${row.wait.endedBy}` : ""}${row.leak ? "  LEAK: read this checkout's source" : ""}${row.why ? `  ${row.why.slice(0, 120)}` : ""}`,
 			);
 			if (row.pass && !process.env.EVAL_KEEP) rmSync(row.dir, { recursive: true, force: true });
 			else if (row.pass) console.log(`  kept ${row.dir}`);
@@ -385,7 +417,7 @@ async function main(): Promise<void> {
 	const out = join(HERE, "results");
 	mkdirSync(out, { recursive: true });
 	const file = join(out, `${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
-	writeFileSync(file, JSON.stringify({ main: MAIN, worker: HAIKU, runs, arms, force, spent, rows }, null, 1));
+	writeFileSync(file, JSON.stringify({ main: MAIN, worker: HAIKU, cli: PI, runs, arms, force, spent, rows }, null, 1));
 	console.log(`\nspent $${spent.toFixed(4)}; results: ${file}`);
 }
 

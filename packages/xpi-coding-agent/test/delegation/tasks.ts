@@ -15,6 +15,9 @@ export interface Task {
 	prompt: string;
 	/** Time limit of one run. Default 15 minutes. */
 	timeoutMs?: number;
+	/** How the run is driven: print mode (`-p`, the default) or rpc mode (rpc-driver.ts), where scripts can run in the
+	 * background and the way main waits for its agents is measured. */
+	driver?: "print" | "rpc";
 	/** Fill the empty directory `repo`. It may make it a git repository; otherwise the runner does. */
 	setup(repo: string): void;
 	/** Undefined: passed. A string: why not. */
@@ -23,19 +26,19 @@ export interface Task {
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
-function write(repo: string, path: string, text: string): void {
+export function write(repo: string, path: string, text: string): void {
 	const file = join(repo, path);
 	mkdirSync(dirname(file), { recursive: true });
 	writeFileSync(file, text);
 }
 
-function read(repo: string, path: string): string | undefined {
+export function read(repo: string, path: string): string | undefined {
 	const file = join(repo, path);
 	return existsSync(file) ? readFileSync(file, "utf8") : undefined;
 }
 
 /** Run node in the repository; the error text when it fails. */
-function node(repo: string, args: string[]): { ok: boolean; out: string } {
+export function node(repo: string, args: string[]): { ok: boolean; out: string } {
 	try {
 		const out = execFileSync("node", args, { cwd: repo, timeout: 30_000, stdio: ["ignore", "pipe", "pipe"] });
 		return { ok: true, out: out.toString("utf8") };
@@ -46,7 +49,7 @@ function node(repo: string, args: string[]): { ok: boolean; out: string } {
 }
 
 /** Evaluate `code` (CommonJS, in the repository) and expect it to print "ok". */
-function probe(repo: string, code: string): string | undefined {
+export function probe(repo: string, code: string): string | undefined {
 	const result = node(repo, ["-e", code]);
 	if (result.ok && result.out.trim() === "ok") return undefined;
 	return result.out.trim().split("\n").slice(-3).join(" | ").slice(0, 300) || "the check printed nothing";
@@ -55,7 +58,7 @@ function probe(repo: string, code: string): string | undefined {
 const hash = (text: string | undefined) =>
 	text === undefined ? "missing" : createHash("sha1").update(text).digest("hex");
 
-function unchanged(repo: string, files: Record<string, string>): string | undefined {
+export function unchanged(repo: string, files: Record<string, string>): string | undefined {
 	for (const [path, text] of Object.entries(files)) {
 		if (hash(read(repo, path)) !== hash(text)) return `${path} was changed or removed`;
 	}
@@ -63,7 +66,7 @@ function unchanged(repo: string, files: Record<string, string>): string | undefi
 }
 
 /** A deterministic pseudo-random sequence, so every run sees the same repository. */
-function sequence(seed: number): () => number {
+export function sequence(seed: number): () => number {
 	let state = seed;
 	return () => {
 		state = (state * 1103515245 + 12345) % 2147483648;

@@ -689,10 +689,15 @@ export function groupMessage(
 	const now = Date.now();
 	const cost = (m: AgentCall) =>
 		m.cost > 0 ? m.cost : m.agentId !== undefined ? (registry.get(m.agentId)?.usage.cost.total ?? 0) : 0;
+	// Its longest stall (spec 09), when it had one.
+	const stall = (m: AgentCall) => {
+		const ms = m.agentId !== undefined ? registry.longestStallOf(m.agentId, now) : undefined;
+		return ms !== undefined ? ` stalled ${Math.floor(ms / 60_000)}m` : "";
+	};
 	const lines = [
 		...members.map(
 			(m) =>
-				`- ${m.agentId ?? "(not started)"} ${m.type} ${JSON.stringify(m.description)} ${m.status} $${cost(m).toFixed(4)} ${duration((m.endedAt ?? now) - m.startedAt)}${m.error !== undefined ? `\n  Error: ${m.error}` : ""}`,
+				`- ${m.agentId ?? "(not started)"} ${m.type} ${JSON.stringify(m.description)} ${m.status} $${cost(m).toFixed(4)} ${duration((m.endedAt ?? now) - m.startedAt)}${stall(m)}${m.error !== undefined ? `\n  Error: ${m.error}` : ""}`,
 		),
 		...group.failed.map((f) => `- (not started) ${JSON.stringify(f.description)} failed\n  Error: ${f.error}`),
 	];

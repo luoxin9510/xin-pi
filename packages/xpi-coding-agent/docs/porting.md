@@ -158,8 +158,10 @@ The options below come with the unit. Each says how to turn it off.
   `ctx.detachNestedCalls()` / `releaseNestedCalls()`; `pi.sendMessage(..., { triggerTurn: true, deliverAs: "steer" })`;
   `session_shutdown` to stop what is left; a UI (print mode keeps scripts in front). The groups live in
   `background.ts` (`join`, the group and its message) and `agent-tool.ts` (each agent of a script on its own
-  `AbortController`, detached from the call's signal when the script ends).
-- **Files**: `background.ts`, `runs.ts` (in the unit either way).
+  `AbortController`, detached from the call's signal when the script ends). [Waiting for
+  agents](subagent.md#waiting-for-agents) also needs `before_agent_start` with `messageType` and a custom `message`
+  result (the line after a user message), `ctx.ui.setStatus` (the `subagents` status) and `ctx.ui.notify` (stalls).
+- **Files**: `background.ts`, `runs.ts`, `waiting.ts` (in the unit either way).
 - **Wiring / turn off**: the setting `subagent.backgroundScripts: false` (read in `index.ts` by `runsInBackground` and
   by the `enabled()` of `scripts.connect()`); scripts then stay in the foreground.
 - **Verify**: `test/suite/codemode-scripts.test.ts`, `test/suite/codemode-background-nested.test.ts`,

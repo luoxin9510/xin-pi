@@ -12,6 +12,7 @@ import { COLORS, ICONS, label, registry, type SubagentRecord } from "./registry.
 import { elapsed, openScriptScreen, scriptStatus } from "./script-screen.ts";
 import { stopEverything } from "./stop-all.ts";
 import { openSubagentScreen } from "./subagent-screen.ts";
+import { stalledLabel } from "./waiting.ts";
 
 // Only a script whose code runs can be paused (a group's agents have all started or failed).
 const pausable = (s: ScriptRecord) => s.state === "foreground" || s.state === "background";
@@ -238,6 +239,9 @@ export class Panel {
 					t.fg("muted", `${a.turns} turns`),
 				];
 				if (a.lastTool) parts.push(t.fg("muted", a.lastTool));
+				// Quiet for subagent.stallMs (spec 09): shown next to its last tool, which may just be slow.
+				const stall = registry.stalledFor(a.id);
+				if (stall !== undefined) parts.push(t.fg("warning", stalledLabel(stall)));
 				parts.push(t.fg("muted", `$${a.usage.cost.total.toFixed(4)}`));
 			}
 			const selected = this.focused && i === this.selected;

@@ -18,11 +18,15 @@ import { scriptHelpers } from "./script-helpers.ts";
 import { sendMessageTool } from "./send-message-tool.ts";
 import { registerStructuredOutput } from "./structured-output.ts";
 import { subagentsCommand } from "./subagents-command.ts";
+import { checkStalls, runningLine, statusText } from "./waiting.ts";
 import { startWorkflowCommand, workflowStartText } from "./workflow-run.ts";
 import { saveScriptAsWorkflow } from "./workflow-save.ts";
 import { describeWorkflows, runToRelaunch, workflowTool } from "./workflow-tool.ts";
 import { discoverWorkflows, parseArgs, type Workflow } from "./workflows.ts";
 import { workflowsCommand } from "./workflows-command.ts";
+
+// How often running agents are checked for stalls (spec 09).
+const STALL_CHECK_MS = 30_000;
 
 // A message for the user: a notification with a UI, a line on stderr without one (print mode), where it does not mix
 // with the answer on stdout.
@@ -71,6 +75,32 @@ export default function subagent(pi: ExtensionAPI) {
 		!closing &&
 		pi.sendMessage({ customType: "subagent", content, display: true }, { triggerTurn: true, deliverAs: "steer" });
 	let disconnect: (() => void) | undefined;
+	// The stall timer and the `subagents` status of the current session (spec 09); stopped, and the status cleared, when
+	// the session ends.
+	let unwatch: (() => void) | undefined;
+	const watch = (ctx: ExtensionContext) => {
+		unwatch?.();
+		const sessionId = ctx.sessionManager.getSessionId();
+		const timer = setInterval(() => {
+			checkStalls(sessionId, config!.stallMs, (m) => tell(current!, m, "warning"));
+		}, STALL_CHECK_MS);
+		timer.unref();
+		let shown: string | undefined;
+		const publish = () => {
+			const text = statusText(sessionId);
+			if (text === shown) return;
+			shown = text;
+			current?.ui.setStatus("subagents", text);
+		};
+		const offRegistry = registry.subscribe(publish);
+		const offScripts = scripts.subscribe(publish);
+		publish();
+		unwatch = () => {
+			clearInterval(timer);
+			offRegistry();
+			offScripts();
+		};
+	};
 
 	// Saved workflows become `/name` commands. A command cannot be unregistered: one registered for an earlier session
 	// stays, and its handler looks the workflow up again when it runs (an edited file runs as edited).
@@ -224,6 +254,9 @@ export default function subagent(pi: ExtensionAPI) {
 	pi.on("session_shutdown", async (_event, ctx) => {
 		closing = true;
 		const sessionId = ctx.sessionManager.getSessionId();
+		unwatch?.();
+		unwatch = undefined;
+		ctx.ui.setStatus("subagents", undefined);
 		await scripts.stopAll(sessionId);
 		disconnect?.(); // an old session's script end must never reach a later session
 		disconnect = undefined;
@@ -300,6 +333,16 @@ export default function subagent(pi: ExtensionAPI) {
 				},
 			);
 		}
+		watch(ctx);
 		for (const warning of [...warnings, ...discovery.warnings]) tell(ctx, `subagent: ${warning}`, "warning");
+	});
+
+	// A user message that starts a turn while a group runs: one line after it naming the agents still running, so main
+	// knows without a tool call. A custom message, so the cached prefix is unchanged. Not on steers or follow-ups (they
+	// start no run) or on custom messages, such as a group's own message.
+	pi.on("before_agent_start", (event, ctx) => {
+		if (event.messageType !== "user") return undefined;
+		const line = runningLine(ctx.sessionManager.getSessionId());
+		return line ? { message: { customType: "subagent-status", content: line, display: false } } : undefined;
 	});
 }

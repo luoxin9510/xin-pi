@@ -278,6 +278,13 @@ const SubagentSettingsSchema = Type.Object(
 				description: "How long a finished subagent stays in the panel. Default 30000.",
 			}),
 		),
+		stallMs: Type.Optional(
+			Type.Number({
+				minimum: 0,
+				description:
+					"A running subagent with no activity for this long is marked stalled in the panel and the user is told. 0 turns it off. Default 600000.",
+			}),
+		),
 		piCommand: Type.Optional(
 			Type.String({
 				description: "Command that starts a subagent. Unset: the build this process runs.",
