@@ -727,11 +727,11 @@ export class Team {
 		await this.enqueue(() => this.drainLead());
 		this.steerRefused.delete(name);
 		if (this.closing) return "stopped";
+		const userStop = this.runStops.delete(name);
 		if (this.approved.delete(name)) {
 			this.setStatus(name, "stopped");
 			return "stopped";
 		}
-		const userStop = this.runStops.delete(name);
 		if (outcome.userStopped || outcome.aborted || userStop || m.status === "stopped") {
 			this.setStatus(name, "stopped");
 			this.host.toLead(`Teammate "${name}" was stopped.`);

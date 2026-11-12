@@ -687,3 +687,28 @@ test("app.team.tasks exists with no default key, and a user binding matches it",
 	assert.deepEqual(bound.getKeys("app.team.tasks" as any), ["ctrl+g"]);
 	assert.equal(bound.matches("\x07", "app.team.tasks" as any), true);
 });
+
+test("X (stop all) stops a running teammate through the team: it ends stopped even if its run ends by itself, and one with no child yet is stopped too", async () => {
+	const x = setup("stopall-run");
+	const a = x.mate("a");
+	x.team.addMember("w", "w-id", "general-purpose", "queued");
+	registry.begin(parent(x.sessionId), {
+		id: "w-id",
+		type: "general-purpose",
+		name: "w",
+		description: "d",
+		model: "m",
+		thinking: "off",
+		teammate: true,
+		team: x.team.name,
+	} as any);
+	x.team.exchangeBegan("w"); // running, its child not attached yet
+	x.mate("sleeper", "idle");
+	await stopEverything(x.sessionId);
+	assert.equal(x.team.members.get("a")!.status, "stopping");
+	assert.equal(x.team.members.get("w")!.status, "stopping", "kept for the child that is not up yet");
+	assert.equal(x.team.members.get("sleeper")!.status, "idle");
+	assert.equal(await a.end(), "stopped", "its run ended by itself: still stopped");
+	assert.deepEqual(x.idleEvents, []);
+	assert.equal(await x.team.exchangeEnded("w", { run: run("") }), "stopped");
+});

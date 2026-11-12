@@ -12,10 +12,16 @@ export async function stopEverything(sessionId: string): Promise<{ agents: numbe
 		.map((r) => r.id);
 	const running = scripts.list(sessionId).filter(scriptRunning).length;
 	await scripts.stopAll(sessionId);
-	// Teammates waiting for a slot (a first start or a wake) stop through the team, so they end stopped; idle ones are left.
+	// Teammates that run or wait for a slot stop through the team: the stop holds even if the child is not up yet or the run
+	// ends by itself first, and they end stopped. Idle ones are left.
 	const team = teams.current();
-	for (const m of team?.live() ?? []) if (m.status === "queued") team!.stop(m.name);
+	const mates = new Set<string>();
+	for (const m of team?.live() ?? [])
+		if (m.status === "queued" || m.status === "running") {
+			mates.add(m.agentId);
+			team!.stop(m.name);
+		}
 	registry.abortQueuedOf(sessionId);
-	await registry.stopAll(agents);
+	await registry.stopAll(agents.filter((id) => !mates.has(id)));
 	return { agents: agents.length, scripts: running };
 }

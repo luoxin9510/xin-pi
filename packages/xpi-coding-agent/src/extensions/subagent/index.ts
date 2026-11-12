@@ -315,7 +315,7 @@ export default function subagent(pi: ExtensionAPI) {
 		// A resumed session's old task list is in use again: mark it so retention (another session's) leaves it alone.
 		if (teamsOn) markLead(join(tasksRoot(), `session-${ctx.sessionManager.getSessionId()}`), false);
 		// `/tasks` only exists while teams are on (the setting is read here, at session start, not when the extension loads).
-		// A command cannot be unregistered: after a /reload with teams off it stays and says so.
+		// /reload runs session_start again, so a registration is not carried over by it; the flag only avoids registering twice.
 		if (teamsOn && !tasksCommand) {
 			tasksCommand = true;
 			pi.registerCommand("tasks", {
