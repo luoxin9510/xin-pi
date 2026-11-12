@@ -1,10 +1,11 @@
 # xpi-roost
 
 Background sessions for xpi: a daemon that runs xpi sessions (and plain shell commands) in PTYs, a host process per
-session that holds its PTY and a headless mirror of its screen, and the library both use. Ported from pi-roost, phase 1
-of `.scratch/xpi-roost/01-roost-core.md`. Private: it ships inside the `xpi-coding-agent` bundle, never on its own.
+session that holds its PTY and a headless mirror of its screen, and the library both use. Ported from pi-roost: phase 1
+of `.scratch/xpi-roost/01-roost-core.md`, and phase 2's schedules and login service (`02-schedules.md`). Private: it
+ships inside the `xpi-coding-agent` bundle, never on its own.
 
-It has the core, the `xpi roost` commands and the hub. The session side, `builtin:roost` (`xpi --bg`, `/agents`, `/bg`,
+It has the core, the `xpi roost` commands (schedules and `daemon install` included) and the hub. The session side, `builtin:roost` (`xpi --bg`, `/agents`, `/bg`,
 `/bg-fork`, the worker role in a session the daemon runs), lives in `xpi-coding-agent/src/extensions/roost/`.
 
 ## Layout
@@ -13,13 +14,17 @@ It has the core, the `xpi roost` commands and the hub. The session side, `builti
 - `src/daemon/main.ts`: the daemon. One per agent directory; started on demand by `DaemonClient.connectOrStart`.
 - `src/host/main.ts`: the PTY host of one session. The only module that loads node-pty.
 - `src/cli.ts`: `runRoostCli(argv, options)`, the `xpi roost` commands (user docs: coding-agent's `docs/cli.md`).
+- `src/lib/schedule.ts`, `src/lib/schedules.ts`: schedules (phase 2): the time rules and slots, and the daemon's store,
+  tick and ops. A run's launch comes from the caller (`scheduleLaunch`), built when the schedule is made or edited.
+- `src/lib/service.ts`: the login service (`xpi roost daemon install|uninstall`): a launchd agent or a systemd user
+  unit that starts the daemon once per login.
 - `src/index.ts`: what xpi imports (the client, the CLI, the settings merge, the detach-key scanner, and for the session
   side `Reporter`, `jobIdentity`, `WorkerTracker`, `buildLaunch`, the recap's list).
 - `src/session.ts` (`xpi-roost/session`): what every xpi session loads, the session write lock (DM-8),
   `isRoostSession` and the scratch-session check of `/bg`. Files and the environment only: it reaches no client
   (`check-entry-graphs.mjs` enforces it).
-- `src/hub/` (`xpi-roost/hub`): the hub (pi-roost's agent view, cut to phase 1: no task board, workspaces, review,
-  concierge, schedules, fan-out or agent definitions), its overlays (log, usage), the overlay host, the task editor and
+- `src/hub/` (`xpi-roost/hub`): the hub (pi-roost's agent view, cut: no task board, workspaces, review, concierge,
+  fan-out or agent definitions), its overlays (log, usage, schedules), the overlay host, the task editor and
   the daemon port. It draws with `xpi-tui`, the one xpi package this library imports, and only here. Everything it
   cannot know comes in `AgentViewOptions`: `connect` (the daemon), `isDetachKey` and `detachKeyName`, `launch` and
   `launchShell`, models, presets, resume, and `builtins`, xpi's slash commands with how a peek runs each
@@ -28,8 +33,8 @@ It has the core, the `xpi roost` commands and the hub. The session side, `builti
 - `docs/protocol.md`: how sessions and controllers talk to the daemon, with the op reference generated from the
   schemas (`npm run docs:protocol`).
 - `docs/port-inventory.md`: every pi-roost file and where it went, and the renamed environment variables.
-- `docs/porting.md`: how it works and how to rebuild it in another host agent, step by step, with what phase 1 left
-  out of pi-roost and by which decision.
+- `docs/porting.md`: how it works and how to rebuild it in another host agent, step by step, phase 2's schedules and
+  login service, and what was left out of pi-roost and by which decision.
 
 It imports nothing of xpi. The caller gives the agent directory and the paths of the two entry files:
 
@@ -55,7 +60,7 @@ Unbundled runs resolve `xpi-roost/daemon` and `xpi-roost/host`, so build this pa
 
 ## Where a roost is
 
-- State: `<agent dir>/xpi-roost/` (jobs, roster, the event feed, the daemon's log).
+- State: `<agent dir>/xpi-roost/` (jobs, roster, the event feed, the schedules, the daemon's log).
 - Sockets and the daemon's lock: `$XDG_RUNTIME_DIR/xpi-roost-<key>`, or `/tmp/xpi-roost-<uid>/<key>`, where `<key>` is
   a hash of the agent directory. A temporary agent directory therefore gets a daemon of its own.
 - `ROOST_HOME` and `ROOST_RUNTIME_DIR` override both, unless `ROOST_AGENT_DIR` names another agent directory than the

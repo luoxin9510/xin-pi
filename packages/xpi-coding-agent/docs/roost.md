@@ -369,12 +369,11 @@ After an upgrade, a running daemon still has the old code: run `xpi roost daemon
 
 ## Not in this version
 
-Background sessions came from pi-roost; this version has its daemon, `xpi roost`, the hub and the session side. Not
-here: sessions resuming on their own after a machine restart (left out: restarting unattended can repeat half-done
-work; reply to a session or `xpi roost respawn` it instead), schedules in the hub (planned next; the command line has
-them, see [Schedules](#schedules)); messages between sessions and
-watches (with agent teams, later); subagents in the hub (each session shows its own); the task board and workspaces,
+Background sessions came from pi-roost; this version has its daemon, `xpi roost`, the hub, the session side and
+schedules. Not here: sessions resuming on their own after a machine restart (left out: restarting unattended can
+repeat half-done work; reply to a session or `xpi roost respawn` it instead); a schedule whose task is a shell command
+or an agent definition; messages between sessions and watches (with agent teams, later); subagents in the hub (each session shows its own); the task board and workspaces,
 the concierge, worktree isolation, pull request status, fan-out and `/compare`, sessions from agent definitions,
 terminal agents other than xpi, the summary model, pi-mobile and telemetry. The list, with the decision behind each,
-is in [Left out of phase 1](../../xpi-roost/docs/porting.md#left-out-of-phase-1). pi-roost's state and `roost.json`
+is in [Left out](../../xpi-roost/docs/porting.md#left-out). pi-roost's state and `roost.json`
 are not read: its sessions do not appear here.

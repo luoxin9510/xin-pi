@@ -1,15 +1,15 @@
 # Porting roost
 
 How background sessions work in xin-pi, for an engineer who rebuilds them in another host agent. It replaces
-pi-roost's `docs/porting.md` (written in Chinese against pi-roost v0.1.21, main `890cbe9`), cut to what xin-pi's
-phase 1 has: the daemon, the PTY host, `xpi roost`, the hub and the session side. Everything pi-roost had beyond that
-is listed in [Left out of phase 1](#left-out-of-phase-1) with the decision that cut it; pi-roost's own document stays in
-its repository for those parts.
+pi-roost's `docs/porting.md` (written in Chinese against pi-roost v0.1.21, main `890cbe9`), cut to what xin-pi has:
+phase 1's daemon, PTY host, `xpi roost`, hub and session side, and phase 2's schedules and login service
+([Phase 2: schedules](#phase-2-schedules)). Everything pi-roost had beyond that is listed in [Left out](#left-out)
+with the decision that cut it; pi-roost's own document stays in its repository for those parts.
 
 The code: `packages/xpi-roost` (the core, the command line and the hub) and `builtin:roost`
 (`packages/xpi-coding-agent/src/extensions/roost/`, the adapter). The spec and its decisions are
 `.scratch/xpi-roost/01-roost-core.md` and `.scratch/xpi-roost/decisions.md`; "decision N" below is the spec's
-numbering. `port-inventory.md` lists every pi-roost file and where it went, `protocol.md` every op. The user guide is
+numbering. Phase 2's spec is `.scratch/xpi-roost/02-schedules.md`; "phase 2 decision N" is its numbering. `port-inventory.md` lists every pi-roost file and where it went, `protocol.md` every op. The user guide is
 `packages/xpi-coding-agent/docs/roost.md`.
 
 ## The architecture in one picture
@@ -166,7 +166,7 @@ use.
    relative or missing directory, an empty command, a relative session file, and a file that is locked or already run
    by a job (`locked`); a taken name gets ` (2)`. Each job gets a random token, given to its worker by the host.
 9. **The command line** (`src/cli.ts`): `ls`/`list` (`--all`, `--cwd`, `--json`), `logs`, `log` (`-n`, `--follow`),
-   `attach`, `reply`, `stop`, `rm`, `respawn` (`--all`), `daemon status|logs|stop` (`--keep-workers`), `hub`. A daemon
+   `attach`, `reply`, `stop`, `rm`, `respawn` (`--all`), `daemon status|logs|stop` (`--keep-workers`), `hub`; phase 2 adds `schedule ...` and `daemon install|uninstall`. A daemon
    of another version gets a warning with the way out: `xpi roost daemon stop --keep-workers`, then
    `xpi roost respawn --all`.
 10. **The attach loop** (`lib/attach.ts`): raw mode, bytes passed through. The caller's matcher says which whole key
@@ -282,6 +282,63 @@ These four keys are the user's only. The roost's location variables (`ROOST_AGEN
 `ROOST_RUNTIME_DIR`, `ROOST_HOST_ENTRY`) and `XPI_CODING_AGENT_DIR` always reach the session, so roost inside it
 reaches the same daemon (decision 7).
 
+## Phase 2: schedules
+
+Spec 02, from pi-roost's M39 and M40, measured against Claude Code's local scheduled tasks; the login service is new
+(pi-roost had none). Built in three PRs: the daemon and the command line, the hub, the login service.
+
+**What moved.** `lib/schedule.ts` (the rule parser and the slot arithmetic, DST included, a slot at least 1 s ahead),
+`lib/schedules.ts` (the store, the tick and the ops, with narrow ports and an injected clock), `lib/clock.ts` and the
+tests' `support/clock.ts`, `hub/overlays/schedules.ts`, and the parts phase 1 had cut from `store.ts` (`schedule`,
+`scheduleId`), `events.ts` (kind `schedule`: a run started as due, catch-up or now, or a slot skipped with its reason),
+`protocol-schema.ts`, `callers.ts` and `hub/roost-port.ts`. The ops are `schedules`, `schedule-add`, `schedule-edit`
+(new), `schedule-rm`, `schedule-pause` and `schedule-run`, the person's only; the protocol version stays 1.
+
+**How it differs from pi-roost.**
+
+- Rules: pi-roost's `every`, `daily`, `weekdays` and `cron`, plus `weekly <day> HH:MM` and `manual`, in local time.
+  The floor is 5 minutes, not 1, and does not depend on when it is checked: a cron rule is refused when two of its
+  times of day are under 5 minutes apart (phase 2 decision 3). At most 50 schedules (pi-roost: 100); names as
+  pi-roost's.
+- Made on the command line too: `xpi roost schedule list|add|edit|run|pause|resume|rm`, and `/schedule` in the hub
+  (pi-roost: the hub only). `schedule list` reads `schedules.json` without starting a daemon. `add`, `edit` and `run`
+  refuse inside a background session (`ROOST_JOB_ID` set); that stops accidents, not a model that clears the
+  variable.
+- The launch is built when the schedule is made or edited, by the side that knows xpi (the extension's CLI wrapper or
+  the hub's options): the executable, the environment filtered by the `roost` settings, the stored trust decision
+  (none: `--no-approve`), the model and thinking, the session directory with `{{run}}` where each run's file name
+  goes. It is stored with the schedule (the file is the user's only), and `edit` builds it again. A run never takes
+  the daemon's environment, which under a login service is almost empty.
+- Catch-up: only the latest missed slot, only within the last 7 days, once, logged and marked; no `catchUp` option
+  (pi-roost ran a missed schedule once at start, however old).
+- Skips: while the previous run works, starts or waits to restart after a crash; a run waiting for an answer does not
+  hold the schedule back (the new one starts, the old one stays as Needs input). Also when the directory is gone or
+  the stored executable has moved. A skip is logged, not notified.
+- Runs: a new session named after the schedule (`name`, `name (2)`), marked `↻ <schedule>` in the hub. pi-roost closed
+  a run through the subagent auto-close that phase 1 cut; here each schedule keeps its three newest ended runs that are
+  not pinned and removes older records as `rm` does (the session files stay). A run that ended on a question counts as
+  ended once its process is gone, unless it is the schedule's latest.
+- The file: an unreadable `schedules.json` is moved aside (`.bad-<time>`) and the daemon starts with none; when moving
+  it fails, the schedules are frozen (never written) rather than overwrite it. Entries it cannot run are kept as they
+  are and counted.
+- The login service: `xpi roost daemon install|uninstall` (`lib/service.ts`). A launchd agent (`dev.xpi.roost.<key>`:
+  RunAtLoad, no KeepAlive, AbandonProcessGroup) or a systemd user unit (`xpi-roost-<key>.service`: Type=simple, no
+  `Restart=`, `KillMode=process`, `WantedBy=default.target`), `<key>` the agent directory's. It runs `daemonCommand`
+  with `daemonLocation` (`lib/client.ts`), as `connectOrStart` does, once per login, so `daemon stop` is not undone.
+  The files are made by pure functions; the launchctl and systemctl calls are injected. `launchctl bootout` stops the
+  job's running daemon (SIGTERM, which keeps the sessions), so uninstall waits for it and starts it again outside the
+  service, and a reinstall waits for it before `bootstrap`. `daemon status` says whether the service is installed and
+  current, and when the daemon runs under another runtime directory (`other_runtime_dir`, `daemonElsewhere`).
+
+**Resume after an interruption is not ported** (M38, `autoResume`; phase 2 decision 1). Phase 1 already does what
+Claude Code does: a crashed worker is restarted while the daemon runs (DM-5); after a machine restart a session that
+was working is failed, and the person resumes it (DM-7). Restarting sessions unattended after a machine restart can
+repeat half-done work.
+
+Constants: a tick every 15 s (`ROOST_SCHEDULE_TICK_MS` for tests), a 5-minute floor (`FLOOR_MS`), 50 schedules
+(`SCHEDULES_MAX`), a task of 64 KiB at most (`TASK_MAX_BYTES`), three ended runs kept (`RUNS_KEPT`), catch-up within
+7 days (`CATCH_UP_MS`), 15 s for a daemon stopped by `launchctl bootout` to let go of its lock (`lib/service.ts`).
+
 ## Settings
 
 The `"roost"` section of `settings.json` (decision 9), read by the adapter and the hub through xpi's settings and by
@@ -351,41 +408,46 @@ agent directory.
 ## Known limits
 
 - macOS and Linux only (decision 10): Unix PTYs and sockets.
-- A session interrupted by a machine restart, or by its host's death, ends; it does not resume on its own (M38 is
-  phase 2). A reply or `respawn` starts it again.
+- A session interrupted by a machine restart, or by its host's death, ends; it does not resume on its own (M38 is not
+  ported, phase 2 decision 1). A reply or `respawn` starts it again.
+- Schedules run only while the daemon runs: on demand, or from login with `xpi roost daemon install`. A slot missed
+  while it was off runs once if it is the latest and within 7 days.
 - After an upgrade the running daemon and hosts keep their old code until `xpi roost daemon stop --keep-workers` and
   `xpi roost respawn --all`.
 - A crashed session is restarted three times in a row at most; then a reply starts it.
 - The hub's keys are fixed (AGENTS.md's exemption); only the detach key follows the user's keybindings.
 - pi-roost's state in `~/.pi/agent/roost/` is never read (decision 9): its sessions do not appear.
 
-## Left out of phase 1
+## Left out
 
-Not copied (rather than copied and switched off): the code is not in xin-pi (decision 6). "Grill N" is the item in `decisions.md`.
+Not copied (rather than copied and switched off): the code is not in xin-pi (decision 6). "Item N" is the numbered
+item of Grills 1 to 3 in `decisions.md`, phase 1's (Grills 4 and 5 are phase 2's and number their own items).
+Schedules (M39, M40) were left out of phase 1 and came with phase 2 ([Phase 2: schedules](#phase-2-schedules)),
+except what depends on parts phase 1 cut: profiles, `!` commands and agent definitions as a schedule's task, worktree
+templates, subagent auto-close.
 
 | What | pi-roost | Decision |
 |---|---|---|
-| Schedules (`/schedule`, `xpi roost schedule`) | M39, M40 | decision 6 (phase 2); Grill 5 |
-| Resume after an interruption (`autoResume`) | M38 | decision 6 (phase 2); Grill 5 |
-| Messages between sessions, peers, `handback`, `send`, `spawn` | M9, M50 | decision 6 (with agent teams); Grill 5 |
-| Watches | M43 | decision 6 (with agent teams); Grill 5 |
+| Resume after an interruption (`autoResume`) | M38 | phase 2 decision 1: not ported, phase 1 already behaves as Claude Code does |
+| Messages between sessions, peers, `handback`, `send`, `spawn` | M9, M50 | decision 6 (with agent teams); item 5 |
+| Watches | M43 | decision 6 (with agent teams); item 5 |
 | The `roost_*` agent tools and the `agentMax*` limits | M9 | decision 6 (with agent teams) |
-| A foreground session in the hub (`peer_register`) | M9 | decision 5; Grill 15 |
-| Subagents in the hub, the subagent panel and transcript view, `list --subagents` | M12, M13, M19 | decision 3; Grill 4 |
-| The task board and workspaces (`/tasks`, `/workspaces`, `xpi roost review`, verify, merge, PRs from tasks) | M47, M52, M54 to M60, M64 to M66 | decision 6 (only if the owner asks); Grill 5 |
-| The concierge and standing orders | M44 to M46 | decision 6 (only if the owner asks); Grill 5 |
-| Worktree isolation (`--worktree`, `worktreeIsolation`) | M10 | decision 6 (only if the owner asks); Grill 5, 16 |
+| A foreground session in the hub (`peer_register`) | M9 | decision 5; item 15 |
+| Subagents in the hub, the subagent panel and transcript view, `list --subagents` | M12, M13, M19 | decision 3; item 4 |
+| The task board and workspaces (`/tasks`, `/workspaces`, `xpi roost review`, verify, merge, PRs from tasks) | M47, M52, M54 to M60, M64 to M66 | decision 6 (only if the owner asks); item 5 |
+| The concierge and standing orders | M44 to M46 | decision 6 (only if the owner asks); item 5 |
+| Worktree isolation (`--worktree`, `worktreeIsolation`) | M10 | decision 6 (only if the owner asks); items 5, 16 |
 | Pull request status | M16 | decision 6 (only if the owner asks) |
-| Fan-out and `/compare` | M26 | decision 6 (only if the owner asks); Grill 5 |
-| Sessions from agent definitions (`--agent`, `dispatchAgent`, `<agent> <prompt>`, `a:`) | M18 | decision 6; Grill 17 |
-| Terminal-agent profiles, the protocol client class, the Python SDK | M30, M31 | decision 6; Grill 10 |
-| pi-mobile | M11 | decision 6; Grill 5 |
-| Telemetry | M34 | decision 6; Grill 5 |
+| Fan-out and `/compare` | M26 | decision 6 (only if the owner asks); item 5 |
+| Sessions from agent definitions (`--agent`, `dispatchAgent`, `<agent> <prompt>`, `a:`) | M18 | decision 6; item 17 |
+| Terminal-agent profiles, the protocol client class, the Python SDK | M30, M31 | decision 6; item 10 |
+| pi-mobile | M11 | decision 6; item 5 |
+| Telemetry | M34 | decision 6; item 5 |
 | The summary model (row summaries, automatic names, the recap's rewrite) | M7 | decision 6 |
 | `defaultToAgentsView` | | decision 6 |
 | `/bg`'s quit offer and the footer hint with its daemon poll | BG-9, BG-11 | left out with the foreground role (PR 4, T19 notes in `issues/01-roost-core.md`) |
-| `--agents`, `--agents-cwd` (xpi's `--agents` defines subagents) | | decision 6 (never, as they are); Grill 16 |
+| `--agents`, `--agents-cwd` (xpi's `--agents` defines subagents) | | decision 6 (never, as they are); item 16 |
 | A preset's `worktree`, `agent`, `fanout` fields | M27 | decision 6 |
 | `lib/pi-resolve.ts`, `lib/pi-commands.ts`, `extensions/index.ts`, `spikes/`, `evals/`, `stress/` | | decision 6 (not ported) |
-| `roost.json` and the `PI_ROOST_*`, `PI_JOB_ID`, `PI_DAEMON_SOCK` names | | decision 9; Grill 8 |
-| Roost in the standalone binaries, Windows | | decisions 8, 10; Grill 7, 9 |
+| `roost.json` and the `PI_ROOST_*`, `PI_JOB_ID`, `PI_DAEMON_SOCK` names | | decision 9; item 8 |
+| Roost in the standalone binaries, Windows | | decisions 8, 10; items 7, 9 |

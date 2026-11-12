@@ -93,6 +93,20 @@ Haiku check when it changes what a session does, and the user docs for what it a
 
 ## PR 4: wrap-up and release (branch `roost-phase2-docs`)
 
-- [ ] S13 `porting.md` (phase 2; the decision on resume; the stale "Grill 5" reference), `port-inventory.md`, spec
+- [x] S13 `porting.md` (phase 2; the decision on resume; the stale "Grill 5" reference), `port-inventory.md`, spec
       01's decision 6 note, README files
+      Notes: `porting.md` has "Phase 2: schedules" (what moved, how it differs from pi-roost's M39/M40, the login
+      service, resume not ported with the reason, constants), the intro, the command list, Known limits and the
+      "Left out" table (renamed from "Left out of phase 1"; the schedules row gone, the resume row cites phase 2
+      decision 1). The stale reference: the table's "Grill N" meant item N of Grills 1 to 3, but `decisions.md` now
+      has sections named Grill 4 and 5 (phase 2) that number their own items; the table now says "item N" and the
+      legend explains it. `port-inventory.md` marks the schedule files, `clock.ts`, the overlay, the tests and
+      `support/clock.ts` ported (phase 2), adds `service.ts` and `service.test.ts`, the phase 2 parts of split files,
+      `ROOST_SCHEDULE_TICK_MS`, and M38 as decided not to port. Spec 01 decision 6 has a note pointing at spec 02.
+      READMEs: root (the package row), `xpi-coding-agent/README.md` (schedules, `daemon install`),
+      `xpi-roost/README.md`. Also stale text fixed: `protocol.md`'s header ("no schedules"), `roost.md`'s "Not in this
+      version" (schedules in the hub "planned next") and its link to the renamed anchor, `docs/xin-pi.md`,
+      `settings.md` (`dispatchModel` for schedules), `environment-variables.md` (the login service's runtime
+      directory). The #78 round 2 code nits are a separate commit (the bootout timeout and a failed restart after
+      uninstall say what to do).
 - [ ] S14 a release with a Node smoke test including `xpi roost schedule`

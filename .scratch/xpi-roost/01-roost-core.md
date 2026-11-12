@@ -166,6 +166,9 @@ Not known yet; settled in the PR that meets it, and a contradiction with a decis
 6. **Left out of phase 1.** The code is not copied (not copied and switched off):
    - Phase 2: schedules (M39, M40) and resume after an interruption (M38). Until then an interrupted session is shown
      as ended, and the `autoResume` setting does not exist.
+     Note (phase 2 done): spec 02 (`02-schedules.md`) ported the schedules and added a login service
+     (`xpi roost daemon install`); its decision 1 does not port resume after an interruption (M38, `autoResume`),
+     since phase 1 already behaves as Claude Code does. See `porting.md`, Phase 2: schedules.
    - With agent teams, later: messages between sessions and peers (M9, M50), watches (M43), the `roost_*` agent tools,
      and with them the limits on agents starting agents (`agentMax*`).
    - Only if the owner asks: the task board and workspaces (M47, M52, M54 to M60, M64 to M66; `review` in the CLI,

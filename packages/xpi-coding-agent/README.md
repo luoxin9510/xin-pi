@@ -28,7 +28,9 @@ What xin-pi adds to pi:
   the worker's transcript.
 - **`/upstream`**: compares upstream pi with xin-pi and asks the model what is worth porting.
 - **Background sessions** (macOS and Linux): `xpi --bg "<task>"` or `/bg` hands a session to a daemon that keeps it
-  running; `/agents` or `xpi roost hub` lists them to peek, reply, attach and start more. See
+  running; `/agents` or `xpi roost hub` lists them to peek, reply, attach and start more. Schedules
+  (`xpi roost schedule add`, or `/schedule` in the hub) start a task as a new session on a time rule;
+  `xpi roost daemon install` starts the daemon at login so they run without xpi open. See
   [Background Sessions](docs/roost.md).
 
 ## Install
