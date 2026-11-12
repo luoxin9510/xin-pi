@@ -176,6 +176,32 @@ stops the schedules with it. A slot missed while the daemon was off or the machi
 it fell within the last seven days, marked as a catch-up in `schedule list` and `xpi roost log`; older ones are
 dropped.
 
+**Start the daemon at login.** So schedules run without opening xpi after a restart, `xpi roost daemon install`
+registers a login service for this agent directory: a launchd agent in `~/Library/LaunchAgents` on macOS, a systemd
+user unit in `~/.config/systemd/user` on Linux, named by the agent directory's key (`dev.xpi.roost.<key>`,
+`xpi-roost-<key>.service`). It starts the daemon once per login and never again: `xpi roost daemon stop` is not undone
+until the next login, and launchd or systemd leaves the sessions alone when the daemon exits. On Linux it also starts the daemon at
+once when none is running; on macOS loading it starts one, which exits when a daemon already runs.
+`xpi roost daemon uninstall` removes it; the daemon keeps running, so schedules do too. On macOS, unloading the
+service stops the daemon it started (its sessions keep running, as with `daemon stop --keep-workers`), so uninstall
+waits for it to stop and starts it again as any `xpi roost` command would, outside the service; installing again
+likewise restarts that daemon under the new service. `xpi roost daemon status` says whether the service is installed.
+`install` and `uninstall` refuse to run as root: run them as yourself, not with `sudo`. Notes:
+
+- The service runs the xpi that installed it (its Node and its daemon file, by path) with the location of the roost
+  and nothing else of your environment: the runs of schedules carry the environment they were made with, not the
+  service's. After moving xpi, or upgrading it to another path (another Node version manager's directory, say), run
+  `xpi roost daemon install` again; `daemon status` says so when the file no longer matches this xpi.
+- Its output goes to `<agent dir>/xpi-roost/service.log`; the daemon's own log stays in `daemon.log`.
+- On Linux a user unit starts when you log in and stops when your last session ends. To keep the daemon (and the
+  schedules) running without a login, enable lingering: `loginctl enable-linger $USER`.
+- The service keeps the runtime directory (where the sockets are) that the installing terminal had: `ROOST_RUNTIME_DIR`,
+  else `$XDG_RUNTIME_DIR`, else `/tmp`, and `ROOST_HOME` likewise. A terminal that resolves another one (another
+  `ROOST_RUNTIME_DIR`, or no `XDG_RUNTIME_DIR` as in some `su` or `ssh` shells) does not find that daemon's sockets and
+  cannot start a second one for the same state: `xpi roost daemon status` and the other commands say the daemon runs
+  with another runtime directory (`other_runtime_dir`). Use the same variables there, or install again from the
+  environment you use.
+
 **Skipped slots.** A slot is skipped while the schedule's previous run is still working, starting or about to restart
 after a crash; a previous run that waits for your answer does not hold it back (the new run starts, the old one stays
 in the list waiting). A slot is also skipped when the directory is gone, or when the xpi it was made with has moved
@@ -317,8 +343,10 @@ so `xpi roost` inside it reaches the same daemon.
   its command list), the running hosts (`roster.json`), the schedules (`schedules.json`), the event log
   (`events.jsonl`) and the daemon's log (`daemon.log`). The agent directory is `~/.pi/agent` unless `XPI_CODING_AGENT_DIR` says
   otherwise.
-- **Sockets**: `$XDG_RUNTIME_DIR/xpi-roost-<key>` or `/tmp/xpi-roost-<uid>/<key>`, one per agent directory.
-- **One daemon per agent directory**. It starts on demand with the first command that needs it and stops with
+- **Sockets**: `$ROOST_RUNTIME_DIR`, else `$XDG_RUNTIME_DIR/xpi-roost-<key>`, else `/tmp/xpi-roost-<uid>/<key>`, one
+  per agent directory.
+- **One daemon per agent directory**. It starts on demand with the first command that needs it (or at login, see
+  [Start the daemon at login](#schedules)) and stops with
   `xpi roost daemon stop`, which stops the sessions too (a session that has not ended after a few seconds is killed;
   `--keep-workers` leaves them running). An xpi with another agent directory has a daemon and sessions of its own.
 

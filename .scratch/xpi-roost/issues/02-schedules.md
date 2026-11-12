@@ -53,12 +53,43 @@ Haiku check when it changes what a session does, and the user docs for what it a
 
 ## PR 3: the login service (branch `roost-service`)
 
-- [ ] S11 `xpi roost daemon install|uninstall`, `status`'s line: a launchd agent and a systemd user unit named by the
+- [x] S11 `xpi roost daemon install|uninstall`, `status`'s line: a launchd agent and a systemd user unit named by the
       agent directory's key, once per login, no restart, `KillMode=process` (decision 5)
-- [ ] S12 docs: `roost.md`, `cli.md` (reinstall after moving xpi, lingering, runtime directory overrides); tests of the
+      Notes: `src/lib/service.ts`. The files are pure (`launchdPlist`, `systemdUnit` from a `serviceSpec`); the label is
+      `dev.xpi.roost.<key>`, the unit `xpi-roost-<key>.service`. Both run `daemonCommand(start)` (shared with
+      `connectOrStart`: this Node and the daemon entry) with `daemonLocation(start)` (the four location variables only),
+      working directory `/`, output appended to `<roost home>/service.log`. launchd: RunAtLoad, KeepAlive false,
+      AbandonProcessGroup true; install = `bootout` of an older one (ignored) then `bootstrap gui/<uid>`; uninstall =
+      `bootout` and remove. Loading starts a daemon even when one runs; that one exits 0 on the lock (as any second
+      daemon). systemd: Type=simple, no Restart=, KillMode=process, WantedBy=default.target; install = `daemon-reload`,
+      `enable`, and `start` only when no daemon runs (the state lock is held or the socket answers); uninstall =
+      `disable` (no `--now`), remove, `daemon-reload`. The platform, home, uid and the launchctl/systemctl runner are
+      `ServiceDeps`, given to the CLI as `RoostCliOptions.service` in tests. `daemon status` adds `service  installed
+      (...)`, `not installed`, or "for another xpi or setup: run xpi roost daemon install again" when the file differs
+      from what this xpi would write; when no daemon answers here but the state lock's holder has another runtime
+      directory it prints the `other_runtime_dir` message (`daemonElsewhere`, shared with `connectOrStart`).
+- [x] S12 docs: `roost.md`, `cli.md` (reinstall after moving xpi, lingering, runtime directory overrides); tests of the
       generated files
-- [ ] S12a real check on macOS before merge (decision 15): `daemon install`, `status`, `uninstall`, and a Haiku run
+      Notes: roost.md "Start the daemon at login" under Schedules (reinstall, `service.log`, `loginctl enable-linger`,
+      the runtime directory and `other_runtime_dir`), the sockets line with `ROOST_RUNTIME_DIR`; cli.md rows for
+      `install`, `uninstall` and the status line. protocol.md unchanged (no protocol change). Tests:
+      `test/service.test.ts` (files, shared command, install/uninstall/status with fakes on darwin, linux and win32) and
+      two in `test/cli.test.ts` (install/status/uninstall through the CLI with a fake launchctl in a temporary home; the
+      `other_runtime_dir` status with a daemon started under another runtime directory).
+      Review round 1 (PR #78): `launchctl bootout` SIGTERMs the job's running process, so on macOS uninstall and a
+      reinstall used to stop a daemon the service had started while saying it kept running. Now `bootout` first reads
+      the job's pid (`launchctl print`); when it is the state lock's holder, it waits (bounded, 15 s) until the lock is
+      let go of. Uninstall then starts the daemon again outside the service (`connectOrStart`); a reinstall bootstraps
+      only after that, so RunAtLoad's daemon takes the lock. SIGTERM is `shutdown(keepWorkers: true)` in the daemon,
+      so sessions keep running. systemd `Environment=` no longer doubles `$` (only ExecStart does); the home is
+      `os.homedir()`; install checks the daemon entry first (`not_built`); install and uninstall refuse uid 0; a failed
+      `daemon-reload`/`enable` (and `bootstrap`) removes the written file again.
+- [x] S12a real check on macOS before merge (decision 15): `daemon install`, `status`, `uninstall`, and a Haiku run
       fired by a daemon the login service started (it finds `git` and authenticates)
+      Notes (done by the coordinator on 26165af40): install wrote the plist and launchd started the daemon; `status`
+      said installed; a manual schedule run by that daemon ran `git status --short` with Haiku, found `git` and
+      authenticated; `daemon stop --keep-workers` kept the session; uninstall unloaded and removed the plist. The
+      uninstall and reinstall behaviour changed in review round 1 is to be checked again for real by the coordinator.
 
 ## PR 4: wrap-up and release (branch `roost-phase2-docs`)
 

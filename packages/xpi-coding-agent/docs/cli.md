@@ -381,8 +381,10 @@ pseudo-terminals, so they keep running after the terminal that started them clos
 | `xpi roost schedule pause\|resume <name>` | Stop or start its slots |
 | `xpi roost schedule edit <name> [--when <when>] [--task <task>] [--model <m>] [--thinking <t>]` | Change it; the launch (environment, xpi, trust decision, session directory) is built again in this terminal, the directory stays; `default` as the model or thinking level goes back to the settings' |
 | `xpi roost schedule rm <name>` | Remove it; its runs stay listed |
-| `xpi roost daemon status` | The daemon's pid, version, socket directory and whether it can load node-pty; does not start a daemon |
+| `xpi roost daemon status` | The daemon's pid, version, socket directory, whether it can load node-pty and whether the login service is installed; does not start a daemon. When the daemon runs under another runtime directory than this terminal resolves, says so (`other_runtime_dir`) |
 | `xpi roost daemon logs` | Print the daemon's log |
+| `xpi roost daemon install` | Start the daemon at each login, so schedules run without opening xpi: a launchd agent on macOS, a systemd user unit on Linux (also started now when no daemon runs). It runs this xpi by path with this terminal's roost location: install again after moving or upgrading xpi to another path. On Linux, `loginctl enable-linger $USER` keeps it running without a login; see [Start the daemon at login](roost.md#schedules) for the runtime directory |
+| `xpi roost daemon uninstall` | Remove the login service; the daemon keeps running (on macOS the daemon the service started is stopped by unloading it and started again outside the service; sessions keep running). Installing again on macOS restarts that daemon under the new service. Not as root |
 | `xpi roost daemon stop [--keep-workers]` | Stop the daemon and its sessions (one that has not ended after six seconds is killed); with `--keep-workers` the sessions keep running and the next daemon takes them over |
 
 The commands outside `daemon` and `schedule list` start the agent directory's daemon when it is not running; `daemon ...` and `schedule list` never start one. Inside a background session (`ROOST_JOB_ID` is set), `schedule add`, `edit` and `run` exit with `1` and say why. A session is named by its id, a
