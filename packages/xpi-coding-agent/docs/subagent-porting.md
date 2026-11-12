@@ -316,6 +316,24 @@ Expect one `response` (for `p`, with `"success":true`), `message_end` records (u
 `agent_settled`; the process exits when stdin closes after the `sleep`. Without the `sleep`, stdin closes at once and
 pi exits before answering.
 
+## Agent teams
+
+Optional and experimental; see [Agent teams](subagent.md#agent-teams) for behaviour. What it asks of the host beyond the
+rest of the extension:
+
+- **File system**: exclusive create (`O_EXCL`), rename within one directory as an atomic replace, and file modes 0600 and
+  0700. Lock files hold `{ pid, at }`; a stale lock is removed under a `<lock>.takeover` guard, also an exclusive create.
+  Pid liveness is `kill(pid, 0)` (`EPERM` counts as alive).
+- **Directory watching**: `fs.watch` on `inboxes/` plus a 1 s poll. Linux uses inotify; macOS FSEvents coalesces events, so
+  never rely on the watch alone.
+- **Extension API**: `ctx.mode === "tui"` to decide where teams are on; `pi.sendMessage` with `triggerTurn` and
+  `deliverAs: "steer"` for messages to the lead; `before_agent_start` with `systemPromptOptions.sections` for the lead's prompt.
+- **Child process**: the variables `XPI_TEAM`, `XPI_TEAM_MEMBER`, `XPI_TEAM_DIR` and `XPI_TEAM_TOOLS` (`codemode` or
+  `direct`: whether the child has codemode); a `SendMessage` tool registered in the child when they are set; `--tools`
+  entries (`+SendMessage`) for tools an extension registers; `ctx.abort()` in a tool, used after an approved shutdown.
+- **rpc events**: `message_end` of the user message, to know that a steer was taken; if the child settles first, the lead
+  delivers the message as a new exchange.
+
 ## Keeping up with pi
 
 xin-pi no longer merges upstream pi. To follow it, run `/upstream` (it lists what upstream changed since the fork point
