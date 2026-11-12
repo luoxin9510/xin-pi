@@ -104,7 +104,7 @@ Paths are under `packages/xpi-coding-agent/src/` unless stated.
 
 ## Decisions (`decisions.md`)
 
-Grills 1–4 settle 25 numbered decisions. The Solution follows them; each section names the ones it implements.
+Grills 1–5 settle 26 numbered decisions. The Solution follows them; each section names the ones it implements.
 
 ## Solution
 
