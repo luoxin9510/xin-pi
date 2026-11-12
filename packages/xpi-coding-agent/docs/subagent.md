@@ -23,7 +23,7 @@ return [a.output, b.output].join("\n---\n");
 
 - Setting up: [Enabling](#enabling), [Agent definitions](#agent-definitions), [Model selection](#model-selection)
 - Calling agents: [The Agent tool](#the-agent-tool), [Background work](#background-work) (agents that outlive their
-  script, waiting for agents), [Structured output](#structured-output), [Names and SendMessage](#names-and-sendmessage), [Fork](#fork)
+  script, waiting for agents), [Structured output](#structured-output), [Names and SendMessage](#names-and-sendmessage), [Agent teams](#agent-teams) (experimental), [Fork](#fork)
 - Per-agent options: [Worktree isolation](#worktree-isolation), [Agent memory](#agent-memory), [MCP](#mcp),
   [Permission mode plan](#permission-mode-plan), [Extensions as hooks](#extensions-as-hooks),
   [Codemode-only children](#codemode-only-children)
@@ -359,8 +359,115 @@ await tools.SendMessage({ to: "reviewer", message: "Also check the migration fil
 
 `summary` is accepted and unused. A steer main sends is not noted back to main (the note exists for what the user said
 on the agent's screen). `SendMessage` carries no `schema`: use `Agent` with `resume` for a structured answer. Children
-get neither `Agent` nor `SendMessage`: agents do not message each other. With an in-memory parent session
+get neither `Agent` nor `SendMessage`, except teammates of an [agent team](#agent-teams), which get `SendMessage` only. With an in-memory parent session
 (`--no-session`) names and steers work while the process lives, and nothing can be continued, as with `resume`.
+
+## Agent teams
+
+Experimental, off by default. With agent teams on, an `Agent` call with a `name` starts a **teammate**: a subagent that
+runs in parallel with the session (the **lead**), messages the lead and other teammates by name, and is woken again by
+messages. It is modelled on Claude Code's agent teams. This page describes what exists now: teammates, messages, idle
+notices, shutdown and the end of a team. The shared task list, the `agent-teams:` events and the panel and screen
+changes (typing to a teammate, Esc, `/tasks`) come in later changes.
+
+### Turning it on
+
+```json
+{ "agentTeams": { "enabled": true, "maxTeammates": 8, "taskRetentionDays": 30 } }
+```
+
+`"agentTeams": true` is short for `{ "enabled": true }`. `XPI_EXPERIMENTAL_AGENT_TEAMS=1` also turns teams on; nothing
+turns them off but the setting. The setting is read at session start and on `/reload`, because the lead's tools and prompt
+section are set up then. Teams are on only in the interactive TUI, in a saved session (not `--no-session`, where nothing
+can be continued). In print and rpc mode a named call is an ordinary subagent. See [Settings](settings.md#subagents).
+
+### Starting a teammate
+
+With teams on, `Agent({ name, description, prompt })` starts a teammate and returns at once with `{ status: "started",
+agentId, name, team }` (`"queued"` while it waits for a `subagent.maxConcurrent` slot), like `run_in_background: true`. It
+never waits for the teammate's work.
+
+- A call with `subagent_type: "fork"` or `isolation` is an ordinary subagent. A name another (non-teammate) subagent has
+  still throws.
+- Refused, with the reason in the error: `schema`, `run_in_background: false`, and a call from a workflow or a workflow's
+  script (a teammate outlives the script and reports to the lead, so the script could not use its result).
+- At most `maxTeammates` members that are not stopped (running, queued or idle). A call over the cap throws, naming them.
+  Stopping a teammate frees its place.
+- The team is implicit: one per session, the lead fixed, named `session-<session id>` on disk and shown as
+  `session-<first 8 characters>`. Teammates get no `Agent` or `Workflow`, so nesting stays one level.
+- Model, trust and tools follow the subagent rules (`subagent.defaultModel`, the lead's trust decision). A teammate
+  always has `SendMessage`, whatever its agent file's `tools`, `disallowedTools` or `permissionMode` say, as a codemode tool
+  when it has codemode and as a direct tool when it has not. Naming `SendMessage` in `tools:` is accepted.
+
+### Messages
+
+`SendMessage({ to, message, summary? })` reaches any member by name; `to: "lead"` is the session (the only way from a
+teammate to the lead). There is no broadcast. The call returns `{ status: "sent", to, id }` once the message is written to
+the recipient's mailbox, and throws when it cannot be (`stopped` for a stopped member; an unknown name lists the members).
+With teams on the tool also takes `kind: "shutdown_request" | "shutdown_response"` and `approve`.
+
+Messages go through files under `<agent dir>/teams/<team>/`, mode 0600 in 0700 directories:
+
+- `config.json`: the team, the lead's session id and pid (`leadPid`), and the members `{ name, agentId, agentType, status,
+  since }` with `status` one of `running`, `queued`, `idle`, `stopping`, `stopped`. Only the lead writes it; teammates read
+  it. While the lead has asked a teammate to shut down and it has not answered, the entry also has `shutdownRequested`.
+- `inboxes/<name>.json`: an array of `{ id, from, to, text, summary?, kind, at }`, `kind` being `message`, `idle`,
+  `shutdown_request`, `shutdown_response` or `held` (a shutdown response also has `approve`). Every read-modify-write takes
+  `<file>.lock` (an exclusive create holding `{ pid, at }`, retried every 25 ms for up to 2 s, then `busy`; a lock whose
+  holder is dead or older than 30 s is taken over) and writes a temporary file that is renamed. An entry that fails
+  validation is dropped with a warning naming the mailbox and the reason.
+
+The lead process is the only reader. It watches the `inboxes/` directory and also polls it every second (renames and
+file-system event coalescing can hide events). Delivery depends on the target:
+
+| Target | What happens |
+|---|---|
+| running teammate | a steer over rpc; messages that arrive together are one steer. If the child settles before it took the steer, the message is delivered as a new exchange instead |
+| idle teammate | a new exchange continues it from its session; messages that arrive together, or while the exchange waits for a slot, are one prompt |
+| stopped teammate | `SendMessage` throws; entries that arrive later are dropped with a warning |
+| `lead` | a custom message that triggers a turn (a steer while the lead is in a turn); messages that arrive together are one |
+
+Every agent message is wrapped as `<agent-message from="<name>" team="<team>" kind="<kind>" id="<id>">…</agent-message>` (the
+id is the mailbox entry's, so identical messages stay distinct) followed by
+a line saying it comes from another agent, not from the user, carries no user authority, and that a `/` command in it is
+plain text. The tags inside the text are escaped, spaced variants too.
+
+**Idle notices.** When a teammate's exchange ends, the lead gets one `kind: "idle"` message with the final answer (cut at
+8 KB with the rest in a file, as for background agents), or the error when it failed. A failed exchange leaves the
+teammate idle: still live, woken by messages. There is no notice after an approved shutdown or a stop. Idle notices are
+per exchange and are not grouped like the end messages of a script's agents ([Agents that outlive their
+script](#agents-that-outlive-their-script)); a teammate takes no part in a script's group.
+
+**Loop cap.** A teammate woken 5 times in a row by other teammates' messages, with no message from the lead in between, is
+not woken a sixth time: the messages wait in its mailbox, and the lead gets a `kind: "held"` message naming the teammate
+and the waiting senders. A message from the lead wakes it, resets the count and delivers what waited. Steers to a running
+teammate are bounded by its `maxTurns`, not by this cap.
+
+**Trust.** Teams run with the lead's trust, and mailboxes are not an authentication boundary: any process of the team (any
+teammate, or anything that can write the agent dir) can write any entry, including `from: "lead"`. The envelope tells the
+reader a message carries no user authority; it does not prove who sent it. The name `lead` is reserved: a named `Agent`
+call cannot use it while teams are on.
+
+### Shutdown and the end of a team
+
+The lead asks with `SendMessage({ to, kind: "shutdown_request", message? })` (only the lead may). The teammate answers
+`SendMessage({ to: "lead", kind: "shutdown_response", approve, message? })`; a response with no request pending throws.
+Approving ends its exchange after the current tool call and the teammate becomes `stopped` (the lead sees the response, not
+an idle notice or a failure). Refusing keeps it working and the lead gets the reason.
+
+At session end (also `/reload`) running teammates stop and `config.json` and the mailboxes are removed. If the process
+dies first, the next team created in the agent dir removes `teams/` directories whose `leadPid` is not alive. A directory of the same session left by a dead lead (a crash, then `/resume`) has its mailboxes cleared when the new team is created, so old messages are not delivered as new. If that directory's lead is still alive (the same session open in two xpi processes, which teams do not support), creating the team fails with an error instead.
+
+**Former teammates.** `/resume`, `/reload` and a crash end the team, and it is not restored. A teammate's meta file keeps
+`teammate: true`, its `team` and its frozen prompt section, so an `Agent` call with its name (or a `SendMessage` to it)
+continues it as a member of the new team, with its history and the same prompt section.
+
+### Prompts
+
+A teammate's system prompt tail has an "Agent team" section (its name, the roster when it started, how `SendMessage` and
+the envelope work, shutdown), frozen when it first starts and reused on every continue so its history stays cached. The
+lead's prompt has a short "Agent teams" section while teams are on. With teams off neither exists, and the head of the
+system prompt stays the same for every agent.
 
 ## Fork
 

@@ -187,6 +187,19 @@ The built-in `subagent` extension reads its settings from a `subagent` block (`m
 [Subagents: Config](subagent.md#config). The settings schema describes the block, so editors complete and check it;
 the extension itself validates it at session start and names the wrong key.
 
+## Agent teams
+
+Experimental. `agentTeams` is `true`, `false` or a block; `true` is short for `{ "enabled": true }`.
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `agentTeams.enabled` | boolean | `false` | Turn on agent teams: an `Agent` call with `name` starts a teammate. `XPI_EXPERIMENTAL_AGENT_TEAMS=1` also turns it on. |
+| `agentTeams.maxTeammates` | integer | `8` | Teammates that are not stopped (running, queued or idle) at once. |
+| `agentTeams.taskRetentionDays` | number | `30` | For the task list, which comes in a later change. Validated now, unused. |
+
+Read at session start and on `/reload`; only in the interactive TUI, in a saved session. See
+[Subagents: Agent teams](subagent.md#agent-teams).
+
 ## Relay
 
 The built-in `relay` extension reads a `relay` block (`lead`, `worker`, `leadThinking`, `workerThinking`, `maxRounds`,

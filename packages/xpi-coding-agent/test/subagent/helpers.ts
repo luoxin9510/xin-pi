@@ -60,6 +60,7 @@ export interface Scenario {
 	logFile?: string; // append "start" at process start and "line <n>" before each line
 	hold?: { line: number; starts: number }; // before that line, wait (at most 4 s) until the log has that many "start"
 	reply?: string[]; // stay up after `lines` and play these on a second prompt
+	takeSteers?: boolean; // answer a steer command with a user message_end carrying its text
 	byPrompt?: Record<string, string[]>; // lines to play instead when the prompt contains that text (first match)
 }
 
@@ -89,6 +90,7 @@ export function sandbox() {
 		record(): {
 			argv: string[];
 			depth?: string;
+			team?: Record<string, string | undefined>; // the XPI_TEAM* variables the child was started with
 			commands: { type: string; message?: string }[];
 			cwd: string;
 			systemPrompt?: string;
@@ -132,6 +134,8 @@ interface FakeCtx {
 	noBuiltinMcp?: boolean; // the built-in MCP extension is not loaded (no builtin /mcp command)
 	flags?: Record<string, string>; // CLI flag values, as pi.getFlag returns them (`agents`)
 	notes?: string[]; // collects ui notifications even when loading throws
+	mode?: string; // ctx.mode; default "tui" with a UI, else "print"
+	topSettings?: Record<string, unknown>; // settings outside the `subagent` block (`agentTeams`)
 }
 
 // Load the extension against a fake ExtensionAPI and return the registered Agent tool.
@@ -155,11 +159,12 @@ export async function loadTool(settings: Record<string, unknown>, c: FakeCtx) {
 			if (c.sendThrows) throw new Error(c.sendThrows);
 			messages.push({ message: m, options: o });
 		},
-		getSettings: () => ({ subagent: { piCommand: FAKE_PI, ...settings } }),
+		getSettings: () => ({ subagent: { piCommand: FAKE_PI, ...settings }, ...c.topSettings }),
 	};
 	subagent(pi as any);
 	const ctx = {
 		cwd: c.cwd,
+		mode: c.mode ?? (c.hasUI === false ? "print" : "tui"),
 		hasUI: c.hasUI ?? true,
 		isIdle: () => true,
 		ui: {

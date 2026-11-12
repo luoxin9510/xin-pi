@@ -900,6 +900,34 @@
       "additionalProperties": true,
       "description": "Settings of the built-in subagent extension."
     },
+    "agentTeams": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Turn agent teams on. XPI_EXPERIMENTAL_AGENT_TEAMS=1 also does. Default false."
+            },
+            "maxTeammates": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Teammates that are not stopped (running, queued or idle) at once. Default 8."
+            },
+            "taskRetentionDays": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Task lists older than this many days are removed when a team is created. Default 30."
+            }
+          },
+          "additionalProperties": true
+        }
+      ],
+      "description": "Experimental. Agent teams: an Agent call with `name` starts a teammate that messages the lead and other teammates. Read at session start and on /reload; only in the interactive TUI of a saved session."
+    },
     "relay": {
       "type": "object",
       "properties": {

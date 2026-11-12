@@ -54,6 +54,11 @@ export interface SubagentRecord {
 	color?: string; // the agent definition's colour name, if any
 	sessionDir?: string; // where the child session and meta file live; unset for an in-memory parent
 	worktree?: WorktreeRef; // set when the subagent is isolated: where it runs and the commit it started from
+	// Agent teams: a teammate keeps `teammate: true`, its team's name and the prompt section frozen at its first start in
+	// its meta file, so after /resume, /reload or a crash its name still continues it as a member (team.ts).
+	teammate?: true;
+	team?: string;
+	teamPrompt?: string;
 }
 
 // "type(description)", or the type alone; a named subagent is "type(name) description".
@@ -86,6 +91,9 @@ export interface SubagentStart {
 	thinking: string;
 	color?: string;
 	worktree?: WorktreeRef; // omit the key (not undefined) for a non-isolated exchange: a resume keeps the stored one
+	teammate?: true; // omit the keys for a plain subagent
+	team?: string;
+	teamPrompt?: string;
 }
 
 // The file keeps v1's `agentType` key so older versions still read it.
@@ -397,6 +405,13 @@ class Registry {
 				color: meta.color,
 				sessionDir: dir,
 				...(meta.worktree ? { worktree: meta.worktree } : {}),
+				...(meta.teammate === true && typeof meta.team === "string"
+					? {
+							teammate: true as const,
+							team: meta.team,
+							...(typeof meta.teamPrompt === "string" ? { teamPrompt: meta.teamPrompt } : {}),
+						}
+					: {}),
 			});
 		}
 		this.emit();

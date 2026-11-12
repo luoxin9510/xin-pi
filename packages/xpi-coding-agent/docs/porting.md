@@ -147,6 +147,34 @@ The options below come with the unit. Each says how to turn it off.
 - **Verify**: `test/subagent/faults/send-message.test.ts` (in `npm run test:subagent`),
   `test/subagent/real/19-names-and-messages.test.ts` (Haiku).
 
+### subagents: agent teams
+
+- **Gives**: experimental agent teams (off by default): a named `Agent` call starts a teammate that messages the lead and
+  other teammates through mailbox files, with idle notices, a loop cap and shutdown requests. Built so far: teammates,
+  messages, shutdown, cleanup. The task list, hooks and UI changes come later. See
+  [Agent teams](subagent.md#agent-teams).
+- **Depends on**: names and `SendMessage`, the Agent tool and its exchanges, `registry.ts` (watch, steer, stop),
+  `pi.events` (for the later hooks), `ctx.mode` (teams are on only for `"tui"`), a custom message with `triggerTurn`, the
+  `before_agent_start` event with mutable `systemPromptOptions.sections`, and a file system with exclusive create and
+  atomic rename within one directory. The child needs a way to learn it is a teammate: `XPI_TEAM`, `XPI_TEAM_MEMBER`,
+  `XPI_TEAM_DIR`, `XPI_TEAM_TOOLS`.
+- **Files**: `team.ts` (the team, `config.json`, the deliverer, exchange hooks), `team-files.ts` (locks, atomic writes,
+  mailboxes), `team-send.ts` (`SendMessage` between members; the teammate's tool), `team-start.ts` (the named call and its
+  refusals), `team-text.ts` (envelope, prompt sections), `team-config.ts` (the setting); small edits in `agent-tool.ts`,
+  `send-message-tool.ts`, `exchange.ts` (hooks, no typing note for teammates), `resolve.ts` (environment, tool list, prompt
+  section, `prefixKey`), `talk.ts` (`continueAgent`), `registry.ts` (meta fields), `index.ts` (wiring), and the
+  `agentTeams` schema in `core/settings-schema.ts`.
+- **Trust**: mailboxes are plain files any team process can write, `from: "lead"` included; they are not an authentication
+  boundary, and teams run with the lead's trust. Do not port this to a setting where teammates are less trusted than the
+  lead without adding authentication.
+- **Wiring / turn off**: the `agentTeams` setting (unset or `false` turns it off); in code, the `teams.configure(...)` call
+  at `session_start` and `registerTeamTools(pi)` in the child branch of `index.ts`.
+- **Verify**: `test/subagent/teams/*.test.ts` (in `npm run test:subagent`).
+- **Linux**: `fs.watch` on a directory uses inotify; keep the one-second poll next to it. Locks are lock files, not
+  `flock`; pid liveness is `kill(pid, 0)`. **macOS**: `fs.watch` uses FSEvents, which coalesces events and may report
+  them late, so the poll does the delivering when it must; the rest is the same.
+- **Guide**: [Porting the subagent extension](subagent-porting.md#agent-teams).
+
 ### subagents: background
 
 - **Gives**: codemode scripts that move to the background (on the first `Agent` call, ctrl+b, or

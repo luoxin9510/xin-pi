@@ -10,12 +10,13 @@ import { type Discovery, discoverAgents } from "./discovery.ts";
 import { exchange } from "./exchange.ts";
 import { checkForkCall, FORK_DEFINITION, FORK_DESCRIPTION, FORK_TYPE, resolveAgent, seedForkSession } from "./fork.ts";
 import { AGENT_NAME, registry } from "./registry.ts";
-import type { CallInput, ChildSpec, ParentContext } from "./resolve.ts";
+import type { CallInput, ChildSpec, ParentContext, TeamLaunch } from "./resolve.ts";
 import { emptyUsage, STATUSES, type Status, usageSchema } from "./runner.ts";
 import { runs } from "./runs.ts";
 import { agentPhase, countScriptAgent } from "./script-helpers.ts";
 import { capText, newAgentId, storedAgent } from "./sessions.ts";
 import { checkSchema } from "./structured-output.ts";
+import { classifyTeamCall, startTeammate } from "./team-start.ts";
 import {
 	listLines,
 	memoryRoot as memoryRootFor,
@@ -142,6 +143,14 @@ export const declaredOutput = Type.Object({
 	),
 });
 
+// The declaration with agent teams on: a named call returns status "started" (or "queued") with the teammate's name and team.
+const teamDeclaredOutput = Type.Object({
+	...declaredOutput.properties,
+	status: StringEnum([...STATUSES, "running", "started", "queued"] as const),
+	name: Type.Optional(Type.String({ description: "A teammate: its name, to use in SendMessage" })),
+	team: Type.Optional(Type.String()),
+});
+
 export type AgentResult = Omit<Static<typeof outputSchema>, "status"> & { status: Status | "running" };
 
 const BACKGROUND_RULES = [
@@ -161,6 +170,11 @@ const DETACHED_RULES = [
 	"its result arrives as a message.",
 ];
 
+// Agent teams on: what a named call does.
+const TEAM_RULES = [
+	'Agent teams are on: a call with `name` (not a fork, no `isolation`, no `schema`, not `run_in_background: false`) starts a teammate. It returns at once with status "started" and works in parallel; its answers arrive as idle notices, and SendMessage reaches it, and it reaches other teammates and you.',
+];
+
 // Print mode (no UI): pi exits when the turn ends, so nothing runs in the background and the model is not told of it.
 const PRINT_RULES = ["Every call waits for its agent and returns its result."];
 
@@ -169,6 +183,7 @@ export function describeAgents(
 	backgroundScripts: boolean,
 	hasUI: boolean,
 	fork = false, // list the fork type (a saved session and subagent.fork)
+	teams = false, // agent teams are on: a named call starts a teammate
 ): string {
 	const list = [
 		...[...agents.values()].map((a) => `- ${a.name}: ${a.description}`),
@@ -184,6 +199,7 @@ export function describeAgents(
 		"failed or stopped agent gives null. `phase(title, fn?)` groups agents in the panel; `log(text)` shows a progress line.",
 		"",
 		...(!hasUI ? PRINT_RULES : backgroundScripts ? BACKGROUND_RULES : DETACHED_RULES),
+		...(teams ? ["", ...TEAM_RULES] : []),
 		"",
 		"Available agents (subagent_type):",
 		list,
@@ -230,6 +246,7 @@ async function executeAgent(
 	parent: ParentContext,
 	toolCallId: string,
 	started?: (spec: ChildSpec) => void, // called once the spec is resolved, before the agent is queued
+	launch?: TeamLaunch, // a teammate (team-start.ts)
 ): Promise<AgentResult> {
 	if (input.isolation !== undefined && input.isolation !== "worktree") {
 		throw new Error(`invalid isolation "${input.isolation}": only "worktree" is supported`);
@@ -287,6 +304,7 @@ async function executeAgent(
 			agentType,
 			def,
 			stored,
+			launch,
 		});
 	} finally {
 		release?.(); // a no-op once the agent is in the registry
@@ -307,11 +325,13 @@ async function startAgent(
 		agentType,
 		def,
 		stored,
+		launch,
 	}: {
 		agentId: string;
 		agentType: string;
 		def: AgentDefinition;
 		stored: ReturnType<typeof storedAgent> | undefined;
+		launch: TeamLaunch | undefined;
 	},
 ): Promise<AgentResult> {
 	let worktree: WorktreeRef | undefined;
@@ -327,10 +347,16 @@ async function startAgent(
 	// Memory: project and local live under the main checkout (never the agent's worktree); outside a repo, the parent's cwd.
 	const memoryRoot = await memoryRootFor(def.memory, def.name, parent.cwd);
 
-	const spec = resolveAgent(def, input as CallInput, config, parent, { agentId, worktree, memoryRoot });
+	const spec = resolveAgent(def, input as CallInput, config, parent, {
+		agentId,
+		worktree,
+		memoryRoot,
+		...(launch ? { team: launch } : {}),
+	});
 	// A new fork starts from main's conversation as it is now, before anything else is said in it.
 	if (agentType === FORK_TYPE && !stored) seedForkSession(parent, agentId, spec.cwd);
-	scripts.addAgent(toolCallId, spec.agentId, agentPhase.getStore());
+	// A teammate is not the script's agent: stopping the script, its end message and its status are not about it.
+	if (!launch) scripts.addAgent(toolCallId, spec.agentId, agentPhase.getStore());
 	if (worktreeWarning) spec.warnings.push(worktreeWarning);
 	if (stored && input.isolation !== undefined) {
 		spec.warnings.push(
@@ -349,6 +375,15 @@ async function startAgent(
 			...(input.name !== undefined && !stored ? { name: input.name } : {}),
 			description: input.description,
 			color: def.color,
+			...(launch
+				? {
+						teammate: {
+							name: launch.member,
+							team: launch.team,
+							...(spec.teamPrompt !== undefined ? { teamPrompt: spec.teamPrompt } : {}),
+						},
+					}
+				: {}),
 		},
 		signal,
 		(p) => {
@@ -386,7 +421,12 @@ function runsInBackground(params: AgentInput, parent: ParentContext): boolean {
 	return discoverAgents(parent.cwd).agents.get(type)?.background === true;
 }
 
-export function agentTool(getConfig: () => Config, description: string, deliver: (content: string) => void) {
+export function agentTool(
+	getConfig: () => Config,
+	description: string,
+	deliver: (content: string) => void,
+	withTeams = false,
+) {
 	// What an Agent execute of a tracked script runs with (`scripts.join`), from the wrapper below to `execute`.
 	const handles = new Map<string, AgentCallHandle>();
 	const tool = {
@@ -396,7 +436,7 @@ export function agentTool(getConfig: () => Config, description: string, deliver:
 		exposure: "codemode" as const,
 		description,
 		parameters,
-		outputSchema: declaredOutput,
+		outputSchema: (withTeams ? teamDeclaredOutput : declaredOutput) as typeof declaredOutput,
 		async execute(
 			toolCallId: string,
 			params: AgentInput,
@@ -494,6 +534,10 @@ export function agentTool(getConfig: () => Config, description: string, deliver:
 	// results when it can, and a paused script holds it before anything starts.
 	const start = tool.execute;
 	tool.execute = async (toolCallId, params, signal, onUpdate, ctx) => {
+		// Agent teams: a named call starts a teammate. It is no member of a script's group (spec 09; decision 26: idle
+		// notices are not grouped) and it is not recorded by a workflow run (a workflow cannot start one).
+		const teamCall = classifyTeamCall(params, parentContext(ctx), toolCallId);
+		if (teamCall) return startTeammate(teamCall, params, parentContext(ctx), toolCallId, getConfig(), executeAgent);
 		const recorded = runs.call(toolCallId, params as Record<string, unknown>);
 		if (recorded.saved) {
 			scripts.addSaved(toolCallId);

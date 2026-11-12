@@ -453,7 +453,7 @@ files, the child's session file), never on model wording, and never start a test
 | script | what | needs |
 |---|---|---|
 | `npm test` | `test:subagent`, `test:upstream`, then the vitest suite. Root `npm test` and `./test.sh` run it | the vitest part skips what needs keys |
-| `npm run test:subagent` | offline `node:test`: `faults` (scripted fake child), `panel`, `worktree`, `memory` | nothing: no auth, no network, git identity set inside the tests |
+| `npm run test:subagent` | offline `node:test`: `faults` (scripted fake child), `panel`, `worktree`, `memory`, `teams` (agent teams) | nothing: no auth, no network, git identity set inside the tests |
 | `npm run test:upstream` | offline `node:test` for `/upstream`: temp git repos with a fake `upstream` remote, a stubbed fetch, a fake pi API, a temp agent dir | nothing |
 | `npm run test:subagent:real` | `real/*`: the extension in-process, children are the built xpi on real haiku | `npm run build`, auth |
 | `npm run test:subagent:parent` | `parent/*`: a real `xpi --mode rpc` parent, background scripts, `/subagents stop` | `npm run build`, auth |

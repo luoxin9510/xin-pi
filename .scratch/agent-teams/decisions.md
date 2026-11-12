@@ -100,3 +100,13 @@ accepted all nine recommendations ("好的可以").
 
 The owner approved spec 01 ("批准"), including decision 23 extended to `/reload` and a crash and decision 24's
 corrected reason.
+
+## Grill 5 (2026-11-12)
+
+Spec 09 of `.scratch/xin-pi-workflows/` (smart waiting) groups the end messages of the agents one codemode script
+starts, so main wakes once per group. Its decision 6 left one question for this spec. The owner accepted the
+recommendation ("是").
+
+26. **Idle notices are not grouped (keeps 7).** The lead gets one idle notice per teammate exchange, as Claude Code
+    does, not one per batch of teammates. A team's value is that the lead coordinates as results arrive, and teammates
+    message each other anyway. Cost stays bounded by `maxTeammates` and the loop cap (decision 21).

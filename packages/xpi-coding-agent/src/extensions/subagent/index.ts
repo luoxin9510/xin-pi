@@ -18,6 +18,11 @@ import { scriptHelpers } from "./script-helpers.ts";
 import { sendMessageTool } from "./send-message-tool.ts";
 import { registerStructuredOutput } from "./structured-output.ts";
 import { subagentsCommand } from "./subagents-command.ts";
+import { continueAgent } from "./talk.ts";
+import { teams } from "./team.ts";
+import { readTeamSettings, teamsAllowed } from "./team-config.ts";
+import { registerTeamTools } from "./team-send.ts";
+import { LEAD_PROMPT } from "./team-text.ts";
 import { checkStalls, runningLine, statusText } from "./waiting.ts";
 import { startWorkflowCommand, workflowStartText } from "./workflow-run.ts";
 import { saveScriptAsWorkflow } from "./workflow-save.ts";
@@ -41,6 +46,7 @@ export default function subagent(pi: ExtensionAPI) {
 	if (process.env.XPI_SUBAGENT_DEPTH) {
 		if (process.env.XPI_SUBAGENT_CHILD_CODEMODE === "only") createCodemodeExtension({ mode: "only" })(pi);
 		registerStructuredOutput(pi); // only when the call passed a schema
+		registerTeamTools(pi); // only for a teammate (XPI_TEAM_DIR): SendMessage to its team
 		return;
 	}
 	pi.registerFlag("agents", {
@@ -253,6 +259,7 @@ export default function subagent(pi: ExtensionAPI) {
 	// session still running in the background stops (agents end stopped, resumable) and main hears nothing about it.
 	pi.on("session_shutdown", async (_event, ctx) => {
 		closing = true;
+		teams.beginClose(); // no more deliveries; the running teammates stop with the other subagents below
 		const sessionId = ctx.sessionManager.getSessionId();
 		unwatch?.();
 		unwatch = undefined;
@@ -267,6 +274,7 @@ export default function subagent(pi: ExtensionAPI) {
 				.filter((r) => r.status === "running")
 				.map((r) => r.id),
 		);
+		await teams.finishClose(); // the team's config.json and mailboxes; its tasks stay
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
@@ -288,6 +296,39 @@ export default function subagent(pi: ExtensionAPI) {
 			throw err;
 		}
 		limitConcurrency(config.maxConcurrent);
+		let teamSettings: ReturnType<typeof readTeamSettings>;
+		try {
+			teamSettings = readTeamSettings((pi.getSettings() as { agentTeams?: unknown }).agentTeams);
+		} catch (err) {
+			if (ctx.hasUI) ctx.ui.notify(`subagent: ${(err as Error).message}`, "error");
+			throw err;
+		}
+		// Teams are decided here and fixed until /reload: the lead's tools and prompt section are set up now.
+		const teamsOn =
+			teamSettings.enabled && teamsAllowed({ mode: ctx.mode, sessionFile: ctx.sessionManager.getSessionFile() });
+		teams.configure(
+			teamsOn
+				? {
+						settings: teamSettings,
+						parent: () => parentContext(current!),
+						// A custom message with triggerTurn: a steer while the lead is in a turn, a new turn when it is idle.
+						toLead: (content) => {
+							if (closing) return false;
+							pi.sendMessage(
+								{ customType: "subagent", content, display: true },
+								{ triggerTurn: true, deliverAs: "steer" },
+							);
+							return true;
+						},
+						warn: (message) => tell(current!, `subagent: ${message}`, "warning"),
+						wake: async (member, prompt, signal) => {
+							const record = registry.get(member.agentId);
+							if (!record) throw new Error(`no record of agent ${member.agentId}`);
+							return continueAgent(parentContext(current!), record, prompt, undefined, signal);
+						},
+					}
+				: undefined,
+		);
 		setBuiltinMcp(pi.getCommands().some((c) => c.name === "mcp" && c.sourceInfo?.path === "builtin:mcp"));
 		disconnect?.();
 		disconnect = scripts.connect({
@@ -314,12 +355,13 @@ export default function subagent(pi: ExtensionAPI) {
 		const forkable = config.fork && ctx.sessionManager.getSessionFile() !== undefined;
 		const agent = agentTool(
 			() => config!,
-			describeAgents(discovery, config.backgroundScripts, ctx.hasUI, forkable),
+			describeAgents(discovery, config.backgroundScripts, ctx.hasUI, forkable, teamsOn),
 			deliver,
+			teamsOn,
 		);
 		subtask = (task, cctx) => runSubtask(agent, task, cctx);
 		pi.registerTool(agent);
-		pi.registerTool(sendMessageTool(agent));
+		pi.registerTool(sendMessageTool(agent, teamsOn));
 		if (ctx.hasUI) {
 			installPanel(
 				() => current!,
@@ -341,6 +383,8 @@ export default function subagent(pi: ExtensionAPI) {
 	// knows without a tool call. A custom message, so the cached prefix is unchanged. Not on steers or follow-ups (they
 	// start no run) or on custom messages, such as a group's own message.
 	pi.on("before_agent_start", (event, ctx) => {
+		// While teams are on, the lead's prompt says how they work (a section, the same every turn).
+		if (teams.on) event.systemPromptOptions.sections["agent-teams"] = LEAD_PROMPT;
 		if (event.messageType !== "user") return undefined;
 		const line = runningLine(ctx.sessionManager.getSessionId());
 		return line ? { message: { customType: "subagent-status", content: line, display: false } } : undefined;

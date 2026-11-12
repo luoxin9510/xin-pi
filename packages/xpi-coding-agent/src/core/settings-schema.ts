@@ -294,6 +294,39 @@ const SubagentSettingsSchema = Type.Object(
 	{ additionalProperties: true, description: "Settings of the built-in subagent extension." },
 );
 
+// Agent teams (experimental; src/extensions/subagent/team-config.ts validates it). `true` is short for `{ enabled: true }`.
+const AgentTeamsSettingsSchema = Type.Union(
+	[
+		Type.Boolean(),
+		Type.Object(
+			{
+				enabled: Type.Optional(
+					Type.Boolean({
+						description: "Turn agent teams on. XPI_EXPERIMENTAL_AGENT_TEAMS=1 also does. Default false.",
+					}),
+				),
+				maxTeammates: Type.Optional(
+					Type.Integer({
+						minimum: 1,
+						description: "Teammates that are not stopped (running, queued or idle) at once. Default 8.",
+					}),
+				),
+				taskRetentionDays: Type.Optional(
+					Type.Number({
+						minimum: 0,
+						description: "Task lists older than this many days are removed when a team is created. Default 30.",
+					}),
+				),
+			},
+			{ additionalProperties: true },
+		),
+	],
+	{
+		description:
+			"Experimental. Agent teams: an Agent call with `name` starts a teammate that messages the lead and other teammates. Read at session start and on /reload; only in the interactive TUI of a saved session.",
+	},
+);
+
 const RelayThinkingLevel = () =>
 	Type.Union(["off", "minimal", "low", "medium", "high", "xhigh", "max"].map((level) => Type.Literal(level)));
 
@@ -743,6 +776,7 @@ export const SettingsSchema = Type.Object(
 			Type.Boolean({ description: "Legacy setting migrated to transport.", deprecated: true }),
 		),
 		subagent: Type.Optional(SubagentSettingsSchema),
+		agentTeams: Type.Optional(AgentTeamsSettingsSchema),
 		relay: Type.Optional(RelaySettingsSchema),
 		commit: Type.Optional(CommitSettingsSchema),
 		roost: Type.Optional(RoostSettingsSchema),

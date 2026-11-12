@@ -11,6 +11,7 @@ import type { ChildSpec, ParentContext } from "./resolve.ts";
 import { addUsage, type Progress, type RunResult, runChild } from "./runner.ts";
 import { subagentSessionDir } from "./sessions.ts";
 import { responded, stagger } from "./stagger.ts";
+import { teams } from "./team.ts";
 import { ensureWorktree, settleWorktree, type WorktreeOutcome } from "./worktree.ts";
 
 // Process-wide: every session in this pi process shares the limit, which the first session's config fixes.
@@ -45,6 +46,11 @@ class Semaphore {
 		const next = this.waiting.shift();
 		if (next) next();
 	}
+
+	// True when a child could start now without waiting for a slot.
+	get free(): boolean {
+		return this.limit === undefined || this.running < this.limit;
+	}
 }
 
 const slots = new Semaphore();
@@ -67,6 +73,9 @@ export function bindHost(h: Host): void {
 
 export const getHost = (): Host => host!;
 
+// True when an exchange started now would not wait for a concurrency slot.
+export const slotFree = (): boolean => slots.free;
+
 // The user's steer texts for the exchange now running, per subagent; the note goes out when that exchange settles.
 const userSteers = new Map<string, string[]>();
 
@@ -88,6 +97,9 @@ export interface ExchangeInfo {
 	description: string;
 	color?: string;
 	said?: string; // the user's message that started this exchange
+	// A teammate's exchange (agent teams): the lead is told by an idle notice, not by an end message or a note. The prompt
+	// section is stored in its meta file at its first start.
+	teammate?: { name: string; team: string; teamPrompt?: string };
 }
 
 // After the child has exited: an unchanged worktree is removed with its branch, a changed one stays. A git failure here
@@ -129,7 +141,30 @@ export async function exchange(
 	signal: AbortSignal | undefined,
 	onProgress: (p: Progress) => void,
 ): Promise<RunResult & { worktree?: WorktreeOutcome }> {
+	const mate = info.teammate;
+	const team = mate ? teams.current() : undefined;
+	if (mate) team?.exchangeQueued(mate.name);
+	const state = { began: false };
+	try {
+		return await runExchange(parent, spec, info, signal, onProgress, state);
+	} catch (err) {
+		// aborted while it waited for its turn or a slot, or it could not start
+		if (mate && !state.began) team?.exchangeAbandoned(mate.name, err as Error);
+		throw err;
+	}
+}
+
+function runExchange(
+	parent: ParentContext,
+	spec: ChildSpec,
+	info: ExchangeInfo,
+	signal: AbortSignal | undefined,
+	onProgress: (p: Progress) => void,
+	state: { began: boolean },
+): Promise<RunResult & { worktree?: WorktreeOutcome }> {
 	const id = spec.agentId;
+	const mate = info.teammate;
+	const team = mate ? teams.current() : undefined;
 	return registry.turn(id, signal, async () => {
 		await slots.acquire(signal);
 		const staggered = host!.config().staggerStart;
@@ -149,7 +184,16 @@ export async function exchange(
 					thinking: spec.thinking,
 					color: info.color,
 					...(spec.worktree ? { worktree: spec.worktree } : {}),
+					...(mate
+						? {
+								teammate: true as const,
+								team: mate.team,
+								...(mate.teamPrompt !== undefined ? { teamPrompt: mate.teamPrompt } : {}),
+							}
+						: {}),
 				});
+				state.began = true;
+				if (mate) team?.exchangeBegan(mate.name);
 			} catch (err) {
 				await settle(spec); // the worktree exists but no child will run in it
 				throw err;
@@ -187,6 +231,7 @@ export async function exchange(
 			} catch (err) {
 				// runChild rejects only when its caller aborted
 				const left = await settle(spec);
+				if (mate) await team?.exchangeEnded(mate.name, { aborted: true });
 				registry.finish(id, "stopped");
 				userSteers.delete(id);
 				// The call throws, so the result's `worktree` is lost: the error carries where the kept one is.
@@ -196,13 +241,18 @@ export async function exchange(
 			}
 			const kept = await settle(spec);
 			// A stop request that lands after the run finished by itself leaves the run as it was.
-			if (registry.stopRequested(id) && run.aborted) {
+			const userStopped = registry.stopRequested(id) && run.aborted;
+			// A teammate's end: idle (a failed exchange too) with an idle notice for the lead, or stopped (an approved
+			// shutdown, the session's end); team.ts decides.
+			const verdict = mate && team ? await team.exchangeEnded(mate.name, { run, userStopped }) : undefined;
+			if (userStopped) {
 				run = { ...run, status: "failed", error: "stopped by user" };
 				registry.finish(id, "stopped", run);
-			} else registry.finish(id, run.status, run);
+			} else if (verdict === "stopped") registry.finish(id, "stopped", run);
+			else registry.finish(id, run.status, run);
 			const said = [...(info.said === undefined ? [] : [info.said]), ...(userSteers.get(id) ?? [])];
 			userSteers.delete(id);
-			if (said.length > 0) host!.note(noteText(info.type, id, said, run));
+			if (said.length > 0 && !mate) host!.note(noteText(info.type, id, said, run));
 			// The caller gets the last start's result, with the turns, time and cost of the restarted runs added.
 			for (const earlier of restarted) {
 				const usage = structuredClone(earlier.usage);
