@@ -165,6 +165,7 @@ export async function loadTool(settings: Record<string, unknown>, c: FakeCtx) {
 		ui: {
 			notify: (m: string) => notes.push(m),
 			setWidget: () => {},
+			setStatus: () => {},
 			onTerminalInput: () => () => {},
 			custom: async () => {},
 		},

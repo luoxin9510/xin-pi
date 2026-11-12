@@ -213,7 +213,10 @@ error that names the key. The thinking level selected for `relay/auto` itself is
 - `npm run eval:delegation -- --long` runs long tasks (features of this repository built again from their spec) three
   ways: the main model alone, with the `Agent` tool, and as the lead of `relay/auto`. It reports the result, each
   model's tokens and cost, and how often the model delegated or handed over. `EVAL_MAIN` names the main model
-  (default Haiku); `--force` tells the model to delegate, for comparison with its own decision.
+  (default Haiku); `--force` tells the model to delegate, for comparison with its own decision. Two multi-agent
+  tasks run through `xpi --mode rpc`, where scripts can run in the background, and also report how main waited for
+  its agents (see [Subagents: Waiting for agents](subagent.md#waiting-for-agents)); `--cli <path>` runs another build.
+  A failing run keeps its directory (repository and sessions); `EVAL_KEEP=1` keeps those of passing runs too.
 
 ## Porting
 

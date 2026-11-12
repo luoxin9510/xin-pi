@@ -8,7 +8,7 @@ import type { Theme } from "../../modes/interactive/theme/theme.ts";
 import { type ScriptRecord, scriptLabel, scripts } from "./background.ts";
 import { tint } from "./color.ts";
 import type { Config } from "./config.ts";
-import { COLORS, ICONS, label, registry, type SubagentRecord } from "./registry.ts";
+import { COLORS, ICONS, label, registry, type SubagentRecord, stalledLabel } from "./registry.ts";
 import { elapsed, openScriptScreen, scriptStatus } from "./script-screen.ts";
 import { stopEverything } from "./stop-all.ts";
 import { openSubagentScreen } from "./subagent-screen.ts";
@@ -238,6 +238,9 @@ export class Panel {
 					t.fg("muted", `${a.turns} turns`),
 				];
 				if (a.lastTool) parts.push(t.fg("muted", a.lastTool));
+				// Quiet for subagent.stallMs (spec 09): shown next to its last tool, which may just be slow.
+				const stall = registry.stalledFor(a.id);
+				if (stall !== undefined) parts.push(t.fg("warning", stalledLabel(stall)));
 				parts.push(t.fg("muted", `$${a.usage.cost.total.toFixed(4)}`));
 			}
 			const selected = this.focused && i === this.selected;

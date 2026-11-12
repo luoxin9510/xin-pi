@@ -23,7 +23,7 @@ return [a.output, b.output].join("\n---\n");
 
 - Setting up: [Enabling](#enabling), [Agent definitions](#agent-definitions), [Model selection](#model-selection)
 - Calling agents: [The Agent tool](#the-agent-tool), [Background work](#background-work) (agents that outlive their
-  script), [Structured output](#structured-output), [Names and SendMessage](#names-and-sendmessage), [Fork](#fork)
+  script, waiting for agents), [Structured output](#structured-output), [Names and SendMessage](#names-and-sendmessage), [Fork](#fork)
 - Per-agent options: [Worktree isolation](#worktree-isolation), [Agent memory](#agent-memory), [MCP](#mcp),
   [Permission mode plan](#permission-mode-plan), [Extensions as hooks](#extensions-as-hooks),
   [Codemode-only children](#codemode-only-children)
@@ -253,6 +253,32 @@ session's end).
   outside scripts, and `/subtask`, report one message each as before.
 
 The codemode result lists such a call with the status `released` (see [Codemode](codemode.md#scripts)).
+
+### Waiting for agents
+
+While agents run in the background, main makes no model turns, and the user and clients see what is going on:
+
+- **A user message during a group.** When a user message starts a turn while a group is running, one line follows it
+  in main's context, for example `[agents still running: k3x9 Explore "audit api" 4m12s; p0q1 general-purpose "fix
+  tests" 2m05s]`: the members still running, with their elapsed time. It is a custom message (not shown in the
+  transcript), so the cached prompt prefix is unchanged. Steers and follow-ups typed while main runs do not get it
+  (they start no turn), and neither does a turn started by a message such as an agent's result.
+- **Stalls.** Every event of a child counts as activity; the clock starts when the child's process starts, not while
+  the agent waits for a free slot (`maxConcurrent`) or a staggered start. Every 30 s, a running agent with no activity
+  for `subagent.stallMs` (default 600000, 10 minutes; `0` turns it off) is marked stalled: its panel row shows
+  `stalled Nm` (`stalled Ns` under a minute) next to its last tool, and you get a notification naming the agent and its last tool. Main is never
+  told. The next event clears the mark. A quiet tool (a long build or test run) can look stalled, which is why the row
+  shows the tool; nothing is stopped automatically, and `maxTurns` still applies. A group's message adds
+  `stalled Nm` to the line of a member that stalled (its longest stall).
+- **Status for clients.** The extension publishes the session's running agents, stalled agents, groups and background
+  scripts with `ctx.ui.setStatus("subagents", ...)`, for example `3 agents running · 1 stalled · 1 group`, and
+  clears it when nothing runs. The TUI shows it in the footer; an rpc client receives it as an `extension_ui_request`
+  with `method: "setStatus"` and `statusKey: "subagents"` (see [RPC extension UI](rpc-extension-ui.md)).
+
+`npm run eval:delegation -- --long --only three` measures the waiting on two multi-agent tasks (three independent
+parts each) through `xpi --mode rpc`: how often main woke (`wakes`), how many scripts set `timeout_ms`, how many agents a
+deadline stopped, and how many calls were `released`, next to time and cost. `--cli <path>` runs another build, for a
+before/after comparison. See [Relay: Limits](relay.md#limits) for the evaluation's other options.
 
 **ctrl+b** moves a running foreground script to the background (for example a slow script that starts no agent). It
 works only when the editor is empty; with text in the editor, or with no script running, ctrl+b stays cursor-left.
@@ -710,7 +736,7 @@ Subagents (2)
 | `✗` | failed |
 | `■` | stopped by you or by an abort |
 
-A row shows the type and description, turns, the last tool, and cost. A finished row stays 30 s (setting `panelLingerMs`) and then
+A row shows the type and description, turns, the last tool, `stalled Nm` when it is [stalled](#waiting-for-agents), and cost. A finished row stays 30 s (setting `panelLingerMs`) and then
 drops out; running rows stay. Only subagents that ran in this pi process show as rows: ones rebuilt from disk after a
 `/reload` are not rows and are reached with `/subagents`. The panel hides when it is empty. Older subagents of the session are still reachable with
 `/subagents`.
@@ -821,6 +847,7 @@ Optional, in `.pi/settings.json` or `~/.pi/agent/settings.json`:
   "staggerStart": false,                           // true: siblings with the same model, tools and project wait (at most 5 s) for the first one's response to begin, then read its cached prompt. See "Prompt caching"
   "shutdownGraceMs": 10000,                        // how long a stopped child may take to shut down (SIGTERM) before SIGKILL; raise it for slow MCP servers
   "panelLingerMs": 30000,                          // how long a finished subagent stays in the panel (the pty tests shorten it)
+  "stallMs": 600000,                               // a running subagent with no activity this long is marked stalled and you are told; 0: off
   "piCommand": "xpi"                               // unset: children run the same build as this process; XPI_SUBAGENT_TEST_PI also overrides
 }
 ```

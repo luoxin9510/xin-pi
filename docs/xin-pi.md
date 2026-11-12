@@ -247,6 +247,13 @@ script](../packages/xpi-coding-agent/docs/subagent.md#agents-that-outlive-their-
   `wake` argument and the description lines (`agent-tool.ts`); the panel's `N/M agents done` (`panel.ts`).
 - Tests: `packages/xpi-codemode/test/sandbox.test.ts`, `test/deterministic.test.ts`;
   `test/suite/subagent-release-groups.test.ts` (vitest, faux model, fake children).
+- Waiting for agents (spec 09, PR 2; see [Waiting for
+  agents](../packages/xpi-coding-agent/docs/subagent.md#waiting-for-agents)): no core change but the setting
+  `subagent.stallMs` in `src/core/settings-schema.ts`. In the extension: activity and stalls per child
+  (`registry.ts`: `checkStalls`, `stalledFor`, `longestStallOf`), the line after a user message, the stall check and the
+  `subagents` status (`waiting.ts`, wired in `index.ts`), `stalled Nm` on the panel row (`panel.ts`) and in the group
+  message (`background.ts`). Tests: `test/suite/subagent-waiting.test.ts`, `test/subagent/panel/stalls.test.ts`; the
+  eval's rpc driver `test/delegation/rpc-driver.ts` (`rpc-driver.test.ts`, `fake-rpc.mjs`).
 
 ## Core changes: workflows
 

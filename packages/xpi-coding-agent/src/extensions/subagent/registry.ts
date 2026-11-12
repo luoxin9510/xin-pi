@@ -64,6 +64,13 @@ export const label = (r: Pick<SubagentRecord, "type" | "description" | "name">):
 			? `${r.type}(${r.description})`
 			: r.type;
 
+// How long a quiet stretch lasted: seconds under a minute, else whole minutes ("45s", "12m").
+export const quietFor = (ms: number): string =>
+	ms < 60_000 ? `${Math.floor(ms / 1000)}s` : `${Math.floor(ms / 60_000)}m`;
+
+// "stalled 12m": how long a stalled agent has been quiet (the panel row, the group message).
+export const stalledLabel = (ms: number): string => `stalled ${quietFor(ms)}`;
+
 export const AGENT_NAME = /^[A-Za-z0-9_-]{1,64}$/;
 
 // "model · effort", leaving out what the record does not have (older meta files have no model).
@@ -98,6 +105,11 @@ class Registry {
 	private lives = new Map<string, LiveMessage>(); // the message each running child is writing
 	private watchers = new Map<string, Set<(event: ChildEvent) => void>>();
 	private claims = new Map<string, string>(); // "<session id>\0<name>" -> the agent id starting under that name
+	// Stalls (spec 09): per running child, when it last did something (its process start, then each event), and since
+	// when it is marked stalled; per subagent, the longest stall of its latest exchange. Memory only.
+	private activity = new Map<string, number>();
+	private stalledAt = new Map<string, number>();
+	private longestStall = new Map<string, number>();
 
 	// The parent session's subagents, newest first.
 	list(parentSessionId: string): SubagentRecord[] {
@@ -312,8 +324,10 @@ class Registry {
 		return this.queued.has(id);
 	}
 
-	// The running child's events (runner.ts), in order. Not a record change: no `subscribe` listener is called.
+	// The running child's events (runner.ts), in order. Not a record change: no `subscribe` listener is called, unless
+	// the event ends a stall.
 	event(id: string, event: ChildEvent): void {
+		this.active(id);
 		const live = applyEvent(this.lives.get(id), event);
 		if (live) this.lives.set(id, live);
 		else this.lives.delete(id);
@@ -394,6 +408,7 @@ class Registry {
 		this.rebuild(parent); // its warnings were shown at session start
 		const old = this.records.get(start.id);
 		this.prior.set(start.id, { turns: old?.turns ?? 0, usage: old?.usage ?? emptyUsage() });
+		this.longestStall.delete(start.id);
 		this.ranHere.add(start.id);
 		if (old) this.firstRun.delete(start.id);
 		else this.firstRun.add(start.id);
@@ -423,7 +438,58 @@ class Registry {
 
 	attach(id: string, handle: ChildHandle): void {
 		this.handles.set(id, handle);
+		// The stall clock starts with the child's process: waiting for a slot or a stagger is not a stall. A new process
+		// (a restart) ends a stall of the one before.
+		const now = Date.now();
+		this.endStall(id, now);
+		this.activity.set(id, now);
 		this.emit();
+	}
+
+	// Activity of a running child: it is no longer stalled.
+	private active(id: string): void {
+		const now = Date.now();
+		this.activity.set(id, now);
+		if (this.endStall(id, now)) this.emit();
+	}
+
+	// End a stall: its length counts toward the exchange's longest. True when there was one.
+	private endStall(id: string, now: number): boolean {
+		const since = this.stalledAt.get(id);
+		if (since === undefined) return false; // `since` is its last activity
+		this.stalledAt.delete(id);
+		this.longestStall.set(id, Math.max(this.longestStall.get(id) ?? 0, now - since));
+		return true;
+	}
+
+	// Mark the session's running children that have done nothing for `stallMs` (0: never) as stalled. Returns the newly
+	// stalled ones.
+	checkStalls(parentSessionId: string, stallMs: number, now = Date.now()): SubagentRecord[] {
+		if (stallMs <= 0) return [];
+		const stalled: SubagentRecord[] = [];
+		for (const [id, last] of this.activity) {
+			const record = this.records.get(id);
+			if (record?.parentSessionId !== parentSessionId) continue;
+			if (this.stalledAt.has(id) || now - last < stallMs) continue;
+			this.stalledAt.set(id, last);
+			stalled.push(record);
+		}
+		if (stalled.length > 0) this.emit();
+		return stalled;
+	}
+
+	// How long a running child has been quiet, when it is marked stalled; undefined otherwise.
+	stalledFor(id: string, now = Date.now()): number | undefined {
+		const since = this.stalledAt.get(id);
+		return since === undefined ? undefined : now - since;
+	}
+
+	// The longest stall of the subagent's latest exchange (one still going counts up to now); undefined: none.
+	longestStallOf(id: string, now = Date.now()): number | undefined {
+		const current = this.stalledFor(id, now);
+		const longest = this.longestStall.get(id);
+		if (current === undefined) return longest;
+		return Math.max(current, longest ?? 0);
 	}
 
 	progress(id: string, p: Progress): void {
@@ -436,6 +502,8 @@ class Registry {
 		const usage = structuredClone(prior.usage);
 		if (run) addUsage(usage, run.usage);
 		this.prior.delete(id);
+		this.endStall(id, Date.now());
+		this.activity.delete(id);
 		this.handles.delete(id);
 		this.lives.delete(id);
 		this.stopping.delete(id);
@@ -459,6 +527,9 @@ class Registry {
 		this.restarting.clear();
 		this.firstRun.clear();
 		this.claims.clear();
+		this.activity.clear();
+		this.stalledAt.clear();
+		this.longestStall.clear();
 		this.listeners.clear(); // a fresh process has no screens or panels yet
 		this.watchers.clear();
 	}
