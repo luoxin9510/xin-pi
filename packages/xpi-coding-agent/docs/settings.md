@@ -195,7 +195,7 @@ Experimental. `agentTeams` is `true`, `false` or a block; `true` is short for `{
 |---------|------|---------|-------------|
 | `agentTeams.enabled` | boolean | `false` | Turn on agent teams: an `Agent` call with `name` starts a teammate. `XPI_EXPERIMENTAL_AGENT_TEAMS=1` also turns it on. |
 | `agentTeams.maxTeammates` | integer | `8` | Teammates that are not stopped (running, queued or idle) at once. |
-| `agentTeams.taskRetentionDays` | number | `30` | For the task list, which comes in a later change. Validated now, unused. |
+| `agentTeams.taskRetentionDays` | number | `30` | Task directories whose newest file is older than this many days are removed when a team is created. |
 
 Read at session start and on `/reload`; only in the interactive TUI, in a saved session. See
 [Subagents: Agent teams](subagent.md#agent-teams).

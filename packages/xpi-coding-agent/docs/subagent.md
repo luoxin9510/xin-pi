@@ -367,8 +367,8 @@ get neither `Agent` nor `SendMessage`, except teammates of an [agent team](#agen
 Experimental, off by default. With agent teams on, an `Agent` call with a `name` starts a **teammate**: a subagent that
 runs in parallel with the session (the **lead**), messages the lead and other teammates by name, and is woken again by
 messages. It is modelled on Claude Code's agent teams. This page describes what exists now: teammates, messages, idle
-notices, shutdown and the end of a team. The shared task list, the `agent-teams:` events and the panel and screen
-changes (typing to a teammate, Esc, `/tasks`) come in later changes.
+notices, shutdown, the end of a team, the shared task list and the `agent-teams:` events. The panel and screen
+changes (typing to a teammate, Esc, `/tasks`) come in a later change.
 
 ### Turning it on
 
@@ -396,8 +396,9 @@ never waits for the teammate's work.
 - The team is implicit: one per session, the lead fixed, named `session-<session id>` on disk and shown as
   `session-<first 8 characters>`. Teammates get no `Agent` or `Workflow`, so nesting stays one level.
 - Model, trust and tools follow the subagent rules (`subagent.defaultModel`, the lead's trust decision). A teammate
-  always has `SendMessage`, whatever its agent file's `tools`, `disallowedTools` or `permissionMode` say, as a codemode tool
-  when it has codemode and as a direct tool when it has not. Naming `SendMessage` in `tools:` is accepted.
+  always has `SendMessage` and the four task tools (`TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate`), whatever its agent
+  file's `tools`, `disallowedTools` or `permissionMode` say, as codemode tools when it has codemode and as direct tools
+  when it has not. Naming them in `tools:` is accepted.
 
 ### Messages
 
@@ -448,6 +449,90 @@ teammate, or anything that can write the agent dir) can write any entry, includi
 reader a message carries no user authority; it does not prove who sent it. The name `lead` is reserved: a named `Agent`
 call cannot use it while teams are on.
 
+### The task list
+
+Every member, the lead included, has four tools: `TaskCreate({ subject, description?, blockedBy? })`, `TaskGet({ id })`,
+`TaskList()` and `TaskUpdate({ id, status?, owner?, subject?, description?, blockedBy?, result? })`. The lead has them
+from session start while teams are on (codemode tools, like `Agent`), so it can write tasks before it starts a teammate.
+With teams off there are no task tools.
+
+A task is `{ id, subject, description, status, owner?, blockedBy, result?, createdBy, createdAt, updatedAt }`, with
+`status` `pending`, `in_progress` or `completed`. It is one file, `<agent dir>/tasks/<team>/<id>.json` (mode 0600 in a 0700
+directory), next to `next`, the id counter (ids are 1, 2, 3...). The tasks belong to the session and stay after it
+ends; the team's other files are removed.
+
+**Dependencies.** `blockedBy` lists task ids. An unknown id, the task itself, or a cycle is refused. A task is blocked
+until every task it waits for is `completed`; completing one unblocks its dependents, and reopening one blocks them again.
+
+**Who may do what:**
+
+| Change | Who | Rule |
+|---|---|---|
+| `pending` to `in_progress` (claim) | any member, for itself | every `blockedBy` task completed, else `blocked` (naming them); no live member other than itself owns it, else `conflict` (naming the owner) |
+| `owner` set, no status (assign) | the lead | only a pending task, only a live member; the owner gets a message. `owner: ""` takes the owner away |
+| `in_progress` to `completed` | the owner, or the lead | `result` recommended |
+| `in_progress` to `pending` (release) | the owner, or the lead | the owner is cleared |
+| `completed` to `pending` (reopen) | the lead | the owner is cleared; dependents count as blocked again |
+| `pending` to `completed` | nobody | a task is claimed first |
+| `subject`, `description`, `blockedBy` | the creator or the lead | |
+| `result` | the owner or the lead | |
+
+A claim of a task that is already `in_progress` under another member is a `conflict` too, unless that member is no longer
+live. A member is **live** when `config.json` says `running`, `queued` or `idle`. When a member stops, its `in_progress`
+tasks go back to `pending` with no owner; a task owned by a member that is not live never blocks another's claim (so a
+crash that released nothing does not strand work).
+
+**Views.** `TaskList` shows id, status, owner, subject and the blockers still open; `TaskGet` adds the description and
+result. Both read the files, so they show what other members just did.
+
+**Self-claiming** is prompt guidance, not code: a teammate's prompt tells it to claim the next unblocked, unowned task
+after it finishes one.
+
+**Locks.** Every change to a task takes `<id>.json.lock`; creating a task, or changing `blockedBy`, also takes the team
+lock `tasks/<team>/.lock` (so two writers cannot make a cycle between them), and the counter has `next.lock`. The lock
+rules are those of the mailboxes: an exclusive create holding `{ pid, at }`, retried for 2 s then `busy`, stale locks
+taken over. Locks only make writes exclusive; a claim is the `owner` field.
+
+**Retention.** When a team is created, `session-*` directories under `tasks/` whose newest file is older than
+`agentTeams.taskRetentionDays` are removed, except this session's and any whose lead process is still running.
+
+### Hooks
+
+Three extension events go through `pi.events`, named `agent-teams:<event>`. Each payload carries `block(feedback)` and
+`hold(promise)`:
+
+| Event | Payload | Fires |
+|---|---|---|
+| `agent-teams:teammate_idle` | `{ team, name, agentId, result }` or `{ team, name, agentId, error }` | in the lead process, when a teammate's exchange ended and before the idle notice is sent |
+| `agent-teams:task_created` | `{ team, task, by }` (the task has no `id` yet) | in the process that runs `TaskCreate`, before the file is written |
+| `agent-teams:task_completed` | `{ team, task, by }` (the task as it would be, `status: "completed"`) | in the process that runs `TaskUpdate` to `completed`, before the write |
+
+`team` is the team's name on disk (`session-<session id>`). The task events fire in the teammate's own process, which loads
+the extensions xpi discovers as any subagent does, and in the lead's for the lead's own calls.
+
+```ts
+pi.events.on("agent-teams:task_completed", (e) => {
+	if (e.task.result === undefined) e.block("Say what you did in `result`.");
+});
+pi.events.on("agent-teams:teammate_idle", (e) => {
+	e.hold(runTests().then((ok) => (ok ? undefined : "The tests fail. Fix them before you stop.")));
+});
+```
+
+- A handler answers during `emit`, before its first `await`: `block(feedback)` blocks the step; `hold(promise)` decides
+  later, the promise resolving to a feedback string (block) or `undefined` (allow). The first `block` counts. A call made
+  after the handler's first `await` is ignored. A handler that throws, or a rejected hold, never blocks.
+- A hold is awaited for up to 5 minutes; on a timeout the step is allowed and a warning is shown.
+- A blocked `task_created` or `task_completed` makes the tool call throw `refused by a hook: <feedback>` back to the calling
+  agent, and nothing is written (not even an id).
+- A blocked `teammate_idle` sends the feedback to the teammate as a message from the lead instead of the idle notice, so it
+  keeps working. This happens at most 3 times in a row per teammate: the fourth idle notice goes to the lead whatever the
+  hooks say (handlers still see the event, but their answers count for nothing). Holds on `teammate_idle` are waited for in
+  the background, so the teammate's slot is free meanwhile.
+- **Order.** Events, and any `hold`, run before a lock is taken. Once the step is allowed the writer takes its locks and
+  checks again (blocked, conflict, cycle, a changed status), so a slow hook never holds a lock and a decision made on an old
+  view cannot write a bad state.
+
 ### Shutdown and the end of a team
 
 The lead asks with `SendMessage({ to, kind: "shutdown_request", message? })` (only the lead may). The teammate answers
@@ -465,8 +550,9 @@ continues it as a member of the new team, with its history and the same prompt s
 ### Prompts
 
 A teammate's system prompt tail has an "Agent team" section (its name, the roster when it started, how `SendMessage` and
-the envelope work, shutdown), frozen when it first starts and reused on every continue so its history stays cached. The
-lead's prompt has a short "Agent teams" section while teams are on. With teams off neither exists, and the head of the
+the envelope work, how to use the task list and claim the next unblocked task, shutdown), frozen when it first starts and reused on every continue so its history stays cached. The
+lead's prompt has a short "Agent teams" section while teams are on (it also says to use the task list for work with
+dependencies). With teams off neither exists, and the head of the
 system prompt stays the same for every agent.
 
 ## Fork

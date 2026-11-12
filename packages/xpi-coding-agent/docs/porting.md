@@ -26,8 +26,8 @@ Two kinds of host are meant:
 Linux is the reference platform. Platform instructions are written for Linux; macOS differences follow them. Windows is
 not supported by the components that need a PTY, unix sockets or a service manager.
 
-Agent teams (a lead session and its named teammates, with messages and a shared task list inside one session)
-will be added to this menu when they are built.
+Agent teams (a lead session and its named teammates, with messages and a shared task list inside one session) are an
+option of the subagents unit: [subagents: agent teams](#subagents-agent-teams).
 
 ## Dependency overview
 
@@ -150,16 +150,19 @@ The options below come with the unit. Each says how to turn it off.
 ### subagents: agent teams
 
 - **Gives**: experimental agent teams (off by default): a named `Agent` call starts a teammate that messages the lead and
-  other teammates through mailbox files, with idle notices, a loop cap and shutdown requests. Built so far: teammates,
-  messages, shutdown, cleanup. The task list, hooks and UI changes come later. See
-  [Agent teams](subagent.md#agent-teams).
+  other teammates through mailbox files, with idle notices, a loop cap and shutdown requests, plus a shared task list
+  (`TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate`: dependencies, claims, liveness, retention) and three extension events
+  (`teammate_idle`, `task_created`, `task_completed`) that can block with feedback. Built so far: teammates, messages,
+  shutdown, cleanup, tasks, hooks. The UI changes come later. See [Agent teams](subagent.md#agent-teams).
 - **Depends on**: names and `SendMessage`, the Agent tool and its exchanges, `registry.ts` (watch, steer, stop),
-  `pi.events` (for the later hooks), `ctx.mode` (teams are on only for `"tui"`), a custom message with `triggerTurn`, the
+  `pi.events` (the hooks go through it; `emit` must call handlers synchronously, so they can answer in it), `ctx.mode` (teams are on only for `"tui"`), a custom message with `triggerTurn`, the
   `before_agent_start` event with mutable `systemPromptOptions.sections`, and a file system with exclusive create and
   atomic rename within one directory. The child needs a way to learn it is a teammate: `XPI_TEAM`, `XPI_TEAM_MEMBER`,
   `XPI_TEAM_DIR`, `XPI_TEAM_TOOLS`.
 - **Files**: `team.ts` (the team, `config.json`, the deliverer, exchange hooks), `team-files.ts` (locks, atomic writes,
-  mailboxes), `team-send.ts` (`SendMessage` between members; the teammate's tool), `team-start.ts` (the named call and its
+  mailboxes), `team-send.ts` (`SendMessage` between members; the teammate's tools), `team-tasks.ts` (the task list: files,
+  dependencies, the status rules, retention), `team-task-tools.ts` (the four tools), `team-lead-tasks.ts` (the lead's side:
+  its environment, the assignment message), `team-hooks.ts` (the events, `block` and `hold`), `team-start.ts` (the named call and its
   refusals), `team-text.ts` (envelope, prompt sections), `team-config.ts` (the setting); small edits in `agent-tool.ts`,
   `send-message-tool.ts`, `exchange.ts` (hooks, no typing note for teammates), `resolve.ts` (environment, tool list, prompt
   section, `prefixKey`), `talk.ts` (`continueAgent`), `registry.ts` (meta fields), `index.ts` (wiring), and the

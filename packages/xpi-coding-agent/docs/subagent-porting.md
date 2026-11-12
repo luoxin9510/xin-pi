@@ -324,13 +324,19 @@ rest of the extension:
 - **File system**: exclusive create (`O_EXCL`), rename within one directory as an atomic replace, and file modes 0600 and
   0700. Lock files hold `{ pid, at }`; a stale lock is removed under a `<lock>.takeover` guard, also an exclusive create.
   Pid liveness is `kill(pid, 0)` (`EPERM` counts as alive).
+- **Task list**: one JSON file per task and a counter `next` in `<agent dir>/tasks/<team>/`, changed only under the same lock
+  files (a task's own, `next.lock`, and for creating a task or changing `blockedBy` the directory's `.lock`, always taken in
+  that order, team first). Liveness comes from `config.json` in a teammate (the lead reads its memory). Retention is
+  an age check on the newest file of each `session-*` directory.
+- **Events**: an event bus whose `emit` calls every handler synchronously (up to its first `await`), so a handler can answer
+  in it. `team-hooks.ts` collects the answers and awaits holds; run events before any lock, and check again after.
 - **Directory watching**: `fs.watch` on `inboxes/` plus a 1 s poll. Linux uses inotify; macOS FSEvents coalesces events, so
   never rely on the watch alone.
 - **Extension API**: `ctx.mode === "tui"` to decide where teams are on; `pi.sendMessage` with `triggerTurn` and
   `deliverAs: "steer"` for messages to the lead; `before_agent_start` with `systemPromptOptions.sections` for the lead's prompt.
 - **Child process**: the variables `XPI_TEAM`, `XPI_TEAM_MEMBER`, `XPI_TEAM_DIR` and `XPI_TEAM_TOOLS` (`codemode` or
-  `direct`: whether the child has codemode); a `SendMessage` tool registered in the child when they are set; `--tools`
-  entries (`+SendMessage`) for tools an extension registers; `ctx.abort()` in a tool, used after an approved shutdown.
+  `direct`: whether the child has codemode); `SendMessage` and the four task tools registered in the child when they are set; `--tools`
+  entries (`+SendMessage`, `+TaskCreate`...) for tools an extension registers; `ctx.abort()` in a tool, used after an approved shutdown.
 - **rpc events**: `message_end` of the user message, to know that a steer was taken; if the child settles first, the lead
   delivers the message as a new exchange.
 
