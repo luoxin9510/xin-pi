@@ -558,9 +558,11 @@ first it owns that is not done), its turns and its cost. The state is `running`,
 `failed` (the teammate is idle, but its last exchange failed: it is still live, woken by messages, and keeps its tasks).
 `idle` (`○`, green) and `stopping` (`◍`, yellow) have their own mark and colour. A teammate that is not stopped never leaves the
 panel: `subagent.panelLingerMs` applies only to a stopped one. A teammate that has not started yet (queued for its first
-start) is a row too, but it has no screen to open. `↑` `↓` select, `Enter` opens the screen, and `x` stops the teammate in any
+start) is a row too, but it has no screen to open and shows no turns or cost. `↑` `↓` select, `Enter` opens the screen, and `x` stops the teammate in any
 state: a running one is aborted; a queued one stops waiting; an idle one has no process, so it is simply marked `stopped` (its
-in-progress tasks go back to pending and the lead is told). `r` (restart) is not offered for a teammate.
+in-progress tasks go back to pending and the lead is told). A stop is kept even when it cannot reach a child yet (before it
+starts) or when the run finishes by itself first: the teammate still ends `stopped`, with no idle notice. `X` (stop all)
+also stops teammates waiting for a slot, through the team, and leaves idle teammates alone. `r` (restart) is not offered for a teammate.
 
 **Screen.**
 
@@ -570,15 +572,16 @@ in-progress tasks go back to pending and the lead is told). `r` (restart) is not
   lost); an idle one starts a new exchange with the text first (messages that arrive while it waits for a slot follow it).
   Typing resets the teammate's loop count. A stopped or stopping teammate takes nothing.
 - `Esc` interrupts the teammate's current turn without stopping it: the run is aborted, the teammate becomes `idle` (the
-  record is `completed`, not `failed`), and it is still woken by messages. An interrupted exchange sends no idle notice and
+  record is `completed`, not `failed`), and it is still woken by messages. Messages (and text you typed) it had not read yet are
+  kept and start a new exchange once it is idle, so nothing is lost. An interrupted exchange sends no idle notice and
   fires no `teammate_idle`, so a hook cannot wake it again at once. A second `Esc`, or `Esc` while the teammate is not running,
   closes the screen. (On the screen of an ordinary subagent `Esc` still closes it.) `/stop` stops it, in any state.
 - Agent messages in the transcript are drawn as one line each, `✉ <from>: <first line>`, instead of the raw envelope.
 
 **Task list.** `/tasks` opens an overlay of the session's task list: id, status, owner (with the owner's state), subject and
 the blockers still open. It refreshes about every 0.75 s by reading the task files again (nothing watches the directory, so
-nothing can react to its own writes; the overlay writes nothing) and at once when a teammate's state changes. `Esc` or `q`
-closes it. With teams off `/tasks` says so. The keybinding `app.team.tasks` opens it from the prompt; it has no default key
+nothing can react to its own writes; the overlay writes nothing) and at once when a teammate's state changes. `Esc`, `q` or `Enter`
+closes it. `/tasks` is registered only while teams are on (after a `/reload` that turns them off it stays and says so). The keybinding `app.team.tasks` opens it from the prompt; it has no default key
 because `Ctrl+T` is the thinking toggle (see [keybindings](keybindings.md)).
 
 ### Prompts

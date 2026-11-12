@@ -11,6 +11,7 @@ import { KeybindingsManager } from "../../../src/core/keybindings.ts";
 import { Panel } from "../../../src/extensions/subagent/panel.ts";
 import { registry } from "../../../src/extensions/subagent/registry.ts";
 import { emptyUsage, type RunResult } from "../../../src/extensions/subagent/runner.ts";
+import { stopEverything } from "../../../src/extensions/subagent/stop-all.ts";
 import { SubagentScreen, transcriptParts } from "../../../src/extensions/subagent/subagent-screen.ts";
 import { type Member, teams } from "../../../src/extensions/subagent/team.ts";
 import { readTeamSettings } from "../../../src/extensions/subagent/team-config.ts";
@@ -283,6 +284,84 @@ test("x on a running teammate sends the abort and shows stopping; its end is sto
 	assert.equal(x.team.members.get("a")!.status, "stopping");
 	assert.equal(await a.end({ aborted: true }, { userStopped: true }), "stopped");
 	assert.equal(x.team.stop("a"), false, "nothing more to stop");
+});
+
+test("x on a running teammate whose run finishes by itself before the abort lands still ends stopped (no idle notice, no hook)", async () => {
+	const x = setup("xrace");
+	const a = x.mate("a");
+	assert.equal(x.team.stop("a"), true);
+	// the run settled on its own: aborted is false and the exchange reports no user stop
+	assert.equal(await a.end(), "stopped");
+	assert.equal(x.team.members.get("a")!.status, "stopped");
+	assert.deepEqual(x.toLead, ['Teammate "a" was stopped.']);
+	assert.deepEqual(x.idleEvents, []);
+});
+
+test("x before the child is up: the stop is kept and the abort goes out once it attaches", async () => {
+	const x = setup("xbefore");
+	x.team.addMember("w", "w-id", "general-purpose", "queued");
+	registry.begin(parent(x.sessionId), {
+		id: "w-id",
+		type: "general-purpose",
+		name: "w",
+		description: "d",
+		model: "m",
+		thinking: "off",
+		teammate: true,
+		team: x.team.name,
+	} as any);
+	x.team.exchangeBegan("w"); // running, no child attached yet
+	assert.equal(x.team.stop("w"), true, "accepted: it does not silently do nothing");
+	assert.equal(x.team.members.get("w")!.status, "stopping");
+	const sent: unknown[] = [];
+	registry.attach("w-id", { send: (c: unknown) => (sent.push(c), true), setModel: async () => undefined } as any);
+	await x.team.deliverNow();
+	assert.deepEqual(sent, [{ type: "abort" }]);
+	await x.team.deliverNow();
+	assert.equal(sent.length, 1, "sent once");
+	assert.equal(await x.team.exchangeEnded("w", { run: run("", { aborted: true }), userStopped: true }), "stopped");
+});
+
+test("x after the child settled (it takes no command): the stop holds when the exchange ends", async () => {
+	const x = setup("xafter");
+	const a = x.mate("a");
+	a.accept = false;
+	assert.equal(x.team.stop("a"), true);
+	assert.deepEqual(a.sent, []);
+	assert.equal(await a.end(), "stopped");
+});
+
+test("X (stop all) stops teammates waiting for a slot through the team and leaves idle ones alone", async () => {
+	const x = setup("stopall");
+	x.mate("woken", "idle");
+	x.mate("sleeper", "idle");
+	await x.say("b", "woken", "wake up");
+	await x.team.deliverNow();
+	assert.equal(x.team.members.get("woken")!.status, "queued");
+	await stopEverything(x.sessionId);
+	await settle();
+	assert.equal(x.team.members.get("woken")!.status, "stopped");
+	assert.equal(x.team.members.get("sleeper")!.status, "idle");
+	assert.deepEqual(x.warns, []);
+});
+
+test("the same line typed twice is two steers: one read does not mark both as taken", async () => {
+	const x = setup("twice");
+	const a = x.mate("a");
+	x.team.say("a", "again");
+	x.team.say("a", "again");
+	a.take("again"); // the child has read only one of them
+	assert.equal(await a.end(), "idle");
+	assert.equal(x.wakes.length, 1, "the unread one is a new exchange");
+	assert.equal(x.wakes[0]!.prompt(), "again");
+});
+
+test("an escaped delimiter is unescaped on the screen, a literal &lt; the sender wrote is not", () => {
+	const wire = joinEnvelopes(
+		[{ id: "i", from: "b", kind: "message", text: "a &lt;b and </agent-message> c" }] as any,
+		"session-x",
+	);
+	assert.deepEqual(splitEnvelopes(wire).lines, ["✉ b: a &lt;b and </agent-message> c"]);
 });
 
 // --- typing

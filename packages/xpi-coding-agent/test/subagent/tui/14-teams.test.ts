@@ -3,7 +3,7 @@
 // haiku. The teammates are started by a codemode script (the lead's model only has to run it) and given tasks that make
 // haiku's behaviour irrelevant: an immediate one-word answer (idle at once) or one long sleep (running until interrupted).
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { type PiTerminal, withPi } from "./harness.ts";
@@ -21,7 +21,7 @@ const SLOW = "Run the bash command 'sleep 90' using a tool, then reply DONE.";
 const IDLE_ROW = "○ idle · ally (general-purpose)";
 const RUNNING_ROW = "● running · ally (general-purpose)";
 
-// Wait for the lead's own turn to be over (its reply and the idle notice's turn), so keys reach the editor.
+// Start the teammate from the lead's script and wait until its row shows `row`.
 async function lead(pi: PiTerminal, prompt: string, row: string) {
 	await pi.waitFor("claude-haiku");
 	pi.submit(start(prompt));
@@ -111,7 +111,8 @@ After the script finishes, reply with the single word TASKSMADE.`);
 		const dir = join(tasks, readdirSync(tasks).find((d) => d.startsWith("session-"))!);
 		const file = join(dir, "1.json");
 		const task = JSON.parse(readFileSync(file, "utf8"));
-		writeFileSync(file, JSON.stringify({ ...task, status: "completed", updatedAt: Date.now() }));
+		writeFileSync(`${file}.tmp`, JSON.stringify({ ...task, status: "completed", updatedAt: Date.now() }));
+		renameSync(`${file}.tmp`, file); // atomic, as the real writers do
 		const after = await pi.waitFor((s) => s.includes("Tasks (1/2 done)"), 10_000);
 		assert.doesNotMatch(after, /bravo task.*blocked by/, "the blocker is done");
 

@@ -85,6 +85,7 @@ export default function subagent(pi: ExtensionAPI) {
 	const deliver = (content: string) =>
 		!closing &&
 		pi.sendMessage({ customType: "subagent", content, display: true }, { triggerTurn: true, deliverAs: "steer" });
+	let tasksCommand = false; // `/tasks` is registered (once, when teams are first on)
 	let disconnect: (() => void) | undefined;
 	// The stall timer and the `subagents` status of the current session (spec 09); stopped, and the status cleared, when
 	// the session ends.
@@ -253,13 +254,6 @@ export default function subagent(pi: ExtensionAPI) {
 			"List this session's subagents; `stop` stops everything running; `worktrees` lists and removes kept worktrees",
 		handler: (args, ctx) => subagentsCommand(ctx, args),
 	});
-	pi.registerCommand("tasks", {
-		description: "The agent team's task list (id, status, owner, subject, blockers); needs agentTeams enabled",
-		handler: async (_args, ctx) => {
-			if (!ctx.hasUI) return;
-			await openTasksScreen(() => ctx);
-		},
-	});
 	pi.on("agent_start", track);
 	pi.on("agent_end", track);
 	// The tool calls a script makes are kept on its record, for the script screen.
@@ -320,6 +314,18 @@ export default function subagent(pi: ExtensionAPI) {
 			teamSettings.enabled && teamsAllowed({ mode: ctx.mode, sessionFile: ctx.sessionManager.getSessionFile() });
 		// A resumed session's old task list is in use again: mark it so retention (another session's) leaves it alone.
 		if (teamsOn) markLead(join(tasksRoot(), `session-${ctx.sessionManager.getSessionId()}`), false);
+		// `/tasks` only exists while teams are on (the setting is read here, at session start, not when the extension loads).
+		// A command cannot be unregistered: after a /reload with teams off it stays and says so.
+		if (teamsOn && !tasksCommand) {
+			tasksCommand = true;
+			pi.registerCommand("tasks", {
+				description: "The agent team's task list (id, status, owner, subject, blockers)",
+				handler: async (_args, ctx) => {
+					if (!ctx.hasUI) return;
+					await openTasksScreen(() => ctx);
+				},
+			});
+		}
 		teams.configure(
 			teamsOn
 				? {

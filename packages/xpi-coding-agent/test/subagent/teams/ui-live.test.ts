@@ -97,30 +97,24 @@ test(
 	},
 );
 
-test(
-	"/tasks is a command; with teams off it says so, with teams on it opens the overlay",
-	{ timeout: 60_000 },
-	async () => {
-		const off = sandbox();
-		process.env.XPI_CODING_AGENT_DIR = join(off.root, "agent");
-		const t = await loadTool(
-			{},
-			{ cwd: off.repo, sessionFile: join(off.root, "parent.jsonl"), sessionId: `0190ui-off-${++n}` },
-		);
-		assert.ok(t.commands.tasks, "registered");
-		await t.commands.tasks.handler("", t.ctx);
-		assert.match(t.notes.join("\n"), /agent teams are off/);
+test("/tasks is registered only when teams are on, and then opens the overlay", { timeout: 60_000 }, async () => {
+	const off = sandbox();
+	process.env.XPI_CODING_AGENT_DIR = join(off.root, "agent");
+	const t = await loadTool(
+		{},
+		{ cwd: off.repo, sessionFile: join(off.root, "parent.jsonl"), sessionId: `0190ui-off-${++n}` },
+	);
+	assert.equal(t.commands.tasks, undefined, "teams off: the command list is unchanged");
 
-		const x = await setup();
-		try {
-			let opened: { overlay?: boolean } | undefined;
-			(x.t.ctx.ui as any).custom = async (_factory: unknown, options: { overlay?: boolean }) => {
-				opened = options;
-			};
-			await x.t.commands.tasks.handler("", x.t.ctx);
-			assert.equal(opened?.overlay, true);
-		} finally {
-			await cleanupNow();
-		}
-	},
-);
+	const x = await setup();
+	try {
+		let opened: { overlay?: boolean } | undefined;
+		(x.t.ctx.ui as any).custom = async (_factory: unknown, options: { overlay?: boolean }) => {
+			opened = options;
+		};
+		await x.t.commands.tasks.handler("", x.t.ctx);
+		assert.equal(opened?.overlay, true);
+	} finally {
+		await cleanupNow();
+	}
+});

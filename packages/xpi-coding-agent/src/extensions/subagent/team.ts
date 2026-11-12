@@ -129,6 +129,9 @@ export class Team {
 	private readonly userQueue = new Map<string, string[]>(); // what the user typed that no running child has taken yet
 	private readonly wakeControllers = new Map<string, AbortController>(); // a woken teammate's exchange waiting for a slot
 	private readonly userStops = new Set<string>(); // the user stopped these while their exchange was still waiting
+	// The user stopped these while they ran: the abort goes to the child once it is up (a pass), and whatever way the exchange
+	// ends (even by itself, before the abort landed) it ends stopped. `sent`: the abort reached the child.
+	private readonly runStops = new Map<string, { sent: boolean }>();
 	private closing = false;
 	private readonly wakeSignal = new AbortController(); // wakes waiting for a slot at session end must not start a child
 	private timer: NodeJS.Timeout | undefined;
@@ -329,6 +332,7 @@ export class Team {
 		await this.drainLead();
 		for (const m of [...this.members.values()])
 			if (m.name !== LEAD) {
+				this.applyStop(m);
 				this.flushUser(m);
 				await this.drainTeammate(m);
 			}
@@ -506,6 +510,13 @@ export class Team {
 		return true;
 	}
 
+	// A stop the user asked for before the child was up: sent once it is.
+	private applyStop(m: Member): void {
+		const stop = this.runStops.get(m.name);
+		if (!stop || stop.sent || m.status !== "stopping") return;
+		if (registry.handle(m.agentId) && registry.stop(m.agentId)) stop.sent = true;
+	}
+
 	// Texts the user typed before the child could take them: steered once it is up.
 	private flushUser(m: Member): void {
 		const queue = this.userQueue.get(m.name);
@@ -540,10 +551,14 @@ export class Team {
 		if (!m || this.closing || m.status === "stopped" || m.status === "stopping") return false;
 		this.userQueue.delete(name);
 		switch (m.status) {
-			case "running":
-				if (!registry.stop(m.agentId)) return false;
-				this.setStatus(name, "stopping"); // it ends stopped (exchangeEnded)
+			case "running": {
+				// Recorded first: with no child to reach yet (before it attaches) or one that has just settled, the stop still
+				// holds. The abort is sent now if it can be, else by the next pass; exchangeEnded makes it stopped either way.
+				this.runStops.set(name, { sent: registry.stop(m.agentId) });
+				this.setStatus(name, "stopping");
+				this.kick();
 				return true;
+			}
 			case "queued": {
 				// Waiting for its turn or a slot: aborting its signal ends the wait; exchangeAbandoned makes it stopped.
 				const controller = this.wakeControllers.get(name);
@@ -617,6 +632,7 @@ export class Team {
 	exchangeBegan(name: string): void {
 		this.exchanges.set(name, (this.exchanges.get(name) ?? 0) + 1);
 		this.userStops.delete(name); // a stop that came too late to end the wait
+		this.runStops.delete(name);
 		this.steerRefused.delete(name);
 		const m = this.members.get(name);
 		if (!m) return;
@@ -634,7 +650,10 @@ export class Team {
 				const message = event.message as { role?: string; content?: unknown } | undefined;
 				if (event.type !== "message_end" || message?.role !== "user") return;
 				const text = messageText(message).trim();
-				for (const s of this.steers.get(name) ?? []) if (s.text.trim() === text) s.taken = true;
+				// Each user message that was read marks one steer, the oldest not yet taken with that text (the same line typed
+				// twice is two steers).
+				const s = (this.steers.get(name) ?? []).find((x) => !x.taken && x.text.trim() === text);
+				if (s) s.taken = true;
 			}),
 		);
 		this.kick();
@@ -712,7 +731,8 @@ export class Team {
 			this.setStatus(name, "stopped");
 			return "stopped";
 		}
-		if (outcome.userStopped || outcome.aborted || m.status === "stopped") {
+		const userStop = this.runStops.delete(name);
+		if (outcome.userStopped || outcome.aborted || userStop || m.status === "stopped") {
 			this.setStatus(name, "stopped");
 			this.host.toLead(`Teammate "${name}" was stopped.`);
 			return "stopped";
