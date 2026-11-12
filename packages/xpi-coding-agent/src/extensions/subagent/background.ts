@@ -121,10 +121,13 @@ interface Group {
 	kept: boolean; // the codemode host kept the script (it ended with calls still running): release it at the end
 	background: boolean; // the script was in the background when its code ended: its outcome is part of the message
 	outcome: { result?: CodemodeScriptEnd["result"]; error?: Error }; // the script's own end
-	pending: number; // kept calls not settled yet
+	pending: number; // kept calls that hold the group's message: not settled, and not joined as `wake: "each"`
+	each: number; // kept calls joined as `wake: "each"`, not settled: they hold only the release
+	joined: Set<string>; // call ids of those calls
+	reported: boolean; // the group's message went out (or had nothing to say)
 	failed: { description: string; error: string }[]; // kept calls that failed before they became an agent
 	pausedAtEnd: boolean; // it was paused when its code ended: its late calls do not start
-	finish?: (outcome: CodemodeScriptEnd) => void; // a group of a script the host did not keep ends through this
+	finish?: (outcome: CodemodeScriptEnd) => void; // the group's end, through the session-ownership check (a kept script: only when its release waits for `wake: "each"` calls)
 	done: boolean;
 }
 
@@ -234,10 +237,13 @@ class ScriptRegistry {
 				const script = live && own.has(info.id) ? this.scripts.get(info.id) : undefined;
 				// Kept for a script of this session that is not tracked: nothing would release it.
 				if (!script) {
-					if (live && info.sessionId === link.sessionId()) codemodeScripts.release(info.toolCallId);
+					if (live && info.sessionId === link.sessionId()) codemodeScripts.release(info.id);
 					return;
 				}
-				this.keep(script, kept);
+				this.keep(script, kept, (end) => {
+					// The group's message goes out before `wake: "each"` calls have ended; the release follows them.
+					if (live && own.delete(info.id)) this.ended(script, end, link);
+				});
 			},
 			onEnd: (info, outcome) => {
 				if (!live || !own.has(info.id)) return;
@@ -305,6 +311,14 @@ class ScriptRegistry {
 		this.setState(script, state);
 		// A group always reports (its agents ran after the script's result); otherwise only a background script does.
 		if (!outcome.background && !script.group) return;
+		// A foreground script that left only `wake: "each"` calls: they report on their own, nothing to say here.
+		if (
+			!outcome.background &&
+			script.group &&
+			!script.members.some((m) => m.member) &&
+			script.group.failed.length === 0
+		)
+			return;
 		try {
 			const allFailed = !outcome.error && !outcome.result?.isError && state === "failed";
 			link.deliver(
@@ -384,6 +398,7 @@ class ScriptRegistry {
 			unforward: () => callSignal?.removeEventListener("abort", forward),
 		};
 		script.members.push(call);
+		if (script.group) this.joinedKept(script.group, call);
 		const detach = () => {
 			if (call.detached || call.background || call.agentId === undefined) return;
 			registry.detach(call.agentId, script.sessionId, controller);
@@ -422,19 +437,41 @@ class ScriptRegistry {
 	}
 
 	// The script's code ended with calls the host left running: they and the agents still running form its group.
-	private keep(script: ScriptRecord, kept: CodemodeScriptKept): void {
+	private keep(script: ScriptRecord, kept: CodemodeScriptKept, finish: Group["finish"]): void {
 		this.formGroup(script, {
 			kept: true,
 			background: kept.background,
 			outcome: { ...(kept.result ? { result: kept.result } : {}), ...(kept.error ? { error: kept.error } : {}) },
 		});
 		const group = script.group!;
+		group.finish = finish;
 		for (const call of kept.calls) this.awaitKept(script, group, call);
+		// `wake: "each"` calls that had already reached Agent's execute: they no longer hold the group's message.
+		for (const call of script.members)
+			if (call.status === "running" && !call.background && !call.member) this.joinedKept(group, call);
 		this.checkGroup(script);
 	}
 
+	// A kept call reached Agent's execute as `wake: "each"`: it reports on its own, so it no longer holds the group's
+	// message. It still holds the script's release, so the usage it reports is counted before the nested-call scope ends.
+	private joinedKept(group: Group, call: AgentCall): void {
+		if (call.member || !group.kept || group.done || group.pending === 0 || group.joined.has(call.callId)) return;
+		group.pending--;
+		group.each++;
+		group.joined.add(call.callId);
+	}
+
 	private formGroup(script: ScriptRecord, group: Pick<Group, "kept" | "background" | "outcome">): void {
-		script.group = { ...group, pending: 0, failed: [], pausedAtEnd: false, done: false };
+		script.group = {
+			...group,
+			pending: 0,
+			each: 0,
+			joined: new Set(),
+			reported: false,
+			failed: [],
+			pausedAtEnd: false,
+			done: false,
+		};
 		// A paused script that ends: its waiting calls do not start (they would wait for the group, which waits for them).
 		if (script.paused) {
 			script.paused = false;
@@ -460,7 +497,11 @@ class ScriptRegistry {
 	private awaitKept(script: ScriptRecord, group: Group, call: CodemodeKeptCall): void {
 		group.pending++;
 		void call.settled.then((settled) => {
-			group.pending--;
+			if (group.joined.delete(settled.toolCallId)) group.each--;
+			else group.pending--;
+			// It was still running when the script's code ended, whatever its member's status said then.
+			const member = script.members.find((m) => m.callId === settled.toolCallId);
+			if (member) member.runningAtEnd = true;
 			if (settled.error !== undefined && !script.members.some((m) => m.callId === settled.toolCallId)) {
 				const args = call.args as { description?: unknown } | undefined;
 				const description = typeof args?.description === "string" ? args.description : call.name;
@@ -477,16 +518,21 @@ class ScriptRegistry {
 		const group = script.group;
 		if (!group || group.done || group.pending > 0) return;
 		if (script.members.some((m) => m.member && m.status === "running")) return;
-		group.done = true;
-		if (group.kept) {
-			codemodeScripts.release(script.callId);
+		const end = () => ({ ...group.outcome, stopped: script.stopRequested, background: group.background });
+		// Only `wake: "each"` calls are left: the message goes out now, the release when they have settled.
+		if (group.kept && group.each > 0) {
+			if (!group.reported) {
+				group.reported = true;
+				group.finish?.(end());
+			}
 			return;
 		}
-		group.finish?.({
-			...group.outcome,
-			stopped: script.stopRequested,
-			background: group.background,
-		});
+		group.done = true;
+		if (group.kept) {
+			codemodeScripts.release(script.id);
+			return;
+		}
+		group.finish?.(end());
 	}
 
 	// --- pause: a paused script starts no new agent. Its Agent calls wait here; agents already running finish.

@@ -775,7 +775,7 @@ export async function executeCodemode(
 	// calls report after the script's end is counted once, when the nested-call scope is released then.
 	const keep = (): boolean =>
 		kept.value !== undefined &&
-		codemodeScripts.keep(toolCallId, { ...kept.value, onRelease: () => ctx.releaseNestedCalls?.() });
+		codemodeScripts.keep(script.info.id, { ...kept.value, onRelease: () => ctx.releaseNestedCalls?.() });
 	// Once the script's code is over it can no longer be moved: its result goes to this call, with no end message.
 	const finished = run.then(
 		() => {
@@ -804,6 +804,11 @@ export async function executeCodemode(
 			script.end({ result });
 			return result;
 		} catch (error) {
+			// Formatting the result failed after the sandbox had left calls running: they are kept all the same.
+			if (kept.value) {
+				ctx.detachNestedCalls?.();
+				if (!keep()) ctx.releaseNestedCalls?.();
+			}
 			script.end({ error: error as Error });
 			throw error;
 		}
@@ -816,7 +821,7 @@ export async function executeCodemode(
 			script.end({ result });
 		},
 		(error) => {
-			ctx.releaseNestedCalls?.();
+			if (!keep()) ctx.releaseNestedCalls?.();
 			script.end({ error: error as Error });
 		},
 	);

@@ -80,9 +80,9 @@ Paths below are relative to the repository root; `coding-agent/` stands for `pac
   are recorded `released`); the add-on fields `outlives(target, sessionId)` and `describe(sessionId)` (`addons.ts`),
   which `execute.ts` asks for a script's calls and `tool.ts` for the description (the replaceable sentence
   `cancelledOnEnd`, `CODEMODE_DESCRIPTION_SENTENCES`), with the session id the extension records at `session_start`
-  (`getSessionId` in `index.ts`); and the kept script record: `codemodeScripts.keep(callId, ...)` at a script's end
+  (`getSessionId` in `index.ts`); and the kept script record: `codemodeScripts.keep(scriptId, ...)` at a script's end
   with calls still running (the record stays, state `ended`, `onKeep` instead of `onEnd`) and
-  `codemodeScripts.release(callId)`, which the add-on's extension calls when those calls are over (`onRelease`, then
+  `codemodeScripts.release(scriptId)`, which the add-on's extension calls when those calls are over (`onRelease`, then
   `onEnd`). A host without them cancels every pending call at the end, as before.
 - **Rewrite**: `getCodemodeWorkerSpecifier()` and `getQuickJSWasmPath()` (`coding-agent/src/config.ts`): where your
   build puts the worker and the wasm file. xpi also lists `codemode` in `DEFAULT_TOOL_NAMES`

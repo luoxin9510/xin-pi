@@ -365,6 +365,53 @@ describe("spec 09: agents outlive their script", () => {
 			expect(t.messages().find((m) => m.startsWith("Background agent"))).toContain("alpha done");
 		});
 
+		it.each([
+			["before", [] as string[]],
+			["after", ["alpha"]],
+		])(
+			'a slow wake: "each" agent that starts %s the script ends does not hold the group: the group message comes first',
+			async (_when, held) => {
+				const slow = [
+					ev.session(),
+					...Array.from({ length: 12 }, () => ev.user("working")),
+					...lines("alpha").slice(1),
+				];
+				const t = await setup({
+					held,
+					scenario: { ...scenario(100), byPrompt: { alpha: slow, beta: lines("beta") } },
+				});
+				await t.run(`${agentCall("alpha", 'wake: "each"')} ${agentCall("beta")} return 1;`);
+				// Held: it reaches Agent's execute only after the script's code has ended.
+				if (held.length > 0) await vi.waitFor(() => expect(t.script().state).toBe("ended"));
+				for (const d of held) await t.open(d);
+				await vi.waitFor(() => expect(t.groupMessages()).toHaveLength(1), { timeout: 10_000 });
+				expect(t.messages().filter((m) => m.startsWith("Background agent"))).toHaveLength(0);
+				expect(t.groupMessages()[0]).toContain("beta done");
+				await vi.waitFor(
+					() => expect(t.messages().filter((m) => m.startsWith("Background agent"))).toHaveLength(1),
+					{
+						timeout: 10_000,
+					},
+				);
+				expect(t.messages().find((m) => m.startsWith("Background agent"))).toContain("alpha done");
+				// The script is released only after the each call has settled, so its usage is counted too.
+				await vi.waitFor(() => expect(t.harness.session.getSessionStats().cost).toBeCloseTo(0.02));
+			},
+		);
+
+		it('a foreground script that leaves only wake: "each" agents sends no group message', async () => {
+			const t = await setup({ held: ["alpha"], scenario: scenario(100) });
+			await t.run(`${agentCall("alpha", 'wake: "each"')} return 1;`);
+			expect(t.script().state).toBe("ended");
+			await t.open("alpha");
+			await vi.waitFor(() => expect(t.messages().filter((m) => m.startsWith("Background agent"))).toHaveLength(1), {
+				timeout: 10_000,
+			});
+			await vi.waitFor(() => expect(t.script().state).toBe("completed"));
+			expect(t.groupMessages()).toHaveLength(0);
+			expect(t.messages()).toHaveLength(1);
+		});
+
 		it("run_in_background members end with their run and report through the group", async () => {
 			const t = await setup({ scenario: scenario(150) });
 			const result = await t.run(

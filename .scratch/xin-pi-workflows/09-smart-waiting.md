@@ -92,7 +92,7 @@ agent id, a controller or a registry record exists.
   abort would reach it through the `SendMessage` call (a steer returns at once, so in practice only a continue is
   kept; its `Agent` execute is a group member like any other). It answers false for `Workflow` (see above).
 - **The script record stays.** `codemodeScripts` keeps the script's record after the sandbox ends, marked
-  `ended: <reason>`, until its group ends. New API: `keep(callId)` at the end, and `release(callId)` at the group's
+  `ended: <reason>`, until its group ends. New API: `keep(scriptId)` at the end, and `release(scriptId)` at the group's
   end, which fires `onEnd`. So `owner()`, `countScriptAgent` (`maxAgentsPerScript`), `agentStarting`,
   `addAgent` and the panel rows work for calls that reach `Agent`'s execute after the script's last line. An `Agent`
   execute whose script is marked ended runs as a group member.

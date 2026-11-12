@@ -237,8 +237,9 @@ session's end).
   failed member does not wake main early. A foreground script whose agents all ended before it did has no such
   message: its result carries them, as before.
 - **`wake: "each"`** on an `Agent` call takes it out of the group: if it is still running when the script ends, it
-  reports on its own when it ends, as a `run_in_background` agent does (for races). On a call that ends inside the
-  script it changes nothing.
+  reports on its own when it ends, as a `run_in_background` agent does (for races). The group's message does not wait
+  for it, and a foreground script that leaves only such agents sends no group message. Its usage is still counted. On a
+  call that ends inside the script it changes nothing.
 - **Panel.** The script's row stays open while its group runs, for example `● ended · script S3 · 2/4 agents done ·
   4m12s`, with its agents below. `x` on that row stops all of the script's agents, `wake: "each"` ones
   included (calls that have not started an agent yet do not start one), and main gets the message with the state `stopped`. A group cannot be paused: a script paused when its

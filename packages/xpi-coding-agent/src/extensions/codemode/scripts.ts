@@ -129,12 +129,13 @@ export interface CodemodeScripts {
 	/** Stop every running or kept script of the session (session shutdown). */
 	stopAll(sessionId: string): Promise<void>;
 	/**
-	 * Called by the codemode host when the script under this codemode call id ends with calls still running: its record
-	 * stays (state `ended`) and its end emits `onKeep` instead of `onEnd`. False when no running script has the id.
+	 * Called by the codemode host when this script (by script id, S1, S2, ...) ends with calls still running: its record
+	 * stays (state `ended`) and its end emits `onKeep` instead of `onEnd`. False when the script is not running. Script
+	 * ids, not call ids: a provider may reuse call ids, and a kept script lives on for minutes.
 	 */
-	keep(toolCallId: string, kept: CodemodeKept): boolean;
-	/** End a kept script: `onRelease`, then `onEnd`. False when no kept script has the id. */
-	release(toolCallId: string): boolean;
+	keep(scriptId: string, kept: CodemodeKept): boolean;
+	/** End a kept script (by script id): `onRelease`, then `onEnd`. False when it is not a kept script whose code ended. */
+	release(scriptId: string): boolean;
 	subscribe(listener: CodemodeScriptListener): () => void;
 	/** Register a provider that takes scripts to the background. Returns the disposer. */
 	provideBackground(provider: CodemodeBackgroundProvider): () => void;
@@ -214,22 +215,15 @@ class CodemodeScriptRegistry implements CodemodeScripts {
 		return any;
 	}
 
-	// The newest script with this codemode call id (a provider may reuse call ids).
-	private byCall(toolCallId: string): Entry | undefined {
-		return [...this.runs.values()].reverse().find((run) => run.info.toolCallId === toolCallId);
-	}
-
-	keep(toolCallId: string, kept: CodemodeKept): boolean {
-		const run = this.byCall(toolCallId);
+	keep(scriptId: string, kept: CodemodeKept): boolean {
+		const run = this.runs.get(scriptId);
 		if (!run || run.info.state === "ended") return false;
 		run.kept = kept;
 		return true;
 	}
 
-	release(toolCallId: string): boolean {
-		const run = [...this.runs.values()]
-			.reverse()
-			.find((r) => r.info.toolCallId === toolCallId && r.outcome !== undefined);
+	release(scriptId: string): boolean {
+		const run = this.runs.get(scriptId);
 		if (!run?.outcome) return false;
 		this.runs.delete(run.info.id);
 		try {

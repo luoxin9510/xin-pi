@@ -10,10 +10,9 @@ import { loadTool, sandbox } from "../helpers.ts";
 let n = 0;
 
 // A script of the loaded session whose code has ended with one call still running: it is kept, and its group formed.
-async function keptScript() {
-	const box = sandbox();
-	const t = await loadTool({}, { cwd: box.repo, sessionId: `groups-${++n}` });
-	const callId = `groups-call-${n}`;
+async function keptScript(given?: { t: Awaited<ReturnType<typeof loadTool>>; callId: string }) {
+	const t = given?.t ?? (await loadTool({}, { cwd: sandbox().repo, sessionId: `groups-${++n}` }));
+	const callId = given?.callId ?? `groups-call-${++n}`;
 	const run = beginCodemodeScript(callId, t.ctx.sessionManager.getSessionId(), undefined);
 	const callSignal = new AbortController();
 	// An agent of the script while its code runs: it follows the call's signal until the end.
@@ -24,11 +23,11 @@ async function keptScript() {
 		settle = () => resolve({ toolCallId: `${callId}/2` });
 	});
 	assert.equal(
-		codemodeScripts.keep(callId, { reason: "returned", calls: [{ name: "Agent", args: {}, settled }] }),
+		codemodeScripts.keep(run.info.id, { reason: "returned", calls: [{ name: "Agent", args: {}, settled }] }),
 		true,
 	);
 	run.end({ result: { content: [{ type: "text", text: "1" }], details: {} } });
-	const script = scripts.list(t.ctx.sessionManager.getSessionId()).at(-1)!;
+	const script = scripts.get(run.info.id)!;
 	return { t, callId, script, early, callSignal, settle };
 }
 
@@ -63,4 +62,46 @@ test("an agent that resolves after its group's script was stopped is aborted whe
 	late.end(undefined, "stopped");
 	early.end(undefined, "stopped");
 	settle();
+});
+
+test("two kept scripts with the same call id: the end of one group releases only its own script", async () => {
+	const first = await keptScript();
+	const second = await keptScript({ t: first.t, callId: first.callId });
+	assert.notEqual(first.script.id, second.script.id);
+	assert.equal(second.script.state, "ended");
+	first.early.end(undefined, "done");
+	first.settle();
+	await new Promise((r) => setTimeout(r, 20));
+	assert.notEqual(first.script.state, "ended"); // its group ended
+	assert.equal(second.script.state, "ended"); // still kept: its call and agent run
+	assert.ok(codemodeScripts.list().some((s) => s.id === second.script.id));
+	assert.ok(!codemodeScripts.list().some((s) => s.id === first.script.id));
+	second.early.end(undefined, "done");
+	second.settle();
+});
+
+test("a member that ended between the sandbox's end and the keep still counts as running at the end (its output is shown)", async () => {
+	const t = await loadTool({}, { cwd: sandbox().repo, sessionId: `groups-${++n}` });
+	const callId = `groups-call-${++n}`;
+	const run = beginCodemodeScript(callId, t.ctx.sessionManager.getSessionId(), undefined);
+	const member = scripts.join(`${callId}/1`, { description: "quick" }, undefined)!;
+	// Its agent ended after the sandbox released the call, before the host reported the keep.
+	member.end({
+		status: "completed",
+		agentType: "general-purpose",
+		output: "quick done",
+		usage: { cost: { total: 0 } },
+	});
+	assert.equal(member.call.runningAtEnd, false);
+	let settle!: () => void;
+	const settled = new Promise<{ toolCallId: string }>((resolve) => {
+		settle = () => resolve({ toolCallId: `${callId}/1` });
+	});
+	codemodeScripts.keep(run.info.id, { reason: "returned", calls: [{ name: "Agent", args: {}, settled }] });
+	run.end({ result: { content: [{ type: "text", text: "1" }], details: {} } });
+	settle();
+	await new Promise((r) => setTimeout(r, 20));
+	assert.equal(member.call.runningAtEnd, true);
+	const message = t.messages.map((m) => String(m.message.content)).find((c) => c.includes("Output of"));
+	assert.match(message ?? "", /quick done/);
 });
