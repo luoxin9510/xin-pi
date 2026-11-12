@@ -144,9 +144,15 @@ agent id, a controller or a registry record exists.
 - **Stopping.** A kept script record is stoppable: `x` on its row, stop-all and the session's end (`/new`, resume,
   quit, reload; `scripts.stopAll` covers kept records) set its `stopRequested`. Members are then stopped, and a kept
   call that reaches `Agent`'s execute afterwards throws in `agentStarting` instead of starting a child. No group
-  message is sent after the session's end.
-- **A paused script.** When a paused script ends, the calls held at its gate are rejected, as today. They are not
-  kept, and they appear as group lines ("not started: the script was paused").
+  message is sent after the session's end: the group message goes through the same session-ownership check as
+  `scripts.connect` (`live`/`own`), so an old session's group never reaches a new session after `/new`.
+- **A paused script.**
+  - When a paused script reaches its end (`keep`), its pause is cleared and the calls waiting at its gate are rejected
+    at once. They are kept calls that fail in `Agent`'s wrapper, and they appear as group lines ("not started: the
+    script was paused").
+  - After `keep`, the gate no longer holds calls of that record: a kept call that reaches it later is rejected the same
+    way.
+  - Otherwise the group would wait for calls that wait for the group.
 - **Bookkeeping.** Released agents are removed from the registry's detached table when they end (`registry.forget`).
 
 ### Waiting without LLM turns (decision 3)
@@ -180,6 +186,9 @@ agent id, a controller or a registry record exists.
     Record<string, string>; append?: string[] }`.
   - `replace` swaps a named sentence of the intro (`cancelledOnEnd`); `append` adds lines.
   - The subagent add-on answers from `codemodeScripts.canBackground(sessionId)`.
+  - `prepareLoadout` has no session id, so the codemode extension records it at `session_start` (a `getSessionId` in
+    its tool options). The description is built after the subagent extension has provided background support, so the
+    first description matches the behaviour.
 - **What the subagent add-on contributes**, where it is on (see [Where it applies](#where-it-applies)):
   - for codemode, replacing "Calls still running when the script ends are cancelled": "`Agent` calls still running
     when the script ends keep running and report to you together when all have ended; other calls are cancelled";
@@ -198,13 +207,13 @@ agent id, a controller or a registry record exists.
   - It starts `xpi --mode rpc`, sends the prompt, answers no UI requests, and reads the `subagents` status.
   - A run ends when main is idle and no agent is running, within the 900 s cap. No agent running means the
     `subagents` status when it exists (after the change), else (before it) no child meta file `running` and main idle
-    for 10 s.
+    for 10 s, and no xpi child process (an agent waiting for a slot has no meta file yet).
   - It counts main's `agent_start` events.
 - **New long cases.** Two cases in `long-tasks.ts`, each needing three or more agents that work for minutes. The
   existing cases keep the print driver.
 - **Metrics, from the session file:**
   - `wakes`: main's `agent_start` events after the first, counted by the rpc driver (a message steered into a running
-    turn starts none).
+    turn starts none). Retries after compaction also start one, in both arms; the PR says so.
   - `timeoutMsSet`: codemode call sources whose `@options` sets `timeout_ms`, parsed with `parseCodemodeSource`.
   - `agentsStoppedByDeadline`: in a codemode result with "Script timed out", the nested `Agent` calls that ended in an
     error or `cancelled`.
@@ -231,7 +240,7 @@ agent id, a controller or a registry record exists.
     - an un-awaited call that fails argument validation, or is blocked by `beforeToolCall`, after the script ended: a
       group line with its error, and the group ends;
     - `x` and `/new` while kept calls are on their way: no child starts;
-    - a paused script that ends;
+    - a paused script that ends, including a kept call that reaches the gate after the end;
     - the same after `throw`, `exit()`, a deadline, and a sandbox failure;
     - an abort (Esc, `x`, the session end) still stops them.
   - **Groups:**
