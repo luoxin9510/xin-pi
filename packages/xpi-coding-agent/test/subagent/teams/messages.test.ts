@@ -282,7 +282,7 @@ test(
 	{ timeout: 60_000 },
 	async () => {
 		const x = await lead();
-		x.s.scenario({ lines: ok(), hang: true, abortSettles: true });
+		x.s.scenario({ lines: [ev.session()], hang: true, abortSettles: true });
 		const a = (await x.t.run({ name: "a" })).structuredContent;
 		await until("the child", () => registry.handle(a.agentId) !== undefined);
 		await assert.rejects(x.send({ to: "lead", message: "hi" }), /you are the lead/);
@@ -437,7 +437,7 @@ test(
 
 test("a shutdown request that is refused leaves no mark", { timeout: 60_000 }, async () => {
 	const x = await lead();
-	x.s.scenario({ lines: ok(), hang: true, abortSettles: true });
+	x.s.scenario({ lines: [ev.session()], hang: true, abortSettles: true });
 	const a = (await x.t.run({ name: "a" })).structuredContent;
 	await until("the child", () => registry.handle(a.agentId) !== undefined);
 	teams.current()!.members.get("a")!.status = "stopping"; // sendToMember refuses a request to a member already shutting down

@@ -199,6 +199,14 @@ function readRaw(file: string): unknown[] {
 	}
 }
 
+const readFileOrEmpty = (file: string): string => {
+	try {
+		return readFileSync(file, "utf8");
+	} catch {
+		return "";
+	}
+};
+
 // Append one entry. It counts as sent once this returns; throws when the write fails (`busy` included).
 export async function appendEntry(file: string, entry: InboxEntry): Promise<void> {
 	await withLock(file, () => {
@@ -221,6 +229,8 @@ export async function takeEntries(
 	select: (entry: InboxEntry) => boolean = () => true,
 ): Promise<{ taken: InboxEntry[]; dropped: string[] }> {
 	if (!existsSync(file)) return { taken: [], dropped: [] };
+	// An empty mailbox needs no lock: locking creates and removes files in the directory the lead watches.
+	if (readFileOrEmpty(file).trim() === "[]") return { taken: [], dropped: [] };
 	return withLock(file, () => {
 		const taken: InboxEntry[] = [];
 		const dropped: string[] = [];

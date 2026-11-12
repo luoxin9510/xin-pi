@@ -98,6 +98,7 @@ export class Team {
 	private saving: Promise<void> = Promise.resolve();
 	private chain: Promise<unknown> = Promise.resolve();
 	private queuedPass = false;
+	private passCount = 0;
 	private closing = false;
 	private readonly wakeSignal = new AbortController(); // wakes waiting for a slot at session end must not start a child
 	private timer: NodeJS.Timeout | undefined;
@@ -134,6 +135,11 @@ export class Team {
 			since: Date.now(),
 		});
 		writeAtomic(this.configPath, JSON.stringify(this.configFile()));
+	}
+
+	// How many passes over the mailboxes have run (a test checks that nothing makes them run away).
+	get passes(): number {
+		return this.passCount;
 	}
 
 	get configPath(): string {
@@ -209,7 +215,13 @@ export class Team {
 
 	start(): void {
 		try {
-			this.watcher = watch(join(this.dir, "inboxes"), { persistent: false }, () => this.kick());
+			// Only a mailbox changing matters. Taking one writes lock files and temporary files in this very directory: reacting
+			// to those made every pass cause the next (inotify reports each create and remove at once; found on Linux, where
+			// it spun at full speed). A rename onto `<name>.json` is the change.
+			this.watcher = watch(join(this.dir, "inboxes"), { persistent: false }, (_event, name) => {
+				if (typeof name === "string" && (name.startsWith(".") || !name.endsWith(".json"))) return;
+				this.kick();
+			});
 			this.watcher.on("error", () => {}); // the poll below still runs
 		} catch {
 			// no watch here (a limit was reached): the poll alone delivers, a second later
@@ -242,6 +254,7 @@ export class Team {
 	// One pass over the lead's mailbox and each teammate's. Awaits no exchange: a pass that waited for one could not
 	// let that exchange end.
 	private async pass(): Promise<void> {
+		this.passCount++;
 		if (this.closing) return;
 		await this.drainLead();
 		for (const m of [...this.members.values()]) if (m.name !== LEAD) await this.drainTeammate(m);

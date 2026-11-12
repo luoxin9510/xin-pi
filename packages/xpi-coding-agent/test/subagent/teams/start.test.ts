@@ -239,7 +239,7 @@ test(
 
 test("a name that a teammate has is refused, and points to SendMessage", { timeout: 60_000 }, async () => {
 	const x = await setup();
-	x.s.scenario({ lines: ok(), hang: true, abortSettles: true });
+	x.s.scenario({ lines: [ev.session()], hang: true, abortSettles: true });
 	const r = (await x.t.run({ name: "w" })).structuredContent;
 	await assert.rejects(x.t.run({ name: "w" }), /"w" is a teammate of this team: message it with SendMessage/);
 	registry.stop(r.agentId);
@@ -251,7 +251,7 @@ test(
 	{ timeout: 60_000 },
 	async () => {
 		const x = await setup({ top: { agentTeams: { enabled: true, maxTeammates: 2 } } });
-		x.s.scenario({ lines: ok(), hang: true, abortSettles: true });
+		x.s.scenario({ lines: [ev.session()], hang: true, abortSettles: true });
 		const a = (await x.t.run({ name: "a" })).structuredContent;
 		const b = (await x.t.run({ name: "b" })).structuredContent;
 		await assert.rejects(
@@ -465,7 +465,7 @@ test(
 	{ timeout: 60_000 },
 	async () => {
 		const x = await setup();
-		x.s.scenario({ lines: ok(), hang: true, abortSettles: true });
+		x.s.scenario({ lines: [ev.session()], hang: true, abortSettles: true });
 		const r = (await x.t.run({ name: "w" })).structuredContent;
 		await until("the child", () => registry.handle(r.agentId) !== undefined);
 		assert.ok(existsSync(x.teamDir));
@@ -502,7 +502,7 @@ test(
 	async () => {
 		const x = await setup({ top: { agentTeams: { enabled: true, maxTeammates: 1 } } });
 		const log = join(x.s.root, "starts.log");
-		x.s.scenario({ lines: ok(), hang: true, abortSettles: true, logFile: log });
+		x.s.scenario({ lines: [ev.session()], hang: true, abortSettles: true, logFile: log });
 		const results = await Promise.allSettled([x.t.run({ name: "a" }), x.t.run({ name: "b" })]);
 		assert.deepEqual(results.map((r) => r.status).sort(), ["fulfilled", "rejected"]);
 		const lost = results.find((r) => r.status === "rejected") as PromiseRejectedResult;
@@ -556,7 +556,7 @@ test(
 	{ timeout: 60_000 },
 	async () => {
 		const x = await setup();
-		x.s.scenario({ lines: ok(), hang: true, abortSettles: true });
+		x.s.scenario({ lines: [ev.session()], hang: true, abortSettles: true });
 		const a = (await x.t.run({ name: "a" })).structuredContent;
 		await until("the child", () => registry.handle(a.agentId) !== undefined);
 		registry.stop(a.agentId);

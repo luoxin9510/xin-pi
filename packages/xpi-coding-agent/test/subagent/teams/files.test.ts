@@ -1,7 +1,7 @@
 // Agent teams, the file layer (team-files.ts): locks (exclusive create, retry, stale takeover by rename), atomic writes, the
 // mailbox with its validation.
 import assert from "node:assert/strict";
-import { spawn, spawnSync } from "node:child_process";
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import {
 	existsSync,
 	mkdirSync,
@@ -99,39 +99,56 @@ test("a lock older than 30 s is taken over even when its pid is alive; a fresh o
 	);
 });
 
-test("several processes take over one stale lock at once: they never hold it together, and each gets its turns", async () => {
-	const d = dir();
-	const file = join(d, "x.json");
-	const log = join(d, "log");
-	const counter = join(d, "counter");
-	writeFileSync(`${file}.lock`, JSON.stringify({ pid: deadPid(), at: Date.now() }));
-	const worker = fileURLToPath(new URL("./lock-worker.ts", import.meta.url));
-	const startAt = String(Date.now() + 600);
-	const workers = 5;
-	const rounds = 6;
-	await Promise.all(
-		Array.from(
-			{ length: workers },
-			() =>
-				new Promise<void>((resolve, reject) => {
-					const child = spawn(
-						process.execPath,
-						["--experimental-strip-types", worker, file, log, counter, startAt, String(rounds)],
-						{ stdio: ["ignore", "ignore", "inherit"] },
-					);
-					child.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`worker exited ${code}`))));
-				}),
-		),
-	);
-	const lines = readFileSync(log, "utf8").trim().split("\n");
-	assert.equal(lines.length, workers * rounds * 2);
-	for (let i = 0; i < lines.length; i += 2) {
-		const [enter, pid] = lines[i]!.split(" ");
-		assert.equal(enter, "enter");
-		assert.equal(lines[i + 1], `exit ${pid}`, `section ${i / 2} was entered by a second holder before it ended`);
-	}
-	assert.equal(Number(readFileSync(counter, "utf8")), workers * rounds, "no lost update");
-});
+test(
+	"several processes take over one stale lock at once: they never hold it together, and each gets its turns",
+	{ timeout: 60_000 },
+	async () => {
+		const d = dir();
+		const file = join(d, "x.json");
+		const log = join(d, "log");
+		const counter = join(d, "counter");
+		writeFileSync(`${file}.lock`, JSON.stringify({ pid: deadPid(), at: Date.now() }));
+		const worker = fileURLToPath(new URL("./lock-worker.ts", import.meta.url));
+		const startAt = String(Date.now() + 600);
+		const workers = 5;
+		const rounds = 6;
+		const children: ChildProcess[] = [];
+		const killAll = () => {
+			for (const c of children) c.kill("SIGKILL");
+		};
+		// a worker that hangs must not keep the runner waiting: on a failure or the test's timeout they are all killed
+		const watchdog = setTimeout(killAll, 45_000);
+		watchdog.unref();
+		try {
+			await Promise.all(
+				Array.from(
+					{ length: workers },
+					() =>
+						new Promise<void>((resolve, reject) => {
+							const child = spawn(
+								process.execPath,
+								["--experimental-strip-types", worker, file, log, counter, startAt, String(rounds)],
+								{ stdio: ["ignore", "ignore", "inherit"] },
+							);
+							children.push(child);
+							child.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`worker exited ${code}`))));
+						}),
+				),
+			);
+		} finally {
+			clearTimeout(watchdog);
+			killAll();
+		}
+		const lines = readFileSync(log, "utf8").trim().split("\n");
+		assert.equal(lines.length, workers * rounds * 2);
+		for (let i = 0; i < lines.length; i += 2) {
+			const [enter, pid] = lines[i]!.split(" ");
+			assert.equal(enter, "enter");
+			assert.equal(lines[i + 1], `exit ${pid}`, `section ${i / 2} was entered by a second holder before it ended`);
+		}
+		assert.equal(Number(readFileSync(counter, "utf8")), workers * rounds, "no lost update");
+	},
+);
 
 test("writeAtomic leaves no temporary file and the file is 0600 in a 0700 directory", () => {
 	const d = join(dir(), "sub", "deeper");

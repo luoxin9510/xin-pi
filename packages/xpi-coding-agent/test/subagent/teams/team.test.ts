@@ -6,6 +6,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { registry } from "../../../src/extensions/subagent/registry.ts";
 import type { RunResult } from "../../../src/extensions/subagent/runner.ts";
 import { emptyUsage } from "../../../src/extensions/subagent/runner.ts";
@@ -451,6 +452,24 @@ test("a session that ends while an exchange's end is being settled sends no idle
 	assert.equal(await ended, "stopped");
 	assert.deepEqual(t.toLead, []);
 });
+
+test(
+	"the watcher does not feed on its own lock and temporary files: mailboxes that are read and left empty cause no run-away passes",
+	{ timeout: 60_000 },
+	() => {
+		const worker = fileURLToPath(new URL("./watch-worker.ts", import.meta.url));
+		const r = spawnSync(process.execPath, ["--experimental-strip-types", worker], {
+			encoding: "utf8",
+			timeout: 20_000,
+			killSignal: "SIGKILL",
+		});
+		assert.equal(r.status, 0, `the worker did not finish (a watcher that feeds on itself starves it): ${r.stderr}`);
+		const { passes, toLead } = JSON.parse(r.stdout.trim().split("\n").at(-1)!);
+		// the poll is once a second and each real change asks for one pass: a handful, not thousands
+		assert.ok(passes < 40, `${passes} passes in 1.5 s`);
+		assert.equal(toLead, 1);
+	},
+);
 
 test("a wake waiting for a slot is aborted when the session ends, so it cannot start a child after", async () => {
 	const signals: AbortSignal[] = [];
