@@ -27,6 +27,7 @@ import { registerTeamTools } from "./team-send.ts";
 import { taskTools } from "./team-task-tools.ts";
 import { markLead, tasksRoot } from "./team-tasks.ts";
 import { LEAD_PROMPT } from "./team-text.ts";
+import { openTasksScreen } from "./team-ui.ts";
 import { checkStalls, runningLine, statusText } from "./waiting.ts";
 import { startWorkflowCommand, workflowStartText } from "./workflow-run.ts";
 import { saveScriptAsWorkflow } from "./workflow-save.ts";
@@ -251,6 +252,13 @@ export default function subagent(pi: ExtensionAPI) {
 		description:
 			"List this session's subagents; `stop` stops everything running; `worktrees` lists and removes kept worktrees",
 		handler: (args, ctx) => subagentsCommand(ctx, args),
+	});
+	pi.registerCommand("tasks", {
+		description: "The agent team's task list (id, status, owner, subject, blockers); needs agentTeams enabled",
+		handler: async (_args, ctx) => {
+			if (!ctx.hasUI) return;
+			await openTasksScreen(() => ctx);
+		},
 	});
 	pi.on("agent_start", track);
 	pi.on("agent_end", track);

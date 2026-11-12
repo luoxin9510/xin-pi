@@ -16,12 +16,15 @@ import {
 	ToolExecutionComponent,
 	UserMessageComponent,
 } from "../../modes/interactive/components/index.ts";
-import { getMarkdownTheme, type Theme } from "../../modes/interactive/theme/theme.ts";
+import { getMarkdownTheme, theme as globalTheme, type Theme } from "../../modes/interactive/theme/theme.ts";
 import { parentContext } from "./agent-tool.ts";
 import { tint } from "./color.ts";
 import { COLORS, ICONS, label, modelInfo, registry, type SubagentRecord } from "./registry.ts";
 import type { ParentContext } from "./resolve.ts";
 import { talkTo } from "./talk.ts";
+import { onTeamChange, teams } from "./team.ts";
+import { splitEnvelopes } from "./team-text.ts";
+import { memberOf, stateOf, TEAM_COLORS, TEAM_ICONS } from "./team-ui.ts";
 
 const PAD = 1;
 
@@ -86,7 +89,10 @@ export function transcriptParts(file: string, tui: TUI, cwd: string): Component[
 							.filter((c: any) => c.type === "text")
 							.map((c: any) => c.text)
 							.join("\n");
-			if (text) parts.push(new UserMessageComponent(text, md, PAD));
+			// Agent messages (a teammate's) are drawn as `✉ <from>: <summary or first line>`; what the user typed stays a user message.
+			const { rest, lines } = splitEnvelopes(text);
+			if (rest) parts.push(new UserMessageComponent(rest, md, PAD));
+			for (const line of lines) parts.push(new Text(globalTheme.fg("muted", line), PAD, 0));
 		} else if (m.role === "assistant") {
 			parts.push(new AssistantMessageComponent(m, false, md, undefined, PAD));
 			for (const c of m.content) {
@@ -124,6 +130,8 @@ export class SubagentScreen implements Component, Focusable {
 	private status: string;
 	private stopWatching: () => void;
 	private unsubscribe: () => void;
+	private unsubscribeTeam: () => void;
+	private interrupted = false; // Esc was sent to the running teammate: the next Esc closes the screen
 
 	private tui: TUI;
 	private theme: Theme;
@@ -165,7 +173,17 @@ export class SubagentScreen implements Component, Focusable {
 			}
 			this.tui.requestRender();
 		});
+		this.unsubscribeTeam = onTeamChange(() => {
+			if (stateOf(registry.get(this.id)!) !== "running") this.interrupted = false;
+			this.tui.requestRender();
+		});
 		this.input.onSubmit = (text) => this.submit(text.trim());
+	}
+
+	// The teammate this screen shows (while its team is current), if it is one.
+	private mate(): string | undefined {
+		const r = registry.get(this.id);
+		return r && memberOf(r) ? r.name : undefined;
 	}
 
 	get focused(): boolean {
@@ -184,6 +202,8 @@ export class SubagentScreen implements Component, Focusable {
 		const command = text.split(/\s/)[0]!;
 		const arg = text.slice(command.length).trim();
 		if (command === "/stop") this.stop();
+		else if (command === "/restart" && this.mate() !== undefined)
+			this.notice = "a teammate cannot be restarted: /stop it, or Esc interrupts its turn";
 		else if (command === "/restart") {
 			// It starts over with the same task; whoever waits for it keeps waiting.
 			this.notice = registry.restart(this.id) ?? "restarting from the start of its task...";
@@ -194,7 +214,10 @@ export class SubagentScreen implements Component, Focusable {
 	}
 
 	private stop(): void {
-		this.notice = registry.stop(this.id) ? "stopping..." : "the subagent is not running";
+		const mate = this.mate();
+		if (mate !== undefined)
+			this.notice = teams.current()!.stop(mate) ? "stopping..." : `${mate} is already stopped or stopping`;
+		else this.notice = registry.stop(this.id) ? "stopping..." : "the subagent is not running";
 		this.tui.requestRender();
 	}
 
@@ -216,10 +239,15 @@ export class SubagentScreen implements Component, Focusable {
 	// Steer the subagent, or continue it; the reply streams in as the child writes it.
 	private say(text: string): void {
 		try {
-			const { delivery, done } = talkTo(this.parent, this.id, text);
+			const mate = this.mate();
+			// A teammate gets what the user types straight from the lead process, with the user's authority: no mailbox file.
+			const { delivery, done } =
+				mate !== undefined
+					? { delivery: teams.current()!.say(mate, text), done: Promise.resolve() }
+					: talkTo(this.parent, this.id, text);
 			this.notice = {
-				steered: "sent: the subagent gets it after its current step",
-				queued: "queued: sent when the subagent is free",
+				steered: `sent: the ${mate !== undefined ? "teammate" : "subagent"} gets it after its current step`,
+				queued: `queued: sent when the ${mate !== undefined ? "teammate" : "subagent"} is free`,
 				started: "",
 			}[delivery];
 			done.catch((err) => this.fail(err));
@@ -249,6 +277,15 @@ export class SubagentScreen implements Component, Focusable {
 			return;
 		}
 		if (matchesKey(data, "escape")) {
+			const mate = this.mate();
+			// A running teammate: Esc ends its turn and leaves it idle (it stays a member). A second Esc, or Esc while it is
+			// not running, closes the screen.
+			if (mate !== undefined && !this.interrupted && teams.current()!.interrupt(mate)) {
+				this.interrupted = true;
+				this.notice = "interrupted: the teammate is idle after this turn · esc again to close";
+				this.tui.requestRender();
+				return;
+			}
 			this.done();
 			return;
 		}
@@ -319,9 +356,13 @@ export class SubagentScreen implements Component, Focusable {
 		const r = registry.get(this.id)!;
 		const all = [...this.finished(width), ...this.streaming(width)];
 		const main = this.mainIdle() ? t.fg("muted", "main: idle") : t.fg("accent", "main: running");
-		const sub = `${ICONS[r.status]} ${r.status} · ${r.turns} turns`;
+		const state = stateOf(r);
+		const sub = state
+			? `${TEAM_ICONS[state]} ${state} · ${r.turns} turns`
+			: `${ICONS[r.status]} ${r.status} · ${r.turns} turns`;
+		const subColor = state ? TEAM_COLORS[state] : COLORS[r.status];
 		const head = truncateToWidth(
-			` ${t.fg("accent", "‹ main")} ${t.fg("dim", "(esc or /main)")} ${t.fg("muted", "·  main ›")} ${tint(r.color, t.bold(label(r)))}   ${main} · ${t.fg(COLORS[r.status], sub)}${modelInfo(r) && ` · ${t.fg("dim", modelInfo(r))}`}`,
+			` ${t.fg("accent", "‹ main")} ${t.fg("dim", "(esc or /main)")} ${t.fg("muted", "·  main ›")} ${tint(r.color, t.bold(label(r)))}   ${main} · ${t.fg(subColor, sub)}${modelInfo(r) && ` · ${t.fg("dim", modelInfo(r))}`}`,
 			width,
 		);
 		const rule = t.fg("dim", "─".repeat(width));
@@ -343,7 +384,10 @@ export class SubagentScreen implements Component, Focusable {
 		const scrolled = this.offset > 0 ? ` · ${this.offset} lines above the end` : "";
 		const hint = this.picking
 			? "↑↓ choose · enter apply · esc cancel"
-			: this.notice || `↑↓ pgup/pgdn scroll${scrolled} · /stop /restart /model · esc or /main back to main`;
+			: this.notice ||
+				(state
+					? `↑↓ pgup/pgdn scroll${scrolled} · type to message it · /stop /model · esc ${state === "running" ? "interrupt, again to close" : "back to main"}`
+					: `↑↓ pgup/pgdn scroll${scrolled} · /stop /restart /model · esc or /main back to main`);
 		return [
 			head,
 			rule,
@@ -362,6 +406,7 @@ export class SubagentScreen implements Component, Focusable {
 	dispose(): void {
 		this.stopWatching();
 		this.unsubscribe();
+		this.unsubscribeTeam();
 	}
 }
 
