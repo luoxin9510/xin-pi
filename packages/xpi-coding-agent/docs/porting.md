@@ -17,7 +17,8 @@ Two kinds of host are meant:
 Linux is the reference platform. Platform instructions are written for Linux; macOS differences follow them. Windows is
 not supported by the components that need a PTY, unix sockets or a service manager.
 
-Agent teams (messages between sessions, watches) will be added to this menu when they are built.
+Agent teams (a lead session and its named teammates, with messages and a shared task list inside one session)
+will be added to this menu when they are built.
 
 ## Dependency overview
 
