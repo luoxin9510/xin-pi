@@ -26,7 +26,7 @@ import { getDefaultSessionDir, type SessionInfo, SessionManager } from "../../co
 import { SettingsManager } from "../../core/settings-manager.ts";
 import { SessionSelectorComponent } from "../../modes/interactive/components/session-selector.ts";
 import { sessionTrust } from "./background.ts";
-import { detachMatcher } from "./cli.ts";
+import { detachMatcher, scheduleLaunch } from "./cli.ts";
 import { builtinCommands } from "./commands.ts";
 import { roostSettings } from "./settings.ts";
 
@@ -123,6 +123,8 @@ export function hubOptions(h: XpiHost): Omit<AgentViewOptions, "tui" | "theme" |
 		builtins: builtinCommands,
 		// in a session the daemon runs (or a process started in its terminal): that session's row is this one
 		...(self ? { selfId: self } : {}),
+		// phase 2 (decision 9): as `xpi roost schedule add` builds it; this hub's --session-dir kept
+		scheduleLaunch: (input) => scheduleLaunch(input, { agentDir: h.agentDir, ...(sessionDir ? { sessionDir } : {}) }),
 		launch: (task, o = {}) => {
 			const cwd = o.cwd ?? h.cwd;
 			const name = o.name ?? fallbackName(task);

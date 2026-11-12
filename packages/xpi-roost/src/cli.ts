@@ -22,9 +22,11 @@ import type { DispatchArgs, JobRow, ScheduleRow } from "./lib/protocol.ts";
 import { ensureLive } from "./lib/resume.ts";
 import {
 	checkTask,
+	normalizeWhen,
 	parseWhen,
 	SCHEDULE_NAME,
 	type Schedule,
+	type ScheduleLaunchInput,
 	scheduleRow,
 	untilText,
 	WHEN_HELP,
@@ -66,24 +68,9 @@ export interface RoostCliOptions {
 	stderr?: Out;
 }
 
+export { normalizeWhen, type ScheduleLaunchInput };
+
 const ENDED_CUTOFF_MS = 48 * 60 * 60 * 1000;
-
-/** What a schedule's launch is built from. */
-export interface ScheduleLaunchInput {
-	cwd: string;
-	/** The first prompt (none: the run starts idle). */
-	task?: string;
-	model?: string;
-	thinking?: string;
-	name: string;
-}
-
-/** `cron 0 9 * * 1` (the shell took the quotes) is kept as `cron "0 9 * * 1"`, as rules are written. */
-export function normalizeWhen(when: string): string {
-	const s = when.trim().replace(/\s+/g, " ");
-	const m = /^cron\s+["']?(.*?)["']?$/i.exec(s);
-	return m ? `cron "${m[1]}"` : s;
-}
 
 export function roostUsage(detachKeyName: string): string {
 	return `xpi roost ${ROOST_VERSION}: background xpi sessions

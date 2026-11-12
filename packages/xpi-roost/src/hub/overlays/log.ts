@@ -52,7 +52,7 @@ export async function createLogOverlay(host: LogHost, opts: LogOpts = {}): Promi
 			const tone =
 				e.kind === "state" && e.state === "failed"
 					? "error"
-					: e.kind === "state" && e.state === "blocked"
+					: (e.kind === "state" && e.state === "blocked") || (e.kind === "schedule" && e.why === "skip")
 						? "warning"
 						: e.kind === "state" && e.state === "done"
 							? "success"

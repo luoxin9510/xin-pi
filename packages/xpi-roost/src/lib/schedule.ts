@@ -269,6 +269,23 @@ export function checkTask(task: unknown): string | undefined {
 	return task;
 }
 
+/** What a schedule's launch is built from. */
+export interface ScheduleLaunchInput {
+	cwd: string;
+	/** The first prompt (none: the run starts idle). */
+	task?: string;
+	model?: string;
+	thinking?: string;
+	name: string;
+}
+
+/** `cron 0 9 * * 1` (the shell took the quotes) is kept as `cron "0 9 * * 1"`, as rules are written. */
+export function normalizeWhen(when: string): string {
+	const s = when.trim().replace(/\s+/g, " ");
+	const m = /^cron\s+["']?(.*?)["']?$/i.exec(s);
+	return m ? `cron "${m[1]}"` : s;
+}
+
 // ---- what the hub and the CLI read and show ------------------------------------------
 
 /** A schedule as the ops answer it (and `xpi roost schedule list` reads it from the file when no daemon runs). */

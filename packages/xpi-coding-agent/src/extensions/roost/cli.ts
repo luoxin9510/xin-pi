@@ -40,12 +40,19 @@ export function detachMatcher(keybindings: KeybindingsManager): DetachKeyMatcher
  * Phase 2 (decision 9): a schedule's launch, built here as `xpi --bg` builds one, by this xpi for the schedule's
  * directory. Trust: only a decision stored for the directory (else `--no-approve`), so a run never waits at the trust
  * question. Model and thinking: the given ones, else the `roost` settings'. The session directory xpi would use there
- * (the environment's, else the settings', else the default), each run's file `{{run}}.jsonl` in it. The environment:
+ * (the building xpi's `--session-dir`, else the environment's, else the settings', else the default), each run's file `{{run}}.jsonl` in it. The environment:
  * this process's, filtered by the `roost` settings; the daemon stores it with the schedule.
  */
 export function scheduleLaunch(
 	input: ScheduleLaunchInput,
-	o: { agentDir: string; env?: NodeJS.ProcessEnv; execPath?: string; entry?: string },
+	o: {
+		agentDir: string;
+		env?: NodeJS.ProcessEnv;
+		execPath?: string;
+		entry?: string;
+		/** The `--session-dir` of the xpi that builds it (the hub's); first, as xpi takes it. */
+		sessionDir?: string;
+	},
 ): DispatchArgs {
 	const trusted = sessionTrust(input.cwd, [], undefined, o.agentDir);
 	const settings = launchSettings(input.cwd, trusted, o.agentDir);
@@ -53,7 +60,8 @@ export function scheduleLaunch(
 	const envSessionDir = env[ENV_SESSION_DIR];
 	const sessionDir = resolve(
 		input.cwd,
-		(envSessionDir ? expandTildePath(envSessionDir) : undefined) ??
+		o.sessionDir ??
+			(envSessionDir ? expandTildePath(envSessionDir) : undefined) ??
 			SettingsManager.create(input.cwd, o.agentDir, { projectTrusted: trusted }).getSessionDir() ??
 			getDefaultSessionDir(input.cwd, o.agentDir),
 	);

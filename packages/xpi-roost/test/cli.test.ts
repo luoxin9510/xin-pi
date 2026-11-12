@@ -371,7 +371,7 @@ describe("phase 2: xpi roost schedule", () => {
 					task: "check the build",
 					launch: { cwd: agentDir, sessionFile: "/s/{{run}}.jsonl", command: [], env: {} },
 					paused: false,
-					nextAt: Date.now() + 3600_000,
+					nextAt: Date.now() + 30 * 60_000,
 				},
 			]),
 		);
