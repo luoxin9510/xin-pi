@@ -8,7 +8,7 @@ import { basename, join } from "node:path";
 import { getAgentDir } from "../../config.ts";
 import { registry } from "./registry.ts";
 import type { ParentContext, TeamLaunch } from "./resolve.ts";
-import type { RunResult } from "./runner.ts";
+import type { ChildHandle, RunResult } from "./runner.ts";
 import { capText } from "./sessions.ts";
 import type { TeamSettings } from "./team-config.ts";
 import {
@@ -103,7 +103,7 @@ export class Team {
 	private passCount = 0;
 	private kickTimer: NodeJS.Timeout | undefined;
 	private readonly selfWrites = new Map<string, number>(); // mailbox name -> when a pass last rewrote it
-	private readonly steerRefused = new Set<string>(); // running members whose child refused a steer: left alone until the exchange ends
+	private readonly steerRefused = new Map<string, ChildHandle>(); // the child handle that refused a steer, per member: left alone while it is the current one
 	private closing = false;
 	private readonly wakeSignal = new AbortController(); // wakes waiting for a slot at session end must not start a child
 	private timer: NodeJS.Timeout | undefined;
@@ -345,16 +345,17 @@ export class Team {
 	private async steer(m: Member, file: string): Promise<void> {
 		// Its child refused a steer (it settled and is on its way out): the messages wait for its next exchange, which
 		// takes them. Taking them again would only put them back.
-		if (this.steerRefused.has(m.name)) return;
 		const handle = registry.handle(m.agentId);
 		if (!handle) return; // its child is not up yet, or just gone: the next pass, or its next exchange
+		// (a restarted run attaches a new child to the same exchange: that one is asked again)
+		if (this.steerRefused.get(m.name) === handle) return;
 		const { taken, dropped } = await this.take(m.name, file);
 		this.drop(m.name, dropped);
 		if (taken.length === 0) return;
 		if (taken.some((e) => e.from === LEAD)) this.wakes.delete(m.name);
 		const text = joinEnvelopes(taken, this.name);
 		if (!handle.send({ type: "steer", message: text })) {
-			this.steerRefused.add(m.name);
+			this.steerRefused.set(m.name, handle);
 			this.selfWrites.set(`${m.name}.json`, Date.now());
 			await putBack(file, taken); // the child settled meanwhile: its next exchange takes them
 			return;
@@ -506,6 +507,7 @@ export class Team {
 		// A shutdown response may still be in the lead's mailbox: read it before deciding, so an approved shutdown is never
 		// taken for a failure.
 		await this.enqueue(() => this.drainLead());
+		this.steerRefused.delete(name);
 		if (this.closing) return "stopped";
 		if (this.approved.delete(name)) {
 			this.setStatus(name, "stopped");

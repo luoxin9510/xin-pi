@@ -496,9 +496,33 @@ test(
 	{ timeout: 60_000 },
 	() => {
 		const r = watched("rewrite-without-input");
-		assert.ok(r.passes < 60, `${r.passes} passes in 1.5 s`); // one per debounce interval at most
+		assert.ok(r.passesWhileRewriting < 60, `${r.passesWhileRewriting} passes in 1.5 s`); // one per debounce interval at most
+		// and nothing keeps them going once the rewrites stop: the poll alone (about one a second)
+		assert.ok(r.passesWhenQuiet <= 4, `${r.passesWhenQuiet} passes in 2.2 s with nothing written`);
 	},
 );
+
+test("a restarted run's new child is asked again: a refusal by the old child does not hold the messages", async () => {
+	const t = stubTeam("sess-restart");
+	const old = await running(t, "a");
+	old.accept = false;
+	await t.say("lead", "a", "one");
+	await t.team.deliverNow();
+	await t.team.deliverNow();
+	assert.equal(old.attempts, 1, "the refusing child is not asked again");
+	// the restart: a new child is attached to the same exchange
+	const sent: string[] = [];
+	registry.attach(old.id, {
+		send: (c) => {
+			sent.push((c as { message?: string }).message ?? "");
+			return true;
+		},
+		setModel: async () => undefined,
+	});
+	await t.team.deliverNow();
+	assert.equal(sent.length, 1);
+	assert.match(sent[0]!, /one/);
+});
 
 test("a wake waiting for a slot is aborted when the session ends, so it cannot start a child after", async () => {
 	const signals: AbortSignal[] = [];

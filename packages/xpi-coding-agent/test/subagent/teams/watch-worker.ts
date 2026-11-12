@@ -58,6 +58,13 @@ if (scenario === "empty-mailbox") {
 		return pass.call(this);
 	};
 	await settle(1500);
+	out.passesWhileRewriting = t.team.passes;
+	// the forced rewrites stop: from here only the poll may run passes (about one a second)
+	(t.team as unknown as { drainStrays: () => Promise<void> }).drainStrays = pass;
+	await settle(300);
+	const quiet = t.team.passes;
+	await settle(2200);
+	out.passesWhenQuiet = t.team.passes - quiet;
 }
 t.team.beginClose();
 out.passes = t.team.passes;
