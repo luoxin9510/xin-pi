@@ -147,6 +147,12 @@ On native Windows, `app.suspend` has no default because Windows terminals do not
 | `app.session.delete` | `ctrl+d` | Delete session |
 | `app.session.deleteNoninvasive` | `ctrl+backspace` | Delete session when query is empty |
 
+### Agent teams
+
+| Keybinding id | Default | Description |
+|--------|---------|-------------|
+| `app.team.tasks` | None | Open the agent team's task list (`/tasks`); needs [agent teams](subagent.md#agent-teams) on. `ctrl+t` is the thinking toggle, so there is no default key |
+
 ### Models and Thinking
 
 | Keybinding id | Default | Description |
