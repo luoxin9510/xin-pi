@@ -887,6 +887,11 @@
           "minimum": 0,
           "description": "How long a finished subagent stays in the panel. Default 30000."
         },
+        "stallMs": {
+          "type": "number",
+          "minimum": 0,
+          "description": "A running subagent with no activity for this long is marked stalled in the panel and the user is told. 0 turns it off. Default 600000."
+        },
         "piCommand": {
           "type": "string",
           "description": "Command that starts a subagent. Unset: the build this process runs."
