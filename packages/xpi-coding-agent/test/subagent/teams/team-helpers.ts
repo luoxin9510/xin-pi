@@ -95,3 +95,13 @@ export function stubTeam(sessionId: string, overrides: Partial<TeamHost> = {}): 
 }
 
 export const settle = (ms = 30) => new Promise((r) => setTimeout(r, ms));
+
+// Ends on failure too: a test that throws before its own `end()` must not leave a hanging fake child (they ignore stdin
+// closing) or a running team. Each setup registers its `end`; the after-hook runs them all.
+const ends: (() => Promise<unknown>)[] = [];
+export const cleanupLater = (end: () => Promise<unknown>): void => {
+	ends.push(end);
+};
+export async function cleanupNow(): Promise<void> {
+	for (const end of ends.splice(0)) await end().catch(() => {});
+}

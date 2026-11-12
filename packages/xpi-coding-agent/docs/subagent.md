@@ -456,7 +456,7 @@ Approving ends its exchange after the current tool call and the teammate becomes
 an idle notice or a failure). Refusing keeps it working and the lead gets the reason.
 
 At session end (also `/reload`) running teammates stop and `config.json` and the mailboxes are removed. If the process
-dies first, the next team created in the agent dir removes `teams/` directories whose `leadPid` is not alive. A directory of the same session left by a dead lead (a crash, then `/resume`) has its mailboxes cleared when the new team is created, so old messages are not delivered as new.
+dies first, the next team created in the agent dir removes `teams/` directories whose `leadPid` is not alive. A directory of the same session left by a dead lead (a crash, then `/resume`) has its mailboxes cleared when the new team is created, so old messages are not delivered as new. If that directory's lead is still alive (the same session open in two xpi processes, which teams do not support), creating the team fails with an error instead.
 
 **Former teammates.** `/resume`, `/reload` and a crash end the team, and it is not restored. A teammate's meta file keeps
 `teammate: true`, its `team` and its frozen prompt section, so an `Agent` call with its name (or a `SendMessage` to it)

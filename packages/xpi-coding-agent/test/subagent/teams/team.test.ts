@@ -423,6 +423,35 @@ function hostOf() {
 	};
 }
 
+test("a team directory of a lead that is still running is refused, and its mailboxes are left alone", async () => {
+	const t = stubTeam("sess-twoterm");
+	await t.say("a", "lead", "waiting");
+	writeFileSync(t.team.configPath, JSON.stringify({ team: t.team.name, leadPid: process.ppid, members: [] }));
+	assert.throws(
+		() => new Team("sess-twoterm", hostOf(), t.root),
+		/still running \(pid \d+\): the same session is open in another xpi process/,
+	);
+	assert.equal(peekEntries(inboxFile(t.team.dir, "lead")).length, 1);
+});
+
+test("an exchange of a teammate that ran before and cannot start leaves it idle with a warning", () => {
+	const t = stubTeam("sess-contfail");
+	t.team.addMember("a", "a-id", "general-purpose", "queued");
+	t.child("a"); // it has a record: it ran before
+	t.team.exchangeAbandoned("a", new Error("agent type is gone"));
+	assert.equal(t.team.members.get("a")!.status, "idle");
+	assert.match(t.warns.join("\n"), /could not continue a: agent type is gone/);
+});
+
+test("a session that ends while an exchange's end is being settled sends no idle notice", async () => {
+	const t = stubTeam("sess-endrace");
+	await running(t, "a");
+	const ended = t.team.exchangeEnded("a", { run: run("late") });
+	t.team.beginClose();
+	assert.equal(await ended, "stopped");
+	assert.deepEqual(t.toLead, []);
+});
+
 test("a wake waiting for a slot is aborted when the session ends, so it cannot start a child after", async () => {
 	const signals: AbortSignal[] = [];
 	const t = stubTeam("sess-wakeabort", {

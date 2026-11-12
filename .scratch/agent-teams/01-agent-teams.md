@@ -170,8 +170,13 @@ All under `<agent dir>/teams/<team>/` and `<agent dir>/tasks/<team>/`, with file
   - A task file and `next` are locked the same way. Creating a task, or changing `blockedBy`, also takes the team
     lock `tasks/<team>/.lock`, so two writers cannot make a cycle.
   - A held lock is retried every 25 ms for up to 2 s, then the operation throws `busy`.
-  - A lock whose `pid` is not alive, or older than 30 s, is taken over: the taker renames it to a unique name
-    (only one rename can succeed), removes that, and then creates its own lock exclusively.
+  - A lock whose `pid` is not alive, or older than 30 s, is taken over under a guard: the taker creates `<lock>.takeover`
+    exclusively, removes the lock only if it is still the one it judged stale, and releases the guard; every other taker
+    waits like any contender. A lock or guard file with no readable content for over a second counts as stale too (its
+    holder died between creating it and writing it).
+    *Correction found in implementation:* the first draft renamed the stale lock to a unique name, "so only one rename can
+    succeed". That is unsafe: a second taker that judged the same stale lock can rename the fresh lock its rival has just
+    created, so for a moment nobody holds it (a multi-process test showed two holders at once).
   - Locks only make writes exclusive. Claims are the `owner` field, not a held lock.
 - **Writes.** Every write goes to a temporary file in the same directory and is then renamed.
 - **Bad entries.** An inbox entry that fails validation is dropped. The drop is logged in the lead's session as a

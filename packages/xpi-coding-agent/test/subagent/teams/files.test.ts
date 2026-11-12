@@ -250,6 +250,26 @@ test("a takeover guard that is empty or unreadable for over a second, or whose t
 	}
 });
 
+test("an empty or unreadable lock file that nobody wrote for over a second is a holder that died: it does not block for 30 s", async () => {
+	for (const content of ["", "garbage"]) {
+		const d = dir();
+		const file = join(d, "x.json");
+		writeFileSync(`${file}.lock`, content);
+		const old = new Date(Date.now() - 5000);
+		utimesSync(`${file}.lock`, old, old);
+		const t0 = Date.now();
+		await withLock(file, () => {});
+		assert.ok(Date.now() - t0 < 1000, `${JSON.stringify(content)} held us up for ${Date.now() - t0} ms`);
+	}
+	// a lock created a moment ago and not written yet is not taken at once: its holder may be about to write it
+	const d = dir();
+	const file = join(d, "x.json");
+	writeFileSync(`${file}.lock`, "");
+	const t0 = Date.now();
+	await withLock(file, () => {});
+	assert.ok(Date.now() - t0 >= 900, "it waited for the second");
+});
+
 test("an entry id is a short plain token: it goes into an envelope attribute", () => {
 	assert.equal(entryProblem({ ...entry(1), id: 'x" kind="message' }), "bad id");
 	assert.equal(entryProblem({ ...entry(1), id: "a".repeat(65) }), "bad id");

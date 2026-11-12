@@ -111,11 +111,19 @@ export class Team {
 		this.dir = join(root, this.name);
 		// A directory left by a lead that is gone (a crash, then /resume of the same session): its mailboxes were written for a
 		// run that no longer exists, and must not be delivered as new.
+		let old: Partial<TeamConfigFile> | undefined;
 		try {
-			const old = JSON.parse(readFileSync(this.configPath, "utf8")) as Partial<TeamConfigFile>;
-			if (old.leadPid !== process.pid) rmSync(join(this.dir, "inboxes"), { recursive: true, force: true });
+			old = JSON.parse(readFileSync(this.configPath, "utf8")) as Partial<TeamConfigFile>;
 		} catch {
 			// no config.json: nothing was left
+		}
+		if (old && old.leadPid !== process.pid) {
+			if (Number.isInteger(old.leadPid) && pidAlive(old.leadPid!)) {
+				throw new Error(
+					`team ${this.label} belongs to a lead that is still running (pid ${old.leadPid}): the same session is open in another xpi process, which agent teams do not support. Close it, or remove ${this.dir} if that process is not a lead of this session`,
+				);
+			}
+			rmSync(join(this.dir, "inboxes"), { recursive: true, force: true });
 		}
 		ensureDir(join(this.dir, "inboxes"));
 		this.members.set(LEAD, {
@@ -424,8 +432,17 @@ export class Team {
 	// The exchange did not begin: it was aborted while it waited for its turn or a slot, or it could not start. A teammate
 	// that never ran is stopped; one that was woken stays idle, with a warning.
 	exchangeAbandoned(name: string, err: Error): void {
-		if (this.pending.has(name)) this.wakeFailed(name, err);
-		else if (!this.closing) this.setStatus(name, "stopped");
+		if (this.pending.has(name)) {
+			this.wakeFailed(name, err);
+			return;
+		}
+		if (this.closing) return;
+		const m = this.members.get(name);
+		if (m?.status === "queued" && registry.get(m.agentId)) {
+			// it has run before (the user continued it, say): a failed exchange leaves it idle
+			this.setStatus(name, "idle");
+			this.host.warn(`team ${this.label}: could not continue ${name}: ${err.message}`);
+		} else this.setStatus(name, "stopped");
 	}
 
 	// The exchange ended. Decides what the teammate is now: `stopped` after an approved shutdown, a stop, or the session's
@@ -444,6 +461,7 @@ export class Team {
 		// A shutdown response may still be in the lead's mailbox: read it before deciding, so an approved shutdown is never
 		// taken for a failure.
 		await this.enqueue(() => this.drainLead());
+		if (this.closing) return "stopped";
 		if (this.approved.delete(name)) {
 			this.setStatus(name, "stopped");
 			return "stopped";

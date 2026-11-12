@@ -25,7 +25,8 @@ export const DIR_MODE = 0o700;
 export const LOCK_RETRY_MS = 25;
 export const LOCK_TIMEOUT_MS = 2000;
 export const LOCK_STALE_MS = 30_000;
-const GUARD_UNREADABLE_MS = 1000;
+// A lock or guard file with no readable content: its holder created it and has not written it yet, or died between the two.
+const UNREADABLE_MS = 1000;
 
 export const ensureDir = (dir: string): void => {
 	mkdirSync(dir, { recursive: true, mode: DIR_MODE });
@@ -104,7 +105,7 @@ function takeOver(lock: string, seen: { raw: string }): void {
 		// another taker is at it; a guard whose taker died is stale itself
 		const g = readLock(guard);
 		// (a guard is held for a moment: an empty or unreadable one older than a second is a taker that died)
-		if (g && stale(guard, g, Date.now(), GUARD_UNREADABLE_MS)) rmSync(guard, { force: true });
+		if (g && stale(guard, g, Date.now(), UNREADABLE_MS)) rmSync(guard, { force: true });
 		return;
 	}
 	try {
@@ -135,7 +136,7 @@ export async function withLock<T>(file: string, fn: () => T | Promise<T>): Promi
 			if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
 		}
 		const seen = readLock(lock);
-		if (seen && stale(lock, seen, Date.now())) {
+		if (seen && stale(lock, seen, Date.now(), UNREADABLE_MS)) {
 			takeOver(lock, seen);
 			if (!existsSync(lock)) continue; // create our own lock straight away
 			// another taker holds the guard: wait like any other contender (the deadline and the sleep below)

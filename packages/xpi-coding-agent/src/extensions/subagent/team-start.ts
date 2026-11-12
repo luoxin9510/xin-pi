@@ -15,6 +15,13 @@ import { teams } from "./team.ts";
 import { LEAD, teamLabel } from "./team-text.ts";
 import { workflowOf } from "./workflow-run.ts";
 
+const teammateNameError = (name: string, status: string): Error =>
+	new Error(
+		status === "stopped"
+			? `"${name}" is a teammate of this team that has stopped; it cannot be started again, choose another name`
+			: `"${name}" is a teammate of this team: message it with SendMessage`,
+	);
+
 export type TeamCall = { kind: "new" } | { kind: "former"; record: SubagentRecord };
 
 // Whether this call is run by a workflow or a workflow's script (the codemode call id is the script's, the nested ids
@@ -31,7 +38,7 @@ export function classifyTeamCall(params: AgentInput, parent: ParentContext, tool
 	let record: SubagentRecord | undefined;
 	// A name a member of the team has, whether or not its record exists yet (it is added once its agent is resolved).
 	const mate = teams.current()?.member(params.resume ?? params.name ?? "");
-	if (mate) throw new Error(`"${mate.name}" is a teammate of this team: message it with SendMessage`);
+	if (mate) throw teammateNameError(mate.name, mate.status);
 	if (params.resume !== undefined) {
 		const known = registry.find(parent.sessionId, params.resume);
 		record = known === undefined ? undefined : registry.get(known);
@@ -44,7 +51,7 @@ export function classifyTeamCall(params: AgentInput, parent: ParentContext, tool
 	}
 	const team = teams.current();
 	if (record?.name !== undefined && team?.member(record.name)) {
-		throw new Error(`"${record.name}" is a teammate of this team: message it with SendMessage`);
+		throw teammateNameError(record.name, team.member(record.name)!.status);
 	}
 	if (params.schema !== undefined)
 		throw new Error(

@@ -80,7 +80,11 @@ export function sendMessageTool(agent: ReturnType<typeof agentTool>, withTeams =
 			const sessionId = ctx.sessionManager.getSessionId();
 			if (teams.on) {
 				const team = teams.current();
-				const member = team?.member(params.to);
+				// A teammate is reached by its name or by its agentId.
+				const byId = registry.find(sessionId, params.to);
+				const named = byId === undefined ? undefined : registry.get(byId);
+				const toName = named?.teammate && named.name !== undefined ? named.name : params.to;
+				const member = team?.member(toName);
 				const kind = "kind" in params ? params.kind : undefined;
 				if (params.to === LEAD) throw new Error("you are the lead");
 				if (team && member) {
@@ -93,7 +97,7 @@ export function sendMessageTool(agent: ReturnType<typeof agentTool>, withTeams =
 						sent = await sendToMember(
 							{ team: team.name, dir: team.dir, members: [...team.members.values()] },
 							LEAD,
-							params as TeamSendInput,
+							{ ...params, to: toName } as TeamSendInput,
 						);
 					} catch (err) {
 						if (kind === "shutdown_request") team.restoreShutdownRequested(member.name, before);
