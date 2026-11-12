@@ -2,7 +2,7 @@
 // their first way to start a session in a later PR; here a shell-command session is started
 // through the client library, as `xpi --bg` will through the same daemon.
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import pty from "node-pty";
@@ -70,6 +70,8 @@ function fakeLaunch(input: ScheduleLaunchInput): DispatchArgs {
 	};
 }
 
+let serviceCalls: string[][] = [];
+
 async function roost(...argv: string[]): Promise<{ code: number; out: string; err: string }> {
 	let out = "";
 	let err = "";
@@ -80,6 +82,16 @@ async function roost(...argv: string[]): Promise<{ code: number; out: string; er
 		detachKeyName: "ctrl+z",
 		ptyHint: "(install hint)",
 		startTimeoutMs: 10_000,
+		// never the user's launchd or systemd
+		service: {
+			platform: "darwin",
+			home: join(agentDir, "home"),
+			uid: 501,
+			run: (cmd, args) => {
+				serviceCalls.push([cmd, ...args]);
+				return { code: 0, stdout: "", stderr: "" };
+			},
+		},
 		stdout: {
 			write: (s: string) => {
 				out += s;
@@ -208,6 +220,53 @@ describe("xpi roost", () => {
 		expect(stopDaemon.out).toBe("daemon stopped; sessions kept running\n");
 		await waitFor(async () => (await roost("daemon", "status")).out.includes("daemon not running"));
 	}, 60_000);
+
+	it("daemon install, status and uninstall: the login service, with a fake launchctl", async () => {
+		serviceCalls = [];
+		expect((await roost("daemon", "status")).out).toContain("service     not installed (xpi roost daemon install)");
+		const install = await roost("daemon", "install");
+		expect(install.code).toBe(0);
+		const plists = join(agentDir, "home", "Library", "LaunchAgents");
+		const [file] = readdirSync(plists);
+		expect(install.out).toContain(`installed ${join(plists, file!)}`);
+		expect(install.out).toContain("started now");
+		expect(serviceCalls.map((c) => c.slice(0, 2).join(" "))).toEqual(["launchctl bootout", "launchctl bootstrap"]);
+		expect(readFileSync(join(plists, file!), "utf8")).toContain(`<string>${DAEMON}</string>`);
+		const status = await roost("daemon", "status");
+		expect(status.out).toMatch(/service {5}installed \(launchd dev\.xpi\.roost\.[0-9a-f]{12}\)\n/);
+		// written for another xpi: the status says to install again
+		writeFileSync(join(plists, file!), "<plist/>");
+		expect((await roost("daemon", "status")).out).toContain("run xpi roost daemon install again");
+		const un = await roost("daemon", "uninstall");
+		expect(un.out).toContain("the daemon no longer starts at login");
+		expect(readdirSync(plists)).toEqual([]);
+		expect((await roost("daemon", "uninstall")).out).toBe("no login service installed for this agent directory\n");
+		expect((await roost("daemon", "install", "--now")).code).toBe(2);
+	}, 30_000);
+
+	it("daemon status says when the daemon runs under another runtime directory", async () => {
+		const elsewhere = join(agentDir, "rt-elsewhere");
+		made.push(elsewhere);
+		// a daemon started by another environment (e.g. the login service with another XDG_RUNTIME_DIR)
+		const env = { ...process.env, ROOST_RUNTIME_DIR: elsewhere, ROOST_AGENT_DIR: agentDir };
+		const child = spawn(process.execPath, [DAEMON], {
+			env: { ...env, ROOST_HOME: roostHome(agentDir), ROOST_HOST_ENTRY: HOST },
+			stdio: "ignore",
+			detached: true,
+		});
+		child.unref();
+		try {
+			const r = await waitFor(async () => {
+				const s = await roost("daemon", "status");
+				return s.out.includes("other_runtime_dir") ? s : undefined;
+			});
+			expect(r.out).toContain(`already runs with another runtime directory (${elsewhere}, pid ${child.pid})`);
+			expect(r.out).toContain("service     not installed");
+		} finally {
+			process.kill(child.pid!, "SIGTERM");
+			await waitFor(async () => !pidAlive(child.pid!));
+		}
+	}, 30_000);
 
 	it("uses the roost of the agent directory it is given, also from inside another roost's session", async () => {
 		const other = mkdtempSync(join(tmpdir(), `${TEST_DIR_PREFIX}cli-o-`));

@@ -5,11 +5,12 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, resolve as resolvePath } from "node:path";
 import { readJson } from "./lib/atomic.ts";
 import { attachToHost, type DetachKeyMatcher } from "./lib/attach.ts";
-import { DaemonClient, DaemonError, type DaemonStart, daemonEnv, requestOnce } from "./lib/client.ts";
+import { DaemonClient, DaemonError, type DaemonStart, daemonElsewhere, daemonEnv, requestOnce } from "./lib/client.ts";
 import { eventAgo, eventLine, type RoostEvent } from "./lib/events.ts";
 import { hostControl } from "./lib/hostclient.ts";
 import { readJobEnv } from "./lib/identity.ts";
 import { formatList, formatSchedules } from "./lib/list-format.ts";
+import { readStateLock } from "./lib/locks.ts";
 import {
 	checkRuntimeDir,
 	daemonLogPath,
@@ -31,6 +32,13 @@ import {
 	untilText,
 	WHEN_HELP,
 } from "./lib/schedule.ts";
+import {
+	defaultServiceDeps,
+	installService,
+	type ServiceDeps,
+	serviceStatus,
+	uninstallService,
+} from "./lib/service.ts";
 import { screenPath } from "./lib/store.ts";
 import { ROOST_VERSION } from "./lib/version.ts";
 
@@ -62,6 +70,11 @@ export interface RoostCliOptions {
 	 * settings'). None: `schedule add` and `edit` are not available.
 	 */
 	scheduleLaunch?: (input: ScheduleLaunchInput) => DispatchArgs;
+	/**
+	 * `daemon install|uninstall` and the service line of `daemon status`: the platform, the home directory and the
+	 * launchctl/systemctl runner (tests: fakes, so nothing touches the user's launchd or systemd).
+	 */
+	service?: Partial<ServiceDeps>;
 	/** How long a daemon may take to start (tests). */
 	startTimeoutMs?: number;
 	stdout?: Out;
@@ -101,6 +114,10 @@ usage:
   xpi roost schedule run <name>    run it now (also paused or manual)
   xpi roost schedule pause|resume|rm <name>
   xpi roost daemon status|logs|stop [--keep-workers]
+  xpi roost daemon install|uninstall
+                                   start the daemon at each login (launchd on macOS, a systemd
+                                   user unit on Linux), so schedules run with no xpi open;
+                                   install again after moving or upgrading xpi to another path
   xpi roost hub [dir]              the hub: every session, peek, reply, attach, start new ones
                                    (new sessions start in dir, default the current one)`;
 }
@@ -495,6 +512,20 @@ export async function runRoostCli(argv: string[], opts: RoostCliOptions): Promis
 		}
 	}
 
+	/** The service's dependencies: the caller's (tests), else this system's. */
+	function serviceDeps(): ServiceDeps {
+		const running = async () => {
+			if (readStateLock(start.agentDir)) return true;
+			try {
+				(await DaemonClient.connect()).close();
+				return true;
+			} catch {
+				return false;
+			}
+		};
+		return { ...defaultServiceDeps(running), ...opts.service };
+	}
+
 	async function cmdDaemon(sub: string | undefined, args: string[]): Promise<void> {
 		if (sub === "logs") {
 			const file = daemonLogPath();
@@ -503,13 +534,29 @@ export async function runRoostCli(argv: string[], opts: RoostCliOptions): Promis
 			stdout.write(`${lines.slice(-50).join("\n")}\n`);
 			return;
 		}
-		if (sub !== "status" && sub !== "stop") throw new UsageError("daemon needs status, logs or stop");
+		if (sub === "install" || sub === "uninstall") {
+			if (args.length) throw new UsageError(`daemon ${sub} takes no options`);
+			const deps = serviceDeps();
+			const text =
+				sub === "install" ? await installService(start, deps) : await uninstallService(start.agentDir, deps);
+			stdout.write(`${text}\n`);
+			return;
+		}
+		if (sub !== "status" && sub !== "stop")
+			throw new UsageError("daemon needs status, logs, stop, install or uninstall");
+		const serviceLine = () => `service     ${serviceStatus(start, serviceDeps())}`;
 		let client: DaemonClient;
 		try {
 			client = await DaemonClient.connect();
 		} catch (err) {
 			if (err instanceof DaemonError && err.code === "no_roost") throw err;
-			stdout.write(`daemon not running (socket dir ${runtimeDir()})\n`);
+			const elsewhere = daemonElsewhere(start.agentDir);
+			stdout.write(
+				elsewhere
+					? `${elsewhere.message} (${elsewhere.code})\n`
+					: `daemon not running (socket dir ${runtimeDir()})\n`,
+			);
+			if (sub === "status") stdout.write(`${serviceLine()}\n`);
 			return;
 		}
 		try {
@@ -533,6 +580,7 @@ export async function runRoostCli(argv: string[], opts: RoostCliOptions): Promis
 					`sessions    ${s.liveJobs} live / ${s.totalJobs} total`,
 					`node-pty    ${s.ptyError ? `failed: ${s.ptyError}` : "ok"}`,
 					`up since    ${new Date(s.startedAt).toISOString()}`,
+					serviceLine(),
 					"",
 				].join("\n"),
 			);

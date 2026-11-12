@@ -78,20 +78,48 @@ export interface DaemonStart {
 	hostEntry: string;
 }
 
-/** The environment a daemon starts with: the caller's, less any job identity, plus where its roost is. */
-export function daemonEnv(start: DaemonStart, env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-	// The first client may be a worker: its job identity must not leak into the daemon.
-	const out = { ...env };
-	for (const key of JOB_ENV_NAMES) delete out[key];
+/**
+ * Where a daemon's roost is, as its environment says it: the agent directory, the state and runtime directories, the
+ * host's entry. What `connectOrStart` adds to the caller's environment, and all a login service carries (spec 02,
+ * decision 5).
+ */
+export function daemonLocation(start: DaemonStart): Record<string, string> {
 	// the location of the roost asked for: never the caller's own roost's (a session carries that one)
 	const agentDir = resolve(start.agentDir);
 	return {
-		...out,
 		ROOST_AGENT_DIR: agentDir,
 		ROOST_HOME: roostHome(agentDir),
 		ROOST_RUNTIME_DIR: runtimeDir(agentDir),
 		ROOST_HOST_ENTRY: resolve(start.hostEntry),
 	};
+}
+
+/** What runs a daemon: this Node with the daemon's entry (`connectOrStart` and the login service alike). */
+export function daemonCommand(start: DaemonStart): { execPath: string; args: string[] } {
+	return { execPath: process.execPath, args: [resolve(start.daemonEntry)] };
+}
+
+/**
+ * Decision 5: the agent directory's daemon runs, but under another runtime directory than this process would look in
+ * (another XDG_RUNTIME_DIR or ROOST_RUNTIME_DIR, e.g. one started by the login service): its socket is not found here.
+ */
+export function daemonElsewhere(agentDir: string): DaemonError | undefined {
+	const holder = readStateLock(agentDir);
+	const rt = runtimeDir(agentDir);
+	return holder && typeof holder.runtimeDir === "string" && holder.runtimeDir !== rt
+		? new DaemonError(
+				`a daemon for ${agentDir} already runs with another runtime directory (${holder.runtimeDir}, pid ${holder.pid}); this client looks in ${rt}: start it with the same XDG_RUNTIME_DIR and ROOST_RUNTIME_DIR`,
+				"other_runtime_dir",
+			)
+		: undefined;
+}
+
+/** The environment a daemon starts with: the caller's, less any job identity, plus where its roost is. */
+export function daemonEnv(start: DaemonStart, env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+	// The first client may be a worker: its job identity must not leak into the daemon.
+	const out = { ...env };
+	for (const key of JOB_ENV_NAMES) delete out[key];
+	return { ...out, ...daemonLocation(start) };
 }
 
 export class DaemonClient {
@@ -178,21 +206,13 @@ export class DaemonClient {
 			// not running (or a stale socket): start one below
 		}
 		ensureDirs(agentDir);
-		const elsewhere = () => {
-			const holder = readStateLock(agentDir);
-			const rt = runtimeDir(agentDir);
-			return holder && typeof holder.runtimeDir === "string" && holder.runtimeDir !== rt
-				? new DaemonError(
-						`a daemon for ${agentDir} already runs with another runtime directory (${holder.runtimeDir}, pid ${holder.pid}); this client looks in ${rt}: start it with the same XDG_RUNTIME_DIR and ROOST_RUNTIME_DIR`,
-						"other_runtime_dir",
-					)
-				: undefined;
-		};
+		const elsewhere = () => daemonElsewhere(agentDir);
 		const before = elsewhere();
 		if (before) throw before;
 		if (!existsSync(start.daemonEntry))
 			throw new DaemonError(`daemon entry not found: ${start.daemonEntry}`, "not_built");
-		const child = spawn(process.execPath, [start.daemonEntry], {
+		const run = daemonCommand(start);
+		const child = spawn(run.execPath, run.args, {
 			detached: true,
 			stdio: "ignore",
 			env: daemonEnv({ ...start, agentDir }),
