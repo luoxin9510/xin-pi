@@ -118,23 +118,38 @@ system prompt when needed). Each line is worded so "yes" accepts the proposal.
 7. Order: inline MCP and `--mcp-config`, then `permissionMode`, then `extensions`; one PR each with an Opus review and a
    real Haiku check; then the full real-model regression, and the subagent work is wrapped up.
 
-## Grill 6 (2026-11-12): waiting for agents in codemode (`09-smart-waiting.md`). All 6 accepted by the owner on 2026-11-12
+## Grill 6 (2026-11-12): waiting for agents in codemode. Accepted, then superseded by Grill 7 the same day
 
-The owner saw scripts set unreasonable `timeout_ms` values because a model cannot know how long a subagent takes. In
-Claude Code the lead does not wait: subagents report back. The owner asked for a way to bring that into codemode and
-accepted all six recommendations ("好的按照你的推荐做").
+The owner saw scripts set unreasonable `timeout_ms` values, because a model cannot know how long a subagent takes, and
+asked how to bring Claude Code's "subagents report back" into codemode.
 
-1. The deadline counts only the script's own time. It pauses while the script waits for agents (`Agent`,
-   `SendMessage`, `Workflow`), in the foreground and the background.
-2. When a deadline passes while agents are running, the agents are released, not stopped. Like `run_in_background:
-   true` agents, each finishes and reports to main. The script ends with a timeout result that lists them.
-3. Stuck agents are detected by lack of progress, not by run time. An agent with no activity for `subagent.stallMs`
-   (default 10 minutes) is reported to main. Nothing is stopped automatically, and `maxTurns` still applies.
-4. One or two lines in the codemode and `Agent` descriptions:
-   - agents report when they end;
-   - do not set `timeout_ms`, sleep or poll to wait for them;
-   - use `Promise.allSettled` for parallel agents;
-   - leave a script in the background when its result is not needed this turn.
-5. The delegation eval gets multi-agent cases with agents that run for minutes. It counts `timeout_ms` use, agents
-   killed by a deadline, time and cost, before and after, with Haiku and Opus.
-6. This spec is built before agent teams' PR 1, in one or two PRs.
+The owner first accepted six recommendations:
+
+- pause the deadline while a script waits for agents;
+- release agents at a deadline instead of stopping them;
+- stall notices to main;
+- description lines;
+- an eval;
+- build before agent teams.
+
+After the draft spec, the owner reconsidered ("限时的还是不好"). Instead, a script should only start agents and end,
+and main should idle until results return, without paying for an LLM turn on each return. Grill 7 replaces Grill 6.
+
+## Grill 7 (2026-11-12): start agents and let the script end (`09-smart-waiting.md`). All 6 accepted by the owner on 2026-11-12 ("好的我觉得可以")
+
+1. **Start and end.** An `Agent` call still running when its script ends is released, not cancelled: it keeps running
+   and reports to main. The descriptions recommend this pattern. A script awaits agents only when it must combine
+   their results.
+2. **One wake per group.** The agents one script leaves running form a group. Main wakes once, when all of them have
+   ended, with one combined message. `wake: "each"` on an `Agent` call gives a wake per agent, for races.
+3. **Waiting costs no LLM turns.**
+   - Progress is shown in the panel.
+   - A user message to main during the wait carries a one-line status of the running agents.
+   - A stall (default 10 minutes without activity) is shown in the panel and to the user. It does not wake main and
+     is reported in the group message.
+4. **Deadlines.** A deadline releases running agents into the group, as any script end does. Pausing the clock is
+   dropped.
+5. **Eval.** Multi-agent long cases. Count main's wakes, `timeout_ms` use, agents stopped by a deadline, time and cost,
+   before and after, with Haiku and Opus.
+6. **Scope.** Codemode only. Grouping teammates' notices is asked before agent teams' PR 1, because it would change
+   that spec's decision 7.
