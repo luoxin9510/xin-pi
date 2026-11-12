@@ -302,6 +302,8 @@ test(
 	{ timeout: 60_000 },
 	async () => {
 		const x = await lead({ enabled: true, taskRetentionDays: 1 });
+		await x.call("TaskList", {});
+		assert.equal(existsSync(x.tasksDir), false, "a read creates no directory and no marker");
 		await x.call("TaskCreate", { subject: "mine" });
 		assert.equal(JSON.parse(readFileSync(join(x.tasksDir, ".lead"), "utf8")).pid, process.pid);
 		const tasks = dirname(x.tasksDir);

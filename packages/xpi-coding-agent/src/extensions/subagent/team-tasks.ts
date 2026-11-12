@@ -35,7 +35,7 @@ export interface TaskRec {
 const leadMark = (dir: string): string => join(dir, ".lead");
 export function markLead(dir: string, create = true): void {
 	if (!create && !existsSync(dir)) return;
-	writeAtomic(leadMark(dir), JSON.stringify({ pid: process.pid, at: Date.now() }));
+	writeAtomic(leadMark(dir), JSON.stringify({ pid: process.pid }));
 }
 
 export const TASK_ID = /^[1-9][0-9]{0,8}$/;

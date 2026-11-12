@@ -494,7 +494,7 @@ rules are those of the mailboxes: an exclusive create holding `{ pid, at }`, ret
 taken over. Locks only make writes exclusive; a claim is the `owner` field.
 
 **Retention.** When a team is created, `session-*` directories under `tasks/` whose newest file is older than
-`agentTeams.taskRetentionDays` are removed, except this session's and any whose lead process is still running (the lead writes its pid to `tasks/<team>/.lead` when it uses the task tools and when a resumed session starts). `taskRetentionDays` is at least 1.
+`agentTeams.taskRetentionDays` are removed, except this session's and any whose lead process is still running (the lead writes its pid to `tasks/<team>/.lead` when it uses the task tools and when a resumed session starts). `taskRetentionDays` is at least 1. Reads (`TaskList`, `TaskGet`) write no marker and create no directory. A sweep by another session that races a resumed lead's first marker write can still remove a directory older than the limit; this is accepted.
 
 ### Hooks
 

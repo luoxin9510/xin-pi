@@ -371,7 +371,7 @@ export default function subagent(pi: ExtensionAPI) {
 		pi.registerTool(sendMessageTool(agent, teamsOn));
 		// The task list: the lead gets the four tools while teams are on (a teammate's process registers its own).
 		if (teamsOn)
-			for (const tool of taskTools({ exposure: "codemode", env: (c) => leadTaskEnv(c, pi.events) }))
+			for (const tool of taskTools({ exposure: "codemode", env: (c, write) => leadTaskEnv(c, pi.events, write) }))
 				pi.registerTool(tool as never);
 		if (ctx.hasUI) {
 			installPanel(

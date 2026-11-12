@@ -575,6 +575,7 @@ export class Team {
 			bus: this.host.events,
 			warn: (msg: string) => this.host.warn(msg),
 			holdTimeoutMs: this.host.holdTimeoutMs,
+			backgroundHold: true, // nobody waits on this hold: it must not keep the process alive
 		};
 		const seq = this.exchanges.get(name) ?? 0;
 		const decided = emitHook(hooks, "teammate_idle", payload, capped);

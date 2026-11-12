@@ -116,6 +116,31 @@ test(
 	},
 );
 
+test("a pending teammate_idle hold does not keep the process alive: its timer is unref'd, a tool call's is not", async () => {
+	const w = idleWorld(77_777);
+	const timers: NodeJS.Timeout[] = [];
+	const real = globalThis.setTimeout;
+	globalThis.setTimeout = ((fn: () => void, ms?: number, ...rest: unknown[]) => {
+		const t = (real as (...a: unknown[]) => NodeJS.Timeout)(fn, ms, ...rest);
+		if (ms === 77_777) timers.push(t);
+		return t;
+	}) as typeof setTimeout;
+	try {
+		w.b.on("agent-teams:teammate_idle", (p) => (p as Payload).hold(new Promise(() => {})));
+		await w.t.team.exchangeEnded("a", { run: run("x") });
+		assert.equal(timers.length, 1);
+		assert.equal(timers[0]!.hasRef(), false);
+		const x = bus();
+		x.b.on("agent-teams:task_created", (p) => (p as Payload).hold(new Promise(() => {})));
+		void runHook(x.env(77_777), "task_created", {});
+		assert.equal(timers.length, 2);
+		assert.equal(timers[1]!.hasRef(), true, "a tool call's hold keeps the loop alive");
+	} finally {
+		globalThis.setTimeout = real;
+		for (const t of timers) clearTimeout(t);
+	}
+});
+
 test("emitHook: an answer after the handler's first await is too late; observeOnly counts no answers; the payload carries its fields", async () => {
 	const x = bus();
 	let seen: Payload | undefined;

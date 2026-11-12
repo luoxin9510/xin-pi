@@ -83,7 +83,7 @@ const view = (t: TaskRec) => ({ ...t });
 export interface TaskToolsOptions {
 	exposure: "codemode" | "direct";
 	// The caller's environment, per call (the lead's session may change, a teammate's is fixed).
-	env: (ctx: ExtensionContext) => TaskEnv;
+	env: (ctx: ExtensionContext, write: boolean) => TaskEnv;
 }
 
 // The four tools as they are registered.
@@ -104,7 +104,7 @@ export function taskTools(options: TaskToolsOptions) {
 				_update: unknown,
 				ctx: ExtensionContext,
 			) {
-				const env = options.env(ctx);
+				const env = options.env(ctx, true);
 				const task = await createTask(env, params);
 				return result(`Created task #${task.id}: ${task.subject}`, view(task));
 			},
@@ -124,7 +124,7 @@ export function taskTools(options: TaskToolsOptions) {
 				_update: unknown,
 				ctx: ExtensionContext,
 			) {
-				const env = options.env(ctx);
+				const env = options.env(ctx, false);
 				const task = getTask(env, String(params.id));
 				return result(taskText(env.dir, task), {
 					...view(task),
@@ -143,7 +143,7 @@ export function taskTools(options: TaskToolsOptions) {
 				tasks: Type.Array(Type.Object({ ...taskShape, openBlockers: Type.Array(Type.String()) })),
 			}),
 			async execute(_id: string, _params: unknown, _signal: unknown, _update: unknown, ctx: ExtensionContext) {
-				const env = options.env(ctx);
+				const env = options.env(ctx, false);
 				const tasks = listTasks(env);
 				const text =
 					tasks.length === 0 ? "The task list is empty." : tasks.map((t) => taskLine(env.dir, t)).join("\n");
@@ -169,7 +169,7 @@ export function taskTools(options: TaskToolsOptions) {
 				_update: unknown,
 				ctx: ExtensionContext,
 			) {
-				const env = options.env(ctx);
+				const env = options.env(ctx, true);
 				const done = await updateTask(env, { ...params, id: String(params.id) } as UpdateInput);
 				const text = `${taskLine(env.dir, done.task)}${done.warning ? `\nWarning: ${done.warning}` : ""}`;
 				return result(text, { ...view(done.task), ...(done.warning ? { warning: done.warning } : {}) });
