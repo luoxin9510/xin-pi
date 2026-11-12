@@ -226,8 +226,8 @@ extension off, the setting off, or in print mode. `CodemodeScriptInfo` carries `
 
 ### Calls that outlive the script (spec 09)
 
-`Agent` calls still running when a script ends are released, not cancelled, and the agents a script leaves running
-report to main in one message when all have ended. See [Agents that outlive their
+`Agent` and `SendMessage` calls still running when a script ends are released, not cancelled, and the agents a script
+leaves running report to main in one message when all have ended. See [Agents that outlive their
 script](../packages/xpi-coding-agent/docs/subagent.md#agents-that-outlive-their-script).
 
 - `packages/xpi-codemode`: the sandbox option `outlives(target)` (`types.ts`, `runtime/execution.ts`); on every end but

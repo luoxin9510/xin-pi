@@ -2,7 +2,7 @@
 // every codemode script that can call Agent, so a script main writes runs unchanged as a saved workflow. They are a
 // codemode add-on: a one-line prelude (functions cannot cross into the sandbox, so the callback helpers live there)
 // over two host globals. The add-on also lets a script's agents outlive it (spec 09): where background scripts are on,
-// `Agent` calls (and `agent()`, through its global) still running when the script ends keep running, and the
+// `Agent` and `SendMessage` calls (and `agent()`, through its global) still running when the script ends keep running, and the
 // description says so. Also here: the cap on agents per script run.
 
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -83,7 +83,10 @@ export const scriptHelpers: CodemodeAddon = {
 	// Only where scripts can run in the background (a UI, subagent.backgroundScripts): elsewhere nothing would report.
 	outlives: (target, sessionId) =>
 		codemodeScripts.canBackground(sessionId) &&
-		(target.kind === "tool" ? target.name === "Agent" : target.name === "__subagentAgent"),
+		// SendMessage: a continue is an agent run, which the call's abort would stop (a steer returns at once).
+		(target.kind === "tool"
+			? target.name === "Agent" || target.name === "SendMessage"
+			: target.name === "__subagentAgent"),
 	describe: (sessionId) =>
 		codemodeScripts.canBackground(sessionId) ? { replace: { cancelledOnEnd: RELEASED_ON_END } } : {},
 	globals: (script): CodemodeTool[] => [

@@ -216,7 +216,8 @@ An `Agent` call still running when its codemode script ends is released, not can
 to main. So a script can start agents without `await` and end at once; main's turn can end, main stays idle (no LLM
 turns) while the agents work, and wakes once when they are all done. The tool descriptions recommend this: start the
 agents and end the script, and `await` an agent only when the script must use its result. This applies to
-`tools.Agent(...)` and to the `agent()` and `parallel()` helpers, on every end but an abort: a normal end, a throw,
+`tools.Agent(...)`, the `agent()` and `parallel()` helpers, and `SendMessage` (a continue is an agent run; a steer
+returns at once anyway), on every end but an abort: a normal end, a throw,
 `exit()`, the deadline (`timeout_ms` no longer stops agents), and a sandbox failure. Other calls still running are
 cancelled as before, and so is everything on an abort (Esc on a foreground script, `x` on a running script, the
 session's end).
@@ -226,7 +227,8 @@ session's end).
   agent starts (bad arguments, a blocked call, an unknown `subagent_type`, `maxAgentsPerScript`) is part of the group
   with its error. The same agent continued later from another script belongs to that script's group. A
   `run_in_background: true` agent is a member too, and ends when its agent's run ends; inside a group it sends no
-  message of its own. A script that leaves nothing running has no group and ends as before.
+  message of its own. One whose run ends while the script's code still runs reports on its own, as before (the script
+  only saw `status: "running"`), and is a line of the group. A script that leaves nothing running has no group and ends as before.
 - **One message.** When every member has ended, main gets one message (a steer that triggers a turn): the script's
   outcome if it ran in the background (its state, such as "every agent failed", is decided then), one line per member
   (id, type, description, state, cost, duration, and the error of a failed one), the output of each member that was
@@ -238,8 +240,8 @@ session's end).
   reports on its own when it ends, as a `run_in_background` agent does (for races). On a call that ends inside the
   script it changes nothing.
 - **Panel.** The script's row stays open while its group runs, for example `● ended · script S3 · 2/4 agents done ·
-  4m12s`, with its agents below. `x` on that row stops the agents (calls that have not started an agent yet do not
-  start one), and main gets the message with the state `stopped`. A group cannot be paused: a script paused when its
+  4m12s`, with its agents below. `x` on that row stops all of the script's agents, `wake: "each"` ones
+  included (calls that have not started an agent yet do not start one), and main gets the message with the state `stopped`. A group cannot be paused: a script paused when its
   code ends is resumed, and the calls waiting for the resume do not start ("not started: the script was paused").
 - **Cost.** The agents' usage is added to the session when the group ends.
 - **Ending the session** stops the group's agents, and no message reaches the next session.

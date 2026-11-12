@@ -222,7 +222,7 @@ that import `@earendil-works/*` are not supported by xpi; see [xin-pi.md](../../
   - For agents that outlive their script (spec 09): the sandbox option `outlives` (`packages/xpi-codemode`), the add-on
     fields `outlives(target, sessionId)` and `describe(sessionId)` (`addons.ts`, asked by `execute.ts` and `tool.ts`;
     the codemode extension records the session id at `session_start`), and `codemodeScripts.keep(callId, ...)` /
-    `release(callId)` with the `onKeep` event: a script that ends with `Agent` calls still running stays registered
+    `release(callId)` with the `onKeep` event: a script that ends with `Agent` or `SendMessage` calls still running stays registered
     (state `ended`) until the subagent extension releases it when its group has ended. Without them a script's end
     cancels its agents, as before, and the description says so.
 

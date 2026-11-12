@@ -435,6 +435,21 @@ describe("spec 09: agents outlive their script", () => {
 			expect(first.members.map((m) => m.description)).toEqual(["alpha"]);
 		});
 
+		it("an un-awaited SendMessage continue keeps running after the script ends and is in the group message", async () => {
+			const t = await setup({ saved: true, scenario: scenario(150) });
+			await t.run(`${agentCall("alpha", 'name: "worker"')} return 1;`);
+			await vi.waitFor(() => expect(t.groupMessages()).toHaveLength(1), { timeout: 10_000 });
+			const result = await t.run(`tools.SendMessage({ to: "worker", message: "alpha again" }); return 2;`);
+			expect(statuses(result)).not.toContain("cancelled");
+			await vi.waitFor(() => expect(t.groupMessages()).toHaveLength(2), { timeout: 10_000 });
+			const second = t.script();
+			const message = t.groupMessages()[1]!;
+			expect(message).toMatch(new RegExp(`script ${second.id}`));
+			expect(message).toMatch(/"alpha" completed/);
+			expect(message).toContain("alpha done");
+			expect(second.members).toHaveLength(1);
+		});
+
 		it("stop-all during a group stops its agents; main hears one message", async () => {
 			const t = await setup({ scenario: scenario(400, { abortSettles: true }) });
 			await t.run(`${agentCall("alpha")} ${agentCall("beta")} return 1;`);
@@ -523,14 +538,14 @@ describe("spec 09: agents outlive their script", () => {
 	});
 
 	describe("the subagent add-on", () => {
-		it("lets only Agent calls and agent()'s global outlive a script, and only where background scripts are on", () => {
+		it("lets only Agent and SendMessage calls and agent()'s global outlive a script, and only where background scripts are on", () => {
 			const off = codemodeScripts.provideBackground({ sessionId: () => "addon-session", enabled: () => true });
 			try {
 				const outlives = (kind: "tool" | "global", name: string, session = "addon-session") =>
 					scriptHelpers.outlives!({ kind, name }, session);
 				expect(outlives("tool", "Agent")).toBe(true);
 				expect(outlives("global", "__subagentAgent")).toBe(true);
-				expect(outlives("tool", "SendMessage")).toBe(false);
+				expect(outlives("tool", "SendMessage")).toBe(true);
 				expect(outlives("tool", "Workflow")).toBe(false);
 				expect(outlives("tool", "bash")).toBe(false);
 				expect(outlives("global", "__subagentNote")).toBe(false);
