@@ -70,6 +70,9 @@ Paths are under `packages/` (`cm` = `xpi-codemode`, `ca` = `xpi-coding-agent/src
 - **Workflows.** A `Workflow` call with a UI returns at once and runs as its own background script
   (`workflow-tool.ts`), so it follows these rules as a script of its own: its group is its own. There is no
   "released workflow call".
+- **Workflow runs.** A run whose script ends with kept calls stays `running` in its run file until its group ends.
+  Its kept calls count as running, so `relaunchRefusal` refuses a relaunch meanwhile. `done` and `onEnd` write the
+  run file at the group's end, once.
 
 ### The script outlives its last line until its agents end (decisions 1, 4)
 
@@ -88,7 +91,8 @@ agent id, a controller or a registry record exists.
   `agent()` and `parallel()` helpers (`__subagentAgent`). It answers false for `SendMessage` (a steer returns at once;
   a continue is an `Agent` execute and is covered through it) and for `Workflow` (see above).
 - **The script record stays.** `codemodeScripts` keeps the script's record after the sandbox ends, marked
-  `ended: <reason>`, until its group ends. So `owner()`, `countScriptAgent` (`maxAgentsPerScript`), `agentStarting`,
+  `ended: <reason>`, until its group ends. New API: `keep(callId)` at the end, and `release(callId)` at the group's
+  end, which fires `onEnd`. So `owner()`, `countScriptAgent` (`maxAgentsPerScript`), `agentStarting`,
   `addAgent` and the panel rows work for calls that reach `Agent`'s execute after the script's last line. An `Agent`
   execute whose script is marked ended runs as a group member.
 - **Agents' controllers.** In a script, each agent runs on its own `AbortController`, which forwards the call's
@@ -100,12 +104,19 @@ agent id, a controller or a registry record exists.
 
 ### Groups and the single wake (decision 2)
 
-- **Membership.** A script's group is every `Agent` execute the script started, through `tools.Agent`, `agent()` or
-  `parallel()`, by call, not by agent id. A member's status is the status of that call (its exchange). The same agent
+- **Membership.** A script's group has two kinds of entries, by call, not by agent id:
+  - **kept calls:** every host call the sandbox kept at the script's end (`outlives`). The sandbox hands them to the host,
+    which holds their execute promises (`sandboxTools` / the global's execute in `execute.ts`). They cover calls still on
+    their way: in argument validation, in `beforeToolCall`, or in the nested runner. A kept call that fails before it
+    reaches `Agent`'s execute (bad arguments, a blocked call) is a group line with its error.
+  - **members:** every `Agent` execute the script started, through `tools.Agent`, `agent()` or `parallel()`. A member's status is the status of that call (its exchange). The same agent
   continued later from another script is a member of that other script's group, not this one.
   - `wake: "each"` calls are not members.
-  - A script that started no agent has no group and ends as today.
-- **When the group ends.** When the script has ended and every member's call promise has settled. Settled includes a
+  - A `run_in_background: true` member (or an agent file's `background: true`) has ended when its agent's run ends
+    (the `run` promise in `agent-tool.ts`), not when its call returned `running`. Inside a group it sends no
+    `agentEndMessage` of its own.
+  - A script that ends with no kept call and no running member has no group and ends as today.
+- **When the group ends.** When the script has ended, every kept call has settled, and every member has ended. Settled includes a
   call that failed before an agent started (an unknown `subagent_type`, a taken name, `maxAgentsPerScript`, a git
   failure). The check runs on each member's settlement and once when the script ends, so a member that settled before
   the script ended cannot leave the group waiting.
@@ -127,9 +138,15 @@ agent id, a controller or a registry record exists.
   and its end sends its own message as `run_in_background` agents do today; it is meant for races. On an awaited call
   that ends inside the script, `wake` has no effect.
 - **Other paths unchanged.** `/subtask` and agents started outside scripts keep one message per agent.
-- **Cost.** At the group's end the released members' usage is added to the session's totals as one usage entry, so
-  that cost after the script's end is not lost.
-- **The session ending.** `/new`, resume, quit and reload stop members as today. No group message is sent.
+- **Cost.** A script that ends with kept calls detaches its nested-call scope (`ctx.detachNestedCalls()`, before it
+  returns when it is in the foreground). The group's end releases it (`releaseNestedCalls()`). This is the mechanism
+  background scripts use today, so usage after the script's last line is counted once.
+- **Stopping.** A kept script record is stoppable: `x` on its row, stop-all and the session's end (`/new`, resume,
+  quit, reload; `scripts.stopAll` covers kept records) set its `stopRequested`. Members are then stopped, and a kept
+  call that reaches `Agent`'s execute afterwards throws in `agentStarting` instead of starting a child. No group
+  message is sent after the session's end.
+- **A paused script.** When a paused script ends, the calls held at its gate are rejected, as today. They are not
+  kept, and they appear as group lines ("not started: the script was paused").
 - **Bookkeeping.** Released agents are removed from the registry's detached table when they end (`registry.forget`).
 
 ### Waiting without LLM turns (decision 3)
@@ -156,8 +173,13 @@ agent id, a controller or a registry record exists.
 
 ### Descriptions (decision 1)
 
-- **How the description changes.** Codemode's description is a static string today. Add-ons get a new field
-  `descriptionLines?: string[]`, which codemode appends to the matching section.
+- **How the description changes.**
+  - Codemode's description is built per session in `prepareLoadout` from a static intro (`tool.ts`).
+  - Add-ons are process-wide, but whether this is on depends on the session (`hasUI`, `backgroundScripts`). So the new
+    add-on fields are functions of the session: `outlives(target, sessionId)` and `describe(sessionId): { replace?:
+    Record<string, string>; append?: string[] }`.
+  - `replace` swaps a named sentence of the intro (`cancelledOnEnd`); `append` adds lines.
+  - The subagent add-on answers from `codemodeScripts.canBackground(sessionId)`.
 - **What the subagent add-on contributes**, where it is on (see [Where it applies](#where-it-applies)):
   - for codemode, replacing "Calls still running when the script ends are cancelled": "`Agent` calls still running
     when the script ends keep running and report to you together when all have ended; other calls are cancelled";
@@ -174,14 +196,19 @@ agent id, a controller or a registry record exists.
   measure the same thing. The new cases run through a new rpc-mode driver in `test/delegation/`.
 - **The rpc driver.**
   - It starts `xpi --mode rpc`, sends the prompt, answers no UI requests, and reads the `subagents` status.
-  - A run ends when main is idle and the status shows no running agents or groups, within the 900 s cap.
+  - A run ends when main is idle and no agent is running, within the 900 s cap. No agent running means the
+    `subagents` status when it exists (after the change), else (before it) no child meta file `running` and main idle
+    for 10 s.
+  - It counts main's `agent_start` events.
 - **New long cases.** Two cases in `long-tasks.ts`, each needing three or more agents that work for minutes. The
   existing cases keep the print driver.
 - **Metrics, from the session file:**
-  - `wakes`: turns that a delivered agent or script message started. A message delivered as a steer into a running
-    turn is not a wake. It is told apart by the custom message's `triggerTurn` and the turn boundary.
+  - `wakes`: main's `agent_start` events after the first, counted by the rpc driver (a message steered into a running
+    turn starts none).
   - `timeoutMsSet`: codemode call sources whose `@options` sets `timeout_ms`, parsed with `parseCodemodeSource`.
-  - `agentsStoppedByDeadline` and `released`.
+  - `agentsStoppedByDeadline`: in a codemode result with "Script timed out", the nested `Agent` calls that ended in an
+    error or `cancelled`.
+  - `released`: nested calls with the status `released`.
   - Time and cost as today.
 - **Runs.** Before (main before PR 1) and after (PR 2's head), Haiku and Opus, `--runs 3`, within `EVAL_BUDGET`. The
   numbers go in PR 2's description, and results are not committed.
@@ -192,7 +219,7 @@ agent id, a controller or a registry record exists.
 - A per-call deadline for agents.
 - Stopping stalled agents automatically.
 - Grouping teammates' notices (asked before agent teams' PR 1).
-- Changes to Esc, `x`, or script backgrounding itself.
+- Changes to Esc, or to `x` on a running script, or to script backgrounding itself.
 
 ## Testing
 
@@ -201,6 +228,10 @@ agent id, a controller or a registry record exists.
     - a script that starts two agents without `await` and returns at once, before either call reaches `Agent`'s
       execute: both run, appear in the panel, count toward `maxAgentsPerScript`, and wake main once;
     - the same through `agent()` and `parallel()`;
+    - an un-awaited call that fails argument validation, or is blocked by `beforeToolCall`, after the script ended: a
+      group line with its error, and the group ends;
+    - `x` and `/new` while kept calls are on their way: no child starts;
+    - a paused script that ends;
     - the same after `throw`, `exit()`, a deadline, and a sandbox failure;
     - an abort (Esc, `x`, the session end) still stops them.
   - **Groups:**
@@ -216,12 +247,14 @@ agent id, a controller or a registry record exists.
     - stop-all during a group;
     - `/new` and resume during a group (no message).
   - **Where it is off:** `backgroundScripts: false`, print mode, `start()` (cancelled as today).
-  - **Workflows:** a workflow's agents form its own group.
+  - **Workflows:** a workflow's agents form its own group; its run file stays `running` and a relaunch is refused
+    until the group ends.
   - **Status line:** on a user message during a group; not on a steer; not when nothing runs.
   - **Stalls:** the clock starts at the child's start; marked, notified, cleared; `stallMs: 0`; in the group message.
   - **Descriptions** with and without the subagent extension, in print mode, and with `backgroundScripts: false`.
   - Each new guard checked to fail when removed.
 - **`xpi-codemode` unit tests** for `outlives` on each end reason, abort excluded, and the `released` status.
+- **The eval driver's fallback end condition**, run against main before the change.
 - **By hand (Haiku).** `test:subagent:real` and `test:subagent:parent` run again.
 - **Real check.** Through the rpc driver: a Haiku main session asked to have three agents each audit a package. It is
   checked to end the script without awaiting, set no `timeout_ms`, stay idle, and wake once with all three results.
@@ -235,7 +268,8 @@ agent id, a controller or a registry record exists.
      - `codemode.md` and `packages/xpi-codemode/README.md` (calls that outlive the script, `released`);
      - `subagent.md` (background work);
      - the porting menu's codemode and subagents entries (`outlives`, the add-on fields and the kept script record
-       are host requirements).
+       are host requirements, as are `keep`/`release` on the script
+       registry).
 2. **Waiting and the eval.**
    - Code: the status line on a user message; stall detection and `subagent.stallMs`; the `subagents` status; the rpc
      eval driver, cases and metrics with the before/after numbers.
