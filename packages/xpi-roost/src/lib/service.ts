@@ -208,7 +208,7 @@ function launchdJobPid(deps: ServiceDeps, target: string): number | undefined {
  * (its sessions keep running). When the daemon was the job's process, waits until it has let go of the state lock, so
  * the next daemon can take it. Returns whether the service's daemon was stopped.
  */
-async function bootout(deps: ServiceDeps, target: string): Promise<boolean> {
+async function bootout(deps: ServiceDeps, target: string, command: "install" | "uninstall"): Promise<boolean> {
 	const jobPid = launchdJobPid(deps, target);
 	const ours = jobPid !== undefined && deps.daemonPid() === jobPid;
 	deps.run("launchctl", ["bootout", target]);
@@ -217,7 +217,7 @@ async function bootout(deps: ServiceDeps, target: string): Promise<boolean> {
 	for (let waited = 0; deps.daemonPid() === jobPid; waited += 100) {
 		if (waited >= timeout)
 			throw new Error(
-				`the daemon (pid ${jobPid}) did not stop within ${Math.round(timeout / 1000)} s after launchctl bootout; see xpi roost daemon logs`,
+				`the daemon (pid ${jobPid}) did not stop within ${Math.round(timeout / 1000)} s after launchctl bootout; the service file is still in place: run xpi roost daemon ${command} again once it has stopped (see xpi roost daemon logs)`,
 			);
 		await deps.sleep(100);
 	}
@@ -244,7 +244,7 @@ export async function installService(start: DaemonStart, deps: ServiceDeps): Pro
 	};
 	if (kind === "launchd") {
 		const domain = `gui/${deps.uid}`;
-		const restarted = await bootout(deps, `${domain}/${spec.name}`);
+		const restarted = await bootout(deps, `${domain}/${spec.name}`, "install");
 		const running = deps.daemonPid() !== undefined;
 		writeFileSync(path, serviceFile(kind, spec));
 		const r = deps.run("launchctl", ["bootstrap", domain, path]);
@@ -286,11 +286,16 @@ export async function uninstallService(agentDir: string, deps: ServiceDeps): Pro
 	if (!existsSync(path)) return "no login service installed for this agent directory";
 	const removed = `removed ${path}: the daemon no longer starts at login`;
 	if (kind === "launchd") {
-		const stopped = await bootout(deps, `gui/${deps.uid}/${name}`);
+		const stopped = await bootout(deps, `gui/${deps.uid}/${name}`, "uninstall");
 		rmSync(path, { force: true });
 		if (!stopped)
 			return `${removed}${deps.daemonPid() !== undefined ? " (the daemon running now keeps running)" : ""}`;
-		await deps.startDaemon();
+		try {
+			await deps.startDaemon();
+		} catch (err) {
+			const text = `${removed}, but starting the daemon again outside the service failed: ${(err as Error).message}; any xpi roost command starts it`;
+			throw err instanceof DaemonError ? new DaemonError(text, err.code) : new Error(text);
+		}
 		return `${removed}; the daemon the service had started was stopped and started again outside the service (sessions kept running)`;
 	}
 	const r = deps.run("systemctl", ["--user", "disable", `${name}.service`]);

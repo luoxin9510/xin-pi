@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { daemonCommand, daemonLocation } from "../src/lib/client.ts";
+import { DaemonError, daemonCommand, daemonLocation } from "../src/lib/client.ts";
 import { TEST_DIR_PREFIX } from "../src/lib/orphans.ts";
 import { agentDirKey, ROOST_LOCATION_ENV } from "../src/lib/paths.ts";
 import {
@@ -185,6 +185,31 @@ describe("install, uninstall, status with fakes", () => {
 		expect(f.state.pid).toBe(4242);
 	});
 
+	it("macOS uninstall: a daemon that does not stop, or does not start again, is said plainly", async () => {
+		const f = fake("darwin", { pid: 777 });
+		await installService(start(), f.deps);
+		const file = servicePath("launchd", f.deps.home, serviceName("launchd", start().agentDir));
+		f.state.jobPid = 777;
+		f.deps.sleep = async () => {};
+		f.deps.stopTimeoutMs = 200;
+		await expect(uninstallService(start().agentDir, f.deps)).rejects.toThrow(
+			"the service file is still in place: run xpi roost daemon uninstall again once it has stopped",
+		);
+		expect(existsSync(file)).toBe(true);
+
+		const g = fake("darwin", { pid: 777 });
+		await installService(start(), g.deps);
+		g.state.jobPid = 777;
+		g.deps.startDaemon = async () => {
+			throw new DaemonError("daemon entry not found: /gone.js", "not_built");
+		};
+		await expect(uninstallService(start().agentDir, g.deps)).rejects.toMatchObject({
+			code: "not_built",
+			message: `removed ${file}: the daemon no longer starts at login, but starting the daemon again outside the service failed: daemon entry not found: /gone.js; any xpi roost command starts it`,
+		});
+		expect(existsSync(file)).toBe(false);
+	});
+
 	it("macOS uninstall: a daemon started outside the service is left alone", async () => {
 		const f = fake("darwin", { pid: 777 });
 		await installService(start(), f.deps);
@@ -221,7 +246,9 @@ describe("install, uninstall, status with fakes", () => {
 			f.state.sleeps++;
 		};
 		f.deps.stopTimeoutMs = 500;
-		await expect(installService(start(), f.deps)).rejects.toThrow("did not stop within 1 s after launchctl bootout");
+		await expect(installService(start(), f.deps)).rejects.toThrow(
+			"did not stop within 1 s after launchctl bootout; the service file is still in place: run xpi roost daemon install again once it has stopped",
+		);
 		expect(f.calls.some((c) => c[1] === "bootstrap")).toBe(false);
 		expect(f.state.sleeps).toBe(5);
 	});
