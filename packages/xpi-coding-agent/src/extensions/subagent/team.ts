@@ -4,8 +4,9 @@
 // idle or stopped.
 
 import { existsSync, readdirSync, readFileSync, rmSync, statSync, watch } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { getAgentDir } from "../../config.ts";
+import type { EventBus } from "../../core/event-bus.ts";
 import { registry } from "./registry.ts";
 import type { ParentContext, TeamLaunch } from "./resolve.ts";
 import type { ChildHandle, RunResult } from "./runner.ts";
@@ -24,6 +25,8 @@ import {
 	withLock,
 	writeAtomic,
 } from "./team-files.ts";
+import { emitHook, type Verdict as HookVerdict } from "./team-hooks.ts";
+import { releaseTasks, sweepTasks } from "./team-tasks.ts";
 import { heldText, idleText, joinEnvelopes, LEAD, teamLabel } from "./team-text.ts";
 
 export type MemberStatus = "running" | "queued" | "idle" | "stopping" | "stopped";
@@ -48,6 +51,8 @@ export interface TeamConfigFile {
 // What the team needs of the session around it (src/index.ts supplies it).
 export interface TeamHost {
 	settings: TeamSettings;
+	events?: EventBus; // pi.events: the agent-teams:* events go through it (team-hooks.ts)
+	holdTimeoutMs?: number; // how long a hook's `hold` is awaited (tests shorten it)
 	parent(): ParentContext;
 	toLead(content: string): boolean; // a custom message with triggerTurn; false when the session is ending
 	warn(message: string): void;
@@ -55,6 +60,7 @@ export interface TeamHost {
 }
 
 export const MAX_WAKES = 5;
+export const MAX_IDLE_BLOCKS = 3; // teammate_idle hooks block a teammate going idle this many times in a row
 const POLL_MS = 1000;
 const WATCH_DEBOUNCE_MS = 50;
 const SELF_WRITE_MS = 200;
@@ -104,12 +110,17 @@ export class Team {
 	private kickTimer: NodeJS.Timeout | undefined;
 	private readonly selfWrites = new Map<string, number>(); // mailbox name -> when a pass last rewrote it
 	private readonly steerRefused = new Map<string, ChildHandle>(); // the child handle that refused a steer, per member: left alone while it is the current one
+	private readonly exchanges = new Map<string, number>(); // exchanges begun, per member: a hold's verdict is for one
+	private readonly idleBlocks = new Map<string, number>(); // teammate_idle blocks in a row, per teammate
 	private closing = false;
 	private readonly wakeSignal = new AbortController(); // wakes waiting for a slot at session end must not start a child
 	private timer: NodeJS.Timeout | undefined;
 	private watcher: ReturnType<typeof watch> | undefined;
 
+	private readonly root: string;
+
 	constructor(sessionId: string, host: TeamHost, root = teamsRoot()) {
+		this.root = root;
 		this.sessionId = sessionId;
 		this.host = host;
 		this.name = `session-${sessionId}`;
@@ -147,6 +158,11 @@ export class Team {
 		return this.passCount;
 	}
 
+	// The team's task list, next to `teams/` (it stays after the team ends).
+	get tasksDir(): string {
+		return join(dirname(this.root), "tasks", this.name);
+	}
+
 	get configPath(): string {
 		return join(this.dir, "config.json");
 	}
@@ -165,6 +181,19 @@ export class Team {
 		this.saving = this.saving
 			.then(() => withLock(this.configPath, () => writeAtomic(this.configPath, JSON.stringify(this.configFile()))))
 			.catch((err: Error) => this.host.warn(`could not write the team's config.json: ${err.message}`));
+	}
+
+	// Queued after the config writes. Failing here only leaves the tasks as they were: another member's claim treats a
+	// task whose owner is not live as free.
+	private releaseTasks(name: string): void {
+		this.saving = this.saving
+			.then(() => releaseTasks(this.tasksDir, name).then(() => {}))
+			.catch((err: Error) => this.host.warn(`could not release ${name}'s tasks: ${err.message}`));
+	}
+
+	// Resolves when the config.json and task-release writes queued so far are done.
+	flush(): Promise<void> {
+		return this.saving;
 	}
 
 	member(name: string): Member | undefined {
@@ -193,7 +222,10 @@ export class Team {
 		m.status = status;
 		m.since = Date.now();
 		// The request stays while the teammate wakes and runs; it ends when answered (below) or when it has stopped.
-		if (status === "stopped") delete m.shutdownRequested;
+		if (status === "stopped") {
+			delete m.shutdownRequested;
+			this.releaseTasks(name); // a stopped member keeps no work: its in_progress tasks go back to pending
+		}
 		this.save();
 	}
 
@@ -438,6 +470,7 @@ export class Team {
 
 	// Its child is about to start.
 	exchangeBegan(name: string): void {
+		this.exchanges.set(name, (this.exchanges.get(name) ?? 0) + 1);
 		this.steerRefused.delete(name);
 		const m = this.members.get(name);
 		if (!m) return;
@@ -520,20 +553,68 @@ export class Team {
 		}
 		if (untaken.length > 0) await putBack(inboxFile(this.dir, name), untaken);
 		this.setStatus(name, "idle");
-		const run = outcome.run;
-		if (run) {
-			const answer = capText(run.output, this.host.parent(), `${m.agentId}-output`);
-			await appendEntry(inboxFile(this.dir, LEAD), {
-				id: newEntryId(),
-				from: name,
-				to: LEAD,
-				text: idleText(name, run, answer),
-				kind: "idle",
-				at: Date.now(),
-			});
-		}
+		if (outcome.run) await this.idleNotice(name, outcome.run);
 		this.kick();
 		return "idle";
+	}
+
+	// The teammate_idle event, then (unless a hook blocked) the lead's idle notice. A hook that blocks sends its feedback
+	// to the teammate instead, so it keeps working: at most MAX_IDLE_BLOCKS times in a row, then the notice goes whatever
+	// the hooks say. A hook that `hold`s is waited for in the background: the exchange must not keep its slot meanwhile.
+	private async idleNotice(name: string, run: RunResult): Promise<void> {
+		const m = this.members.get(name);
+		if (!m) return;
+		const capped = (this.idleBlocks.get(name) ?? 0) >= MAX_IDLE_BLOCKS;
+		const payload = {
+			team: this.name,
+			name,
+			agentId: m.agentId,
+			...(run.status === "failed" ? { error: run.error ?? "no error given" } : { result: run.output }),
+		};
+		const hooks = {
+			bus: this.host.events,
+			warn: (msg: string) => this.host.warn(msg),
+			holdTimeoutMs: this.host.holdTimeoutMs,
+			backgroundHold: true, // nobody waits on this hold: it must not keep the process alive
+		};
+		const seq = this.exchanges.get(name) ?? 0;
+		const decided = emitHook(hooks, "teammate_idle", payload, capped);
+		if (decided.sync) return this.finishIdle(name, run, decided.sync, seq);
+		void decided.later
+			.then((verdict) => (this.closing ? undefined : this.finishIdle(name, run, verdict, seq)))
+			.catch((err: Error) => this.host.warn(`team ${this.label}: ${err.message}`));
+	}
+
+	private async finishIdle(name: string, run: RunResult, verdict: HookVerdict, seq: number): Promise<void> {
+		const m = this.members.get(name);
+		// The verdict is for the exchange that ended. If the teammate went away, or was woken (a new exchange began or is
+		// queued) while a hold decided, it is stale: neither the old notice nor feedback for a turn that is over.
+		if (!m || m.status !== "idle" || (this.exchanges.get(name) ?? 0) !== seq) return;
+		if (verdict.blocked) {
+			this.idleBlocks.set(name, (this.idleBlocks.get(name) ?? 0) + 1);
+			await appendEntry(inboxFile(this.dir, name), {
+				id: newEntryId(),
+				from: LEAD,
+				to: name,
+				text: verdict.feedback,
+				summary: "feedback from a teammate_idle hook",
+				kind: "message",
+				at: Date.now(),
+			});
+			this.kick();
+			return;
+		}
+		this.idleBlocks.delete(name);
+		const answer = capText(run.output, this.host.parent(), `${m.agentId}-output`);
+		await appendEntry(inboxFile(this.dir, LEAD), {
+			id: newEntryId(),
+			from: name,
+			to: LEAD,
+			text: idleText(name, run, answer),
+			kind: "idle",
+			at: Date.now(),
+		});
+		this.kick();
 	}
 
 	// --- ending
@@ -622,6 +703,7 @@ class Teams {
 		const parent = this.host.parent();
 		const team = new Team(parent.sessionId, this.host);
 		sweepStaleTeams(teamsRoot(), team.name);
+		sweepTasks(join(dirname(teamsRoot()), "tasks"), team.name, this.host.settings.taskRetentionDays, teamsRoot());
 		team.start();
 		this.team = team;
 		return team;

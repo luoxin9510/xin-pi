@@ -1,5 +1,6 @@
 // subagent extension entry: register the `Agent` tool for codemode scripts.
 
+import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "../../core/extensions/types.ts";
 import { isStdoutTakenOver, writeRawStdout } from "../../core/output-guard.ts";
 import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.ts";
@@ -21,7 +22,10 @@ import { subagentsCommand } from "./subagents-command.ts";
 import { continueAgent } from "./talk.ts";
 import { teams } from "./team.ts";
 import { readTeamSettings, teamsAllowed } from "./team-config.ts";
+import { leadTaskEnv } from "./team-lead-tasks.ts";
 import { registerTeamTools } from "./team-send.ts";
+import { taskTools } from "./team-task-tools.ts";
+import { markLead, tasksRoot } from "./team-tasks.ts";
 import { LEAD_PROMPT } from "./team-text.ts";
 import { checkStalls, runningLine, statusText } from "./waiting.ts";
 import { startWorkflowCommand, workflowStartText } from "./workflow-run.ts";
@@ -306,10 +310,13 @@ export default function subagent(pi: ExtensionAPI) {
 		// Teams are decided here and fixed until /reload: the lead's tools and prompt section are set up now.
 		const teamsOn =
 			teamSettings.enabled && teamsAllowed({ mode: ctx.mode, sessionFile: ctx.sessionManager.getSessionFile() });
+		// A resumed session's old task list is in use again: mark it so retention (another session's) leaves it alone.
+		if (teamsOn) markLead(join(tasksRoot(), `session-${ctx.sessionManager.getSessionId()}`), false);
 		teams.configure(
 			teamsOn
 				? {
 						settings: teamSettings,
+						events: pi.events,
 						parent: () => parentContext(current!),
 						// A custom message with triggerTurn: a steer while the lead is in a turn, a new turn when it is idle.
 						toLead: (content) => {
@@ -362,6 +369,10 @@ export default function subagent(pi: ExtensionAPI) {
 		subtask = (task, cctx) => runSubtask(agent, task, cctx);
 		pi.registerTool(agent);
 		pi.registerTool(sendMessageTool(agent, teamsOn));
+		// The task list: the lead gets the four tools while teams are on (a teammate's process registers its own).
+		if (teamsOn)
+			for (const tool of taskTools({ exposure: "codemode", env: (c, write) => leadTaskEnv(c, pi.events, write) }))
+				pi.registerTool(tool as never);
 		if (ctx.hasUI) {
 			installPanel(
 				() => current!,

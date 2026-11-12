@@ -313,7 +313,7 @@ const AgentTeamsSettingsSchema = Type.Union(
 				),
 				taskRetentionDays: Type.Optional(
 					Type.Number({
-						minimum: 0,
+						minimum: 1,
 						description: "Task lists older than this many days are removed when a team is created. Default 30.",
 					}),
 				),

@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createEventBus } from "../../src/core/event-bus.ts";
 import { beginCodemodeScript } from "../../src/extensions/codemode/scripts.ts";
 import subagent from "../../src/extensions/subagent/index.ts";
 
@@ -145,7 +146,9 @@ export async function loadTool(settings: Record<string, unknown>, c: FakeCtx) {
 	const notes: string[] = c.notes ?? [];
 	const messages: { message: any; options: any }[] = []; // pi.sendMessage calls: what main was sent
 	const commands: Record<string, any> = {};
+	const events = createEventBus();
 	const pi = {
+		events,
 		on: (event: string, h: Function) => (handlers[event] ??= []).push(h),
 		registerTool: (t: any) => (tools[t.name] = t),
 		registerCommand: (name: string, c: any) => (commands[name] = c),
@@ -188,6 +191,7 @@ export async function loadTool(settings: Record<string, unknown>, c: FakeCtx) {
 	return {
 		tool,
 		tools,
+		events,
 		ctx,
 		emit: async (event: string, payload: object) => {
 			for (const h of handlers[event] ?? []) await h(payload, ctx);

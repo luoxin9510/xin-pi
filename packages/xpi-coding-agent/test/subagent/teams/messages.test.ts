@@ -151,15 +151,16 @@ test(
 );
 
 test(
-	"in a child process the extension registers SendMessage for a teammate and still no Agent",
+	"in a child process the extension registers SendMessage and the four task tools for a teammate and still no Agent",
 	{ timeout: 60_000 },
 	() => {
 		const dir = mkdtempSync(join(tmpdir(), "team-child-"));
 		writeFileSync(join(dir, "config.json"), JSON.stringify({ team: "t", members: [] }));
-		const keys = ["XPI_SUBAGENT_DEPTH", "XPI_TEAM_DIR", "XPI_TEAM_MEMBER", "XPI_TEAM_TOOLS"];
+		const keys = ["XPI_SUBAGENT_DEPTH", "XPI_TEAM", "XPI_TEAM_DIR", "XPI_TEAM_MEMBER", "XPI_TEAM_TOOLS"];
 		const saved = keys.map((k) => process.env[k]);
 		Object.assign(process.env, {
 			XPI_SUBAGENT_DEPTH: "1",
+			XPI_TEAM: "t",
 			XPI_TEAM_DIR: dir,
 			XPI_TEAM_MEMBER: "a",
 			XPI_TEAM_TOOLS: "direct",
@@ -167,8 +168,14 @@ test(
 		try {
 			const tools: Record<string, any> = {};
 			subagent({ registerTool: (t: any) => (tools[t.name] = t), registerFlag: () => {}, on: () => {} } as any);
-			assert.deepEqual(Object.keys(tools), ["SendMessage"]);
-			assert.equal(tools.SendMessage.exposure, "direct");
+			assert.deepEqual(Object.keys(tools).sort(), [
+				"SendMessage",
+				"TaskCreate",
+				"TaskGet",
+				"TaskList",
+				"TaskUpdate",
+			]);
+			for (const t of Object.values(tools)) assert.equal(t.exposure, "direct");
 			delete process.env.XPI_TEAM_DIR;
 			const none: Record<string, any> = {};
 			subagent({ registerTool: (t: any) => (none[t.name] = t), registerFlag: () => {}, on: () => {} } as any);

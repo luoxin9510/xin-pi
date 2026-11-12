@@ -26,8 +26,8 @@ export function readTeamSettings(raw: unknown, env: NodeJS.ProcessEnv = process.
 	if (!Number.isInteger(maxTeammates) || (maxTeammates as number) < 1)
 		throw new Error("agentTeams.maxTeammates must be a positive integer");
 	const taskRetentionDays = r.taskRetentionDays ?? defaults.taskRetentionDays;
-	if (typeof taskRetentionDays !== "number" || !Number.isFinite(taskRetentionDays) || taskRetentionDays < 0)
-		throw new Error("agentTeams.taskRetentionDays must be a number of days, 0 or more");
+	if (typeof taskRetentionDays !== "number" || !Number.isFinite(taskRetentionDays) || taskRetentionDays < 1)
+		throw new Error("agentTeams.taskRetentionDays must be a number of days, 1 or more");
 	return {
 		enabled: enabled || fromEnv,
 		maxTeammates: maxTeammates as number,

@@ -2114,6 +2114,10 @@ pi.events.on("my:event", (data) => { ... });
 pi.events.emit("my:event", { ... });
 ```
 
+xpi itself emits three events here while [agent teams](subagent.md#hooks) are on: `agent-teams:teammate_idle`,
+`agent-teams:task_created` and `agent-teams:task_completed`. A handler can answer during `emit` with the payload's
+`block(feedback)` or `hold(promise)` to stop the step and send feedback to the agent.
+
 ### pi.registerProvider(name, config)
 
 Register or override a model provider dynamically. Useful for proxies, custom endpoints, or team-wide model configurations.
