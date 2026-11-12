@@ -1,5 +1,14 @@
 # Porting roost
 
+> **In the component menu.** This guide covers five entries of
+> [Porting xpi features](../../xpi-coding-agent/docs/porting.md): the
+> [roost core](../../xpi-coding-agent/docs/porting.md#roost-core) (daemon, PTY host, command line), the
+> [session side](../../xpi-coding-agent/docs/porting.md#roost-session-side), the
+> [hub](../../xpi-coding-agent/docs/porting.md#roost-hub), [schedules](../../xpi-coding-agent/docs/porting.md#schedules)
+> and the [login service](../../xpi-coding-agent/docs/porting.md#login-service). The core depends on no other component
+> and nothing of the host agent; it needs node-pty, unix sockets and child processes. Linux is the reference platform:
+> see [Platform notes](#platform-notes) (Linux first, then macOS).
+
 How background sessions work in xin-pi, for an engineer who rebuilds them in another host agent. It replaces
 pi-roost's `docs/porting.md` (written in Chinese against pi-roost v0.1.21, main `890cbe9`), cut to what xin-pi has:
 phase 1's daemon, PTY host, `xpi roost`, hub and session side, and phase 2's schedules and login service
@@ -93,7 +102,7 @@ Copy `packages/xpi-roost` whole; it has no xpi in it. What carries the host agen
 
 | Where | What |
 |---|---|
-| `lib/paths.ts` `roostHome()`, `runtimeDir()` | `<agent dir>/xpi-roost/`; `$XDG_RUNTIME_DIR/xpi-roost-<key>` or `/tmp/xpi-roost-<uid>/<key>`, `<key>` a hash of the agent directory. Keep socket paths short: a unix socket path has a limit of about 104 bytes |
+| `lib/paths.ts` `roostHome()`, `runtimeDir()` | `<agent dir>/xpi-roost/`; `$XDG_RUNTIME_DIR/xpi-roost-<key>` (Linux) or `/tmp/xpi-roost-<uid>/<key>` (macOS, or no `XDG_RUNTIME_DIR`), `<key>` a hash of the agent directory. Keep socket paths short: `runtimeDir()` falls back to `/tmp` when a socket path would pass 100 bytes (the limit is 108 on Linux, 104 on macOS); see [Platform notes](#platform-notes) |
 | `lib/paths.ts` `SESSION_AGENT_DIR_ENV` | the variable a worker reads its agent directory from (`XPI_CODING_AGENT_DIR`) |
 | `lib/identity.ts` `JOB_ENV` | `ROOST_JOB_ID`, `ROOST_JOB_TOKEN`, `ROOST_SOCKET`, `ROOST_JOB_DIR`; `JOB_ENV_NAMES` (with `ROOST_RESTORE`) is never inherited by another job or by the daemon |
 | `lib/dispatch.ts` `VALUE_FLAGS`, `BOOL_FLAGS`, `PATH_FLAGS` | the flags a worker repeats: `-e`, `--extension`, `--model`, `--provider`, `--thinking`, `--session-dir`, `-ne`, `--no-extensions`, `--offline`; relative paths made absolute |
@@ -160,8 +169,9 @@ use.
    binary frames (`lib/framing.ts`): `[type u8][length u32 BE][payload]`, at most 16 MiB, types `HELLO`, `DATA`,
    `RESIZE`, `DETACHED`, `CONTROL`, `REPLY`. The first frame is `HELLO {role: "attach" | "control", cols, rows}`. One
    attach at a time; a new one takes over (`DETACHED {reason: "takeover"}`). Control ops: `snapshot`, `status`,
-   `detach`, `terminate` (SIGTERM, SIGKILL after 5 s), `terminate-idle`, `command`. node-pty's prebuilt
-   `spawn-helper` can lose its execute bit; the host sets it again (`fixSpawnHelper`), node-pty's scripts do not.
+   `detach`, `terminate` (SIGTERM, SIGKILL after 5 s), `terminate-idle`, `command`. On Linux node-pty is compiled at
+   install and spawns directly; on macOS its prebuilt `spawn-helper` can lose its execute bit, and the host sets it
+   again (`fixSpawnHelper`), node-pty's scripts do not.
 8. **The daemon** (`daemon/main.ts`). It takes its locks, loads the jobs, takes over the hosts that `roster.json` names
    and that are still the same processes, ends the others, and listens. A client that finds no daemon starts one
    (`DaemonClient.connectOrStart`: `spawn(process.execPath, [daemonEntry], { detached: true })`, then pings for up to
@@ -328,14 +338,15 @@ tests' `support/clock.ts`, `hub/overlays/schedules.ts`, and the parts phase 1 ha
 - The file: an unreadable `schedules.json` is moved aside (`.bad-<time>`) and the daemon starts with none; when moving
   it fails, the schedules are frozen (never written) rather than overwrite it. Entries it cannot run are kept as they
   are and counted.
-- The login service: `xpi roost daemon install|uninstall` (`lib/service.ts`). A launchd agent (`dev.xpi.roost.<key>`:
-  RunAtLoad, no KeepAlive, AbandonProcessGroup) or a systemd user unit (`xpi-roost-<key>.service`: Type=simple, no
-  `Restart=`, `KillMode=process`, `WantedBy=default.target`), `<key>` the agent directory's. It runs `daemonCommand`
-  with `daemonLocation` (`lib/client.ts`), as `connectOrStart` does, once per login, so `daemon stop` is not undone.
-  The files are made by pure functions; the launchctl and systemctl calls are injected. `launchctl bootout` stops the
-  job's running daemon (SIGTERM, which keeps the sessions), so uninstall waits for it and starts it again outside the
-  service, and a reinstall waits for it before `bootstrap`. `daemon status` says whether the service is installed and
-  current, and when the daemon runs under another runtime directory (`other_runtime_dir`, `daemonElsewhere`).
+- The login service: `xpi roost daemon install|uninstall` (`lib/service.ts`). On Linux a systemd user unit
+  (`xpi-roost-<key>.service`: Type=simple, no `Restart=`, `KillMode=process`, `WantedBy=default.target`); on macOS a
+  launchd agent (`dev.xpi.roost.<key>`: RunAtLoad, no KeepAlive, AbandonProcessGroup); `<key>` the agent directory's. It
+  runs `daemonCommand` with `daemonLocation` (`lib/client.ts`), as `connectOrStart` does, once per login, so `daemon
+  stop` is not undone. The files are made by pure functions; the launchctl and systemctl calls are injected. `launchctl
+  bootout` stops the job's running daemon (SIGTERM, which keeps the sessions), so uninstall waits for it and starts it
+  again outside the service, and a reinstall waits for it before `bootstrap`. `daemon status` says whether the service
+  is installed and current, and when the daemon runs under another runtime directory (`other_runtime_dir`,
+  `daemonElsewhere`).
 
 **Resume after an interruption is not ported** (M38, `autoResume`; phase 2 decision 1). Phase 1 already does what
 Claude Code does: a crashed worker is restarted while the daemon runs (DM-5); after a machine restart a session that
@@ -412,9 +423,34 @@ killed run left (M78), and no test starts another test runner. Before a merge th
 real-model check (spec item 14): start a background session on a small model, reply, attach and detach, in a temporary
 agent directory.
 
+## Platform notes
+
+Linux is the reference platform; macOS differences follow each point.
+
+- **The runtime directory** (sockets, `daemon.lock`). Linux: `$XDG_RUNTIME_DIR/xpi-roost-<key>`, where systemd-logind
+  sets `XDG_RUNTIME_DIR` to `/run/user/<uid>`; a shell without it (some `su` or `ssh` sessions, containers) falls back
+  to `/tmp/xpi-roost-<uid>/<key>`, as does a path whose longest socket would pass 100 bytes (`runtimeDir()`; the kernel
+  limit is 108). macOS: there is no `XDG_RUNTIME_DIR`, so it is always `/tmp/xpi-roost-<uid>/<key>` (not `$TMPDIR`,
+  whose path is long; the limit is 104). Under `/tmp` both levels are checked to be this user's directories, not links
+  (`checkLevels`). `ROOST_RUNTIME_DIR` overrides it on both.
+- **node-pty.** Linux: no prebuild; it compiles at install (python3, make, a C++ compiler). An install that skips
+  scripts (`npm ci --ignore-scripts`, as CI does) needs `npm rebuild node-pty`. It is an optional dependency, so an
+  install that cannot compile it still succeeds and roost says how to get it. macOS: a prebuild ships with a
+  `spawn-helper` executable that can lose its execute bit; the host sets it again (`fixSpawnHelper`).
+- **Process groups.** Hosts are started detached (their own process group and session) on both, so a daemon's exit or
+  its service manager does not take the sessions with it.
+- **The login service.** Linux: a systemd user unit in `~/.config/systemd/user`, `systemctl --user enable`, started
+  now only when no daemon runs; `KillMode=process` so stopping the daemon leaves the sessions in its cgroup alone. A
+  user unit runs from login until the last session of the user ends; `loginctl enable-linger <user>` keeps it running
+  without a login. The unit keeps the `ROOST_RUNTIME_DIR` (else `XDG_RUNTIME_DIR`) and `ROOST_HOME` of the terminal
+  that installed it; a terminal that resolves another runtime directory is told `other_runtime_dir`. macOS: a launchd
+  agent in `~/Library/LaunchAgents`, `launchctl bootstrap gui/<uid>`; `launchctl bootout` SIGTERMs the daemon the
+  agent started (it shuts down keeping its sessions), so uninstall and a reinstall wait for it and start it again.
+- **Windows**: not supported (decision 10); the adapter says so.
+
 ## Known limits
 
-- macOS and Linux only (decision 10): Unix PTYs and sockets.
+- Linux and macOS only (decision 10): Unix PTYs and sockets.
 - A session interrupted by a machine restart, or by its host's death, ends; it does not resume on its own (M38 is not
   ported, phase 2 decision 1). A reply or `respawn` starts it again.
 - Schedules run only while the daemon runs: on demand, or from login with `xpi roost daemon install`. A slot missed

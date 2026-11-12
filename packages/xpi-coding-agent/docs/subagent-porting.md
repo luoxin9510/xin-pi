@@ -1,5 +1,14 @@
 # Porting the subagent extension to another pi-based agent
 
+> **In the component menu.** This guide covers four entries of [Porting xpi features](porting.md): [the Agent
+> tool](porting.md#subagents-agent-tool), [names and SendMessage](porting.md#subagents-names-and-sendmessage),
+> [background](porting.md#subagents-background) and [the panel and screens](porting.md#subagents-panel-and-screens),
+> plus the host side of [workflows](porting.md#workflows). Depends on: [codemode](porting.md#codemode) (or `Agent` made
+> a direct tool), an rpc mode in your agent's CLI, child processes and session files. Platform notes, Linux first: each
+> child runs in its own process group (`src/extensions/subagent/process-tree.ts`), so a stop or the parent's exit
+> signals its whole tree, and worktree isolation needs `git` on the PATH. macOS behaves the same. On Windows there are
+> no process groups and a child is killed alone.
+
 The subagent extension is a built-in of xpi (xin-pi), written against pi 1.5.0 and since evolved with xpi. Many teams run their own agent
 built on pi: a fork, a rebranded build, or an app on pi's SDK with its own extensions. This guide lists every pi
 contract the subagent extension relies on, which file relies on it, and what still works if your agent differs. Work through it
@@ -23,8 +32,9 @@ the UI parts can be left out (see [Without pi's TUI](#without-pis-tui)).
 
 ## 1. Child process
 
-the subagent extension starts every subagent as `<piCommand> --mode rpc ...` (`subagent.piCommand`, default `pi`), with stdin, stdout
-and stderr as pipes and the parent's cwd.
+The subagent extension starts every subagent as `<piCommand> --mode rpc ...` (`subagent.piCommand`; unset, the same
+build as the running process: its Node and entry script, or a compiled binary itself,
+`src/extensions/subagent/invocation.ts`), with stdin, stdout and stderr as pipes and the parent's cwd.
 
 ### Command-line flags (`src/extensions/subagent/resolve.ts`, `src/extensions/subagent/runner.ts`)
 
