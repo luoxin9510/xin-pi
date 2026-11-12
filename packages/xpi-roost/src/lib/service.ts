@@ -10,8 +10,9 @@
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { type DaemonStart, daemonCommand, daemonLocation } from "./client.ts";
+import { DaemonError, type DaemonStart, daemonCommand, daemonLocation } from "./client.ts";
 import { agentDirKey, roostHome } from "./paths.ts";
 
 export type ServiceKind = "launchd" | "systemd";
@@ -43,14 +44,19 @@ export interface ServiceDeps {
 	uid: number;
 	/** Runs launchctl or systemctl. */
 	run(cmd: string, args: string[]): RunResult;
-	/** Whether the agent directory's daemon answers now. */
-	daemonRunning(): Promise<boolean>;
+	/** The pid of the agent directory's daemon (the state lock's live holder), if one runs. */
+	daemonPid(): number | undefined;
+	/** Starts the daemon as any client does (`connectOrStart`: detached, outside the service). */
+	startDaemon(): Promise<void>;
+	sleep(ms: number): Promise<void>;
+	/** How long a daemon stopped by `launchctl bootout` may take to release its lock (default 15 s). */
+	stopTimeoutMs?: number;
 }
 
-export function defaultServiceDeps(daemonRunning: () => Promise<boolean>): ServiceDeps {
+export function defaultServiceDeps(daemonPid: () => number | undefined, startDaemon: () => Promise<void>): ServiceDeps {
 	return {
 		platform: process.platform,
-		home: process.env.HOME ?? "",
+		home: homedir(),
 		uid: process.getuid?.() ?? 0,
 		run: (cmd, args) => {
 			const r = spawnSync(cmd, args, { encoding: "utf8" });
@@ -60,7 +66,9 @@ export function defaultServiceDeps(daemonRunning: () => Promise<boolean>): Servi
 				stderr: r.stderr ?? (r.error ? String(r.error.message) : ""),
 			};
 		},
-		daemonRunning,
+		daemonPid,
+		startDaemon,
+		sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
 	};
 }
 
@@ -99,7 +107,8 @@ const xml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replac
 
 /**
  * A launchd agent: run at load (each login), never kept alive. AbandonProcessGroup: when the daemon exits, launchd
- * leaves the sessions' processes alone (their hosts are in groups of their own anyway).
+ * leaves the rest of its process group alone (the sessions' hosts are in groups of their own anyway). It does stop the
+ * daemon itself on `launchctl bootout` (SIGTERM, which the daemon takes as `daemon stop --keep-workers`).
  */
 export function launchdPlist(spec: ServiceSpec): string {
 	const str = (s: string) => `<string>${xml(s)}</string>`;
@@ -137,9 +146,13 @@ ${env}
 `;
 }
 
-/** systemd's quoting of one word of ExecStart or Environment: `%` and `$` escaped, quoted when it needs to be. */
-function sdQuote(s: string): string {
-	const e = s.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/%/g, "%%").replace(/\$/g, "$$$$");
+/**
+ * systemd's quoting of one word: `%` (specifiers) always, `\` and `"` inside quotes, quoted when it needs to be. `$`
+ * is doubled only in ExecStart, where systemd expands variables; Environment= does not, and `$$` would stay `$$`.
+ */
+function sdQuote(s: string, exec: boolean): string {
+	let e = s.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/%/g, "%%");
+	if (exec) e = e.replace(/\$/g, "$$$$");
 	return /[\s"'\\;]/.test(s) || s === "" ? `"${e}"` : e;
 }
 
@@ -148,13 +161,13 @@ function sdQuote(s: string): string {
  * daemon (also `daemon stop --keep-workers`) does not take the sessions in its cgroup with it.
  */
 export function systemdUnit(spec: ServiceSpec): string {
-	const env = Object.entries(spec.env).map(([k, v]) => `Environment=${sdQuote(`${k}=${v}`)}`);
+	const env = Object.entries(spec.env).map(([k, v]) => `Environment=${sdQuote(`${k}=${v}`, false)}`);
 	return `[Unit]
 Description=xpi roost daemon (${spec.agentDir.replace(/%/g, "%%")})
 
 [Service]
 Type=simple
-ExecStart=${[spec.execPath, ...spec.args].map(sdQuote).join(" ")}
+ExecStart=${[spec.execPath, ...spec.args].map((a) => sdQuote(a, true)).join(" ")}
 ${env.join("\n")}
 WorkingDirectory=/
 KillMode=process
@@ -170,68 +183,121 @@ export function serviceFile(kind: ServiceKind, spec: ServiceSpec): string {
 	return kind === "launchd" ? launchdPlist(spec) : systemdUnit(spec);
 }
 
-const unsupported = (platform: string) =>
-	new Error(`a login service is for macOS (launchd) and Linux (systemd), not ${platform}`);
+/** What install and uninstall refuse before touching anything. */
+function refuse(deps: ServiceDeps): ServiceKind {
+	const kind = serviceKind(deps.platform);
+	if (!kind) throw new Error(`a login service is for macOS (launchd) and Linux (systemd), not ${deps.platform}`);
+	if (deps.uid === 0)
+		throw new Error("the login service is per user: run this as yourself, not as root (do not use sudo)");
+	return kind;
+}
 
 function failed(what: string, r: RunResult): Error {
 	return new Error(`${what} failed (${r.code}): ${(r.stderr || r.stdout).trim() || "no output"}`);
 }
 
+/** The pid launchd has for the job, when it is loaded and its process runs (`launchctl print`'s `pid = N`). */
+function launchdJobPid(deps: ServiceDeps, target: string): number | undefined {
+	const r = deps.run("launchctl", ["print", target]);
+	const m = r.code === 0 ? /^\s*pid = (\d+)\s*$/m.exec(r.stdout) : null;
+	return m ? Number(m[1]) : undefined;
+}
+
 /**
- * Writes the service file and registers it. launchd: `bootout` of an older one, then `bootstrap` (RunAtLoad starts a
- * daemon now; one that finds another already running exits at once). systemd: `daemon-reload`, `enable`, and `start`
- * only when no daemon answers (never a second one). Returns what was done, for the user.
+ * `launchctl bootout` stops a running job's process: SIGTERM, which the daemon takes as `daemon stop --keep-workers`
+ * (its sessions keep running). When the daemon was the job's process, waits until it has let go of the state lock, so
+ * the next daemon can take it. Returns whether the service's daemon was stopped.
+ */
+async function bootout(deps: ServiceDeps, target: string): Promise<boolean> {
+	const jobPid = launchdJobPid(deps, target);
+	const ours = jobPid !== undefined && deps.daemonPid() === jobPid;
+	deps.run("launchctl", ["bootout", target]);
+	if (!ours) return false;
+	const timeout = deps.stopTimeoutMs ?? 15_000;
+	for (let waited = 0; deps.daemonPid() === jobPid; waited += 100) {
+		if (waited >= timeout)
+			throw new Error(
+				`the daemon (pid ${jobPid}) did not stop within ${Math.round(timeout / 1000)} s after launchctl bootout; see xpi roost daemon logs`,
+			);
+		await deps.sleep(100);
+	}
+	return true;
+}
+
+/**
+ * Writes the service file and registers it. launchd: `bootout` of the one installed before (it stops the daemon that
+ * one started; waited for), then `bootstrap`, whose RunAtLoad starts a daemon now (one that finds another already
+ * running exits at once). systemd: `daemon-reload`, `enable`, and `start` only when no daemon runs (never a second
+ * one). A failed registration removes the file again. Returns what was done, for the user.
  */
 export async function installService(start: DaemonStart, deps: ServiceDeps): Promise<string> {
-	const kind = serviceKind(deps.platform);
-	if (!kind) throw unsupported(deps.platform);
+	const kind = refuse(deps);
+	if (!existsSync(start.daemonEntry))
+		throw new DaemonError(`daemon entry not found: ${start.daemonEntry}`, "not_built");
 	const spec = serviceSpec(kind, start);
 	const path = servicePath(kind, deps.home, spec.name);
 	mkdirSync(dirname(path), { recursive: true });
 	mkdirSync(dirname(spec.logPath), { recursive: true });
-	const running = await deps.daemonRunning();
+	const failedWith = (err: Error) => {
+		rmSync(path, { force: true });
+		return err;
+	};
 	if (kind === "launchd") {
 		const domain = `gui/${deps.uid}`;
-		// an older one (another xpi path): replaced
-		deps.run("launchctl", ["bootout", `${domain}/${spec.name}`]);
+		const restarted = await bootout(deps, `${domain}/${spec.name}`);
+		const running = deps.daemonPid() !== undefined;
 		writeFileSync(path, serviceFile(kind, spec));
 		const r = deps.run("launchctl", ["bootstrap", domain, path]);
-		if (r.code !== 0) throw failed("launchctl bootstrap", r);
-		return `installed ${path} (launchd ${spec.name}): the daemon starts at each login${running ? "; the one running now keeps running" : "; started now"}`;
+		if (r.code !== 0) throw failedWith(failed("launchctl bootstrap", r));
+		const now = restarted
+			? "the daemon it ran before was stopped and restarted under the new service (sessions kept running)"
+			: running
+				? "the daemon running now (started outside the service) keeps running"
+				: "started now";
+		return `installed ${path} (launchd ${spec.name}): the daemon starts at each login; ${now}`;
 	}
+	const running = deps.daemonPid() !== undefined;
 	writeFileSync(path, serviceFile(kind, spec));
 	const sd = (args: string[]) => deps.run("systemctl", ["--user", ...args]);
 	let r = sd(["daemon-reload"]);
-	if (r.code !== 0) throw failed("systemctl --user daemon-reload", r);
+	if (r.code !== 0) throw failedWith(failed("systemctl --user daemon-reload", r));
 	r = sd(["enable", `${spec.name}.service`]);
-	if (r.code !== 0) throw failed("systemctl --user enable", r);
+	if (r.code !== 0) {
+		const err = failedWith(failed("systemctl --user enable", r));
+		sd(["daemon-reload"]);
+		throw err;
+	}
 	if (!running) {
 		r = sd(["start", `${spec.name}.service`]);
 		if (r.code !== 0) throw failed("systemctl --user start", r);
 	}
-	return `installed ${path} (systemd ${spec.name}.service): the daemon starts at each login${running ? "; the one running now keeps running" : "; started now"}`;
+	return `installed ${path} (systemd ${spec.name}.service): the daemon starts at each login; ${running ? "the daemon running now keeps running" : "started now"}`;
 }
 
 /**
- * Unregisters the service and removes its file. The daemon running now keeps running (stop it with `daemon stop`):
- * launchd's `bootout` of a job whose process left its group, and systemd's `disable` without `--now`.
+ * Unregisters the service and removes its file. systemd: `disable` without `--now`, so the daemon keeps running.
+ * launchd: `bootout` stops the daemon the service started (sessions keep running); it is started again as any client
+ * starts it, outside the service, so schedules keep running. A daemon started outside the service is left alone.
  */
 export async function uninstallService(agentDir: string, deps: ServiceDeps): Promise<string> {
-	const kind = serviceKind(deps.platform);
-	if (!kind) throw unsupported(deps.platform);
+	const kind = refuse(deps);
 	const name = serviceName(kind, agentDir);
 	const path = servicePath(kind, deps.home, name);
 	if (!existsSync(path)) return "no login service installed for this agent directory";
+	const removed = `removed ${path}: the daemon no longer starts at login`;
 	if (kind === "launchd") {
-		deps.run("launchctl", ["bootout", `gui/${deps.uid}/${name}`]);
+		const stopped = await bootout(deps, `gui/${deps.uid}/${name}`);
 		rmSync(path, { force: true });
-	} else {
-		const r = deps.run("systemctl", ["--user", "disable", `${name}.service`]);
-		if (r.code !== 0) throw failed("systemctl --user disable", r);
-		rmSync(path, { force: true });
-		deps.run("systemctl", ["--user", "daemon-reload"]);
+		if (!stopped)
+			return `${removed}${deps.daemonPid() !== undefined ? " (the daemon running now keeps running)" : ""}`;
+		await deps.startDaemon();
+		return `${removed}; the daemon the service had started was stopped and started again outside the service (sessions kept running)`;
 	}
-	return `removed ${path}: the daemon no longer starts at login (the one running now keeps running)`;
+	const r = deps.run("systemctl", ["--user", "disable", `${name}.service`]);
+	if (r.code !== 0) throw failed("systemctl --user disable", r);
+	rmSync(path, { force: true });
+	deps.run("systemctl", ["--user", "daemon-reload"]);
+	return `${removed}${deps.daemonPid() !== undefined ? " (the daemon running now keeps running)" : ""}`;
 }
 
 /** `daemon status`'s line: whether the service is installed, and for this xpi or another path. */

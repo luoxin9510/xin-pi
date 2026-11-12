@@ -230,7 +230,11 @@ describe("xpi roost", () => {
 		const [file] = readdirSync(plists);
 		expect(install.out).toContain(`installed ${join(plists, file!)}`);
 		expect(install.out).toContain("started now");
-		expect(serviceCalls.map((c) => c.slice(0, 2).join(" "))).toEqual(["launchctl bootout", "launchctl bootstrap"]);
+		expect(serviceCalls.map((c) => c.slice(0, 2).join(" "))).toEqual([
+			"launchctl print",
+			"launchctl bootout",
+			"launchctl bootstrap",
+		]);
 		expect(readFileSync(join(plists, file!), "utf8")).toContain(`<string>${DAEMON}</string>`);
 		const status = await roost("daemon", "status");
 		expect(status.out).toMatch(/service {5}installed \(launchd dev\.xpi\.roost\.[0-9a-f]{12}\)\n/);

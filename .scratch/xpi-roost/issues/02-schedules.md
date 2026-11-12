@@ -76,8 +76,20 @@ Haiku check when it changes what a session does, and the user docs for what it a
       `test/service.test.ts` (files, shared command, install/uninstall/status with fakes on darwin, linux and win32) and
       two in `test/cli.test.ts` (install/status/uninstall through the CLI with a fake launchctl in a temporary home; the
       `other_runtime_dir` status with a daemon started under another runtime directory).
-- [ ] S12a real check on macOS before merge (decision 15): `daemon install`, `status`, `uninstall`, and a Haiku run
+      Review round 1 (PR #78): `launchctl bootout` SIGTERMs the job's running process, so on macOS uninstall and a
+      reinstall used to stop a daemon the service had started while saying it kept running. Now `bootout` first reads
+      the job's pid (`launchctl print`); when it is the state lock's holder, it waits (bounded, 15 s) until the lock is
+      let go of. Uninstall then starts the daemon again outside the service (`connectOrStart`); a reinstall bootstraps
+      only after that, so RunAtLoad's daemon takes the lock. SIGTERM is `shutdown(keepWorkers: true)` in the daemon,
+      so sessions keep running. systemd `Environment=` no longer doubles `$` (only ExecStart does); the home is
+      `os.homedir()`; install checks the daemon entry first (`not_built`); install and uninstall refuse uid 0; a failed
+      `daemon-reload`/`enable` (and `bootstrap`) removes the written file again.
+- [x] S12a real check on macOS before merge (decision 15): `daemon install`, `status`, `uninstall`, and a Haiku run
       fired by a daemon the login service started (it finds `git` and authenticates)
+      Notes (done by the coordinator on 26165af40): install wrote the plist and launchd started the daemon; `status`
+      said installed; a manual schedule run by that daemon ran `git status --short` with Haiku, found `git` and
+      authenticated; `daemon stop --keep-workers` kept the session; uninstall unloaded and removed the plist. The
+      uninstall and reinstall behaviour changed in review round 1 is to be checked again for real by the coordinator.
 
 ## PR 4: wrap-up and release (branch `roost-phase2-docs`)
 

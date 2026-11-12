@@ -182,8 +182,11 @@ user unit in `~/.config/systemd/user` on Linux, named by the agent directory's k
 `xpi-roost-<key>.service`). It starts the daemon once per login and never again: `xpi roost daemon stop` is not undone
 until the next login, and launchd or systemd leaves the sessions alone when the daemon exits. On Linux it also starts the daemon at
 once when none is running; on macOS loading it starts one, which exits when a daemon already runs.
-`xpi roost daemon uninstall` removes it and leaves the running daemon alone; `xpi roost daemon status` says whether it
-is installed. Notes:
+`xpi roost daemon uninstall` removes it; the daemon keeps running, so schedules do too. On macOS, unloading the
+service stops the daemon it started (its sessions keep running, as with `daemon stop --keep-workers`), so uninstall
+waits for it to stop and starts it again as any `xpi roost` command would, outside the service; installing again
+likewise restarts that daemon under the new service. `xpi roost daemon status` says whether the service is installed.
+`install` and `uninstall` refuse to run as root: run them as yourself, not with `sudo`. Notes:
 
 - The service runs the xpi that installed it (its Node and its daemon file, by path) with the location of the roost
   and nothing else of your environment: the runs of schedules carry the environment they were made with, not the

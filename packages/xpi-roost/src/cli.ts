@@ -514,16 +514,12 @@ export async function runRoostCli(argv: string[], opts: RoostCliOptions): Promis
 
 	/** The service's dependencies: the caller's (tests), else this system's. */
 	function serviceDeps(): ServiceDeps {
-		const running = async () => {
-			if (readStateLock(start.agentDir)) return true;
-			try {
-				(await DaemonClient.connect()).close();
-				return true;
-			} catch {
-				return false;
-			}
+		const daemonPid = () => {
+			const pid = readStateLock(start.agentDir)?.pid;
+			return typeof pid === "number" ? pid : undefined;
 		};
-		return { ...defaultServiceDeps(running), ...opts.service };
+		const startDaemon = async () => (await connect()).close();
+		return { ...defaultServiceDeps(daemonPid, startDaemon), ...opts.service };
 	}
 
 	async function cmdDaemon(sub: string | undefined, args: string[]): Promise<void> {
