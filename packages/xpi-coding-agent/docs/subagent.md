@@ -979,4 +979,6 @@ rerun on xpi 1.5.1.
 
 [subagent-porting.md](subagent-porting.md) lists every pi contract the extension relies on (CLI flags, the rpc protocol,
 session files, extension and TUI APIs), the file that relies on it, what still works without it, and how to run the
-test suites against another binary (`XPI_SUBAGENT_TEST_PI`).
+test suites against another binary (`XPI_SUBAGENT_TEST_PI`). To choose which parts to port (the Agent tool, names and
+`SendMessage`, background, the panel, workflows) and see what each depends on, start from the menu in
+[Porting xpi features](porting.md).

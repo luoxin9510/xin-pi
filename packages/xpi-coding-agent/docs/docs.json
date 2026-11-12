@@ -149,6 +149,10 @@
           "path": "subagent.md"
         },
         {
+          "title": "Porting xpi features",
+          "path": "porting.md"
+        },
+        {
           "title": "Subagent porting",
           "path": "subagent-porting.md"
         },

@@ -56,7 +56,8 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
     in untrusted projects; today `/review`, which runs the built-in read-only `reviewer` agent in `builtin/reviewer.md`),
     the `fork` agent type and `/subtask`, the panel, `/subagents`, the `--agents` flag. Settings namespace `subagent.*`, env `XPI_SUBAGENT_*`, branches `subagent/<id>`. It was the separate
     extension pi-pipipi. User docs: [subagent.md](../packages/xpi-coding-agent/docs/subagent.md); porting contracts:
-    [subagent-porting.md](../packages/xpi-coding-agent/docs/subagent-porting.md).
+    [subagent-porting.md](../packages/xpi-coding-agent/docs/subagent-porting.md), reached from the component menu
+    [porting.md](../packages/xpi-coding-agent/docs/porting.md).
   - `relay` (`src/extensions/relay/`, off with `-builtin:relay`): the virtual model `relay/auto` (a lead model plans and
     reviews, a worker model builds), the `handover` and `handback` tools, `/handover`, `/handback`, `/relay`. Settings
     namespace `relay.*`. It uses the extension API only (a virtual model, the `agent_before_settle` boundary with a

@@ -377,3 +377,9 @@ shows its own); the task board and workspaces, the concierge, worktree isolation
 `/compare`, sessions from agent definitions, terminal agents other than xpi, the summary model, pi-mobile and telemetry.
 The list, with the decision behind each, is in [Left out](../../xpi-roost/docs/porting.md#left-out). pi-roost's state
 and `roost.json` are not read: its sessions do not appear here.
+
+## Port background sessions
+
+To bring background sessions into another agent harness, start from [Porting xpi features](porting.md#roost-core):
+the roost core, the session side, the hub, schedules and the login service are separate entries there, each with its
+dependencies and a link to the detailed guide, [Porting roost](../../xpi-roost/docs/porting.md).

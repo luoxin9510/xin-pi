@@ -214,3 +214,8 @@ error that names the key. The thinking level selected for `relay/auto` itself is
   ways: the main model alone, with the `Agent` tool, and as the lead of `relay/auto`. It reports the result, each
   model's tokens and cost, and how often the model delegated or handed over. `EVAL_MAIN` names the main model
   (default Haiku); `--force` tells the model to delegate, for comparison with its own decision.
+
+## Porting
+
+The relay is one entry of [Porting xpi features](porting.md#relay): what it needs from the host (a virtual model, the
+`agent_before_settle` boundary with a compaction draft), what to copy and rename, and how to verify it.

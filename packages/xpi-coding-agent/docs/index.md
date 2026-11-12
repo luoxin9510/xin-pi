@@ -26,6 +26,11 @@ Use the [Quickstart customization chooser](quickstart.md#choose-how-to-customize
 - Use [subagents](subagent.md) to run Claude Code-compatible agents from codemode scripts, in parallel or in the background.
 - See [subagent porting](subagent-porting.md) for the contracts the extension relies on.
 
+## Port xpi features to another harness
+
+[Porting xpi features](porting.md) is a menu of the portable components (codemode, subagents, workflows, relay,
+background sessions, schedules, the login service): pick what you want, see what each depends on, and follow its guide.
+
 ## Automate or embed Pi
 
 - Use [print mode](cli.md#invocation-and-output) for one-off and scripted tasks.
