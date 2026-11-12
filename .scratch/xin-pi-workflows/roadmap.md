@@ -19,7 +19,9 @@ Order of work, one spec each, each shippable on its own:
 | 4 | fork (a child that inherits main's conversation) | Largest change (context and cache inheritance); spec after 1-3 land |
 | 5 | Inert agent-file fields: `mcpServers`, `hooks`, `permissionMode`, `background`, `autoCompactWindow`, `initialPrompt`; `--agents` | Only the ones the owner uses; spec after 1-3 land |
 
-Not planned: agent teams (pi-roost covers multi-session work), plugin and managed agent sources.
+09 (`09-smart-waiting.md`, waiting for agents in codemode): Grill 6 accepted 2026-11-12, spec for approval.
+
+Not planned: plugin and managed agent sources. Agent teams have their own spec (`.scratch/agent-teams/`).
 
 Rules for every spec here: real-model checks by hand on Claude Haiku 5.5 with a temp `XPI_CODING_AGENT_DIR`; no test may
 run `npm test`, `vitest` or `node --test`; `docs/subagent.md` updated in the same PR; the by-hand suites rerun after any
