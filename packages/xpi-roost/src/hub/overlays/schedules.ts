@@ -2,8 +2,8 @@
 // with its rule, next run, last run or skip; on the selected one: run now, pause or resume, edit the rule, remove.
 // It holds nothing of the view: its host, the slice of the port it uses, and how a launch is built again (an edit
 // builds it in this process, as `xpi roost schedule edit` does).
-import { parseKey, truncateToWidth, visibleWidth } from "xpi-tui";
-import type { DispatchArgs, ScheduleRow } from "../../lib/protocol.ts";
+import { decodeKittyPrintable, isKeyRelease, parseKey, truncateToWidth, visibleWidth } from "xpi-tui";
+import type { DispatchArgs, JobRow, ScheduleRow } from "../../lib/protocol.ts";
 import { agoText, normalizeWhen, parseWhen, untilText } from "../../lib/schedule.ts";
 import { DOUBLE_PRESS_MS, type Overlay, type OverlayHost } from "../overlay-host.ts";
 import type { RoostPort } from "../roost-port.ts";
@@ -17,8 +17,15 @@ export interface SchedulesPort {
 /** What the overlay needs of the view. */
 export type SchedulesHost = Pick<
 	OverlayHost<SchedulesPort>,
-	"port" | "theme" | "say" | "close" | "requestRender" | "termRows" | "notice"
+	"port" | "theme" | "say" | "close" | "requestRender" | "termRows" | "notice" | "rows" | "current"
 >;
+
+/** Decision 8: what became of a run, as its row says (nothing when it is no longer listed). */
+function runResult(row: JobRow | undefined): string | undefined {
+	if (!row) return undefined;
+	if (row.state === "blocked") return "needs input";
+	return row.state;
+}
 
 export interface SchedulesOpts {
 	/**
@@ -67,7 +74,8 @@ export async function createSchedulesOverlay(
 			await load();
 			if (list.length === 0) {
 				host.say("no schedules left");
-				host.close();
+				// only when this overlay is the one shown (another may have replaced it meanwhile)
+				if (host.current() === overlay) host.close();
 				return;
 			}
 			index = Math.min(index, list.length - 1);
@@ -104,10 +112,11 @@ export async function createSchedulesOverlay(
 				: s.nextAt === null
 					? "runs when asked"
 					: `next ${untilText(s.nextAt, now)}`;
+			const result = s.lastJob ? runResult(host.rows().get(s.lastJob)) : undefined;
 			const last =
 				s.lastRunAt === null
 					? "not run yet"
-					: `last ${agoText(now - s.lastRunAt)} ago${s.lastRunWhy && s.lastRunWhy !== "due" ? ` (${s.lastRunWhy})` : ""}`;
+					: `last ${agoText(now - s.lastRunAt)} ago${s.lastRunWhy && s.lastRunWhy !== "due" ? ` (${s.lastRunWhy})` : ""}${result ? `: ${result}` : ""}`;
 			const mark = i === index ? t.fg("accent", "› ") : "  ";
 			out.push(truncateToWidth(`${mark}${t.fg("accent", s.name)}  ${s.when}  · ${next} · ${last}`, width));
 			const where = [oneLine(s.task ?? ""), s.cwd, s.model].filter(Boolean).join(" · ");
@@ -171,14 +180,23 @@ export async function createSchedulesOverlay(
 						return `${r.name}: ${r.when}${r.nextAt !== null && !r.paused ? `, next run ${untilText(r.nextAt)}` : ""}`;
 					});
 				} else if (key === "backspace") editing = editing.slice(0, -1);
-				else if (data.length === 1 && data >= " ") editing += data;
+				else {
+					// typed as the hub's other inputs take it: a paste (one line), a kitty-encoded key decoded
+					const pasted = data.startsWith("\x1b[200~")
+						? data.replace(/\x1b\[20[01]~/g, "").replace(/[\r\n\t]+/g, " ")
+						: undefined;
+					const text = pasted ?? (isKeyRelease(data) ? undefined : (decodeKittyPrintable(data) ?? data));
+					if (text && !text.startsWith("\x1b") && !/[\x00-\x1f\x7f]/.test(text)) editing += text;
+				}
 				host.requestRender();
 				return;
 			}
 			if (key === "escape" || key === "ctrl+c" || data === "q") host.close();
-			else if (key === "up") index = Math.max(0, index - 1);
-			else if (key === "down") index = Math.min(list.length - 1, index + 1);
-			else if (key === "enter")
+			else if (key === "up" || key === "down") {
+				index = key === "up" ? Math.max(0, index - 1) : Math.min(list.length - 1, index + 1);
+				// a second x confirms the schedule the first one named
+				removeAt = 0;
+			} else if (key === "enter")
 				act(async (s) => {
 					const r = await port.schedules.run(s.name);
 					return `${s.name}: started ${r.id}`;

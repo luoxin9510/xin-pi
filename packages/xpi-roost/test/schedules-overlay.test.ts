@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { visibleWidth } from "xpi-tui";
 import { createSchedulesOverlay, type SchedulesOpts } from "../src/hub/overlays/schedules.ts";
-import type { DispatchArgs, ScheduleRow } from "../src/lib/protocol.ts";
+import type { DispatchArgs, JobRow, ScheduleRow } from "../src/lib/protocol.ts";
 import { fakeHost, tick } from "./support/overlay-host.ts";
 import { KEY } from "./support/overlay-keys.ts";
 import { fakePort } from "./support/roost-port.ts";
@@ -177,6 +177,71 @@ describe("phase 2: the schedules overlay", () => {
 			const { overlay, log } = await open(two);
 			overlay.handleInput!(k);
 			expect(log.closes).toBe(1);
+		}
+	});
+
+	it("decision 8: the last run's result, from its row in the hub; nothing when it is no longer listed", async () => {
+		const { overlay, rows } = await open(() => [sched(), sched({ name: "b", lastJob: "gone" })]);
+		const r = (state: JobRow["state"]) => ({ id: "abcd1234", state }) as JobRow;
+		rows.set("abcd1234", r("failed"));
+		expect(overlay.render(140)[2]).toBe("› nightly  daily 03:00  · next in 2h 05m · last 3h ago (catch-up): failed");
+		rows.set("abcd1234", r("blocked"));
+		expect(overlay.render(140)[2]).toMatch(/\(catch-up\): needs input$/);
+		rows.set("abcd1234", r("working"));
+		expect(overlay.render(140)[2]).toMatch(/: working$/);
+		rows.set("abcd1234", r("done"));
+		expect(overlay.render(140)[2]).toMatch(/: done$/);
+		// "gone" is not a row: no result
+		expect(overlay.render(140)[4]).toBe("  b  daily 03:00  · next in 2h 05m · last 3h ago (catch-up)");
+	});
+
+	it("the rule field takes a bracketed paste (one line) and kitty-encoded keys", async () => {
+		const { overlay, calls } = await open(two);
+		overlay.handleInput!("e");
+		for (let i = 0; i < "daily 03:00".length; i++) overlay.handleInput!("\x7f");
+		overlay.handleInput!("\x1b[200~every\n2\x1b[201~");
+		// "h" as a kitty terminal sends it (CSI-u), then its release, which types nothing
+		overlay.handleInput!("\x1b[104u");
+		overlay.handleInput!("\x1b[104;1:3u");
+		expect(overlay.render(140).at(-2)).toBe("rule for nightly: every 2h▏");
+		overlay.handleInput!(KEY.enter);
+		await tick();
+		expect(calls.filter((c) => c.path === "schedules.edit")[0]!.args[0]).toMatchObject({ when: "every 2h" });
+	});
+
+	it("x's second press must come on the same schedule: moving the selection starts again", async () => {
+		const { overlay, calls, texts } = await open(two);
+		overlay.handleInput!("x");
+		overlay.handleInput!(KEY.down);
+		overlay.handleInput!("x");
+		await tick();
+		expect(calls.filter((c) => c.path === "schedules.rm")).toEqual([]);
+		expect(texts().at(-1)).toBe("x again to remove ask (its runs stay listed)");
+		overlay.handleInput!("x");
+		await tick();
+		expect(calls.filter((c) => c.path === "schedules.rm")).toEqual([{ path: "schedules.rm", args: ["ask"] }]);
+	});
+
+	it("the last one removed closes the overlay, only when it is the one shown", async () => {
+		for (const shown of [true, false]) {
+			vi.useFakeTimers({ toFake: ["Date"] });
+			vi.setSystemTime(NOW);
+			let left = [sched()];
+			const p = fakePort({
+				"schedules.list": async () => ({ schedules: left }),
+				"schedules.rm": async (name: string) => {
+					left = [];
+					return { name };
+				},
+			});
+			const h = fakeHost(p.port);
+			const o = (await createSchedulesOverlay(h.host, { rebuild: launch }))!;
+			if (shown) h.mount(o);
+			o.handleInput!("x");
+			o.handleInput!("x");
+			await tick(20);
+			expect(h.texts()).toContain("no schedules left");
+			expect(h.log.closes, String(shown)).toBe(shown ? 1 : 0);
 		}
 	});
 });

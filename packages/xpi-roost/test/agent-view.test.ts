@@ -149,6 +149,10 @@ class FakeClient {
 		if (op === "schedules") return { schedules: this.schedules };
 		if (op === "schedule-add") {
 			const a = args as { name: string; when: string; task?: string };
+			if (a.name === "dup") {
+				await new Promise((r) => setTimeout(r, 5));
+				throw Object.assign(new Error("a schedule named dup exists (remove it first)"), { code: "exists" });
+			}
 			return { ...scheduleRow(a.name), when: a.when, task: a.task ?? null, nextAt: Date.now() + 2 * 3600_000 };
 		}
 		if (op === "schedule-run") return { name: (args as { name: string }).name, id: "run1" };
@@ -2347,6 +2351,17 @@ describe("phase 2: /schedule in the hub (spec 02, decisions 8-10)", () => {
 		expect(out).toMatch(/schedule nightly: cron "0 3 \* \* \*" · next run in (2h|1h 59m)/);
 		// the input is cleared
 		expect(out).not.toContain("check the build");
+	});
+
+	it("the input is cleared once the daemon takes it; a refusal says why and leaves the text to be changed", async () => {
+		const { view, client } = setup([], { extra: { scheduleLaunch } });
+		await view.start();
+		await submit(view, "/schedule dup every 2h check");
+		await sleep(30);
+		const out = view.render(120).join("\n");
+		expect(out).toContain("schedule dup: a schedule named dup exists (remove it first)");
+		expect(out).toContain("/schedule dup every 2h check");
+		expect(client.requests.filter((r) => r.op === "schedule-add")).toHaveLength(1);
 	});
 
 	it("a bad rule or name is said; nothing is sent, the text stays", async () => {

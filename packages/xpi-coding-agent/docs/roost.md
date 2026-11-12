@@ -253,8 +253,8 @@ The hub's own commands, typed in the input:
 | `/resume` | Open a past session in the background (xpi's session list: search, this directory or all) |
 | `/usage` | What the sessions spent: today, in all, by model and by session |
 | `/log` | What happened lately: starts, questions, results, replies, schedules' runs (catch-ups marked) and skipped slots (a missing directory too), newest first |
-| `/schedule <name> <when> <task>` | Add a [schedule](#schedules) in the hub's directory: a new session on the rule, with the model and thinking level chosen for new sessions (else the `roost` settings'). The launch is built as `xpi roost schedule add` builds it: the trust decision stored for the directory only, your environment as the hub's process has it, filtered by the `roost` settings, and the hub's session directory |
-| `/schedule` | The schedules: rule, next run, last run or skip. Enter runs the selected one now, `p` pauses or resumes it, `e` edits its rule (the launch is built again here, with its stored task, model and thinking), `x` twice removes it, `r` reloads |
+| `/schedule <name> <when> <task>` | Add a [schedule](#schedules) in the hub's directory (the text stays in the input when the daemon refuses it): a new session on the rule, with the model and thinking level chosen for new sessions (else the `roost` settings'). The launch is built as `xpi roost schedule add` builds it: the trust decision stored for the directory only, your environment as the hub's process has it, filtered by the `roost` settings, and the hub's session directory |
+| `/schedule` | The schedules: rule, next run, last run with its result (done, failed, needs input, ...; while the run is still listed) or skip. Enter runs the selected one now, `p` pauses or resumes it, `e` edits its rule (the launch is built again here, with its stored task, model and thinking), `x` twice removes it, `r` reloads |
 | `/exit` | Leave the hub (also `/quit`) |
 
 xpi's own commands typed in a peek run in that session's xpi: those that show something (`/session`, `/export`,

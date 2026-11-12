@@ -1113,8 +1113,9 @@ export class AgentView implements Component {
 			case "schedule":
 			case "schedules":
 				if (!this.o.scheduleLaunch) break;
+				// the text stays until the daemon takes it (a refusal leaves it to be changed)
 				if (arg) {
-					if (this.addSchedule(arg)) return done();
+					this.addSchedule(arg);
 					return true;
 				}
 				void this.showSchedules();
@@ -1239,9 +1240,11 @@ export class AgentView implements Component {
 
 	/**
 	 * Phase 2 /schedule <name> <when> <task>: a schedule here (the hub's directory), with the model and thinking chosen
-	 * for new sessions, else the roost settings'. False (the text stays) when it is not one.
+	 * for new sessions, else the roost settings'. The input is cleared once the daemon has it (still as typed); a
+	 * refusal leaves it. False when it was not sent.
 	 */
 	private addSchedule(arg: string): boolean {
+		const typed = this.input.getValue();
 		const port = this.port;
 		const build = this.o.scheduleLaunch;
 		if (!port || !build) {
@@ -1263,12 +1266,13 @@ export class AgentView implements Component {
 		}
 		void port.schedules
 			.add({ name: p.name, when, task: p.task, launch })
-			.then((r) =>
+			.then((r) => {
+				if (this.input.getValue() === typed) this.input.setValue("");
 				this.say(
 					`schedule ${r.name}: ${r.when} · ${r.nextAt === null ? "runs when asked (/schedule: the list)" : `next run ${untilText(r.nextAt)}`}`,
 					"success",
-				),
-			)
+				);
+			})
 			.catch((err: unknown) => this.say(`schedule ${p.name}: ${(err as Error).message}`, "warning"));
 		return true;
 	}
