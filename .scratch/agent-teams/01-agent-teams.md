@@ -1,6 +1,6 @@
 # 01: Agent teams
 
-Status: draft for the owner's approval (Grill 1–4 in `decisions.md`, 2026-11-12). It had two independent reviews:
+Status: approved by the owner on 2026-11-12 (Grill 1–4 and the approval in `decisions.md`). It had two independent reviews:
 round 1 led to Grill 4, and round 2 found no blocking issue; its should-fix items are applied.
 
 ## Problem

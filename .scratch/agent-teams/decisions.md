@@ -84,7 +84,7 @@ accepted all nine recommendations ("好的可以").
     closes the screen. `x` stops a teammate in any state, idle included. Teammate rows that are not stopped never
     hide from the panel.
 23. **Old names after `/resume` (details 10).** The team is not restored automatically. The round 2 review proposed,
-    with the spec for the owner's approval, extending this to `/reload` and a crash, which also end the team. An `Agent` call or a
+    extending this to `/reload` and a crash, which also end the team; approved with the spec. An `Agent` call or a
     `SendMessage` with an old teammate's name continues it as a member of the new team, with its history. Its tasks
     stay its own.
 24. **Workflows.** A named `Agent` call from a workflow or workflow script is refused while teams are on.
@@ -92,6 +92,11 @@ accepted all nine recommendations ("好的可以").
       this holds only for foreground calls.
     - Corrected reason: a teammate outlives the script and reports to the lead, not to the script, so a script
       cannot use its result. Refusing keeps workflows deterministic.
-    - Proposed with the spec for the owner's approval.
+    - Approved with the spec.
 25. **Async hooks (details 11).** Besides `block(feedback)`, a handler may `hold(promise)` for an async decision,
     awaited up to 5 minutes. On a timeout the step is allowed and a warning is logged.
+
+## Approval (2026-11-12)
+
+The owner approved spec 01 ("批准"), including decision 23 extended to `/reload` and a crash and decision 24's
+corrected reason.
