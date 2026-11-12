@@ -381,6 +381,105 @@ describe.each(Object.keys(BACKENDS))("%s backend", (name) => {
 			expect(aborted).toBe(true);
 		});
 
+		describe("calls that outlive the script", () => {
+			// A tool that records whether its signal fired and settles when the test says so.
+			function slowTool(name: string) {
+				const state = { started: 0, aborted: 0, finish: (_value: unknown) => {} };
+				const tool: CodemodeTool = {
+					name,
+					execute: (_args, { signal }) =>
+						new Promise((resolve, reject) => {
+							state.started++;
+							state.finish = resolve;
+							signal.addEventListener("abort", () => {
+								state.aborted++;
+								reject(new Error("aborted"));
+							});
+						}),
+				};
+				return { tool, state };
+			}
+			const keepSlow = (target: { kind: string; name: string }) => target.kind === "tool" && target.name === "slow";
+
+			it.each([
+				["a normal end", "tools.slow(); tools.other(); return 'early'", { ok: true }],
+				[
+					"a throw",
+					"tools.slow(); tools.other(); throw new Error('boom')",
+					{ ok: false, error: { kind: "script" } },
+				],
+				["exit()", "tools.slow(); tools.other(); exit()", { ok: true, value: undefined }],
+				[
+					"the deadline",
+					"tools.slow(); tools.other(); await new Promise(() => {}).then(() => 0, () => 0); for (;;) await null",
+					{ ok: false, error: { kind: "timeout" } },
+				],
+			])("leaves the calls outlives names running on %s, and aborts the rest", async (_reason, code, expected) => {
+				const slow = slowTool("slow");
+				const other = slowTool("other");
+				const sandbox = newSandbox({ tools: [slow.tool, other.tool], timeoutMs: 300, outlives: keepSlow });
+				const result = await sandbox.execute(code);
+				expect(result).toMatchObject(expected);
+				expect(result.calls).toMatchObject([
+					{ name: "slow", status: "released" },
+					{ name: "other", status: "cancelled" },
+				]);
+				expect([slow.state.started, slow.state.aborted]).toEqual([1, 0]);
+				expect([other.state.started, other.state.aborted]).toEqual([1, 1]);
+				// Its settlement is ignored: the record keeps "released".
+				slow.state.finish("late");
+				await new Promise((r) => setTimeout(r, 10));
+				expect(result.calls[0]).toMatchObject({ status: "released" });
+			});
+
+			it("applies to globals too, which have no record", async () => {
+				const slow = slowTool("helper");
+				const sandbox = newSandbox({
+					globals: [slow.tool],
+					outlives: (target) => target.kind === "global" && target.name === "helper",
+				});
+				const result = await sandbox.execute("helper(); return 1");
+				expect(result).toMatchObject({ ok: true, value: 1, calls: [] });
+				expect([slow.state.started, slow.state.aborted]).toEqual([1, 0]);
+			});
+
+			it("aborts every call on an abort, outlives or not", async () => {
+				const slow = slowTool("slow");
+				const sandbox = newSandbox({ tools: [slow.tool], outlives: () => true });
+				const controller = new AbortController();
+				const pending = sandbox.execute("await tools.slow(); return 'never'", { signal: controller.signal });
+				while (slow.state.started === 0) await new Promise((r) => setTimeout(r, 5));
+				controller.abort();
+				const result = await pending;
+				expect(result).toMatchObject({ ok: false, error: { kind: "aborted" } });
+				expect(result.calls).toMatchObject([{ name: "slow", status: "cancelled" }]);
+				expect(slow.state.aborted).toBe(1);
+			});
+
+			it("aborts a call when outlives throws, and still ends", async () => {
+				const slow = slowTool("slow");
+				const sandbox = newSandbox({
+					tools: [slow.tool],
+					outlives: () => {
+						throw new Error("host bug");
+					},
+				});
+				const result = await sandbox.execute("tools.slow(); return 1");
+				expect(result).toMatchObject({ ok: true, value: 1, calls: [{ name: "slow", status: "cancelled" }] });
+				expect(slow.state.aborted).toBe(1);
+			});
+
+			it("aborts every call when the sandbox closes", async () => {
+				const slow = slowTool("slow");
+				const sandbox = newSandbox({ tools: [slow.tool], outlives: () => true });
+				const pending = sandbox.execute("await tools.slow(); return 'never'");
+				while (slow.state.started === 0) await new Promise((r) => setTimeout(r, 5));
+				await sandbox.close();
+				expect((await pending).calls).toMatchObject([{ name: "slow", status: "cancelled" }]);
+				expect(slow.state.aborted).toBe(1);
+			});
+		});
+
 		it("names close matches when a script reads a tool that does not exist", async () => {
 			const sandbox = createSandbox([echo, { name: "web-search", execute: () => "" }]);
 			const attempt = async (expression: string) => {
@@ -851,6 +950,39 @@ describe("worker host", () => {
 
 	// #10444: a malformed payload from the worker must fail the run as a sandbox error instead of
 	// throwing in the host's message listener and never settling.
+	it("leaves the calls outlives names running when the sandbox fails", async () => {
+		let aborted = 0;
+		const slow: CodemodeTool = {
+			name: "slow",
+			execute: (_args, { signal }) =>
+				new Promise((_resolve, reject) => {
+					signal.addEventListener("abort", () => {
+						aborted++;
+						reject(new Error("aborted"));
+					});
+				}),
+		};
+		const sandbox = new CodemodeSandbox({
+			workerUrl: new URL("./fixtures/raw-worker.ts", import.meta.url),
+			tools: [slow, { ...slow, name: "other" }],
+			outlives: (target) => target.name === "slow",
+		});
+		sandboxes.push(sandbox);
+		const result = await sandbox.execute(
+			JSON.stringify([
+				{ type: "call", id: 1, target: "tool", name: "slow", args: undefined },
+				{ type: "call", id: 2, target: "tool", name: "other", args: undefined },
+				{ type: "crash", message: "boom" },
+			]),
+		);
+		expect(result).toMatchObject({ ok: false, error: { kind: "sandbox", message: "boom" } });
+		expect(result.calls).toMatchObject([
+			{ name: "slow", status: "released" },
+			{ name: "other", status: "cancelled" },
+		]);
+		expect(aborted).toBe(1);
+	});
+
 	it.each([
 		[{ type: "done", ok: true, value: "1", writes: "null" }, "store writes are not an array"],
 		[{ type: "done", ok: true, value: "1", writes: "[1]" }, "store writes contain a malformed entry"],

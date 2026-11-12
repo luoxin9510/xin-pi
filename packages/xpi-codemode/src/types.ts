@@ -48,7 +48,11 @@ export type CodemodeOutputItem =
 	| { type: "text"; text: string; console?: true }
 	| { type: "image"; data: string; mimeType: string };
 
-export type CodemodeCallStatus = "ok" | "error" | "cancelled";
+/**
+ * `cancelled`: still pending when the execution ended, and aborted. `released`: still pending when the execution
+ * ended, and left running because {@link CodemodeSandboxBaseOptions.outlives} named it; its result is ignored.
+ */
+export type CodemodeCallStatus = "ok" | "error" | "cancelled" | "released";
 
 export interface CodemodeCall {
 	name: string;
@@ -129,6 +133,14 @@ export interface CodemodeSandboxBaseOptions {
 	 * `InternalError: out of memory`. Default: no limit beyond wasm32's 4 GiB address space.
 	 */
 	memoryLimitBytes?: number;
+	/**
+	 * Calls that outlive the script. When an `execute()` ends for any reason but an abort (it returned, threw,
+	 * called `exit()`, ran out of time, or the sandbox failed), pending calls for which this returns true are not
+	 * aborted: their signal stays live, their records get the status `released`, and their results are ignored. An
+	 * abort (the caller's signal, `close()`) still aborts every pending call. Not used by `start()`, whose calls the
+	 * caller answers. Default: every pending call is aborted.
+	 */
+	outlives?: (target: { kind: "tool" | "global"; name: string }) => boolean;
 }
 
 /** Options of `CodemodeSandbox`, which runs each VM in a Node or Bun worker thread. */

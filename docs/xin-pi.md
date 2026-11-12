@@ -224,6 +224,30 @@ extension off, the setting off, or in print mode. `CodemodeScriptInfo` carries `
   `test/subagent/panel/script-screen.test.ts` (rows, calls, end message, screen). By hand with Haiku:
   `test/subagent/parent/05-codemode-run-in-background.test.ts`, `test/subagent/tui/13-script-screen.test.ts`.
 
+### Calls that outlive the script (spec 09)
+
+`Agent` calls still running when a script ends are released, not cancelled, and the agents a script leaves running
+report to main in one message when all have ended. See [Agents that outlive their
+script](../packages/xpi-coding-agent/docs/subagent.md#agents-that-outlive-their-script).
+
+- `packages/xpi-codemode`: the sandbox option `outlives(target)` (`types.ts`, `runtime/execution.ts`); on every end but
+  an abort the pending calls it names are not aborted and their records get the new status `released`. `start()` does
+  not use it.
+- `src/extensions/codemode/addons.ts`: add-on fields `outlives(target, sessionId)` and `describe(sessionId)`.
+- `src/extensions/codemode/scripts.ts`: `keep(callId, kept)` / `release(callId)` and the `onKeep` event; a kept script
+  stays listed (state `ended`, `ended: <reason>`) and `onEnd` comes at `release`. `canBackground` ignores a provider
+  that throws (a session that is gone).
+- `src/extensions/codemode/execute.ts`: passes `outlives` from the add-ons, marks those calls `released` (not
+  `cancelled`), hands them to `keep` with when each settles, detaches the nested-call scope before a foreground script
+  with kept calls returns and releases it at `release`. `formatCallSummary` and `renderer.ts` show `released`.
+- `src/extensions/codemode/tool.ts`, `index.ts`: the description's sentence `cancelledOnEnd` can be replaced per
+  session (`getSessionId`, recorded at `session_start`); `CodemodeNestedCallStatus` gains `released`.
+- `src/extensions/subagent/`: the add-on answers `outlives`/`describe` (`script-helpers.ts`); groups and the group
+  message (`background.ts`: `join`, `ScriptState` `ended`); each agent of a script on its own `AbortController`, the
+  `wake` argument and the description lines (`agent-tool.ts`); the panel's `N/M agents done` (`panel.ts`).
+- Tests: `packages/xpi-codemode/test/sandbox.test.ts`, `test/deterministic.test.ts`;
+  `test/suite/subagent-release-groups.test.ts` (vitest, faux model, fake children).
+
 ## Core changes: workflows
 
 Saved workflows (`docs/subagent.md`, "Workflows") start a codemode script from a slash command, with no model turn, and

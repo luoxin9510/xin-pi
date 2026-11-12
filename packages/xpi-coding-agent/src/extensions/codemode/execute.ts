@@ -32,7 +32,15 @@ import { combineUsage } from "../../core/usage-totals.ts";
 import { writeOutputFile } from "../../utils/output-files.ts";
 import { Bm25Ranker, createToolSearchDocument, DEFAULT_TOOL_SEARCH_LIMIT } from "../tool-search/tool.ts";
 import { codemodeAddons } from "./addons.ts";
-import { beginCodemodeScript, type CodemodeScriptInfo, codemodeScripts } from "./scripts.ts";
+import {
+	beginCodemodeScript,
+	type CodemodeEndReason,
+	type CodemodeKept,
+	type CodemodeKeptCall,
+	type CodemodeKeptSettlement,
+	type CodemodeScriptInfo,
+	codemodeScripts,
+} from "./scripts.ts";
 import {
 	CODEMODE_DOCS_PATH,
 	CODEMODE_STORE_ENTRY_TYPE,
@@ -375,7 +383,10 @@ function joinAdjacentText(items: (TextContent | ImageContent)[]): (TextContent |
 
 function formatCallSummary(calls: readonly CodemodeNestedCall[]): string {
 	if (calls.length === 0) return "No tool calls were made.";
-	return `Tool calls made before the failure (they are not undone): ${calls.map((call) => `${call.name} (${call.status})`).join(", ")}`;
+	const released = calls.some((call) => call.status === "released")
+		? ". Calls marked released keep running after the script."
+		: "";
+	return `Tool calls made before the failure (they are not undone): ${calls.map((call) => `${call.name} (${call.status})`).join(", ")}${released}`;
 }
 
 function formatError(result: Extract<CodemodeResult, { ok: false }>, calls: readonly CodemodeNestedCall[]): string {
@@ -487,9 +498,16 @@ function toScriptValue(tool: AgentTool<any>, outcome: AgentToolCallOutcome): unk
 	return text;
 }
 
+/** How the script's code ended, for a kept script. */
+function endReason(result: CodemodeResult): CodemodeEndReason {
+	if (result.ok) return "returned";
+	return result.error.kind === "timeout" ? "timed out" : result.error.kind === "sandbox" ? "sandbox failed" : "threw";
+}
+
 /**
  * Run one script. Without a session context (a plain Agent or a direct call) scripts cannot call
- * tools, `store()` starts empty, and writes are dropped.
+ * tools, `store()` starts empty, and writes are dropped. `kept` receives the calls the add-ons let outlive the script
+ * (`outlives`), when there are any.
  */
 async function runCodemode(
 	toolCallId: string,
@@ -498,6 +516,7 @@ async function runCodemode(
 	onUpdate: ((result: AgentToolResult<CodemodeToolDetails>) => void) | undefined,
 	ctx: ExtensionToolContext | undefined,
 	options: CodemodeToolOptions = {},
+	kept?: { value?: Omit<CodemodeKept, "onRelease"> },
 ): Promise<AgentToolResult<CodemodeToolDetails>> {
 	const startedAt = performance.now();
 	const { code: source, options: sourceOptions } = parseCodemodeSource(input.code);
@@ -514,7 +533,13 @@ async function runCodemode(
 	};
 
 	const snapshot = (): CodemodeToolDetails => ({ calls: calls.map((call) => ({ ...call })) });
-	const publish = () => onUpdate?.({ content: [], details: snapshot() });
+	// Once the script has ended its result is final: calls it left running change nothing in it.
+	let over = false;
+	const publish = () => {
+		if (!over) onUpdate?.({ content: [], details: snapshot() });
+	};
+	// Per nested call: its arguments and when it settles, for the calls the script leaves running.
+	const settlements = new Map<CodemodeNestedCall, { args: unknown; settled: Promise<CodemodeKeptSettlement> }>();
 	// Show the script as running before its first nested call, so the row's timer starts.
 	publish();
 
@@ -527,7 +552,7 @@ async function runCodemode(
 	const sandboxTools: CodemodeTool[] = callable.map((tool) => ({
 		name: tool.name,
 		description: samples.get(tool.name),
-		execute: async (args, { signal: callSignal }) => {
+		execute: (args, { signal: callSignal }) => {
 			const record: CodemodeNestedCall = {
 				id: `${toolCallId}/?`,
 				name: tool.name,
@@ -537,24 +562,50 @@ async function runCodemode(
 			calls.push(record);
 			publish();
 			const callStartedAt = performance.now();
-			// Only tools from ctx.tools are callable, so ctx is set here.
-			if (!ctx) throw new Error("Tool calls need a session");
-			const outcome = await ctx.executeTool(tool.name, args, { signal: callSignal });
-			record.id = outcome.toolCall.id;
-			record.durationMs = performance.now() - callStartedAt;
-			if (outcome.isError) {
-				record.status = callSignal.aborted ? "cancelled" : "error";
-				record.error = truncateText(textOf(outcome.result) || `Tool "${tool.name}" failed`, ERROR_PREVIEW_CHARS);
-			} else {
-				record.status = "ok";
-			}
-			publish();
-			return toScriptValue(tool, outcome);
+			const work = (async () => {
+				// Only tools from ctx.tools are callable, so ctx is set here.
+				if (!ctx) throw new Error("Tool calls need a session");
+				const outcome = await ctx.executeTool(tool.name, args, { signal: callSignal });
+				record.id = outcome.toolCall.id;
+				// A released call keeps its status: the script's result said it runs on.
+				if (record.status !== "released") {
+					record.durationMs = performance.now() - callStartedAt;
+					if (outcome.isError) {
+						record.status = callSignal.aborted ? "cancelled" : "error";
+						record.error = truncateText(
+							textOf(outcome.result) || `Tool "${tool.name}" failed`,
+							ERROR_PREVIEW_CHARS,
+						);
+					} else {
+						record.status = "ok";
+					}
+				}
+				publish();
+				return toScriptValue(tool, outcome);
+			})();
+			settlements.set(record, {
+				args,
+				settled: work.then(
+					() => ({ toolCallId: record.id }),
+					(error: unknown) => ({
+						toolCallId: record.id,
+						error: error instanceof Error ? error.message : String(error),
+					}),
+				),
+			});
+			return work;
 		},
 	}));
 
 	// Add-ons (addons.ts): their preludes go on the script's first line, so its line numbers stay the source's.
 	const addons = codemodeAddons.for(callable.map((tool) => tool.name));
+	// The calls an add-on lets outlive the script, as this session sees it.
+	const sessionId = ctx?.sessionManager.getSessionId();
+	const outlives =
+		sessionId === undefined || !addons.some((addon) => addon.outlives)
+			? undefined
+			: (target: { kind: "tool" | "global"; name: string }) =>
+					addons.some((addon) => addon.outlives?.(target, sessionId) === true);
 	const toolsByName = new Map(sandboxTools.map((tool) => [tool.name, tool]));
 	const addonScript = {
 		toolCallId,
@@ -608,6 +659,7 @@ async function runCodemode(
 			],
 			timeoutMs: Math.max(1, Math.round(deadline - waitedMs)),
 			memoryLimitBytes: CODEMODE_MEMORY_LIMIT_BYTES,
+			...(outlives ? { outlives } : {}),
 			wasm: loadQuickJSWasm(getQuickJSWasmPath()),
 			workerUrl: getCodemodeWorkerSpecifier(),
 			acquireWorker: () => {
@@ -626,10 +678,20 @@ async function runCodemode(
 			releaseCodemodeWorker();
 		}
 	}
-	// Calls still marked running were cut off by the script ending, a timeout, or an abort.
+	// Calls still marked running were cut off by the script ending, a timeout, or an abort; those an add-on lets outlive
+	// the script (on any end but an abort) were left running. A global they went through (`agent()`) was kept with them.
+	over = true;
+	const released: CodemodeKeptCall[] = [];
+	const aborted = !result.ok && result.error.kind === "aborted";
 	for (const call of calls) {
-		if (call.status === "running") call.status = "cancelled";
+		if (call.status !== "running") continue;
+		const settlement = settlements.get(call);
+		if (!aborted && settlement && outlives?.({ kind: "tool", name: call.name })) {
+			call.status = "released";
+			released.push({ name: call.name, args: settlement.args, settled: settlement.settled });
+		} else call.status = "cancelled";
 	}
+	if (kept && released.length > 0) kept.value = { reason: endReason(result), calls: released };
 
 	const scriptOutput = [...result.output];
 	if (result.ok) {
@@ -696,6 +758,7 @@ export async function executeCodemode(
 		code: input.code,
 	});
 	let latest: CodemodeToolDetails = { calls: [] };
+	const kept: { value?: Omit<CodemodeKept, "onRelease"> } = {};
 	const run = runCodemode(
 		toolCallId,
 		input,
@@ -706,7 +769,13 @@ export async function executeCodemode(
 		},
 		ctx,
 		options,
+		kept,
 	);
+	// A script that ends with calls still running is kept until the add-on that let them run on releases it. Usage those
+	// calls report after the script's end is counted once, when the nested-call scope is released then.
+	const keep = (): boolean =>
+		kept.value !== undefined &&
+		codemodeScripts.keep(toolCallId, { ...kept.value, onRelease: () => ctx.releaseNestedCalls?.() });
 	// Once the script's code is over it can no longer be moved: its result goes to this call, with no end message.
 	const finished = run.then(
 		() => {
@@ -727,6 +796,11 @@ export async function executeCodemode(
 	if (first === "done") {
 		try {
 			const result = await run;
+			if (kept.value) {
+				// Detached before this call returns, so the calls left running keep the scope.
+				ctx.detachNestedCalls?.();
+				if (!keep()) ctx.releaseNestedCalls?.();
+			}
 			script.end({ result });
 			return result;
 		} catch (error) {
@@ -738,7 +812,7 @@ export async function executeCodemode(
 	ctx.detachNestedCalls?.();
 	run.then(
 		(result) => {
-			ctx.releaseNestedCalls?.();
+			if (!keep()) ctx.releaseNestedCalls?.();
 			script.end({ result });
 		},
 		(error) => {

@@ -3,7 +3,7 @@
 import { type Static, Type } from "typebox";
 import { type JsonValue, StringEnum } from "xpi-ai";
 import type { ExtensionContext } from "../../core/extensions/types.ts";
-import { scripts } from "./background.ts";
+import { type AgentCallHandle, scripts } from "./background.ts";
 import type { Config } from "./config.ts";
 import { type AgentDefinition, EFFORTS, inertNotice } from "./definition.ts";
 import { type Discovery, discoverAgents } from "./discovery.ts";
@@ -61,6 +61,12 @@ const parameters = Type.Object({
 	name: Type.Optional(
 		Type.String({
 			description: "Unique name (letters, digits, _ and -), to use as `resume` or in SendMessage.",
+		}),
+	),
+	wake: Type.Optional(
+		StringEnum(["group", "each"] as const, {
+			description:
+				'Running when the script ends: "group" (default) reports with the script\'s other agents, "each" on its own.',
 		}),
 	),
 });
@@ -139,10 +145,14 @@ export const declaredOutput = Type.Object({
 export type AgentResult = Omit<Static<typeof outputSchema>, "status"> & { status: Status | "running" };
 
 const BACKGROUND_RULES = [
+	"To delegate, start the agents (`tools.Agent(...)` without `await`) and end the script; they report together when all",
+	"are done, so do not wait, sleep, poll, or set `timeout_ms` for them. `await` an agent only when this script must use",
+	"its result.",
 	"Background: the first Agent call moves the whole script to the background. The codemode call returns at once and the",
 	"script's return value arrives later as a message: do not wait or poll. `run_in_background: false` keeps the script in",
 	'the foreground. `run_in_background: true` detaches only that agent: the call returns status "running" and the',
 	"agent's result arrives as a message.",
+	'`wake: "each"`: an agent still running when the script ends reports on its own, not with the others (for races).',
 ];
 
 // subagent.backgroundScripts: false: scripts always wait; only an explicit `true` detaches an agent.
@@ -377,6 +387,8 @@ function runsInBackground(params: AgentInput, parent: ParentContext): boolean {
 }
 
 export function agentTool(getConfig: () => Config, description: string, deliver: (content: string) => void) {
+	// What an Agent execute of a tracked script runs with (`scripts.join`), from the wrapper below to `execute`.
+	const handles = new Map<string, AgentCallHandle>();
 	const tool = {
 		name: "Agent",
 		label: "Agent",
@@ -395,6 +407,8 @@ export function agentTool(getConfig: () => Config, description: string, deliver:
 			ctx: ExtensionContext,
 		) {
 			const parent = parentContext(ctx);
+			const handle = handles.get(toolCallId);
+			handles.delete(toolCallId);
 			// An agent file's `background: true` stands in for an omitted run_in_background; the call's own value wins.
 			if (params.run_in_background === undefined && runsInBackground(params, parent)) {
 				params = { ...params, run_in_background: true };
@@ -402,13 +416,16 @@ export function agentTool(getConfig: () => Config, description: string, deliver:
 			scripts.agentStarting(toolCallId, params.run_in_background); // the first plain Agent call moves its script to the background
 			countScriptAgent(toolCallId, getConfig().maxAgentsPerScript);
 			if (params.run_in_background === true && ctx.hasUI) {
-				// The agent runs on its own, not tied to this call's signal; main hears of its end by message.
+				// The agent runs on its own, not tied to this call's signal; main hears of its end by message, or (a member of
+				// a script whose code has ended) through its group's message.
+				handle?.runsDetached();
 				let run!: Promise<AgentResult>;
 				const spec = await new Promise<ChildSpec>((resolve, reject) => {
 					// Its own signal, kept in the registry so a stop reaches it while it waits for a slot.
 					const controller = new AbortController();
 					run = executeAgent(params, controller.signal, undefined, getConfig(), parent, toolCallId, (spec) => {
 						registry.detach(spec.agentId, parent.sessionId, controller);
+						handle?.started(spec.agentId);
 						resolve(spec);
 					});
 					run.then(() => {}, reject); // it failed before starting (unknown agent, bad resume, no repository...): throws here
@@ -417,6 +434,8 @@ export function agentTool(getConfig: () => Config, description: string, deliver:
 				const agentType = params.subagent_type ?? DEFAULT_AGENT;
 				const send = (content: string) => {
 					registry.forget(agentId);
+					// A member that ends after its script's code: the group's message reports it.
+					if (handle?.call.member && handle.afterScriptEnd()) return;
 					try {
 						deliver(content);
 					} catch (err) {
@@ -424,8 +443,14 @@ export function agentTool(getConfig: () => Config, description: string, deliver:
 					}
 				};
 				run.then(
-					(r) => send(agentEndMessage(parent, agentId, r.agentType, r)),
-					(e: Error) => send(agentEndMessage(parent, agentId, agentType, undefined, e.message)),
+					(r) => {
+						handle?.end(r);
+						send(agentEndMessage(parent, agentId, r.agentType, r));
+					},
+					(e: Error) => {
+						handle?.end(undefined, e.message);
+						send(agentEndMessage(parent, agentId, agentType, undefined, e.message));
+					},
 				);
 				const result: AgentResult = {
 					status: "running",
@@ -446,13 +471,15 @@ export function agentTool(getConfig: () => Config, description: string, deliver:
 					isError: false,
 				};
 			}
+			// In a script the agent runs on its own signal, which follows this call's until the script's code ends.
 			const result = await executeAgent(
 				params,
-				signal,
+				handle?.signal ?? signal,
 				(text) => onUpdate?.({ content: [{ type: "text", text }], details: undefined }),
 				getConfig(),
 				parent,
 				toolCallId,
+				handle ? (spec) => handle.started(spec.agentId) : undefined,
 			);
 			return {
 				content: [{ type: "text" as const, text: summary(result) }],
@@ -482,14 +509,43 @@ export function agentTool(getConfig: () => Config, description: string, deliver:
 				isError: false,
 			};
 		}
+		let handle: AgentCallHandle | undefined;
 		try {
 			await scripts.gate(toolCallId, signal);
+			// One of the script's agents (spec 09): its own signal, and how it ends, for the script's group.
+			handle = scripts.join(toolCallId, params, signal);
+			if (handle) handles.set(toolCallId, handle);
 			const outcome = await start(toolCallId, params, signal, onUpdate, ctx);
 			recorded.done?.({ result: outcome.details });
+			if (handle && !handle.call.background) {
+				handle.end(outcome.details);
+				// `wake: "each"` running past its script's end: it reports on its own.
+				if (!handle.call.member && handle.afterScriptEnd() && outcome.details) {
+					const r = outcome.details;
+					deliverSafely(agentEndMessage(parentContext(ctx), r.agentId, r.agentType, r));
+				}
+			}
 			return outcome;
 		} catch (err) {
 			recorded.done?.({ error: (err as Error).message });
+			// Also a run_in_background call that failed before its agent started.
+			handle?.end(undefined, (err as Error).message);
+			if (handle && !handle.call.member && !handle.call.background && handle.afterScriptEnd()) {
+				const { agentId, type } = handle.call;
+				deliverSafely(
+					agentEndMessage(parentContext(ctx), agentId ?? "(not started)", type, undefined, (err as Error).message),
+				);
+			}
 			throw err;
+		} finally {
+			handles.delete(toolCallId);
+		}
+	};
+	const deliverSafely = (content: string) => {
+		try {
+			deliver(content);
+		} catch (err) {
+			console.error(`subagent: could not deliver an agent's end: ${(err as Error).message}`); // never crash pi
 		}
 	};
 	return tool;

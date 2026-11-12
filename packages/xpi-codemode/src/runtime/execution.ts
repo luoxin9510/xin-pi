@@ -14,7 +14,7 @@
  *    results go back through {@link VmChannel.post}. Replies produced before the launcher has
  *    returned its channel are queued and flushed when it arrives.
  * 3. The first terminal event wins: `done`, `crash`, a launcher failure, the deadline, or an abort.
- *    `finish()` aborts pending tool calls, asks the channel to stop, and resolves the result once
+ *    `finish()` aborts pending tool calls (except, on any end but an abort, those `outlives` keeps), asks the channel to stop, and resolves the result once
  *    that request completes. A worker or remote VM may exit later. Later events are ignored.
  *
  * The launcher, not this class, is responsible for actually stopping a running VM: a worker is
@@ -143,9 +143,23 @@ function parseScriptError(json: string): CodemodeError {
 }
 
 interface PendingCall {
+	target: "tool" | "global";
+	name: string;
 	record: CodemodeCall | undefined;
 	startedAt: number;
 	controller: AbortController;
+}
+
+/** {@link CodemodeSandboxBaseOptions.outlives}. */
+type Outlives = NonNullable<CodemodeSandboxBaseOptions["outlives"]>;
+
+/** `outlives` is the host's code: one that throws aborts the call, as if it had said false (finish() must not throw). */
+function outlivesSafely(outlives: Outlives, pending: PendingCall): boolean {
+	try {
+		return outlives({ kind: pending.target, name: pending.name }) === true;
+	} catch {
+		return false;
+	}
 }
 
 /** Checks global names: identifiers or `namespace.member`, not shadowing a built-in global or each other. */
@@ -181,6 +195,8 @@ interface ExecutionOptions {
 	store: Record<string, string>;
 	deterministic?: { startedAt: number; seed: number };
 	control?: Control;
+	/** Calls that keep running when the script ends other than by an abort; `start()` passes none. */
+	outlives?: Outlives;
 	launch: VmLauncher;
 }
 
@@ -193,6 +209,7 @@ class Execution {
 	private unsent: HostToWorkerMessage[] = [];
 	private readonly executors: ExecutionOptions["executors"];
 	private readonly control: Control | undefined;
+	private readonly outlives: Outlives | undefined;
 	/** Result numbers `deliver()` used. */
 	private readonly delivered = new Set<number>();
 	private readonly signal: AbortSignal | undefined;
@@ -209,6 +226,7 @@ class Execution {
 		});
 		this.executors = options.executors;
 		this.control = options.control;
+		this.outlives = options.outlives;
 		this.signal = options.signal;
 
 		if (Number.isFinite(options.timeoutMs)) {
@@ -371,7 +389,7 @@ class Execution {
 		const record: CodemodeCall | undefined =
 			target === "tool" ? { name, status: "cancelled", durationMs: 0 } : undefined;
 		if (record) this.calls.push(record);
-		this.pending.set(id, { record, startedAt: performance.now(), controller: new AbortController() });
+		this.pending.set(id, { target, name, record, startedAt: performance.now(), controller: new AbortController() });
 		control.onCall({ id, target, name, args });
 	}
 
@@ -380,7 +398,13 @@ class Execution {
 		const isTool = message.target === "tool";
 		const record: CodemodeCall | undefined = isTool ? { name, status: "cancelled", durationMs: 0 } : undefined;
 		if (record) this.calls.push(record);
-		const pending: PendingCall = { record, startedAt: performance.now(), controller: new AbortController() };
+		const pending: PendingCall = {
+			target: message.target,
+			name,
+			record,
+			startedAt: performance.now(),
+			controller: new AbortController(),
+		};
 		this.pending.set(id, pending);
 
 		let status: CodemodeCallStatus;
@@ -397,8 +421,8 @@ class Execution {
 			status = "error";
 		}
 
-		// Already cancelled by finish(): the record keeps "cancelled" and the
-		// VM is gone or going.
+		// Already ended by finish(): the record keeps "cancelled" or "released" and
+		// the VM is gone or going.
 		if (!this.pending.delete(id)) return;
 		if (record) {
 			record.status = status;
@@ -419,9 +443,13 @@ class Execution {
 		this.signal?.removeEventListener("abort", this.onAbort);
 
 		const now = performance.now();
+		// An abort ends everything; any other end leaves the calls `outlives` names running, and ignores their results.
+		const keep = error?.kind === "aborted" ? undefined : this.outlives;
 		for (const pending of this.pending.values()) {
 			if (pending.record) pending.record.durationMs = now - pending.startedAt;
-			pending.controller.abort();
+			if (keep && outlivesSafely(keep, pending)) {
+				if (pending.record) pending.record.status = "released";
+			} else pending.controller.abort();
 		}
 		this.pending.clear();
 		this.unsent = [];
@@ -462,6 +490,7 @@ export class CodemodeSandboxBase {
 	private readonly globalsByName = new Map<string, CodemodeTool>();
 	private readonly timeoutMs: number;
 	private readonly memoryLimitBytes: number | undefined;
+	private readonly outlives: Outlives | undefined;
 	private readonly launch: VmLauncher;
 	private readonly running = new Set<Execution>();
 	private closed = false;
@@ -469,6 +498,7 @@ export class CodemodeSandboxBase {
 	constructor(options: CodemodeSandboxBaseOptions, launch: VmLauncher) {
 		this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 		this.memoryLimitBytes = options.memoryLimitBytes;
+		this.outlives = options.outlives;
 		this.launch = launch;
 		for (const tool of options.tools ?? []) this.registerTool(tool);
 		checkGlobals(options.globals ?? []);
@@ -510,6 +540,7 @@ export class CodemodeSandboxBase {
 			signal: options.signal,
 			memoryLimitBytes: this.memoryLimitBytes,
 			store: serializeStore(options.store),
+			...(this.outlives ? { outlives: this.outlives } : {}),
 			launch: this.launch,
 		});
 		this.running.add(execution);

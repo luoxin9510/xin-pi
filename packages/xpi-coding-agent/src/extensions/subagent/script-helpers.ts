@@ -1,7 +1,9 @@
 // Script helpers (spec .scratch/xin-pi-workflows/02-workflows.md): `agent`, `parallel`, `pipeline`, `phase`, `log` in
 // every codemode script that can call Agent, so a script main writes runs unchanged as a saved workflow. They are a
 // codemode add-on: a one-line prelude (functions cannot cross into the sandbox, so the callback helpers live there)
-// over two host globals. Also here: the cap on agents per script run.
+// over two host globals. The add-on also lets a script's agents outlive it (spec 09): where background scripts are on,
+// `Agent` calls (and `agent()`, through its global) still running when the script ends keep running, and the
+// description says so. Also here: the cap on agents per script run.
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { CodemodeTool } from "xpi-codemode";
@@ -66,6 +68,11 @@ const PRELUDE = [
 	"})();",
 ].join(" ");
 
+// The sentence that replaces codemode's "Calls still running when the script ends are cancelled" where agents outlive
+// their script.
+export const RELEASED_ON_END =
+	"`Agent` calls still running when the script ends keep running and report to you together when all have ended; other calls are cancelled.";
+
 // The script's run, found from its codemode call id (the registry tracks scripts by their nested call ids).
 const scriptOf = (toolCallId: string) => scripts.owner(`${toolCallId}/`);
 
@@ -73,6 +80,12 @@ export const scriptHelpers: CodemodeAddon = {
 	name: "subagent-helpers",
 	applies: (toolNames) => toolNames.includes("Agent"),
 	prelude: PRELUDE,
+	// Only where scripts can run in the background (a UI, subagent.backgroundScripts): elsewhere nothing would report.
+	outlives: (target, sessionId) =>
+		codemodeScripts.canBackground(sessionId) &&
+		(target.kind === "tool" ? target.name === "Agent" : target.name === "__subagentAgent"),
+	describe: (sessionId) =>
+		codemodeScripts.canBackground(sessionId) ? { replace: { cancelledOnEnd: RELEASED_ON_END } } : {},
 	globals: (script): CodemodeTool[] => [
 		{
 			name: "__subagentAgent",

@@ -1,7 +1,7 @@
 // Stop everything of a session: every background script (its agents stop with it), then every other running subagent.
 // Both the panel's shift+x and `/subagents stop` come here; each goes through the existing registry stop paths.
 
-import { scripts } from "./background.ts";
+import { scriptRunning, scripts } from "./background.ts";
 import { registry } from "./registry.ts";
 
 export async function stopEverything(sessionId: string): Promise<{ agents: number; scripts: number }> {
@@ -9,7 +9,7 @@ export async function stopEverything(sessionId: string): Promise<{ agents: numbe
 		.list(sessionId)
 		.filter((r) => r.status === "running")
 		.map((r) => r.id);
-	const running = scripts.list(sessionId).filter((s) => s.state === "foreground" || s.state === "background").length;
+	const running = scripts.list(sessionId).filter(scriptRunning).length;
 	await scripts.stopAll(sessionId);
 	registry.abortQueuedOf(sessionId);
 	await registry.stopAll(agents);

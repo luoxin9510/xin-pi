@@ -38,6 +38,7 @@ import type { ModelRegistry } from "../../core/model-registry.ts";
 import { SETTINGS_DEFAULTS } from "../../core/settings-defaults.ts";
 import type { CodemodeMode } from "../../core/settings-manager.ts";
 import { type TypeBoxAgentTool, wrapToolDefinition } from "../../core/tools/tool-definition-wrapper.ts";
+import { codemodeAddons } from "./addons.ts";
 import { loadCodemodeExecutor } from "./execute.lazy.ts";
 import { codemodeRenderers } from "./renderer.ts";
 
@@ -76,6 +77,8 @@ export interface CodemodeToolOptions {
 	getMode?: () => CodemodeMode;
 	/** Token budget for tool declarations in the description. Default: {@link DEFAULT_CODEMODE_INLINE_BUDGET}. */
 	getInlineBudget?: () => number | undefined;
+	/** The session's id, for the add-ons' `describe` (the codemode extension records it at `session_start`). */
+	getSessionId?: () => string | undefined;
 }
 
 const TEXT_OUTPUT_SCHEMA: CodemodeJsonSchema = { type: "string" };
@@ -97,7 +100,11 @@ export const codemodeSchema = Type.Object({
 
 export type CodemodeToolInput = Static<typeof codemodeSchema>;
 
-export type CodemodeNestedCallStatus = "running" | "ok" | "error" | "cancelled";
+/**
+ * `cancelled`: still running when the script ended, and stopped. `released`: still running when the script ended, and
+ * left running (an add-on's `outlives`); how it ends is not part of this result.
+ */
+export type CodemodeNestedCallStatus = "running" | "ok" | "error" | "cancelled" | "released";
 
 export interface CodemodeNestedCall {
 	/** Tool call id of the nested call, `<codemode call id>/<n>`. */
@@ -133,8 +140,14 @@ export const codemodeToolSystemPromptContribution = {
 /** The reference for scripts: globals, tool results, `store()`, the `models` API, and limits. */
 export const CODEMODE_DOCS_PATH = join(getDocsPath(), "codemode.md");
 
+/** Sentences of the description's intro that an add-on's `describe` may replace, by name. */
+export const CODEMODE_DESCRIPTION_SENTENCES = {
+	cancelledOnEnd: "Calls still running when the script ends are cancelled.",
+} as const;
+const CANCELLED_ON_END = CODEMODE_DESCRIPTION_SENTENCES.cancelledOnEnd;
+
 const DESCRIPTION_INTRO = `Run JavaScript that calls other tools. The input is raw JavaScript (not JSON, no code fence), run as an async function body in a QuickJS sandbox: top-level \`await\` and \`return\` work. No Node, file system, network, or timers.
-- \`await tools.<name>({ ...args })\` resolves to a string, or an object if the tool's declaration says so, and rejects with an Error on failure. A tool whose declaration returns an object resolves on failure too when it returned that object; check its fields. Calls still running when the script ends are cancelled.
+- \`await tools.<name>({ ...args })\` resolves to a string, or an object if the tool's declaration says so, and rejects with an Error on failure. A tool whose declaration returns an object resolves on failure too when it returned that object; check its fields. ${CANCELLED_ON_END}
 - Optional first line: \`// @options: {"max_output_tokens": 10000, "timeout_ms": 60000}\`
 - \`run_in_background: true\` (with a few-word \`description\`) returns at once; the script keeps running and its result arrives later as a message, so do not wait or poll. Use it for commands that take more than about 30 seconds and whose result you do not need this turn (builds, full test suites, installs). Never use it for a process that does not end (a dev server, watch mode): its result would never come. Have the script return a filtered result (failures, a summary), not the whole log. Where background runs are unavailable the flag is ignored and the call waits.`;
 
@@ -193,6 +206,10 @@ export interface CodemodeDescriptionOptions {
 	 * out, like deferred tools. Unset lists every tool that is not deferred.
 	 */
 	inlineBudget?: number;
+	/** Replace named sentences of the intro ({@link CODEMODE_DESCRIPTION_SENTENCES}). */
+	replace?: Readonly<Record<string, string>>;
+	/** Lines added after the intro. */
+	append?: readonly string[];
 }
 
 /** `### \`id\` (\`raw name\`)` followed by the tool's description and declaration. */
@@ -265,7 +282,13 @@ export function createCodemodeDescription(
 	);
 	const shown = selectCatalog(ordered, options.inlineBudget);
 
-	const sections = [DESCRIPTION_INTRO, describeGlobals(options.models === true)];
+	let intro = DESCRIPTION_INTRO;
+	for (const [name, sentence] of Object.entries(CODEMODE_DESCRIPTION_SENTENCES)) {
+		const replacement = options.replace?.[name];
+		if (replacement !== undefined) intro = intro.replace(sentence, replacement);
+	}
+	if (options.append && options.append.length > 0) intro = `${intro}\n${options.append.join("\n")}`;
+	const sections = [intro, describeGlobals(options.models === true)];
 	if (declarations.length === 0) return sections.join("\n\n");
 
 	const toolSections = ["Nested tools:"];
@@ -400,7 +423,20 @@ function prepareCodemodeLoadout(loadout: ToolLoadout, options: CodemodeToolOptio
 		}),
 	);
 	const guidelines = new Map(listed.map((tool) => [tool.name, loadout.getPromptGuidelines(tool.name)] as const));
+	// The add-ons of the scripts this loadout runs, as this session sees them.
+	const sessionId = options.getSessionId?.();
+	const replace: Record<string, string> = {};
+	const append: string[] = [];
+	if (sessionId !== undefined) {
+		for (const addon of codemodeAddons.for(callable.map((tool) => tool.name))) {
+			const change = addon.describe?.(sessionId);
+			Object.assign(replace, change?.replace);
+			append.push(...(change?.append ?? []));
+		}
+	}
 	descriptions[CODEMODE_TOOL_NAME] = createCodemodeDescription(listed, {
+		replace,
+		append,
 		models: options.models === true,
 		namespaces,
 		guidelines,

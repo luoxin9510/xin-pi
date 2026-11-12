@@ -145,6 +145,13 @@ for (const [backend, create] of Object.entries(BACKENDS)) {
 			expect((zeroResult.ok ? zeroResult.value : []) as number[]).not.toContain(random);
 		});
 
+		it("ignores the sandbox's outlives option: calls pending at the end are cancelled", async () => {
+			const sandbox = create({ outlives: () => true });
+			const { run } = start(sandbox, "tools.wait(); return 1");
+			const result = await run.result;
+			expect(result).toMatchObject({ ok: true, value: 1, calls: [{ name: "wait", status: "cancelled" }] });
+		});
+
 		it("runs in UTC whatever the host's timezone, and without WeakRef or FinalizationRegistry", async () => {
 			process.env.TZ = "Asia/Kolkata";
 			const code =

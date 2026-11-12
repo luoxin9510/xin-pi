@@ -5,13 +5,57 @@
  * Mechanism only. Policy (when to move a script, what to tell the model, how to show it) belongs to the
  * caller, for example the subagent extension. A script nobody moves behaves exactly as before.
  *
+ * A script that ends while some of its calls keep running (add-ons' `outlives`) is kept: its record stays, marked
+ * `ended`, so those calls still find their script (`owner`), until the extension that let them run on calls `release`.
+ * Only then is `onEnd` emitted.
+ *
  * `codemodeScripts` is a process-wide singleton: the built-in codemode extension and the extensions that
  * use it share one module instance.
  */
 
 import type { AgentToolResult } from "xpi-agent-core";
 
+/** `ended`: its code is over; a kept script stays listed in this state until it is released. */
 export type CodemodeScriptState = "foreground" | "background" | "ended";
+
+/** How a kept script's code ended: it returned (or called `exit()`), threw, ran out of time, or its sandbox failed. */
+export type CodemodeEndReason = "returned" | "threw" | "timed out" | "sandbox failed";
+
+/** How a call the script left running settled. */
+export interface CodemodeKeptSettlement {
+	/** The nested tool call id (`<codemode call id>/<n>`); `<codemode call id>/?` when it never got one. */
+	toolCallId: string;
+	/** Set when the call failed: its error text. */
+	error?: string;
+}
+
+/** A call still running when the script ended, left running because an add-on's `outlives` said so. */
+export interface CodemodeKeptCall {
+	/** The tool. */
+	name: string;
+	/** The arguments the script passed. */
+	args: unknown;
+	/** Settles (never rejects) when the call has. */
+	settled: Promise<CodemodeKeptSettlement>;
+}
+
+/** What `keep()` records. */
+export interface CodemodeKept {
+	reason: CodemodeEndReason;
+	calls: CodemodeKeptCall[];
+	/** Called by `release()`, before `onEnd` is emitted. */
+	onRelease?: () => void;
+}
+
+/** What `onKeep` reports: the kept calls and the outcome `onEnd` will carry. */
+export interface CodemodeScriptKept {
+	reason: CodemodeEndReason;
+	calls: CodemodeKeptCall[];
+	result?: AgentToolResult<unknown>;
+	error?: Error;
+	/** The script was in the background when its code ended. */
+	background: boolean;
+}
 
 export interface CodemodeScriptInfo {
 	/** S1, S2, ... unique in this process. */
@@ -25,6 +69,8 @@ export interface CodemodeScriptInfo {
 	description?: string;
 	/** The script's source, as the call gave it. */
 	code?: string;
+	/** Set while a kept script waits to be released: how its code ended. */
+	ended?: CodemodeEndReason;
 }
 
 /** What begins a script: the optional label and source the script screen shows. */
@@ -58,13 +104,15 @@ export interface CodemodeScriptListener {
 	onStart?(script: CodemodeScriptInfo): void;
 	/** The script moved to the background (its codemode call is returning early). */
 	onBackground?(script: CodemodeScriptInfo): void;
+	/** The script's code ended with kept calls: its record stays until `release()`, which emits `onEnd`. */
+	onKeep?(script: CodemodeScriptInfo, kept: CodemodeScriptKept): void;
 	onEnd?(script: CodemodeScriptInfo, outcome: CodemodeScriptEnd): void;
 }
 
 export interface CodemodeScripts {
-	/** The running script whose codemode call id prefixes this (nested) tool call id. */
+	/** The running or kept script whose codemode call id prefixes this (nested) tool call id. */
 	owner(nestedToolCallId: string): CodemodeScriptInfo | undefined;
-	/** Running scripts, optionally of one session. */
+	/** Running and kept scripts, optionally of one session. */
 	list(sessionId?: string): CodemodeScriptInfo[];
 	/**
 	 * Move a foreground script to the background: its codemode call returns now with `result` (default: a short
@@ -73,10 +121,20 @@ export interface CodemodeScripts {
 	background(scriptId: string, result?: string): boolean;
 	/** `background()` for every foreground script of the session (ctrl+b). True when there was one. */
 	backgroundAll(sessionId: string): boolean;
-	/** Abort a running script (foreground or background). False when it is not running. */
+	/**
+	 * Abort a running script (foreground or background). A kept script is marked stopped (its calls are the keeping
+	 * extension's to stop). False when it is neither.
+	 */
 	stop(scriptId: string): Promise<boolean>;
-	/** Stop every running script of the session (session shutdown). */
+	/** Stop every running or kept script of the session (session shutdown). */
 	stopAll(sessionId: string): Promise<void>;
+	/**
+	 * Called by the codemode host when the script under this codemode call id ends with calls still running: its record
+	 * stays (state `ended`) and its end emits `onKeep` instead of `onEnd`. False when no running script has the id.
+	 */
+	keep(toolCallId: string, kept: CodemodeKept): boolean;
+	/** End a kept script: `onRelease`, then `onEnd`. False when no kept script has the id. */
+	release(toolCallId: string): boolean;
 	subscribe(listener: CodemodeScriptListener): () => void;
 	/** Register a provider that takes scripts to the background. Returns the disposer. */
 	provideBackground(provider: CodemodeBackgroundProvider): () => void;
@@ -98,15 +156,23 @@ export interface CodemodeScriptRun {
 	isForeground(): boolean;
 	/** The script's own code has finished (its result is about to be returned or reported): `background()` is refused from now on. */
 	settle(): void;
-	/** The script is over; notifies listeners. */
+	/** The script is over; notifies listeners (`onKeep` for a kept script, else `onEnd`). */
 	end(outcome: { result?: AgentToolResult<unknown>; error?: Error }): void;
 }
 
+interface Entry {
+	info: CodemodeScriptInfo;
+	move: (text?: string) => void;
+	abort: () => void;
+	stopped: () => boolean;
+	settled: boolean;
+	kept?: CodemodeKept;
+	/** Set by `end()` of a kept script: what `release()` reports. */
+	outcome?: { result?: AgentToolResult<unknown>; error?: Error; background: boolean };
+}
+
 class CodemodeScriptRegistry implements CodemodeScripts {
-	private readonly runs = new Map<
-		string,
-		{ info: CodemodeScriptInfo; move: (text?: string) => void; abort: () => void; settled: boolean }
-	>();
+	private readonly runs = new Map<string, Entry>();
 	private readonly listeners = new Set<CodemodeScriptListener>();
 	private readonly providers = new Set<CodemodeBackgroundProvider>();
 	private counter = 0;
@@ -117,7 +183,13 @@ class CodemodeScriptRegistry implements CodemodeScripts {
 	}
 
 	canBackground(sessionId: string): boolean {
-		return [...this.providers].some((p) => p.sessionId() === sessionId && p.enabled());
+		return [...this.providers].some((p) => {
+			try {
+				return p.sessionId() === sessionId && p.enabled();
+			} catch {
+				return false; // a provider of a session that is gone
+			}
+		});
 	}
 
 	owner(nestedToolCallId: string): CodemodeScriptInfo | undefined {
@@ -140,6 +212,39 @@ class CodemodeScriptRegistry implements CodemodeScripts {
 		let any = false;
 		for (const info of this.list(sessionId)) any = this.background(info.id) || any;
 		return any;
+	}
+
+	// The newest script with this codemode call id (a provider may reuse call ids).
+	private byCall(toolCallId: string): Entry | undefined {
+		return [...this.runs.values()].reverse().find((run) => run.info.toolCallId === toolCallId);
+	}
+
+	keep(toolCallId: string, kept: CodemodeKept): boolean {
+		const run = this.byCall(toolCallId);
+		if (!run || run.info.state === "ended") return false;
+		run.kept = kept;
+		return true;
+	}
+
+	release(toolCallId: string): boolean {
+		const run = [...this.runs.values()]
+			.reverse()
+			.find((r) => r.info.toolCallId === toolCallId && r.outcome !== undefined);
+		if (!run?.outcome) return false;
+		this.runs.delete(run.info.id);
+		try {
+			run.kept?.onRelease?.();
+		} catch (error) {
+			console.error(`codemode scripts: releasing ${run.info.id} failed: ${(error as Error).message}`); // never crash pi
+		}
+		const { result, error, background } = run.outcome;
+		this.emit("onEnd", run.info, {
+			...(result ? { result } : {}),
+			...(error ? { error } : {}),
+			stopped: run.stopped(),
+			background,
+		});
+		return true;
 	}
 
 	async stop(scriptId: string): Promise<boolean> {
@@ -186,7 +291,13 @@ class CodemodeScriptRegistry implements CodemodeScripts {
 			this.emit("onBackground", info);
 			resolveMoved(text ?? DEFAULT_BACKGROUND_TEXT(info.id));
 		};
-		const entry = { info, move, abort: () => own.abort(new Error("Script stopped")), settled: false };
+		const entry: Entry = {
+			info,
+			move,
+			abort: () => own.abort(new Error("Script stopped")),
+			stopped: () => own.signal.aborted,
+			settled: false,
+		};
 		this.runs.set(info.id, entry);
 		if (mainSignal?.aborted) abortOwn();
 		else mainSignal?.addEventListener("abort", abortOwn, { once: true });
@@ -203,6 +314,20 @@ class CodemodeScriptRegistry implements CodemodeScripts {
 				mainSignal?.removeEventListener("abort", abortOwn);
 				const background = info.state === "background";
 				info.state = "ended";
+				entry.settled = true;
+				if (entry.kept) {
+					// Kept: the record stays until release(), which emits onEnd with this outcome.
+					info.ended = entry.kept.reason;
+					entry.outcome = { ...(result ? { result } : {}), ...(error ? { error } : {}), background };
+					this.emit("onKeep", info, {
+						reason: entry.kept.reason,
+						calls: entry.kept.calls,
+						...(result ? { result } : {}),
+						...(error ? { error } : {}),
+						background,
+					});
+					return;
+				}
 				this.runs.delete(info.id);
 				this.emit("onEnd", info, {
 					...(result ? { result } : {}),
