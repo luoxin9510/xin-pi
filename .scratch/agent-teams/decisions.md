@@ -83,10 +83,15 @@ accepted all nine recommendations ("好的可以").
 22. **Esc and `x` (details 9).** Esc on a teammate's screen interrupts its turn without stopping it; a second Esc
     closes the screen. `x` stops a teammate in any state, idle included. Teammate rows that are not stopped never
     hide from the panel.
-23. **Old names after `/resume` (details 10).** The team is not restored automatically. An `Agent` call or a
+23. **Old names after `/resume` (details 10).** The team is not restored automatically. The round 2 review proposed,
+    with the spec for the owner's approval, extending this to `/reload` and a crash, which also end the team. An `Agent` call or a
     `SendMessage` with an old teammate's name continues it as a member of the new team, with its history. Its tasks
     stay its own.
-24. **Workflows.** A named `Agent` call from a workflow or workflow script is refused while teams are on, because a
-    relaunch answers calls from saved results without running them.
+24. **Workflows.** A named `Agent` call from a workflow or workflow script is refused while teams are on.
+    - The reason given in Grill 4 was that a relaunch answers calls from saved results. The round 2 review found
+      this holds only for foreground calls.
+    - Corrected reason: a teammate outlives the script and reports to the lead, not to the script, so a script
+      cannot use its result. Refusing keeps workflows deterministic.
+    - Proposed with the spec for the owner's approval.
 25. **Async hooks (details 11).** Besides `block(feedback)`, a handler may `hold(promise)` for an async decision,
     awaited up to 5 minutes. On a timeout the step is allowed and a warning is logged.

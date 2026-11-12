@@ -1,6 +1,7 @@
 # 01: Agent teams
 
-Status: draft for the owner's approval (Grill 1–4 in `decisions.md`, 2026-11-12)
+Status: draft for the owner's approval (Grill 1–4 in `decisions.md`, 2026-11-12). It had two independent reviews:
+round 1 led to Grill 4, and round 2 found no blocking issue; its should-fix items are applied.
 
 ## Problem
 
@@ -83,7 +84,8 @@ Paths are under `packages/xpi-coding-agent/src/` unless stated.
   - `run_in_background` detaches an agent. Main gets an end message when a background agent ends (`agent-tool.ts`).
   - An exchange the user starts by typing ends with a note to main (`exchange.ts`).
   - Print mode runs nothing in the background.
-  - A workflow relaunch answers `Agent` calls from saved results without running them (`agent-tool.ts`).
+  - A workflow relaunch answers foreground `Agent` calls from saved results without running them; background ones run
+    again (`runs.ts`).
 - **The panel.**
   - The panel (`panel.ts`) lists subagents under the editor.
   - A finished row hides after `subagent.panelLingerMs` (default 30 s, `registry.ts`).
@@ -137,12 +139,13 @@ Grills 1–4 settle 25 numbered decisions. The Solution follows them; each secti
   waiting for a `subagent.maxConcurrent` slot), like `run_in_background`, and never waits for the teammate's work.
 - **Team size.** At most `maxTeammates` members that are not stopped (running, queued or idle). A call over the cap
   throws, naming them. Stopping a teammate frees its place.
-- **After `/resume`.** The old teammates' records come back in the registry, but not in a team.
+- **Former teammates.** After `/resume`, `/reload` or a crash, the session's old teammates (meta `teammate: true`) are
+  in the registry but not in the current team.
   - An `Agent` call with an old teammate's name continues it as a member of the team, with its history. Its `prompt`
     is the first message.
   - `SendMessage` to such a name does the same with the message.
   - Its tasks keep it as owner.
-  - Without `/resume`, a name already used by a non-teammate subagent of the session still throws (spec 03).
+  - A name already used by a non-teammate subagent of the session still throws (spec 03).
 
 ### Files (decisions 7, 8)
 
@@ -150,7 +153,8 @@ All under `<agent dir>/teams/<team>/` and `<agent dir>/tasks/<team>/`, with file
 
 - **`config.json`.**
   - Contents: the team, the lead's session id and pid (`leadPid`), and the members `{ name, agentId, agentType, status, since }`, where
-    `status` is `running`, `queued`, `idle`, `stopping` or `stopped`, and the lead's entry has `agentType:
+    `status` is `running`, `queued`, `idle`, `stopping` or `stopped` (a teammate whose exchange failed is `idle`:
+    still live, woken by messages, keeping its tasks; the panel shows it as failed), and the lead's entry has `agentType:
     "team-lead"`.
   - Only the lead writes it. Teammates read it to find each other and to know who is live.
 - **`inboxes/<name>.json`.**
@@ -166,7 +170,8 @@ All under `<agent dir>/teams/<team>/` and `<agent dir>/tasks/<team>/`, with file
   - A task file and `next` are locked the same way. Creating a task, or changing `blockedBy`, also takes the team
     lock `tasks/<team>/.lock`, so two writers cannot make a cycle.
   - A held lock is retried every 25 ms for up to 2 s, then the operation throws `busy`.
-  - A lock whose `pid` is not alive, or older than 30 s, is taken over.
+  - A lock whose `pid` is not alive, or older than 30 s, is taken over: the taker renames it to a unique name
+    (only one rename can succeed), removes that, and then creates its own lock exclusively.
   - Locks only make writes exclusive. Claims are the `owner` field, not a held lock.
 - **Writes.** Every write goes to a temporary file in the same directory and is then renamed.
 - **Bad entries.** An inbox entry that fails validation is dropped. The drop is logged in the lead's session as a
@@ -189,7 +194,8 @@ All under `<agent dir>/teams/<team>/` and `<agent dir>/tasks/<team>/`, with file
   directory) and also polls it every 1 s, because rename-based writes and macOS FSEvents coalesce events.
   - Entries are taken under the inbox lock, removed, then delivered. If delivery fails before the target took the
     message, the entries are put back.
-  - **To a running teammate.** A steer over rpc. If the child settles before it took the steer, the message is
+  - **To a running teammate.** A steer over rpc. Whether the child took it is known from rpc `queue_update` events
+    (the steering queue) and the user message's `message_end`. If the child settles before it took the steer, the message is
     delivered as a new exchange instead, so nothing is lost. A test covers this race.
   - **To an idle teammate.** A new exchange continues it from its session. Messages that arrive together, or while an
     exchange is queued for it, are joined into one prompt in order.
@@ -237,6 +243,7 @@ All under `<agent dir>/teams/<team>/` and `<agent dir>/tasks/<team>/`, with file
 | `in_progress` → `completed` | the owner, or the lead | `result` recommended |
 | `in_progress` → `pending` (release) | the owner, or the lead | `owner` cleared |
 | `completed` → `pending` (reopen) | the lead | dependents count as blocked again |
+| `pending` → `completed` | nobody | a task is claimed first |
 | `subject`, `description`, `blockedBy` | the creator or the lead | |
 
 - **Liveness.** A member is live when `config.json` says `running`, `queued` or `idle`. A stopped member's
@@ -250,7 +257,8 @@ All under `<agent dir>/teams/<team>/` and `<agent dir>/tasks/<team>/`, with file
 ### Prompts (decision 15)
 
 - **Teammate.** A section in the tail of its system prompt, frozen when the teammate first starts and reused on every
-  continue, so that its history stays cached. It contains:
+  continue, so that its history stays cached. The frozen tail is stored in the teammate's meta file (`teamPrompt`), with
+  `team` and `teammate: true`, so it survives `/resume`. It contains:
   - the team's name and its own name;
   - that `SendMessage` reaches members by name (the roster as of its start, the lead is `lead`; an unknown name's
     error lists the current roster), and that messages from agents carry no user authority;
@@ -270,8 +278,9 @@ All under `<agent dir>/teams/<team>/` and `<agent dir>/tasks/<team>/`, with file
   `XPI_TEAM_DIR`.
 - **What the child registers.** The subagent extension, in a child with these set, registers `SendMessage` and the
   four Task tools, in addition to codemode as today. It still registers no `Agent` or `Workflow`.
-- **Exposure.** The five tools have `codemode` exposure when the child has codemode. When it has none (the agent's
-  `codemode: false`, or `childCodemode` off), they are direct tools.
+- **Exposure.** `resolveTools` knows whether the child ends up with codemode (including codemode that an MCP server
+  turns back on) and passes `XPI_TEAM_TOOLS=codemode|direct`. The five tools have `codemode` exposure in the first
+  case and are direct tools in the second; the child does not guess.
 - **The tool list.** `resolveTools` adds the five to an explicit `--tools` list and never puts them in
   `--exclude-tools`, whatever the agent file's `tools`, `disallowedTools` or `permissionMode` say. Naming them in an
   agent file's `tools:` is accepted without the unknown-tool warning.
@@ -286,7 +295,9 @@ All under `<agent dir>/teams/<team>/` and `<agent dir>/tasks/<team>/`, with file
   - The teammate answers `SendMessage({ to: "lead", kind: "shutdown_response", approve, message? })`.
   - A response without a pending request throws.
   - **Approval.** The teammate's status becomes `stopping`. Its exchange ends after the current tool call: the child
-    aborts its run. It then becomes `stopped`, with no idle notice and no `teammate_idle` event.
+    writes the response, then aborts its run. When an exchange ends, the lead first checks `lead`'s inbox, under its
+    lock, for that member's `shutdown_response` and decides the state from the file, so an approved shutdown is never
+    taken for a failure. It then becomes `stopped`, with no idle notice and no `teammate_idle` event.
   - **Rejection.** It keeps working, and the lead gets the reason.
 - **`x` on its panel row.** Stops a teammate in any state.
   - Running: as for a subagent today.
@@ -312,8 +323,9 @@ All under `<agent dir>/teams/<team>/` and `<agent dir>/tasks/<team>/`, with file
   - **Typing** sends the user's text to the teammate with the user's authority. It goes straight to the deliverer in
     the lead process, never through an inbox file: a steer while it runs, a new exchange when it is idle. It resets
     the loop count.
-  - **Esc** interrupts the teammate's current turn without stopping it: the run is aborted and the teammate becomes
-    `idle`, still woken by messages. A second Esc, or Esc while it is idle, closes the screen.
+  - **Esc** interrupts the teammate's current turn without stopping it: a new interrupt path (not `registry.stop`,
+    whose abort ends as failed) aborts the run, and the teammate becomes `idle`, still woken by messages. An
+    interrupted exchange sends no idle notice and fires no `teammate_idle`, so a hook cannot wake it again at once. A second Esc, or Esc while it is idle, closes the screen.
   - Agent messages show inline as `✉` lines.
 - **Task list.** `/tasks` opens an overlay of the task list (id, status, owner, subject, blockers), which refreshes as
   the files change. A keybinding `app.team.tasks` has no default key, because `Ctrl+T` is taken.
@@ -324,6 +336,9 @@ All under `<agent dir>/teams/<team>/` and `<agent dir>/tasks/<team>/`, with file
   - `teammate_idle` `{ team, name, agentId, result | error }`: in the lead process, before the idle notice is sent.
   - `task_created` `{ team, task, by }`: in the process that runs `TaskCreate`, before the file is written.
   - `task_completed` `{ team, task, by }`: in the process that runs `TaskUpdate` to `completed`, before the write.
+- **Order.** Events, and any `hold`, run before a lock is taken. Once the step is allowed, the writer takes its locks
+  and checks again (blocked, conflict, cycle), so a slow hook never holds a lock. `task_created` carries the task
+  without an id: the id is taken from `next` after the hook allows it.
 - **Answering.** Each payload has `block(feedback: string)` and `hold(promise: Promise<string | undefined>)`.
   - A handler calls either one during `emit` (before its first `await`).
   - `hold` lets a handler decide asynchronously: a string blocks with that feedback, and `undefined` allows.
@@ -361,6 +376,7 @@ All under `<agent dir>/teams/<team>/` and `<agent dir>/tasks/<team>/`, with file
 - Automatic restore of a team on `/resume`.
 - More than one team per session.
 - Project-level team config files.
+- The same session resumed in two terminals at once (two leads of one team).
 - Teammates in workflows (decision 24).
 
 ## Testing
@@ -383,7 +399,8 @@ All under `<agent dir>/teams/<team>/` and `<agent dir>/tasks/<team>/`, with file
   - **Messages.**
     - the envelope and its escaping;
     - one idle notice per exchange, including typing;
-    - the loop cap: an A↔B ping-pong stops at 5, and a lead message releases it.
+    - the loop cap: an A↔B ping-pong stops at 5, and a lead message releases it (the cap counts wakes; steers
+      between two running teammates are bounded by `maxTurns`).
   - **The team.**
     - the cap counts idle members;
     - `/resume` with an old teammate's name;
@@ -393,7 +410,10 @@ All under `<agent dir>/teams/<team>/` and `<agent dir>/tasks/<team>/`, with file
     - a cycle made by two concurrent writers is refused;
     - who may change what, release on stop, retention.
   - **Ending.** Session end and `/reload` cleanup; stale team dirs after a crash.
-  - **Hooks.** `block`, `hold` (allow, block, timeout), and the 3-in-a-row idle limit.
+  - **Hooks.** `block`, `hold` (allow, block, timeout, no lock held meanwhile), and the 3-in-a-row idle limit.
+  - **Locks.** Two processes taking over one stale lock at once: one wins.
+  - **States.** Esc sends no idle notice; a failed exchange leaves the teammate idle; an approved shutdown racing the
+    exchange's end is not a failure; `/reload` then an old teammate's name.
   - **UI** (pty tests in the existing style):
     - teammate rows that never hide;
     - Esc interrupting without stopping;
