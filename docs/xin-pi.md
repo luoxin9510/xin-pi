@@ -13,15 +13,15 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
 - Packages are unscoped `xpi-*`, directory name equal to package name: `xpi-ai`, `xpi-agent-core`, `xpi-tui`,
   `xpi-coding-agent`, `xpi-codemode`, `xpi-mcp`, `xpi-schema`, `xpi-telemetry`, `xpi-evals`, `xpi-roost`. All share one
   version. Only `xpi-coding-agent` (the CLI, a self-contained bundle) is published to npm; see [Releasing](#releasing).
-- `xpi-roost` (private) is pi-roost's daemon, PTY host and library, ported for background sessions (spec:
-  `.scratch/xpi-roost/01-roost-core.md`). It imports nothing of xpi: the caller gives it the agent directory and the
-  daemon and host entry files, and they travel to the daemon, hosts and sessions in `ROOST_*` variables. State is in
-  `<agent dir>/xpi-roost/`, sockets in a runtime directory keyed by the agent directory, settings in the `"roost"` section
-  of `settings.json`. Its README, `docs/protocol.md`, `docs/port-inventory.md` and `docs/porting.md` (how it works, what
-  phase 1 left out) describe it. The hub is its own entry,
-  `xpi-roost/hub` (`src/hub/`, drawn with `xpi-tui`, the only xpi package xpi-roost imports, and only there): xpi
-  supplies the daemon connection, the detach key, how sessions launch, models, presets and the command table
-  (`AgentViewOptions`).
+- `xpi-roost` (private) is pi-roost's daemon, PTY host and library, ported for background sessions (specs:
+  `.scratch/xpi-roost/01-roost-core.md`, and `02-schedules.md` for schedules and the login service). It imports nothing
+  of xpi: the caller gives it the agent directory and the daemon and host entry files, and they travel to the daemon,
+  hosts and sessions in `ROOST_*` variables. State is in `<agent dir>/xpi-roost/`, sockets in a runtime directory keyed
+  by the agent directory, settings in the `"roost"` section of `settings.json`. Its README, `docs/protocol.md`,
+  `docs/port-inventory.md` and `docs/porting.md` (how it works, phase 2's schedules, what was left out) describe it. The
+  hub is its own entry, `xpi-roost/hub` (`src/hub/`, drawn with `xpi-tui`, the only xpi package xpi-roost imports, and
+  only there): xpi supplies the daemon connection, the detach key, how sessions launch, models, presets and the command
+  table (`AgentViewOptions`).
 - `xpi roost <subcommand>` (user docs: [CLI](../packages/xpi-coding-agent/docs/cli.md#background-session-commands)) is
   dispatched in `coding-agent/src/main.ts` next to `xpi mcp`, through `src/extensions/roost/cli.lazy.ts`. The commands
   live in `xpi-roost/src/cli.ts` (`runRoostCli`); `src/extensions/roost/cli.ts` supplies the agent directory, the entry

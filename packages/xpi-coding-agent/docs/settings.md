@@ -203,7 +203,7 @@ The built-in `commit` extension (`/commit`) reads a `commit` block:
 
 ## Background sessions
 
-The `roost` block configures background sessions (`xpi --bg`, the hub, `/bg`, `xpi roost`; see
+The `roost` block configures background sessions (`xpi --bg`, the hub, `/bg`, `xpi roost`, schedules; see
 [Background Sessions](roost.md)). The daemon of an agent directory reads `reapIdleMinutes` and `cleanupDays` from
 `<agent dir>/settings.json` itself, each time it uses them, so they come from your settings only. `xpi --bg`, `/bg` and
 the hub read the block of the directory they run in: a trusted project's `.pi/settings.json` adds to yours key by key, but never the environment keys (marked
@@ -218,7 +218,7 @@ is not read. Keys of the wrong type are ignored.
 | `roost.envAllowList` | `string[]` | `[]` | User only. Variables carried even when `inheritEnv` is off or `envDenyList` names them. |
 | `roost.envDenyList` | `string[]` | `[]` | User only. Variables never carried; `"PREFIX*"` names a prefix. |
 | `roost.workspaceEnv` | `"shell" \| "direnv" \| "off"` | `"shell"` | User only. The session directory's own environment on top: what its shell's cd hooks set (direnv, mise, fnm, ...), direnv only, or nothing. |
-| `roost.dispatchModel` | string | Session default | Model of a new background session (`xpi --bg`, the hub), `"provider/model"`; `--model` or `--provider` on the `xpi --bg` command line, or the hub's `/model`, wins. |
+| `roost.dispatchModel` | string | Session default | Model of a new background session (`xpi --bg`, the hub, a schedule made without `--model` or edited with `--model default`), `"provider/model"`; `--model` or `--provider` on the `xpi --bg` command line, or the hub's `/model`, wins. |
 | `roost.dispatchThinking` | string | Session default | Thinking level of a new background session; `--thinking` on the command line, or the hub's `/thinking`, wins. |
 | `roost.presets` | object | None | Saved choices for new sessions by name: `{ "fast": { "model": "provider/model", "thinking": "low", "dir": "sub/dir" } }`. `dir` is relative to the hub's directory and never above it. The user's and a project's presets merge by name, a project's winning. The hub's `/preset save` and `/preset rm` change your own. |
 | `roost.leftArrowOpensAgents` | boolean | `true` | The left arrow on an empty editor hands the conversation over (`/bg`) and opens the hub. |

@@ -2,8 +2,8 @@
 
 How the processes of xpi-roost talk: a session (an xpi in a PTY) to its daemon, and a
 controller (the hub, the command line, a test) to the daemon. Version 1, as pi-roost
-spoke it, reduced to phase 1's ops: there are no messages between sessions, no task
-board, no schedules and no concierge (see `port-inventory.md`).
+spoke it, reduced to phase 1's ops plus phase 2's schedule ops: there are no messages
+between sessions, no task board and no concierge (see `port-inventory.md`).
 
 ## Where a roost is
 

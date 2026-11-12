@@ -1330,7 +1330,11 @@ describe("phase 2: schedules in the daemon", () => {
 		const { client } = await startDaemon();
 		const missed = await waitFor(async () => (await runsOf(client, "missed"))[0]);
 		const due = await waitFor(async () => (await runsOf(client, "due"))[0]);
-		const rows = (await client.request("schedules", {})).schedules;
+		// a run is listed as soon as it starts; its schedule records it once the start returns
+		const rows = await waitFor(async () => {
+			const all = (await client.request("schedules", {})).schedules;
+			return all.every((r) => r.lastJob) ? all : undefined;
+		});
 		expect(rows.find((r) => r.name === "missed")).toMatchObject({ lastJob: missed.id, lastRunWhy: "catch-up" });
 		expect(rows.find((r) => r.name === "due")).toMatchObject({ lastJob: due.id, lastRunWhy: "due" });
 		for (const r of rows) expect(r.nextAt! > Date.now()).toBe(true);

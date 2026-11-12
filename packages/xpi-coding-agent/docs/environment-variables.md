@@ -117,4 +117,6 @@ See [CLI](cli.md#background-session-commands).
 
 A background session carries `ROOST_AGENT_DIR`, `ROOST_HOME` and `ROOST_RUNTIME_DIR` of its roost, so `xpi roost` run
 inside it reaches the same daemon, and an xpi with another agent directory (`XPI_CODING_AGENT_DIR`) gets a daemon of
-its own. Other `ROOST_*` names are internal.
+its own. The login service (`xpi roost daemon install`) keeps the `ROOST_HOME` and `ROOST_RUNTIME_DIR` (or the
+`XDG_RUNTIME_DIR`) of the terminal that installed it; see [Start the daemon at login](roost.md#schedules). Other
+`ROOST_*` names are internal.

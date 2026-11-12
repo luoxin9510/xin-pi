@@ -9,6 +9,9 @@ Every source and test file of pi-roost (main `890cbe9`) and where it went. The s
 - **cut**: not ported, with the decision that cuts it.
 
 Phase 1 was built in five PRs (core, command line, session side, hub, docs); "PR N" below says which one moved a file.
+Phase 2 (spec `.scratch/xpi-roost/02-schedules.md`: schedules and the login service) brought back what phase 1 cut for
+schedules; "phase 2" below marks those rows. Resume after an interruption (M38, `autoResume`) stays cut: phase 2
+decision 1 keeps phase 1's behaviour, which is Claude Code's.
 
 The code moved into `src/` (`src/lib`, `src/daemon`, `src/host`, `src/hub`), as in every other package of the monorepo, so the
 root `tsc`, biome and check scripts cover it unchanged.
@@ -22,16 +25,16 @@ root `tsc`, biome and check scripts cover it unchanged.
 | `lib/atomic.ts` | `src/lib/atomic.ts` | ported |
 | `lib/attach.ts` | `src/lib/attach.ts` | ported; `REPAINT_MARKER` cut (M14, dead with a current host; the session side does not repaint, decision 11). PR 2: the hardcoded Ctrl+Z scan replaced by the caller's matcher over whole keys (decision 11), `DetachScanner` holds a key split over reads (any kind) until whole, a lone ESC still sent at once; the runtime directory is checked before connecting |
 | `lib/board.ts` | | cut: task board (M47), decision 6 |
-| `lib/callers.ts` | `src/lib/callers.ts` | split: three caller kinds (Person, Session, Unregistered agent); the `Concierge` kind, the foreground/background session forms, the task and order action rows and the peer ops cut, decision 6 |
-| `lib/client.ts` | `src/lib/client.ts` | ported; `packageRoot`, `daemonEntry` and `hostEntry` replaced by `DaemonStart` (the agent directory and the two entry files come from the caller, decision 7) |
-| `lib/clock.ts` | | cut: the clock of schedules and watches, decision 6 |
+| `lib/callers.ts` | `src/lib/callers.ts` | split: three caller kinds (Person, Session, Unregistered agent); the `Concierge` kind, the foreground/background session forms, the task and order action rows and the peer ops cut, decision 6. Phase 2: the schedule ops, the person's only |
+| `lib/client.ts` | `src/lib/client.ts` | ported; `packageRoot`, `daemonEntry` and `hostEntry` replaced by `DaemonStart` (the agent directory and the two entry files come from the caller, decision 7). Phase 2: `daemonCommand` and `daemonLocation` (what the daemon runs, shared with the login service) and `daemonElsewhere` (`other_runtime_dir`) |
+| `lib/clock.ts` | `src/lib/clock.ts` | ported (phase 2): the schedules' clock |
 | `lib/comms.ts` | | cut: messages between sessions (M50), decision 6 |
 | `lib/concierge-module.ts` | | cut: concierge (M44 to M46), decision 6 |
 | `lib/concierge.ts` | | cut: concierge, decision 6 |
 | `lib/config.ts` | `src/lib/config.ts` | split: the `"roost"` section of `settings.json` (decision 9); `roost.json`, its paths and writers, the `agentProfiles`, concierge, `autoResume`, `subagentAutoClose`, `defaultToAgentsView`, `dispatchAgent`, `agentMax*` and summary-model keys cut; a preset keeps `model`, `thinking` and `dir` |
 | `lib/dispatch-input.ts` | `src/lib/dispatch-input.ts` | ported |
 | `lib/dispatch.ts` | `src/lib/dispatch.ts` | split: launch building and the environment (M20) kept; agent definitions, worktree isolation, profiles and `refusedByDaemon` cut, decision 6 |
-| `lib/events.ts` | `src/lib/events.ts` | split: event kinds `dispatch`, `state`, `reply`, `resume` (DM-5 restarts) and `removed`; message, notice, schedule and concierge kinds cut, decision 6 |
+| `lib/events.ts` | `src/lib/events.ts` | split: event kinds `dispatch`, `state`, `reply`, `resume` (DM-5 restarts) and `removed`; message, notice and concierge kinds cut, decision 6. Phase 2: kind `schedule` (a run started as due, catch-up or now, or a slot skipped) |
 | `lib/filter.ts` | `src/lib/filter.ts` | split: the `pr` and `a:` tokens cut (M16, M18), decision 6 |
 | `lib/framing.ts` | `src/lib/framing.ts` | ported |
 | `lib/heuristics.ts` | `src/lib/heuristics.ts` | ported |
@@ -50,13 +53,14 @@ root `tsc`, biome and check scripts cover it unchanged.
 | `lib/proc.ts` | `src/lib/proc.ts` | ported (not named in T3's list) |
 | `lib/profiles.ts` | | cut: terminal-agent profiles (M30), decision 6 |
 | `lib/project-config.ts` | | cut: a task workspace's project settings (M54 to M60), decision 6 |
-| `lib/protocol-schema.ts` | `src/lib/protocol-schema.ts` | split: decision 4's eighteen ops; the peer, send, handback, spawn, watch, schedule, task and concierge schemas and the rows and fields that served them cut |
+| `lib/protocol-schema.ts` | `src/lib/protocol-schema.ts` | split: decision 4's eighteen ops; the peer, send, handback, spawn, watch, task and concierge schemas and the rows and fields that served them cut. Phase 2: `schedules`, `schedule-add`, `schedule-edit` (new), `schedule-rm`, `schedule-pause`, `schedule-run` |
 | `lib/protocol.ts` | `src/lib/protocol.ts` | split: the capabilities and events of phase 1 |
 | `lib/resume.ts` | `src/lib/resume.ts` | ported (PR 2): `ensureLive`, the starting frame (AT-1) and `resumePrompt` (M5a: a failed run attached to is respawned with "Continue where you left off."). Phase 1 cuts the daemon resuming on its own, not this |
 | `lib/review.ts` | | cut: workspaces (M58), decision 6 |
-| `lib/schedule.ts`, `lib/schedules.ts` | | cut: schedules (M39, M40) are phase 2, decision 6 |
+| `lib/schedule.ts`, `lib/schedules.ts` | `src/lib/schedule.ts`, `src/lib/schedules.ts` | ported (phase 2, M39, M40) and changed: `weekly` and `manual` rules, a 5-minute floor that does not depend on when it is checked, 50 schedules, `edit`, the launch built by the client and stored, catch-up of the latest slot within 7 days, the skip rules, retention of three ended runs, an unreadable file set aside; profiles, `!` commands, agent definitions, worktree templates and subagent auto-close not (they need what phase 1 cut). See `porting.md`, Phase 2 |
+| (new) | `src/lib/service.ts` | phase 2: the login service (`xpi roost daemon install\|uninstall`, the line in `daemon status`): a launchd agent or a systemd user unit, its files from pure functions, launchctl and systemctl injected |
 | `lib/schema.ts` | `src/lib/schema.ts` | ported |
-| `lib/store.ts` | `src/lib/store.ts` | split: agent, fan-out, profile, schedule, term, protocol, role, parent/root session, worktree, task, verify and setup fields and their helpers cut, decision 6; the record format is otherwise unchanged |
+| `lib/store.ts` | `src/lib/store.ts` | split: agent, fan-out, profile, term, protocol, role, parent/root session, worktree, task, verify and setup fields and their helpers cut, decision 6; the record format is otherwise unchanged. Phase 2: `schedule` and `scheduleId` back |
 | `lib/summarizer.ts` | `src/lib/recap.ts` | split (PR 3): the recap's list (`AwayLog`, `emptyAway`, `awayIsEmpty`, `recapList`) moves; the summary model's prompts and parsers are cut, decision 6 |
 | `lib/task-diff.ts`, `lib/task-git.ts`, `lib/task-worktree-worker.ts` | | cut: workspaces, decision 6 |
 | `lib/telemetry.ts` | | cut: telemetry (M34), decision 6 |
@@ -76,24 +80,24 @@ root `tsc`, biome and check scripts cover it unchanged.
 
 | pi-roost | xpi-roost | |
 |---|---|---|
-| `daemon/main.ts` | `src/daemon/main.ts` | split: decision 4's ops, `events` included; settings from `<agent dir>/settings.json` `"roost"`; DM-5 restart of a crashed agent process with its delays and budget, a session whose host is gone ends (no M38); no board, workspaces, concierge, orders, schedules, watches, messages, peers, `handback`, profiles, PR polling, worktree isolation, agent-definition dispatch, subagent auto-close or telemetry |
+| `daemon/main.ts` | `src/daemon/main.ts` | split: decision 4's ops, `events` included; settings from `<agent dir>/settings.json` `"roost"`; DM-5 restart of a crashed agent process with its delays and budget, a session whose host is gone ends (no M38, phase 2 decision 1); phase 2's schedules (the tick, runs, retention, `schedules.json`); no board, workspaces, concierge, orders, watches, messages, peers, `handback`, profiles, PR polling, worktree isolation, agent-definition dispatch, subagent auto-close or telemetry |
 | `host/main.ts` | `src/host/main.ts` | split: no telemetry, no profile jobs (term signals, `term.json`, the `input` op), no repaint marker; `fixSpawnHelper` kept (decision 8); a session gets its roost's location (decision 7) |
-| `hub/agent-view.ts` | `src/hub/agent-view.ts` | split (PR 4), on xpi-tui: the list (pin, reorder, grouping, filter), peek with the reply box and the session's commands (M48, M61), attach (M21, M22), new session, stop, rm, rename, resume and the model choice (M23), usage (M24), marks and batches (M25), steer and follow-up (M28), presets (model, thinking, directory: M27), the log, the help. xpi supplies `connect`, `isDetachKey`/`detachKeyName` (decision 11) and `builtins` (T18; the "reply" class is new: an extension command a session's worker runs). Cut (decision 6): the task board, workspaces, review, concierge and standing orders, schedules, fan-out and `/compare`, agent definitions and profiles (`a:`, `/profile`), worktrees (`/worktree`), PR status (`#N`), the subagent rows (decision 3), Ctrl+N, Ctrl+Y, Ctrl+E, `?` questions; their keys gone from the help. The header reads "xpi agents". New (PR 4 review): `selfId` (a session's own row, marked and never attached, stopped or deleted), a failing `commands()` gives none, a rejected `savePreset`/`onGroupBy` is said |
+| `hub/agent-view.ts` | `src/hub/agent-view.ts` | split (PR 4), on xpi-tui: the list (pin, reorder, grouping, filter), peek with the reply box and the session's commands (M48, M61), attach (M21, M22), new session, stop, rm, rename, resume and the model choice (M23), usage (M24), marks and batches (M25), steer and follow-up (M28), presets (model, thinking, directory: M27), the log, the help. xpi supplies `connect`, `isDetachKey`/`detachKeyName` (decision 11) and `builtins` (T18; the "reply" class is new: an extension command a session's worker runs). Cut (decision 6): the task board, workspaces, review, concierge and standing orders, fan-out and `/compare`, agent definitions and profiles (`a:`, `/profile`), worktrees (`/worktree`), PR status (`#N`), the subagent rows (decision 3), Ctrl+N, Ctrl+Y, Ctrl+E, `?` questions; their keys gone from the help. The header reads "xpi agents". New (PR 4 review): `selfId` (a session's own row, marked and never attached, stopped or deleted), a failing `commands()` gives none, a rejected `savePreset`/`onGroupBy` is said. Phase 2: `/schedule` (add, or the list) and the `↻ <schedule>` row marker |
 | `hub/overlay-host.ts`, `hub/task-editor.ts`, `hub/text.ts`, `hub/theme.ts` | `src/hub/` | ported (PR 4); the overlay host without the board's reads |
-| `hub/roost-port.ts` | `src/hub/roost-port.ts` | split (PR 4): `subscribe`, `listen`, `position`, `jobs`, `events`; the task, concierge and schedule groups cut |
+| `hub/roost-port.ts` | `src/hub/roost-port.ts` | split (PR 4): `subscribe`, `listen`, `position`, `jobs`, `events`; the task and concierge groups cut. Phase 2: the schedules group |
 | `hub/overlays/log.ts`, `hub/overlays/usage.ts` | `src/hub/overlays/` | split (PR 4): the log without the message, report and notice kinds (M9, decision 6) and with phase 1's empty texts; usage ported |
 | (new) | `src/hub/index.ts` | the `xpi-roost/hub` entry (`check-entry-graphs.mjs`: at most 80 files, never the daemon, the host or the command line) |
 | `hub/overlays/compare.ts` | | cut: fan-out and `/compare` (M26), decision 6 |
 | `hub/overlays/concierge.ts` | | cut: concierge, decision 6 |
 | `hub/overlays/review.ts`, `hub/overlays/tasks.ts`, `hub/overlays/workspaces.ts` | | cut: task board and workspaces, decision 6 |
-| `hub/overlays/schedules.ts` | | cut: schedules, decision 6 |
+| `hub/overlays/schedules.ts` | `src/hub/overlays/schedules.ts` | ported (phase 2): each schedule with its rule, next run, last run or skip; run now, pause or resume, edit the rule, remove |
 | `adapters/pi/worker.ts` | `xpi-coding-agent/src/extensions/roost/worker.ts`, `detach-keys.ts` | split (PR 3): the reports, `ReplyQueue` (without agent items), `usageOf`, `contextOf`, the commands for the peek; the detach keys follow the user's keybindings (decision 11). Cut: agent items and `handback` (M9), the `roost_*` agent tools, PR links (M16), pi-mobile (M11), the worktree and task notes (M10, M55), decision 6 |
 | `adapters/pi/worker-extras.ts` | `xpi-coding-agent/src/extensions/roost/recap.ts` | split (PR 3): `registerRecap` without the summary model's rewrite; `attachSignal` only with the SIGUSR2 handler in (decision 11). Cut: `registerSummaries` (SM-2, DI-9 naming), `askSummaryModel`, the repaint on attach (M14, dead with a current host) |
 | `adapters/pi/earlier-history.ts` | `xpi-coding-agent/src/extensions/roost/earlier-history.ts` | ported (PR 3), on xpi's own message components |
 | `adapters/pi/index.ts` | `xpi-coding-agent/src/extensions/roost/index.ts`, `background.ts` | split (PR 3): the write lock (DM-8), `--bg` and `--bg-name`, the worker role; `--bg` takes the `"roost"` settings' model, thinking level and environment. Cut: `--agent`, `--worktree`, `--agents`, `--agents-cwd` (decision 6), the concierge role, the M32 double-load guard (one built-in, one path), `setJobEventBus` (NT-2, the hub's: PR 4 sets it when the hub opens, in `open-view.ts`). PR 4 adds `/agents` and the foreground role |
 | `adapters/pi/foreground.ts` | `xpi-coding-agent/src/extensions/roost/foreground.ts`, `handoff.ts`, `view-state.ts`, `hub.lazy.ts` | split (PR 4): `/bg`, `/background`, `/bg-fork` and the left arrow (`leftArrowOpensAgents`); the client, the launch and the hub load when used. Each session gets a trust decision by `sessionTrust`'s rule. The dispatch goes with `requestOnce`, and a lost answer is checked against the list by session file before falling back (PR 4 review). Cut: the quit offer (BG-9), the footer hint and its daemon poll (BG-11), `defaultToAgentsView` (decision 6), peers (decision 5) |
 | `adapters/pi/open-view.ts` | `xpi-coding-agent/src/extensions/roost/open-view.ts` | split (PR 4): `/agents` over the conversation (`fullscreen`) or in place of the editor; the commands and the event bus come in its options. Cut: `--agents`, `--agents-cwd` (decision 6) |
-| `adapters/pi/hub-options.ts` | `xpi-coding-agent/src/extensions/roost/hub-options.ts`, `commands.ts` | split (PR 4): launch, shell launch, resume and xpi's session selector, presets and grouping written to the user's settings through `SettingsManager.setRoostSetting`, notify, the detach key, the daemon of the agent directory, the trust decision (`trustFor`), the command table (T18). Cut: worktrees, agents, profiles, schedules, the concierge's launch |
+| `adapters/pi/hub-options.ts` | `xpi-coding-agent/src/extensions/roost/hub-options.ts`, `commands.ts` | split (PR 4): launch, shell launch, resume and xpi's session selector, presets and grouping written to the user's settings through `SettingsManager.setRoostSetting`, notify, the detach key, the daemon of the agent directory, the trust decision (`trustFor`), the command table (T18). Cut: worktrees, agents, profiles, the concierge's launch. Phase 2: `scheduleLaunch` (a schedule's launch with the hub's session directory) |
 | `adapters/pi/hub-main.ts` | `xpi-coding-agent/src/extensions/roost/hub-main.ts` | ported (PR 4) as `xpi roost hub [dir]` (`runRoostCli`'s `hub` option); the view is disposed when it ends |
 | `adapters/pi/agent-tools.ts` | | cut: the `roost_*` agent tools, decision 6 |
 | `adapters/pi/api.ts` | | cut: the programmatic API went with the published package (decision 1: `xpi-roost` is not published) |
@@ -103,7 +107,7 @@ root `tsc`, biome and check scripts cover it unchanged.
 | `adapters/pi/pr-links.ts` | | cut: M16, decision 6 |
 | `adapters/pi/subagent-panel.ts`, `adapters/pi/transcript-view.ts` | | cut: decision 3 |
 | `adapters/pi/task-start.ts`, `adapters/pi/tasks-command.ts` | | cut: task board and workspaces, decision 6 |
-| `bin/pi-roost.ts` | `src/cli.ts` | ported (PR 2) as `runRoostCli`, run by `xpi roost <subcommand>` (decision 7; no `pi-roost` executable). Cut: `schedule`, `review`, the raw `--json` op, `--version` (`xpi --version`), `list --subagents` (decisions 6, 7); `hub` runs the caller's `hub` option (PR 4). The detach key comes from the caller; without node-pty (`ptyInstalled: false`) only `respawn` and `attach` to a session that is not running are refused |
+| `bin/pi-roost.ts` | `src/cli.ts` | ported (PR 2) as `runRoostCli`, run by `xpi roost <subcommand>` (decision 7; no `pi-roost` executable). Phase 2: `schedule list\|add\|edit\|run\|pause\|resume\|rm` (the launch built by the caller's `scheduleLaunch`) and `daemon install\|uninstall`. Cut: `review`, the raw `--json` op, `--version` (`xpi --version`), `list --subagents` (decisions 6, 7); `hub` runs the caller's `hub` option (PR 4). The detach key comes from the caller; without node-pty (`ptyInstalled: false`) only `respawn` and `attach` to a session that is not running are refused |
 | `extensions/index.ts` | | cut: decision 6 |
 | `sdk/python/roost_agent.py` | | cut: the Python SDK, decision 6 |
 | `scripts/protocol-doc.ts` | `test/support/protocol-doc.ts` | ported; writes `docs/protocol.md` (`npm run docs:protocol` in this package) |
@@ -116,7 +120,7 @@ root `tsc`, biome and check scripts cover it unchanged.
 
 | pi-roost | xpi-roost | |
 |---|---|---|
-| `agent-view.test.ts` (and its snapshot) | `test/agent-view.test.ts` | split (PR 4): the tests of cut features removed (M13, M16, M18, M26, M30, M39, M40, M44 to M47, M55, M57 to M60, `/worktree`, the board's, review's, workspaces', schedules', concierge's and compare's pinned screens, the Ctrl+N and concierge layers); presets without agents and fan-out; xpi's commands from `test/support/builtins.ts`; a test of a "reply" command. Snapshots regenerated where the header ("xpi agents"), the help, the filter hint or the log's kinds changed |
+| `agent-view.test.ts` (and its snapshot) | `test/agent-view.test.ts` | split (PR 4): the tests of cut features removed (M13, M16, M18, M26, M30, M44 to M47, M55, M57 to M60, `/worktree`, the board's, review's, workspaces', concierge's and compare's pinned screens, the Ctrl+N and concierge layers); presets without agents and fan-out; xpi's commands from `test/support/builtins.ts`; a test of a "reply" command. Snapshots regenerated where the header ("xpi agents"), the help, the filter hint or the log's kinds changed |
 | `fit-screen.test.ts`, `usage-overlay.test.ts` | `test/` | ported (PR 4) |
 | `log-overlay.test.ts` | `test/log-overlay.test.ts` | split (PR 4): replies in place of messages; phase 1's empty texts |
 | `roost-port.test.ts` | `test/roost-port.test.ts` | split (PR 4): the session and event rows |
@@ -139,7 +143,7 @@ root `tsc`, biome and check scripts cover it unchanged.
 | `compare-overlay.test.ts` | | cut: M26, decision 6 |
 | `concierge.test.ts`, `concierge-module.test.ts`, `concierge-overlay.test.ts` | | cut: concierge, decision 6 |
 | `config.test.ts` | `test/config.test.ts` | split: rewritten for the `"roost"` section and the user-only keys |
-| `daemon.test.ts` | `test/daemon.test.ts` | split: the tests of M11, M26, M30, M31's protocol client, M34, M35's agent part, M38, M39, M40, `peer_register`, `autoResume` and the conformance suite removed whole; host-gone and killed-host tests now expect the session to end |
+| `daemon.test.ts` | `test/daemon.test.ts` | split: the tests of M11, M26, M30, M31's protocol client, M34, M35's agent part, M38, M39, M40, `peer_register`, `autoResume` and the conformance suite removed whole; host-gone and killed-host tests now expect the session to end. Phase 2 adds its own schedule tests (runs, skips, catch-up, retention, the file) |
 | `dispatch-input.test.ts` | `test/dispatch-input.test.ts` | ported |
 | `dispatch.test.ts` | `test/dispatch.test.ts` | ported (imports made static, `ROOST_JOB_ID`) |
 | `earlier-history.test.ts` | `xpi-coding-agent/test/roost-earlier-history.test.ts` | ported (PR 3) |
@@ -163,7 +167,8 @@ root `tsc`, biome and check scripts cover it unchanged.
 | `profiles.test.ts` | | cut: M30, decision 6 |
 | `protocol-doc.test.ts` | `test/protocol-doc.test.ts` | split: the Python SDK and the task/order action checks removed; the import graph checks that `src/` loads no xpi package |
 | `request-once.test.ts` | `test/request-once.test.ts` | split: the `refusedByDaemon` assertion removed (worktree isolation, M10, decision 6) |
-| `schedule.test.ts`, `schedules.test.ts`, `schedules-overlay.test.ts` | | cut: schedules (phase 2), decision 6 |
+| `schedule.test.ts`, `schedules.test.ts`, `schedules-overlay.test.ts` | `test/schedule.test.ts`, `test/schedules.test.ts`, `test/schedules-overlay.test.ts` | ported (phase 2) with the changes of the rows above |
+| (new) | `test/service.test.ts` | phase 2: the login service's files, and install, uninstall and status with a fake launchctl and systemctl |
 | `schema.test.ts` | `test/schema.test.ts` | ported |
 | `stress-attach.test.ts` | `test/stress-attach.test.ts` | ported |
 | `subagent-panel.test.ts` | | cut: decision 3 |
@@ -176,7 +181,7 @@ root `tsc`, biome and check scripts cover it unchanged.
 | `worker-state.test.ts` | `test/worker-state.test.ts` | ported |
 | `workspace-env.test.ts` | `test/workspace-env.test.ts` | ported |
 | `support/global-setup.ts` | `test/support/global-setup.ts` | ported; sweeps again after the suite |
-| `support/clock.ts` | | cut: with schedules and watches |
+| `support/clock.ts` | `test/support/clock.ts` | ported (phase 2) |
 | `support/overlay-host.ts` | `test/support/overlay-host.ts` | split (PR 4): without the board's task and workspace builders |
 | `support/overlay-keys.ts`, `support/roost-port.ts` | `test/support/` | ported (PR 4) |
 | (new) | `test/support/builtins.ts` | PR 4: a copy of `builtin:roost`'s command table for the hub's tests |
@@ -188,8 +193,8 @@ root `tsc`, biome and check scripts cover it unchanged.
 
 | pi-roost | xpi-roost | |
 |---|---|---|
-| `docs/porting.md` | `docs/porting.md` | split (PR 5): rewritten in English for phase 1 (decision 15 of the spec); the steps, settings, constants and ops of cut features left out, with a table of what phase 1 left out and why |
-| `docs/protocol.md` | `docs/protocol.md` | split (PR 1): phase 1's ops, generated from the schemas |
+| `docs/porting.md` | `docs/porting.md` | split (PR 5): rewritten in English for phase 1 (decision 15 of the spec); the steps, settings, constants and ops of cut features left out, with a table of what was left out and why. Phase 2 adds its section (schedules, the login service, the decision on resume) |
+| `docs/protocol.md` | `docs/protocol.md` | split (PR 1): phase 1's ops, generated from the schemas; phase 2's schedule ops |
 | `README.md` | `README.md`, `xpi-coding-agent/docs/roost.md`, `xpi-coding-agent/docs/cli.md` | rewritten: the package README for developers, the user guide and the CLI reference in the coding agent's docs |
 | `docs/profiles.md` | | cut: terminal-agent profiles (M30), decision 6 |
 | `docs/summary-model.md` | | cut: the summary model, decision 6 |
@@ -215,13 +220,14 @@ Only `ROOST_*` is read (decision 9). The renames of what phase 1 keeps:
 | `PI_ROOST_REAP_MINUTES`, `PI_ROOST_REAP_CHECK_MS` | `ROOST_REAP_MINUTES`, `ROOST_REAP_CHECK_MS` |
 | `PI_ROOST_SHELL_KEEP_MS` | `ROOST_SHELL_KEEP_MS` |
 | `PI_ROOST_RESUME_DELAYS_MS` | `ROOST_RESUME_DELAYS_MS` (the DM-5 restart delays) |
+| `PI_ROOST_SCHEDULE_TICK_MS` | `ROOST_SCHEDULE_TICK_MS` (phase 2, tests) |
 | `__PI_ROOST_ENV__`, `__PI_ROOST_END__` (probe markers, not variables) | `__ROOST_ENV__`, `__ROOST_END__` |
 
 New: `ROOST_AGENT_DIR`, the agent directory a roost belongs to (decision 7). The client that starts the daemon sets
 it with `ROOST_HOME`, `ROOST_RUNTIME_DIR` and `ROOST_HOST_ENTRY`; a session also gets `XPI_CODING_AGENT_DIR`.
 
 Gone with their features: `PI_ROOST_CONFIG_DIR` and `ROOST_CONFIG_DIR` (`roost.json`, decision 9),
-`PI_ROOST_CONCIERGE_*`, `PI_ROOST_SCHEDULE_TICK_MS`, `PI_ROOST_WATCH_TTL_MS`, `PI_ROOST_PR_POLL_MS`, `PI_ROOST_GH`,
+`PI_ROOST_CONCIERGE_*`, `PI_ROOST_WATCH_TTL_MS`, `PI_ROOST_PR_POLL_MS`, `PI_ROOST_GH`,
 `PI_ROOST_PREPARED_MS`, `PI_ROOST_HAND_MERGE_MS`, `PI_ROOST_FG_CLAIM_GRACE_MS`, `PI_ROOST_AUTO_CLOSE_MS`,
 `PI_ROOST_CHILD`, `ROOST_ROLE`, `ROOST_TASK_ID`, `ROOST_WORKTREE`, `ROOST_BRANCH`, `ROOST_BASE`,
 `ROOST_VERIFY_LOG`, `ROOST_TELEMETRY`, `ROOST_PI_PACKAGE`, `ROOST_EVAL_DIR`.
