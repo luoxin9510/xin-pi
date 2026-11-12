@@ -8,8 +8,9 @@ with the decision that cut it; pi-roost's own document stays in its repository f
 
 The code: `packages/xpi-roost` (the core, the command line and the hub) and `builtin:roost`
 (`packages/xpi-coding-agent/src/extensions/roost/`, the adapter). The spec and its decisions are
-`.scratch/xpi-roost/01-roost-core.md` and `.scratch/xpi-roost/decisions.md`; "decision N" below is the spec's
-numbering. Phase 2's spec is `.scratch/xpi-roost/02-schedules.md`; "phase 2 decision N" is its numbering. `port-inventory.md` lists every pi-roost file and where it went, `protocol.md` every op. The user guide is
+`.scratch/xpi-roost/01-roost-core.md` and `.scratch/xpi-roost/decisions.md`; "decision N" below is the spec's numbering.
+Phase 2's spec is `.scratch/xpi-roost/02-schedules.md`; "phase 2 decision N" is its numbering. `port-inventory.md` lists
+every pi-roost file and where it went, `protocol.md` every op. The user guide is
 `packages/xpi-coding-agent/docs/roost.md`.
 
 ## The architecture in one picture
@@ -25,9 +26,10 @@ numbering. Phase 2's spec is `.scratch/xpi-roost/02-schedules.md`; "phase 2 deci
 |---|---|---|---|
 | daemon | `xpi-roost/src/daemon/main.ts` | one per user and agent directory, started on demand | no |
 | host | `xpi-roost/src/host/main.ts` | one per session; holds the PTY and a headless mirror of the screen | no (node-pty, `@xterm/headless`, `@xterm/addon-serialize`) |
-| command line | `xpi-roost/src/cli.ts` (`runRoostCli`), run by `xpi roost` | short-lived | no: the caller gives the agent directory, the entry files and the detach key |
+| command line | `xpi-roost/src/cli.ts` (`runRoostCli`), run by `xpi roost` | short-lived | no: the caller gives the agent directory, the entry files, the detach key and `scheduleLaunch` (a schedule's launch, phase 2) |
 | library | `xpi-roost/src/lib/` | | no |
-| hub | `xpi-roost/src/hub/` | inside xpi (`/agents`) or its own terminal (`xpi roost hub`) | draws with `xpi-tui` only; everything about xpi comes in `AgentViewOptions` |
+| hub | `xpi-roost/src/hub/` | inside xpi (`/agents`) or its own terminal (`xpi roost hub`) | draws with `xpi-tui` only; everything about xpi comes in `AgentViewOptions` (`scheduleLaunch` included) |
+| login service | `xpi-roost/src/lib/service.ts`, run by `xpi roost daemon install` | none of its own: launchd or systemd starts the daemon at login | no: it runs what `connectOrStart` runs |
 | adapter | `xpi-coding-agent/src/extensions/roost/` (`builtin:roost`) | loaded in every xpi process | yes: the only part that does |
 
 A background session is an ordinary interactive xpi running in a pseudo-terminal that a host process holds. Attaching
@@ -99,11 +101,14 @@ Copy `packages/xpi-roost` whole; it has no xpi in it. What carries the host agen
 | `lib/store.ts` `taskArg()`, `respawnCommand()`, `SESSION_RESTORED_FLAGS` | a task starting with `@` gets a space (xpi reads `@x` as a file); a respawn drops the first prompt of a written session and `--model`, `--provider`, `--thinking`, then passes the worker's last reported model and level |
 | `lib/heuristics.ts` `QUESTION_PHRASES` | the phrases that make a last answer a question |
 | `lib/config.ts` | the `"roost"` settings keys, their defaults and the user-only keys |
+| `lib/service.ts` `serviceName()` | the login service's names, `dev.xpi.roost.<key>` (launchd) and `xpi-roost-<key>.service` (systemd); rename them for the host agent, as the state and runtime directories |
 
 Rewrite the adapter (`builtin:roost`) for the host agent. Give the hub what `AgentViewOptions` asks: `connect`,
 `launch` and `launchShell`, `isDetachKey` and `detachKeyName`, models, presets, resume, `builtins` (the host agent's
 slash commands, each with how a peek runs it: `hub`, `screen`, `picker`, `confirm`, `reply`), `selfId` in a session the
-daemon runs.
+daemon runs, and `scheduleLaunch` (phase 2): a schedule's launch built as the host agent builds a new session's, with
+`{{run}}` where each run's session file name goes. `runRoostCli` takes the same `scheduleLaunch` for
+`xpi roost schedule add|edit`; without it, schedules cannot be made there.
 
 ## Building it, step by step
 
@@ -126,6 +131,8 @@ use.
    ```text
    <agent dir>/xpi-roost/
      daemon.log         JSON lines
+     service.log        the login service's stdout and stderr (phase 2)
+     schedules.json     the schedules and their stored launches, 0600 (phase 2)
      roster.json        live hosts by job, {hostPid, hostToken}: a restarted daemon takes them over
      events.jsonl       the event feed (`events` op, the hub's /log, `xpi roost log`)
      scratch/           hand-off sessions of /bg, never written
@@ -166,9 +173,9 @@ use.
    relative or missing directory, an empty command, a relative session file, and a file that is locked or already run
    by a job (`locked`); a taken name gets ` (2)`. Each job gets a random token, given to its worker by the host.
 9. **The command line** (`src/cli.ts`): `ls`/`list` (`--all`, `--cwd`, `--json`), `logs`, `log` (`-n`, `--follow`),
-   `attach`, `reply`, `stop`, `rm`, `respawn` (`--all`), `daemon status|logs|stop` (`--keep-workers`), `hub`; phase 2 adds `schedule ...` and `daemon install|uninstall`. A daemon
-   of another version gets a warning with the way out: `xpi roost daemon stop --keep-workers`, then
-   `xpi roost respawn --all`.
+   `attach`, `reply`, `stop`, `rm`, `respawn` (`--all`), `daemon status|logs|stop` (`--keep-workers`), `hub`; phase 2
+   adds `schedule ...` and `daemon install|uninstall`. A daemon of another version gets a warning with the way out: `xpi
+   roost daemon stop --keep-workers`, then `xpi roost respawn --all`.
 10. **The attach loop** (`lib/attach.ts`): raw mode, bytes passed through. The caller's matcher says which whole key
     detaches (decision 11: xpi passes its `app.suspend` binding); a key split over reads is held until whole; a
     bracketed paste is text. On the way out it resets the terminal (`TERMINAL_RESET`: keyboard protocols, bracketed

@@ -165,7 +165,7 @@ describe("install, uninstall, status with fakes", () => {
 		expect(serviceStatus(start(), deps)).toBe(`installed (launchd ${name})`);
 		calls.length = 0;
 		expect(await uninstallService(start().agentDir, deps)).toBe(
-			`removed ${file}: the daemon no longer starts at login`,
+			`removed ${file}: the daemon no longer starts at login; no daemon is running now: any xpi roost command starts it`,
 		);
 		expect(verbs(calls)).toEqual([`launchctl print gui/1000/${name}`, `launchctl bootout gui/1000/${name}`]);
 		expect(existsSync(file)).toBe(false);
@@ -196,6 +196,12 @@ describe("install, uninstall, status with fakes", () => {
 			"the service file is still in place: run xpi roost daemon uninstall again once it has stopped",
 		);
 		expect(existsSync(file)).toBe(true);
+		// run again once it has stopped: the job is gone, only the file is left
+		f.state.pid = undefined;
+		expect(await uninstallService(start().agentDir, f.deps)).toBe(
+			`removed ${file}: the daemon no longer starts at login; no daemon is running now: any xpi roost command starts it`,
+		);
+		expect(existsSync(file)).toBe(false);
 
 		const g = fake("darwin", { pid: 777 });
 		await installService(start(), g.deps);

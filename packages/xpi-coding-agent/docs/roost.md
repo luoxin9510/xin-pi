@@ -318,8 +318,8 @@ The `roost` block of `settings.json` (see [Settings](settings.md#background-sess
 
 | Setting | Default | Applies to |
 |---|---|---|
-| `dispatchModel` | the session default | the model of a session `--bg` or the hub starts, unless the command line gives `--model` or `--provider` |
-| `dispatchThinking` | the session default | its thinking level, unless the command line gives `--thinking` |
+| `dispatchModel` | the session default | the model of a session `--bg` or the hub starts, unless the command line gives `--model` or `--provider`; also of a schedule made without `--model` or edited with `--model default` (stored with it) |
+| `dispatchThinking` | the session default | its thinking level, unless the command line gives `--thinking`; likewise for a schedule (`--thinking`, `--thinking default`) |
 | `presets` | none | the hub's saved choices for new sessions (`/preset`) |
 | `leftArrowOpensAgents` | `true` | the left arrow on an empty prompt hands the conversation over and opens the hub |
 | `groupBy` | `"state"` | how the hub groups its rows (Ctrl+S changes it) |
@@ -370,10 +370,10 @@ After an upgrade, a running daemon still has the old code: run `xpi roost daemon
 ## Not in this version
 
 Background sessions came from pi-roost; this version has its daemon, `xpi roost`, the hub, the session side and
-schedules. Not here: sessions resuming on their own after a machine restart (left out: restarting unattended can
-repeat half-done work; reply to a session or `xpi roost respawn` it instead); a schedule whose task is a shell command
-or an agent definition; messages between sessions and watches (with agent teams, later); subagents in the hub (each session shows its own); the task board and workspaces,
-the concierge, worktree isolation, pull request status, fan-out and `/compare`, sessions from agent definitions,
-terminal agents other than xpi, the summary model, pi-mobile and telemetry. The list, with the decision behind each,
-is in [Left out](../../xpi-roost/docs/porting.md#left-out). pi-roost's state and `roost.json`
-are not read: its sessions do not appear here.
+schedules. Not here: sessions resuming on their own after a machine restart (left out: restarting unattended can repeat
+half-done work; reply to a session or `xpi roost respawn` it instead); a schedule whose task is a shell command or an
+agent definition; messages between sessions and watches (with agent teams, later); subagents in the hub (each session
+shows its own); the task board and workspaces, the concierge, worktree isolation, pull request status, fan-out and
+`/compare`, sessions from agent definitions, terminal agents other than xpi, the summary model, pi-mobile and telemetry.
+The list, with the decision behind each, is in [Left out](../../xpi-roost/docs/porting.md#left-out). pi-roost's state
+and `roost.json` are not read: its sessions do not appear here.

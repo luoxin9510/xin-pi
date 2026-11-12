@@ -218,7 +218,7 @@ is not read. Keys of the wrong type are ignored.
 | `roost.envAllowList` | `string[]` | `[]` | User only. Variables carried even when `inheritEnv` is off or `envDenyList` names them. |
 | `roost.envDenyList` | `string[]` | `[]` | User only. Variables never carried; `"PREFIX*"` names a prefix. |
 | `roost.workspaceEnv` | `"shell" \| "direnv" \| "off"` | `"shell"` | User only. The session directory's own environment on top: what its shell's cd hooks set (direnv, mise, fnm, ...), direnv only, or nothing. |
-| `roost.dispatchModel` | string | Session default | Model of a new background session (`xpi --bg`, the hub, a schedule made or edited without `--model`), `"provider/model"`; `--model` or `--provider` on the `xpi --bg` command line, or the hub's `/model`, wins. |
+| `roost.dispatchModel` | string | Session default | Model of a new background session (`xpi --bg`, the hub, a schedule made without `--model` or edited with `--model default`), `"provider/model"`; `--model` or `--provider` on the `xpi --bg` command line, or the hub's `/model`, wins. |
 | `roost.dispatchThinking` | string | Session default | Thinking level of a new background session; `--thinking` on the command line, or the hub's `/thinking`, wins. |
 | `roost.presets` | object | None | Saved choices for new sessions by name: `{ "fast": { "model": "provider/model", "thinking": "low", "dir": "sub/dir" } }`. `dir` is relative to the hub's directory and never above it. The user's and a project's presets merge by name, a project's winning. The hub's `/preset save` and `/preset rm` change your own. |
 | `roost.leftArrowOpensAgents` | boolean | `true` | The left arrow on an empty editor hands the conversation over (`/bg`) and opens the hub. |

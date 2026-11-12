@@ -5,8 +5,9 @@ session that holds its PTY and a headless mirror of its screen, and the library 
 of `.scratch/xpi-roost/01-roost-core.md`, and phase 2's schedules and login service (`02-schedules.md`). Private: it
 ships inside the `xpi-coding-agent` bundle, never on its own.
 
-It has the core, the `xpi roost` commands (schedules and `daemon install` included) and the hub. The session side, `builtin:roost` (`xpi --bg`, `/agents`, `/bg`,
-`/bg-fork`, the worker role in a session the daemon runs), lives in `xpi-coding-agent/src/extensions/roost/`.
+It has the core, the `xpi roost` commands (schedules and `daemon install` included) and the hub. The session side,
+`builtin:roost` (`xpi --bg`, `/agents`, `/bg`, `/bg-fork`, the worker role in a session the daemon runs), lives in
+`xpi-coding-agent/src/extensions/roost/`.
 
 ## Layout
 

@@ -274,6 +274,12 @@ export async function installService(start: DaemonStart, deps: ServiceDeps): Pro
 	return `installed ${path} (systemd ${spec.name}.service): the daemon starts at each login; ${running ? "the daemon running now keeps running" : "started now"}`;
 }
 
+/** After an uninstall that stopped nothing: whether a daemon runs now, so the user knows where schedules stand. */
+const daemonNow = (deps: ServiceDeps) =>
+	deps.daemonPid() !== undefined
+		? " (the daemon running now keeps running)"
+		: "; no daemon is running now: any xpi roost command starts it";
+
 /**
  * Unregisters the service and removes its file. systemd: `disable` without `--now`, so the daemon keeps running.
  * launchd: `bootout` stops the daemon the service started (sessions keep running); it is started again as any client
@@ -288,8 +294,8 @@ export async function uninstallService(agentDir: string, deps: ServiceDeps): Pro
 	if (kind === "launchd") {
 		const stopped = await bootout(deps, `gui/${deps.uid}/${name}`, "uninstall");
 		rmSync(path, { force: true });
-		if (!stopped)
-			return `${removed}${deps.daemonPid() !== undefined ? " (the daemon running now keeps running)" : ""}`;
+		// not stopped here: one started outside the service, or none (also after a timed-out uninstall run again)
+		if (!stopped) return `${removed}${daemonNow(deps)}`;
 		try {
 			await deps.startDaemon();
 		} catch (err) {
@@ -302,7 +308,7 @@ export async function uninstallService(agentDir: string, deps: ServiceDeps): Pro
 	if (r.code !== 0) throw failed("systemctl --user disable", r);
 	rmSync(path, { force: true });
 	deps.run("systemctl", ["--user", "daemon-reload"]);
-	return `${removed}${deps.daemonPid() !== undefined ? " (the daemon running now keeps running)" : ""}`;
+	return `${removed}${daemonNow(deps)}`;
 }
 
 /** `daemon status`'s line: whether the service is installed, and for this xpi or another path. */

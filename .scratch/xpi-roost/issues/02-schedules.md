@@ -109,4 +109,10 @@ Haiku check when it changes what a session does, and the user docs for what it a
       `settings.md` (`dispatchModel` for schedules), `environment-variables.md` (the login service's runtime
       directory). The #78 round 2 code nits are a separate commit (the bootout timeout and a failed restart after
       uninstall say what to do).
+      Review round 1 (PR #79): `settings.md` and `roost.md`'s settings table say `dispatchModel` (and thinking) apply
+      to a schedule made without `--model` or edited with `--model default` (an edit without it keeps the stored
+      one); `porting.md`'s architecture table, `AgentViewOptions` list and copy/rewrite table name `scheduleLaunch`
+      and the login service's host-named labels, and the state layout lists `schedules.json` and `service.log`; an
+      uninstall that stopped nothing (also one run again after a timeout) says when no daemon is running and that any
+      `xpi roost` command starts it; long prose lines rewrapped.
 - [ ] S14 a release with a Node smoke test including `xpi roost schedule`
