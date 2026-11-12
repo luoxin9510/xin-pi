@@ -242,13 +242,18 @@ function runExchange(
 			const kept = await settle(spec);
 			// A stop request that lands after the run finished by itself leaves the run as it was.
 			const userStopped = registry.stopRequested(id) && run.aborted;
+			// An interrupt (a teammate's Esc) that lands after the run finished by itself is an ordinary end.
+			const interrupted = registry.interruptRequested(id) && run.aborted && !userStopped;
 			// A teammate's end: idle (a failed exchange too) with an idle notice for the lead, or stopped (an approved
 			// shutdown, the session's end); team.ts decides.
-			const verdict = mate && team ? await team.exchangeEnded(mate.name, { run, userStopped }) : undefined;
+			const verdict =
+				mate && team ? await team.exchangeEnded(mate.name, { run, userStopped, interrupted }) : undefined;
 			if (userStopped) {
 				run = { ...run, status: "failed", error: "stopped by user" };
 				registry.finish(id, "stopped", run);
-			} else if (verdict === "stopped") registry.finish(id, "stopped", run);
+			} else if (interrupted && verdict === "idle")
+				registry.finish(id, "completed", run); // idle, not failed
+			else if (verdict === "stopped") registry.finish(id, "stopped", run);
 			else registry.finish(id, run.status, run);
 			const said = [...(info.said === undefined ? [] : [info.said]), ...(userSteers.get(id) ?? [])];
 			userSteers.delete(id);

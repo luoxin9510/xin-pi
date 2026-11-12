@@ -41,6 +41,23 @@ export function envelopeLine(entry: Pick<InboxEntry, "from" | "summary" | "text"
 	return `✉ ${entry.from}: ${entry.summary?.trim() || first.trim()}`;
 }
 
+// A user message as the screens draw it: the agent messages in it become `✉` lines and what is left is the user's own
+// text (what they typed). `lines` is empty when the text holds no envelope.
+export function splitEnvelopes(text: string): { rest: string; lines: string[] } {
+	const lines: string[] = [];
+	const pattern = new RegExp(
+		`<${TAG} from="([^"]*)" team="[^"]*" kind="[^"]*" id="[^"]*">\\n([\\s\\S]*?)\\n</${TAG}>\\n${NO_AUTHORITY.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`,
+		"g",
+	);
+	const rest = text
+		.replace(pattern, (_all, from: string, body: string) => {
+			lines.push(envelopeLine({ from, text: body.replace(/&lt;/g, "<") }));
+			return "";
+		})
+		.trim();
+	return { rest, lines };
+}
+
 // The body of an idle notice: the final answer (already cut by the caller), or the error when the exchange failed.
 export function idleText(
 	name: string,
