@@ -7,6 +7,9 @@ import type { JsonValue } from "xpi-ai";
 import type { ExtensionContext } from "../../core/extensions/types.ts";
 import { type AgentInput, type AgentResult, outputSchema as agentOutput, type agentTool } from "./agent-tool.ts";
 import { registry } from "./registry.ts";
+import { teams } from "./team.ts";
+import { sendToMember, type TeamSendInput, teamParameters } from "./team-send.ts";
+import { LEAD } from "./team-text.ts";
 
 const parameters = Type.Object({
 	to: Type.String({ description: "The agent: its name, or the agentId from a result" }),
@@ -33,23 +36,90 @@ export const SEND_MESSAGE_DESCRIPTION = [
 	"A finished agent is continued from its session, like Agent({ resume, prompt: message }): the call returns that result.",
 ].join("\n");
 
-export function sendMessageTool(agent: ReturnType<typeof agentTool>) {
+// With agent teams on: the tool also reaches the team's members and answers shutdown requests (team-send.ts).
+export const TEAM_SEND_MESSAGE_DESCRIPTION = [
+	SEND_MESSAGE_DESCRIPTION,
+	'Agent teams are on: a teammate (an Agent call with `name`) is a member of the team. A message to a member is written to its mailbox and the call returns `{ status: "sent", to, id }`; a running member reads it after its current step, an idle one wakes up. A name of an earlier teammate (after a resume or reload) continues it as a member.',
+	'Ask a member to stop with `kind: "shutdown_request"` (`message` is optional): it approves or refuses with a reason.',
+].join("\n");
+
+const teamOutputSchema = Type.Object(
+	{
+		status: Type.Union([
+			agentOutput.properties.status,
+			Type.Literal("sent"),
+			Type.Literal("started"),
+			Type.Literal("queued"),
+		]),
+		agentId: Type.Optional(Type.String()),
+		to: Type.Optional(Type.String()),
+		id: Type.Optional(Type.String({ description: "A member's message id" })),
+		delivered: Type.Optional(Type.String({ description: '"steer": the agent was running and got the message' })),
+		output: Type.Optional(Type.String()),
+	},
+	{ description: "To a member: sent. To a finished subagent: every field of an Agent result" },
+);
+
+export function sendMessageTool(agent: ReturnType<typeof agentTool>, withTeams = false) {
+	const params = withTeams ? (teamParameters as unknown as typeof parameters) : parameters;
 	return {
 		name: "SendMessage",
 		label: "SendMessage",
 		effect: "write" as const,
 		exposure: "codemode" as const,
-		description: SEND_MESSAGE_DESCRIPTION,
-		parameters,
-		outputSchema,
+		description: withTeams ? TEAM_SEND_MESSAGE_DESCRIPTION : SEND_MESSAGE_DESCRIPTION,
+		parameters: params,
+		outputSchema: withTeams ? (teamOutputSchema as unknown as typeof outputSchema) : outputSchema,
 		async execute(
 			toolCallId: string,
-			params: SendInput,
+			params: SendInput | TeamSendInput,
 			signal: AbortSignal | undefined,
 			onUpdate: Parameters<ReturnType<typeof agentTool>["execute"]>[3],
 			ctx: ExtensionContext,
 		) {
 			const sessionId = ctx.sessionManager.getSessionId();
+			if (teams.on) {
+				const team = teams.current();
+				const member = team?.member(params.to);
+				const kind = "kind" in params ? params.kind : undefined;
+				if (params.to === LEAD) throw new Error("you are the lead");
+				if (team && member) {
+					if (kind === "shutdown_response") throw new Error("only a teammate answers a shutdown request");
+					if (kind === "shutdown_request") team.markShutdownRequested(member.name);
+					const sent = await sendToMember(
+						{ team: team.name, dir: team.dir, members: [...team.members.values()] },
+						LEAD,
+						params as TeamSendInput,
+					);
+					team.kick();
+					const result = { status: sent.status, to: sent.to, id: sent.id };
+					return {
+						content: [{ type: "text" as const, text: `Sent to ${sent.to} (${sent.id}).` }],
+						details: result as unknown as AgentResult | undefined,
+						structuredContent: result as unknown as JsonValue,
+						isError: false,
+					};
+				}
+				const known = registry.find(sessionId, params.to);
+				const record = known === undefined ? undefined : registry.get(known);
+				if (record?.teammate && record.name !== undefined) {
+					// An earlier teammate (after /resume, /reload or a crash): the message continues it as a member.
+					if (kind !== undefined)
+						throw new Error(`"${kind}" is for members of the current team; ${record.name} is not one yet`);
+					if (params.message === undefined) throw new Error("`message` is required");
+					return agent.execute(
+						toolCallId,
+						{ description: record.description, prompt: params.message, name: record.name } as AgentInput,
+						signal,
+						onUpdate,
+						ctx,
+					);
+				}
+				if ("kind" in params && params.kind !== undefined) {
+					throw new Error(`"${params.kind}" is for team members: "${params.to}" is not one`);
+				}
+			}
+			if (params.message === undefined) throw new Error("`message` is required");
 			const id = registry.find(sessionId, params.to);
 			const record = id === undefined ? undefined : registry.get(id);
 			if (!record) {

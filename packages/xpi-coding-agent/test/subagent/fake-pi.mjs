@@ -7,6 +7,7 @@
 //   across several children), hold?: { line, starts } (before that line, wait until the log has that many "start"
 //   entries, at most 4 s: siblings that should run at the same time are seen to, however slow the machine),
 //   reply?: string[] (lines for a second prompt: the child stays up after `lines` and plays these when one comes),
+//   takeSteers?: boolean (answer a steer command with a user message_end carrying its text),
 //   byPrompt?: { [text]: string[] } (lines to play instead of `lines` when the prompt contains that text; first match) }
 // Like pi, it waits for a `prompt` command on stdin, answers it with a response, then plays the lines. Without `hang` it
 // exits after the lines; with `hang` it stays up and ignores stdin closing.
@@ -29,6 +30,12 @@ const record = () =>
     JSON.stringify({
       argv,
       depth: process.env.XPI_SUBAGENT_DEPTH,
+      team: {
+        XPI_TEAM: process.env.XPI_TEAM,
+        XPI_TEAM_MEMBER: process.env.XPI_TEAM_MEMBER,
+        XPI_TEAM_DIR: process.env.XPI_TEAM_DIR,
+        XPI_TEAM_TOOLS: process.env.XPI_TEAM_TOOLS,
+      },
       commands,
       cwd: process.cwd(),
       systemPrompt: sp === -1 ? undefined : readFileSync(argv[sp + 1], "utf8"),
@@ -75,6 +82,12 @@ rl.on("line", async (line) => {
   if (cmd.type === "abort") {
     out({ id: cmd.id, type: "response", command: "abort", success: true });
     if (scenario.abortSettles) out({ type: "agent_settled", aborted: true });
+    return;
+  }
+  if (cmd.type === "steer") {
+    out({ id: cmd.id, type: "response", command: "steer", success: true, data: { disposition: "queued" } });
+    // takeSteers: the child reads the steer at once, as a running pi does between steps
+    if (scenario.takeSteers) out({ type: "message_end", message: { role: "user", content: cmd.message } });
     return;
   }
   if (cmd.type === "set_model") {

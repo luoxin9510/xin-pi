@@ -13,6 +13,7 @@ import type { AgentDefinition } from "./definition.ts";
 import { childInvocation } from "./invocation.ts";
 import { newAgentId, subagentSessionDir } from "./sessions.ts";
 import { findSkill } from "./skills.ts";
+import { TEAM_TOOL_NAMES, teammatePrompt } from "./team-text.ts";
 import type { WorktreeRef } from "./worktree.ts";
 
 export interface CallInput {
@@ -55,6 +56,17 @@ export interface ChildSpec {
 	warnings: string[];
 	shutdownGraceMs?: number; // time after SIGTERM before SIGKILL (subagent.shutdownGraceMs)
 	worktree?: WorktreeRef; // isolation: the child's cwd is its path; the exchange creates and settles it
+	teamPrompt?: string; // a teammate's frozen prompt section, to store in its meta file (team.ts)
+}
+
+// A teammate's launch (agent teams): which team and member it is, and its prompt section when it was written already
+// (a continue reuses it, so the history stays cached).
+export interface TeamLaunch {
+	team: string; // the team's directory name
+	dir: string;
+	member: string;
+	roster: string[]; // for the prompt of a first start
+	prompt?: string;
 }
 
 // What the caller decided before resolving: the new agent's id (a worktree path needs it) and the worktree to run in.
@@ -64,6 +76,7 @@ export interface ResolveOptions {
 	memoryRoot?: string; // project/local memory base: the main checkout (git root of the parent's cwd); default the parent's cwd
 	claudeDir?: string; // user memory base, default ~/.claude (tests pass a temp dir)
 	mcpServers?: string[]; // names of the configured MCP servers; default: read from mcp.json (tests pass a list)
+	team?: TeamLaunch; // a teammate: it gets the team's tools, environment and prompt section
 }
 
 // The shared head must not name the agent, its directory or the date: those belong to the tail.
@@ -203,7 +216,14 @@ function resolveTools(
 	structured: boolean,
 	configured: () => string[], // the configured MCP server names, read only when needed (`mcpServers`, direct tools)
 	trusted: boolean,
-): { args: string[]; mcpConfig?: string; warnings: string[]; memoryReadOnly: MemoryReadOnly } {
+	team = false, // a teammate: the team's tools are added to every tool list and never excluded
+): {
+	args: string[];
+	mcpConfig?: string;
+	warnings: string[];
+	memoryReadOnly: MemoryReadOnly;
+	teamCodemode: boolean; // the team's tools have codemode exposure (the child has codemode); else they are direct tools
+} {
 	const toolMap = { ...BUILTIN_TOOL_MAP, ...config.toolMap };
 	const warnings: string[] = [];
 
@@ -211,6 +231,7 @@ function resolveTools(
 		const out: string[] = [];
 		for (const name of names) {
 			if (NESTING_TOOLS.includes(name)) continue;
+			if (team && TEAM_TOOL_NAMES.includes(name)) continue; // always there: neither listed nor denied by the file
 			const mapped = mapTool(name, toolMap);
 			if (mapped === undefined) warnings.push(`tool "${name}" has no pi equivalent`);
 			else if (!out.includes(mapped)) out.push(mapped);
@@ -220,7 +241,7 @@ function resolveTools(
 
 	// `Bash(git push *)` in a deny list removes the whole tool: pi has no per-command rules.
 	const deny = map((def.disallowedTools ?? []).map((t) => t.replace(/\(.*\)$/, "").trim()));
-	if (def.permissionMode === "plan") return planTools(def, codemode, structured, deny, map, warnings);
+	if (def.permissionMode === "plan") return planTools(def, codemode, structured, deny, map, warnings, team);
 	const args: string[] = [];
 	// Memory needs Read, Write and Edit; a deny rule on Write or Edit keeps them off and makes the memory read-only.
 	const memoryTools = def.memory ? map(["Read", "Write", "Edit"]) : [];
@@ -242,6 +263,7 @@ function resolveTools(
 	let servers: string[] | undefined;
 	let otherServers: string[] = [];
 	let mcpConfig: string | undefined;
+	let teamCodemode = codemode;
 	if (def.mcpServers !== undefined) {
 		const known = configured();
 		const inline = inlineServers(def, known, trusted, warnings);
@@ -261,9 +283,12 @@ function resolveTools(
 		const listed = [...map(def.tools), ...(servers ?? []).map(serverTools)];
 		const extra = (memoryReadOnly ? memoryTools.slice(0, 1) : memoryTools).filter((t) => !listed.includes(t));
 		const allow = [...listed, ...extra].filter((t) => !deny.includes(t));
-		if (allow.length === 0) throw new Error(`agent "${def.name}" has no usable tools`);
+		if (allow.length === 0 && !team) throw new Error(`agent "${def.name}" has no usable tools`);
 		const selected = codemode ? ["codemode", ...allow.filter((t) => t !== "codemode")] : allow;
-		args.push("--tools", [...selected, ...(structured ? [STRUCTURED_OUTPUT_TOOL] : [])].join(","));
+		args.push(
+			"--tools",
+			[...selected, ...(team ? TEAM_TOOL_NAMES : []), ...(structured ? [STRUCTURED_OUTPUT_TOOL] : [])].join(","),
+		);
 		// A --tools list does not drop MCP tools unless an entry starts with mcp__; an agent must not get unlisted ones.
 		if (!allow.some((t) => t.startsWith("mcp__"))) deny.push("mcp__*");
 	} else {
@@ -271,8 +296,12 @@ function resolveTools(
 		// servers it is only taken out of the selection: the child's MCP extension turns it on again for servers whose
 		// tools are reachable only from scripts. Without servers it is excluded, so nothing can turn it on.
 		const hasServers = servers !== undefined ? servers.length > 0 : configured().length > 0;
+		// A server's tools reachable only from scripts turn codemode back on in the child: the team's tools are then
+		// codemode tools too.
+		teamCodemode = codemode || hasServers;
 		const changes = [
 			...(codemode ? ["+codemode"] : hasServers ? ["-codemode"] : []),
+			...(team ? TEAM_TOOL_NAMES.map((t) => `+${t}`) : []),
 			...(structured ? [`+${STRUCTURED_OUTPUT_TOOL}`] : []),
 		];
 		if (changes.length > 0) args.push("--tools", changes.join(","));
@@ -281,7 +310,7 @@ function resolveTools(
 		if (servers !== undefined) deny.push(...(servers.length === 0 ? ["mcp__*"] : otherServers.map(serverTools)));
 	}
 	if (deny.length > 0) args.push("--exclude-tools", deny.join(","));
-	return { args, ...(mcpConfig ? { mcpConfig } : {}), warnings, memoryReadOnly };
+	return { args, ...(mcpConfig ? { mcpConfig } : {}), warnings, memoryReadOnly, teamCodemode };
 }
 
 // permissionMode "plan": an explicit --tools list from PLAN_TOOLS (the agent's `tools` narrow it; memory adds `read`,
@@ -294,12 +323,18 @@ function planTools(
 	deny: string[],
 	map: (names: string[]) => string[],
 	warnings: string[],
-): { args: string[]; warnings: string[]; memoryReadOnly: MemoryReadOnly } {
+	team: boolean,
+): { args: string[]; warnings: string[]; memoryReadOnly: MemoryReadOnly; teamCodemode: boolean } {
 	const listed = def.tools === undefined ? PLAN_TOOLS : map(def.tools).filter((t) => PLAN_TOOLS.includes(t));
 	const wanted = def.memory && !listed.includes("read") ? ["read", ...listed] : listed;
 	const allow = wanted.filter((t) => !deny.includes(t));
-	if (allow.length === 0) throw new Error(`agent "${def.name}" has no usable tools`);
-	const selected = [...(codemode ? ["codemode"] : []), ...allow, ...(structured ? [STRUCTURED_OUTPUT_TOOL] : [])];
+	if (allow.length === 0 && !team) throw new Error(`agent "${def.name}" has no usable tools`);
+	const selected = [
+		...(codemode ? ["codemode"] : []),
+		...allow,
+		...(team ? TEAM_TOOL_NAMES : []),
+		...(structured ? [STRUCTURED_OUTPUT_TOOL] : []),
+	];
 	const excluded = [
 		...deny.filter((t) => !PLAN_EXCLUDED.includes(t)),
 		...PLAN_EXCLUDED,
@@ -309,6 +344,7 @@ function planTools(
 		args: ["--tools", selected.join(","), "--exclude-tools", [...new Set(excluded)].join(","), "--no-mcp"],
 		warnings,
 		memoryReadOnly: def.memory ? "plan" : false,
+		teamCodemode: codemode,
 	};
 }
 
@@ -374,6 +410,7 @@ function buildSystemPrompt(
 	codemode: boolean,
 	structured: boolean,
 	memory?: string,
+	team?: string, // a teammate's frozen prompt section
 ): { head: string; tail: string; warnings: string[] } {
 	const parts = [def.prompt];
 	const warnings: string[] = [];
@@ -383,6 +420,7 @@ function buildSystemPrompt(
 		else parts.push(`# Skill: ${name}\n\n${text.trim()}`);
 	}
 	if (memory) parts.push(memory);
+	if (team) parts.push(team);
 	parts.push(
 		[
 			"# Environment",
@@ -415,13 +453,18 @@ export function resolveChild(
 		structured,
 		() => options.mcpServers ?? configuredMcpServers(parent),
 		parent.trusted,
+		options.team !== undefined,
 	);
 	const extensions = childExtensions(def, parent.trusted);
 	const cwd = options.worktree ? join(options.worktree.path, options.worktree.subdir ?? "") : parent.cwd;
 	const memory = def.memory
 		? memorySection(memoryDir(def, parent, options), tools.memoryReadOnly, tools.warnings)
 		: undefined;
-	const system = buildSystemPrompt(def, parent.cwd, cwd, new Date(), codemode, structured, memory);
+	const teamPrompt = options.team
+		? (options.team.prompt ?? teammatePrompt(options.team.team, options.team.member, options.team.roster))
+		: undefined;
+	const system = buildSystemPrompt(def, parent.cwd, cwd, new Date(), codemode, structured, memory, teamPrompt);
+	const teamTools = tools.teamCodemode ? "codemode" : "direct";
 
 	// A resume id was already checked by storedAgent().
 	const agentId = input.resume ?? options.agentId ?? newAgentId();
@@ -457,6 +500,14 @@ export function resolveChild(
 			...(process.env as Record<string, string>),
 			XPI_SUBAGENT_DEPTH: "1",
 			...(codemode ? { XPI_SUBAGENT_CHILD_CODEMODE: "only" } : {}),
+			...(options.team
+				? {
+						XPI_TEAM: options.team.team,
+						XPI_TEAM_MEMBER: options.team.member,
+						XPI_TEAM_DIR: options.team.dir,
+						XPI_TEAM_TOOLS: teamTools,
+					}
+				: {}),
 		},
 		cwd,
 		systemPrompt: { head: system.head, tail: system.tail },
@@ -469,6 +520,7 @@ export function resolveChild(
 			system.head,
 			findGitPaths(parent.cwd)?.repoDir ?? parent.cwd, // the same for a child in a worktree of this checkout
 			structured ? JSON.stringify(input.schema) : "", // the tool's parameters come before the system prompt
+			options.team ? `team tools: ${TEAM_TOOL_NAMES.join(",")} ${teamTools}` : "", // so do the team's (not the member's name)
 		].join("\0"),
 		prompt: input.prompt,
 		...(structured ? { schema: input.schema } : {}),
@@ -479,5 +531,6 @@ export function resolveChild(
 		warnings: [...tools.warnings, ...system.warnings],
 		shutdownGraceMs: config.shutdownGraceMs,
 		worktree: options.worktree,
+		...(teamPrompt !== undefined ? { teamPrompt } : {}),
 	};
 }
