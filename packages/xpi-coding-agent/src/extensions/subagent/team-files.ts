@@ -229,7 +229,7 @@ export async function takeEntries(
 	select: (entry: InboxEntry) => boolean = () => true,
 ): Promise<{ taken: InboxEntry[]; dropped: string[] }> {
 	if (!existsSync(file)) return { taken: [], dropped: [] };
-	// An empty mailbox needs no lock: locking creates and removes files in the directory the lead watches.
+	// An empty mailbox (`[]`) needs no lock: locking creates and removes files in the directory the lead watches.
 	if (readFileOrEmpty(file).trim() === "[]") return { taken: [], dropped: [] };
 	return withLock(file, () => {
 		const taken: InboxEntry[] = [];

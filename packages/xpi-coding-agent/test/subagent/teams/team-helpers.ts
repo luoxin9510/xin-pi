@@ -27,6 +27,7 @@ export interface Stub {
 		id: string;
 		sent: { type: string; message?: string }[];
 		accept: boolean;
+		attempts: number;
 		take(text: string): void;
 	};
 }
@@ -71,7 +72,7 @@ export function stubTeam(sessionId: string, overrides: Partial<TeamHost> = {}): 
 		child(name) {
 			const id = `${name}-id`;
 			const sent: { type: string; message?: string }[] = [];
-			const state = { id, sent, accept: true, take: (_text: string) => {} };
+			const state = { id, sent, accept: true, attempts: 0, take: (_text: string) => {} };
 			registry.begin(parent(sessionId), {
 				id,
 				type: "general-purpose",
@@ -82,6 +83,7 @@ export function stubTeam(sessionId: string, overrides: Partial<TeamHost> = {}): 
 			});
 			registry.attach(id, {
 				send: (command) => {
+					state.attempts++;
 					if (!state.accept) return false;
 					sent.push(command as { type: string; message?: string });
 					return true;

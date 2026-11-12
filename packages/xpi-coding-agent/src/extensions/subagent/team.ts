@@ -56,6 +56,8 @@ export interface TeamHost {
 
 export const MAX_WAKES = 5;
 const POLL_MS = 1000;
+const WATCH_DEBOUNCE_MS = 50;
+const SELF_WRITE_MS = 200;
 const STRAY_CONFIG_GRACE_MS = 60_000;
 
 export const teamsRoot = (): string => join(getAgentDir(), "teams");
@@ -99,6 +101,9 @@ export class Team {
 	private chain: Promise<unknown> = Promise.resolve();
 	private queuedPass = false;
 	private passCount = 0;
+	private kickTimer: NodeJS.Timeout | undefined;
+	private readonly selfWrites = new Map<string, number>(); // mailbox name -> when a pass last rewrote it
+	private readonly steerRefused = new Set<string>(); // running members whose child refused a steer: left alone until the exchange ends
 	private closing = false;
 	private readonly wakeSignal = new AbortController(); // wakes waiting for a slot at session end must not start a child
 	private timer: NodeJS.Timeout | undefined;
@@ -219,8 +224,21 @@ export class Team {
 			// to those made every pass cause the next (inotify reports each create and remove at once; found on Linux, where
 			// it spun at full speed). A rename onto `<name>.json` is the change.
 			this.watcher = watch(join(this.dir, "inboxes"), { persistent: false }, (_event, name) => {
-				if (typeof name === "string" && (name.startsWith(".") || !name.endsWith(".json"))) return;
-				this.kick();
+				if (typeof name === "string") {
+					if (name.startsWith(".") || !name.endsWith(".json")) return;
+					// A mailbox a pass rewrote itself is not news: reacting would let passes chain on their own writes. If
+					// something else wrote it in that moment, the poll finds it within a second.
+					const wrote = this.selfWrites.get(name);
+					if (wrote !== undefined && Date.now() - wrote < SELF_WRITE_MS) return;
+				}
+				// Events come in bursts (a write is a create and a rename): one pass for the burst. Whatever writes
+				// without being noted above still cannot make passes run faster than this.
+				if (this.kickTimer) return;
+				this.kickTimer = setTimeout(() => {
+					this.kickTimer = undefined;
+					this.kick();
+				}, WATCH_DEBOUNCE_MS);
+				this.kickTimer.unref();
 			});
 			this.watcher.on("error", () => {}); // the poll below still runs
 		} catch {
@@ -254,8 +272,8 @@ export class Team {
 	// One pass over the lead's mailbox and each teammate's. Awaits no exchange: a pass that waited for one could not
 	// let that exchange end.
 	private async pass(): Promise<void> {
-		this.passCount++;
 		if (this.closing) return;
+		this.passCount++;
 		await this.drainLead();
 		for (const m of [...this.members.values()]) if (m.name !== LEAD) await this.drainTeammate(m);
 		await this.drainStrays();
@@ -267,7 +285,7 @@ export class Team {
 
 	private async drainLead(): Promise<void> {
 		const file = inboxFile(this.dir, LEAD);
-		const { taken, dropped } = await takeEntries(file);
+		const { taken, dropped } = await this.take(LEAD, file);
 		this.drop(LEAD, dropped);
 		if (taken.length === 0) return;
 		for (const e of taken) if (e.kind === "shutdown_response") this.shutdownResponse(e);
@@ -294,7 +312,7 @@ export class Team {
 			case "stopping":
 				return; // it is going away: what comes is dropped once it has stopped
 			case "stopped": {
-				const { taken, dropped } = await takeEntries(file);
+				const { taken, dropped } = await this.take(m.name, file);
 				this.drop(m.name, dropped);
 				for (const e of taken)
 					this.host.warn(
@@ -307,7 +325,7 @@ export class Team {
 			case "queued": {
 				const wake = this.pending.get(m.name);
 				if (!wake) return; // its first start: the entries wait until it runs
-				const { taken, dropped } = await takeEntries(file);
+				const { taken, dropped } = await this.take(m.name, file);
 				this.drop(m.name, dropped);
 				wake.entries.push(...taken);
 				return;
@@ -317,15 +335,27 @@ export class Team {
 		}
 	}
 
+	// takeEntries, noting that this pass rewrote the mailbox.
+	private async take(name: string, file: string, select?: (e: InboxEntry) => boolean) {
+		const result = await takeEntries(file, select);
+		if (result.taken.length > 0 || result.dropped.length > 0) this.selfWrites.set(`${name}.json`, Date.now());
+		return result;
+	}
+
 	private async steer(m: Member, file: string): Promise<void> {
+		// Its child refused a steer (it settled and is on its way out): the messages wait for its next exchange, which
+		// takes them. Taking them again would only put them back.
+		if (this.steerRefused.has(m.name)) return;
 		const handle = registry.handle(m.agentId);
 		if (!handle) return; // its child is not up yet, or just gone: the next pass, or its next exchange
-		const { taken, dropped } = await takeEntries(file);
+		const { taken, dropped } = await this.take(m.name, file);
 		this.drop(m.name, dropped);
 		if (taken.length === 0) return;
 		if (taken.some((e) => e.from === LEAD)) this.wakes.delete(m.name);
 		const text = joinEnvelopes(taken, this.name);
 		if (!handle.send({ type: "steer", message: text })) {
+			this.steerRefused.add(m.name);
+			this.selfWrites.set(`${m.name}.json`, Date.now());
 			await putBack(file, taken); // the child settled meanwhile: its next exchange takes them
 			return;
 		}
@@ -344,7 +374,7 @@ export class Team {
 			await this.hold(m, waiting);
 			return;
 		}
-		const { taken, dropped } = await takeEntries(file);
+		const { taken, dropped } = await this.take(m.name, file);
 		this.drop(m.name, dropped);
 		if (taken.length === 0) return;
 		if (taken.some((e) => e.from === LEAD)) this.wakes.set(m.name, 0);
@@ -407,6 +437,7 @@ export class Team {
 
 	// Its child is about to start.
 	exchangeBegan(name: string): void {
+		this.steerRefused.delete(name);
 		const m = this.members.get(name);
 		if (!m) return;
 		const wake = this.pending.get(name);
@@ -467,6 +498,7 @@ export class Team {
 	): Promise<Verdict> {
 		this.unwatch.get(name)?.();
 		this.unwatch.delete(name);
+		this.steerRefused.delete(name);
 		const m = this.members.get(name);
 		const untaken = (this.steers.get(name) ?? []).filter((s) => !s.taken).flatMap((s) => s.entries);
 		this.steers.delete(name);
@@ -508,6 +540,8 @@ export class Team {
 	beginClose(): void {
 		this.closing = true;
 		this.wakeSignal.abort();
+		if (this.kickTimer) clearTimeout(this.kickTimer);
+		this.kickTimer = undefined;
 		if (this.timer) clearInterval(this.timer);
 		this.timer = undefined;
 		this.watcher?.close();

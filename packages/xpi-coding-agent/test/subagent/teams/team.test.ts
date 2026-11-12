@@ -453,21 +453,50 @@ test("a session that ends while an exchange's end is being settled sends no idle
 	assert.deepEqual(t.toLead, []);
 });
 
+// Runs a watcher scenario in its own process (watch-worker.ts); a hang is a failure, not a stuck run.
+function watched(scenario: string): Record<string, any> {
+	const worker = fileURLToPath(new URL("./watch-worker.ts", import.meta.url));
+	const r = spawnSync(process.execPath, ["--experimental-strip-types", worker, scenario], {
+		encoding: "utf8",
+		timeout: 20_000,
+		killSignal: "SIGKILL",
+	});
+	assert.equal(
+		r.status,
+		0,
+		`${scenario}: the worker did not finish (a watcher that feeds on itself starves it): ${r.stderr}`,
+	);
+	return JSON.parse(r.stdout.trim().split("\n").at(-1)!);
+}
+
 test(
-	"the watcher does not feed on its own lock and temporary files: mailboxes that are read and left empty cause no run-away passes",
+	"the watcher does not feed on its own lock and temporary files: mailboxes read and left empty cause no run-away passes",
 	{ timeout: 60_000 },
 	() => {
-		const worker = fileURLToPath(new URL("./watch-worker.ts", import.meta.url));
-		const r = spawnSync(process.execPath, ["--experimental-strip-types", worker], {
-			encoding: "utf8",
-			timeout: 20_000,
-			killSignal: "SIGKILL",
-		});
-		assert.equal(r.status, 0, `the worker did not finish (a watcher that feeds on itself starves it): ${r.stderr}`);
-		const { passes, toLead } = JSON.parse(r.stdout.trim().split("\n").at(-1)!);
-		// the poll is once a second and each real change asks for one pass: a handful, not thousands
-		assert.ok(passes < 40, `${passes} passes in 1.5 s`);
-		assert.equal(toLead, 1);
+		const r = watched("empty-mailbox");
+		assert.ok(r.passes < 40, `${r.passes} passes in 1.5 s`); // the poll is once a second; each real change asks for one pass
+		assert.equal(r.toLead, 1);
+	},
+);
+
+test(
+	"a child that refuses a steer: the message waits without passes running away, and is delivered as a new exchange when the child ends",
+	{ timeout: 60_000 },
+	() => {
+		const r = watched("refused-steer");
+		assert.ok(r.passesWhileRefused < 40, `${r.passesWhileRefused} passes in 1.5 s`);
+		assert.equal(r.attempts, 1, "refused once, then left alone until the exchange ends");
+		assert.equal(r.wakes, 1, "delivered as a new exchange");
+		assert.match(r.prompt, /hello/);
+	},
+);
+
+test(
+	"passes do not chain on a rewrite of a mailbox with nothing new, whatever path wrote it",
+	{ timeout: 60_000 },
+	() => {
+		const r = watched("rewrite-without-input");
+		assert.ok(r.passes < 60, `${r.passes} passes in 1.5 s`); // one per debounce interval at most
 	},
 );
 
