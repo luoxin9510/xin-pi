@@ -119,9 +119,13 @@ function takeOver(lock: string, seen: { raw: string }): void {
 
 // Run `fn` holding `<file>.lock`: created exclusively, holding `{ pid, at }`. A held lock is retried every LOCK_RETRY_MS for
 // up to LOCK_TIMEOUT_MS, then the call throws `busy`.
-export async function withLock<T>(file: string, fn: () => T | Promise<T>): Promise<T> {
-	const lock = `${file}.lock`;
-	ensureDir(dirname(file));
+export function withLock<T>(file: string, fn: () => T | Promise<T>): Promise<T> {
+	return withLockFile(`${file}.lock`, basename(file), fn);
+}
+
+// The same with the lock file named outright (a directory's own lock, `tasks/<team>/.lock`); `what` names it in `busy`.
+export async function withLockFile<T>(lock: string, what: string, fn: () => T | Promise<T>): Promise<T> {
+	ensureDir(dirname(lock));
 	const deadline = Date.now() + LOCK_TIMEOUT_MS;
 	for (;;) {
 		try {
@@ -141,7 +145,7 @@ export async function withLock<T>(file: string, fn: () => T | Promise<T>): Promi
 			if (!existsSync(lock)) continue; // create our own lock straight away
 			// another taker holds the guard: wait like any other contender (the deadline and the sleep below)
 		}
-		if (Date.now() >= deadline) throw new Error(`busy: ${basename(file)} is locked by another agent`);
+		if (Date.now() >= deadline) throw new Error(`busy: ${what} is locked by another agent`);
 		await sleep(LOCK_RETRY_MS);
 	}
 	try {

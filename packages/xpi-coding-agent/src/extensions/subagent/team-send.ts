@@ -3,11 +3,13 @@
 // written to the recipient's mailbox; the lead's deliverer (team.ts) takes it from there.
 
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { type Static, Type } from "typebox";
 import { type JsonValue, StringEnum } from "xpi-ai";
 import type { ExtensionAPI, ExtensionContext } from "../../core/extensions/types.ts";
 import { appendEntry, type EntryKind, inboxFile, newEntryId } from "./team-files.ts";
+import { taskTools } from "./team-task-tools.ts";
+import type { TaskEnv } from "./team-tasks.ts";
 import { LEAD, teamLabel } from "./team-text.ts";
 
 export const teamParameters = Type.Object({
@@ -41,6 +43,9 @@ export interface RosterView {
 	dir: string;
 	members: { name: string; status: string; shutdownRequested?: number }[];
 }
+
+// A member that can own a task: it is running, queued or idle.
+export const LIVE = ["running", "queued", "idle"];
 
 const roster = (view: RosterView): string => view.members.map((m) => `${m.name} (${m.status})`).join(", ");
 
@@ -104,17 +109,30 @@ function readRoster(dir: string): RosterView {
 	return { team: config.team ?? "", dir, members: config.members ?? [] };
 }
 
-// In a teammate's process (XPI_TEAM_DIR set): `SendMessage` to the team. `exposure` follows what the lead found when it
+// In a teammate's process (XPI_TEAM_DIR set): `SendMessage` to the team, and the four task-list tools. `exposure` follows what the lead found when it
 // started this process (XPI_TEAM_TOOLS): codemode when the child has codemode, else a direct tool.
 export function registerTeamTools(pi: ExtensionAPI, env: NodeJS.ProcessEnv = process.env): void {
 	const dir = env.XPI_TEAM_DIR;
 	const me = env.XPI_TEAM_MEMBER;
 	if (!dir || !me) return;
+	const exposure = env.XPI_TEAM_TOOLS === "codemode" ? ("codemode" as const) : ("direct" as const);
+	// The task list is next to the team's directory: <agent dir>/tasks/<team>.
+	const team = env.XPI_TEAM ?? "";
+	const tasksDir = join(dirname(dirname(dir)), "tasks", team);
+	const taskEnv: TaskEnv = {
+		dir: tasksDir,
+		team,
+		me,
+		lead: false,
+		live: (name) => readRoster(dir).members.some((m) => m.name === name && LIVE.includes(m.status)),
+		hooks: { bus: pi.events, warn: (m) => process.stderr.write(`agent-teams: ${m}\n`) },
+	};
+	for (const tool of taskTools({ exposure, env: () => taskEnv })) pi.registerTool(tool as never);
 	pi.registerTool({
 		name: "SendMessage",
 		label: "SendMessage",
 		effect: "write",
-		exposure: env.XPI_TEAM_TOOLS === "codemode" ? "codemode" : "direct",
+		exposure,
 		description: TEAM_SEND_DESCRIPTION,
 		parameters: teamParameters,
 		outputSchema: teamOutputSchema,

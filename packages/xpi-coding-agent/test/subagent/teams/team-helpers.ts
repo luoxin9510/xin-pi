@@ -21,6 +21,7 @@ export interface Stub {
 	warns: string[];
 	wakes: { name: string; prompt: () => string; finish: () => void; fail: (e: Error) => void }[];
 	root: string;
+	base: string; // holds `teams/` (root) and `tasks/`
 	say(from: string, to: string, text: string, kind?: EntryKind, extra?: object): Promise<void>;
 	// A member that runs: a record in the registry with a fake child that takes the commands it is sent.
 	child(name: string): {
@@ -33,7 +34,8 @@ export interface Stub {
 }
 
 export function stubTeam(sessionId: string, overrides: Partial<TeamHost> = {}): Stub {
-	const root = mkdtempSync(join(tmpdir(), "team-root-"));
+	const base = mkdtempSync(join(tmpdir(), "team-root-"));
+	const root = join(base, "teams"); // the task lists are next to it: <base>/tasks
 	const toLead: string[] = [];
 	const warns: string[] = [];
 	const wakes: Stub["wakes"] = [];
@@ -58,6 +60,7 @@ export function stubTeam(sessionId: string, overrides: Partial<TeamHost> = {}): 
 		warns,
 		wakes,
 		root,
+		base,
 		async say(from, to, text, kind = "message", extra = {}) {
 			await appendEntry(inboxFile(team.dir, to), {
 				id: newEntryId(),

@@ -154,7 +154,7 @@ test(
 			XPI_TEAM_DIR: x.teamDir,
 			XPI_TEAM_TOOLS: "codemode",
 		});
-		assert.equal(flag(rec.argv, "--tools"), "+codemode,+SendMessage");
+		assert.equal(flag(rec.argv, "--tools"), "+codemode,+SendMessage,+TaskCreate,+TaskGet,+TaskList,+TaskUpdate");
 		assert.equal(flag(rec.argv, "--exclude-tools"), undefined);
 		assert.match(rec.systemPromptTail!, /# Agent team\nYou are "worker", a teammate in team session-/);
 		assert.match(rec.systemPromptTail!, /Members when you started: lead, worker\./);
@@ -315,39 +315,49 @@ test(
 	{ timeout: 60_000 },
 	async () => {
 		const cases: { name: string; fields: string; tools: string; exclude?: RegExp; mode: string }[] = [
-			{ name: "tools list", fields: "tools: Read, Grep", tools: "codemode,read,grep,SendMessage", mode: "codemode" },
+			{
+				name: "tools list",
+				fields: "tools: Read, Grep",
+				tools: "codemode,read,grep,SendMessage,TaskCreate,TaskGet,TaskList,TaskUpdate",
+				mode: "codemode",
+			},
 			{
 				name: "tools list naming SendMessage",
 				fields: "tools: Read, SendMessage",
-				tools: "codemode,read,SendMessage",
+				tools: "codemode,read,SendMessage,TaskCreate,TaskGet,TaskList,TaskUpdate",
 				mode: "codemode",
 			},
 			{
 				name: "disallowedTools naming it",
 				fields: "disallowedTools: SendMessage, Bash",
-				tools: "+codemode,+SendMessage",
+				tools: "+codemode,+SendMessage,+TaskCreate,+TaskGet,+TaskList,+TaskUpdate",
 				exclude: /^bash$/,
 				mode: "codemode",
 			},
-			{ name: "codemode false", fields: "codemode: false\ntools: Read", tools: "read,SendMessage", mode: "direct" },
+			{
+				name: "codemode false",
+				fields: "codemode: false\ntools: Read",
+				tools: "read,SendMessage,TaskCreate,TaskGet,TaskList,TaskUpdate",
+				mode: "direct",
+			},
 			{
 				name: "codemode false, default tools",
 				fields: "codemode: false",
-				tools: "+SendMessage",
+				tools: "+SendMessage,+TaskCreate,+TaskGet,+TaskList,+TaskUpdate",
 				exclude: /^codemode$/,
 				mode: "direct",
 			},
 			{
 				name: "permission mode plan",
 				fields: "permissionMode: plan",
-				tools: "codemode,read,grep,find,ls,SendMessage",
+				tools: "codemode,read,grep,find,ls,SendMessage,TaskCreate,TaskGet,TaskList,TaskUpdate",
 				exclude: /^write,edit,bash,powershell,mcp__\*$/,
 				mode: "codemode",
 			},
 			{
 				name: "plan without codemode",
 				fields: "permissionMode: plan\ncodemode: false",
-				tools: "read,grep,find,ls,SendMessage",
+				tools: "read,grep,find,ls,SendMessage,TaskCreate,TaskGet,TaskList,TaskUpdate",
 				exclude: /codemode/,
 				mode: "direct",
 			},
@@ -406,7 +416,7 @@ test(
 		const plain = resolveChild(def, { description: "d", prompt: "p" }, config, parent, { mcpServers: [] });
 		assert.equal(a.prefixKey, b.prefixKey);
 		assert.notEqual(a.prefixKey, plain.prefixKey);
-		assert.match(a.prefixKey, /team tools: SendMessage codemode/);
+		assert.match(a.prefixKey, /team tools: SendMessage,TaskCreate,TaskGet,TaskList,TaskUpdate codemode/);
 		assert.notEqual(a.systemPrompt.tail, b.systemPrompt.tail);
 		assert.equal(a.systemPrompt.head, plain.systemPrompt.head);
 		await x.end();
