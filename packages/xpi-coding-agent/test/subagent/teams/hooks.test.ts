@@ -1,10 +1,12 @@
 // Agent teams: the three extension events (team-hooks.ts and where they fire): `block` and `hold`, their order against the
 // locks, and the limit on a blocked teammate_idle.
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { createEventBus } from "../../../src/core/event-bus.ts";
 import type { RunResult } from "../../../src/extensions/subagent/runner.ts";
 import { emptyUsage } from "../../../src/extensions/subagent/runner.ts";
@@ -91,6 +93,28 @@ test("emitHook: a hold that does not answer in time allows the step and logs a w
 	assert.ok(Date.now() - t0 >= 35 && Date.now() - t0 < 2000);
 	assert.match(x.warns.join("\n"), /agent-teams:task_completed: a handler's hold did not answer in \d+ s: allowed/);
 });
+
+test(
+	"a tool call awaiting a hold that never answers finishes on the timeout even when nothing else keeps the process alive",
+	{ timeout: 30_000 },
+	async () => {
+		const worker = fileURLToPath(new URL("./hold-worker.ts", import.meta.url));
+		const child = spawn(process.execPath, ["--experimental-strip-types", worker], {
+			stdio: ["ignore", "pipe", "inherit"],
+		});
+		const watchdog = setTimeout(() => child.kill("SIGKILL"), 20_000);
+		let out = "";
+		child.stdout.on("data", (d) => (out += d));
+		try {
+			const code = await new Promise<number | null>((resolve) => child.on("exit", resolve));
+			assert.equal(code, 0, "the process ran to the end (13 means the event loop drained with the call pending)");
+			assert.deepEqual(JSON.parse(out.trim()), { blocked: false });
+		} finally {
+			clearTimeout(watchdog);
+			child.kill("SIGKILL");
+		}
+	},
+);
 
 test("emitHook: an answer after the handler's first await is too late; observeOnly counts no answers; the payload carries its fields", async () => {
 	const x = bus();
@@ -364,4 +388,71 @@ test("teammate_idle: nothing is sent when the session ends, or the teammate stop
 		[],
 		"no idle notice for a stopped teammate",
 	);
+});
+
+test("task_completed: the hook runs for the state that is written; a change during the hold runs it again, with the new result", async () => {
+	const w = taskWorld();
+	await createTask(w.as("a"), { subject: "1" });
+	await updateTask(w.as("a"), { id: "1", status: "in_progress" });
+	const seen: string[] = [];
+	w.b.on("agent-teams:task_completed", (p) => {
+		const payload = p as Payload;
+		seen.push(String(payload.task.result));
+		if (seen.length === 1)
+			payload.hold(updateTask(w.as("a"), { id: "1", result: "changed meanwhile" }).then(() => undefined));
+	});
+	const done = await updateTask(w.as("lead"), { id: "1", status: "completed" });
+	assert.deepEqual(seen, ["undefined", "changed meanwhile"], "again for the state under the lock, with its result");
+	assert.equal(done.task.result, "changed meanwhile");
+	assert.equal(getTask(w, "1").status, "completed");
+	// the payload's result is what is written
+	await updateTask(w.as("lead"), { id: "1", status: "pending" });
+	await updateTask(w.as("a"), { id: "1", status: "in_progress", result: "owner's" });
+	const results: string[] = [];
+	w.b.on("agent-teams:task_completed", (p) => results.push((p as Payload).task.result));
+	await updateTask(w.as("lead"), { id: "1", status: "completed" });
+	assert.equal(results.at(-1), getTask(w, "1").result);
+});
+
+test("task_completed: a task that keeps changing while the hook runs is refused after a few tries", async () => {
+	const w = taskWorld();
+	await createTask(w.as("a"), { subject: "1" });
+	await updateTask(w.as("a"), { id: "1", status: "in_progress" });
+	let n = 0;
+	w.b.on("agent-teams:task_completed", (p) =>
+		(p as Payload).hold(updateTask(w.as("a"), { id: "1", result: `r${++n}` }).then(() => undefined)),
+	);
+	await assert.rejects(
+		updateTask(w.as("a"), { id: "1", status: "completed" }),
+		/changed while its task_completed hook ran/,
+	);
+	assert.equal(getTask(w, "1").status, "in_progress");
+	assert.ok(n >= 3 && n <= 5);
+});
+
+test("teammate_idle: a hold that settles after the teammate was woken again is dropped: no old notice, no feedback, no count", async () => {
+	const w = idleWorld();
+	const releases: ((v: string | undefined) => void)[] = [];
+	w.b.on("agent-teams:teammate_idle", (p) => (p as Payload).hold(new Promise((r) => releases.push(r))));
+	await w.t.team.exchangeEnded("a", { run: run("old") }); // hold 0 pending
+	await w.t.say("lead", "a", "new work"); // wakes it meanwhile
+	await w.t.team.deliverNow();
+	assert.equal(w.t.wakes.length, 1);
+	// while it is woken (queued) the verdict is stale
+	const queuedAt = releases.length;
+	w.t.team.exchangeBegan("a");
+	await w.t.team.exchangeEnded("a", { run: run("second") }); // idle again, hold 1 pending
+	assert.equal(w.t.team.members.get("a")!.status, "idle");
+	assert.equal(releases.length, queuedAt + 1);
+	// hold 0 settles now: it is idle again, but the verdict is for an exchange that is over
+	releases[0]!("feedback for the old turn");
+	await settle(50);
+	await w.t.team.deliverNow();
+	assert.deepEqual(w.t.toLead, [], "no old notice");
+	assert.equal(w.t.wakes.length, 1, "no feedback woke it");
+	// the current exchange's verdict counts
+	releases[1]!(undefined);
+	await settle(50);
+	await w.t.team.deliverNow();
+	assert.match(w.t.toLead.join("\n"), /second/);
 });

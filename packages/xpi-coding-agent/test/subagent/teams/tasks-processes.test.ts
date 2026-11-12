@@ -2,7 +2,7 @@
 // failure or a hang, and an after hook kills any left.
 import assert from "node:assert/strict";
 import { type ChildProcess, spawn } from "node:child_process";
-import { mkdtempSync, readdirSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
@@ -11,11 +11,20 @@ import { createTask, listTasks, type TaskEnv } from "../../../src/extensions/sub
 
 const worker = fileURLToPath(new URL("./task-worker.ts", import.meta.url));
 const children = new Set<ChildProcess>();
+const scratch: string[] = [];
+const scratchDir = () => {
+	const d = mkdtempSync(join(tmpdir(), "taskproc-"));
+	scratch.push(d);
+	return join(d, "session-w");
+};
 const killAll = () => {
 	for (const c of children) c.kill("SIGKILL");
 	children.clear();
 };
-after(killAll);
+after(() => {
+	killAll();
+	for (const d of scratch) rmSync(d, { recursive: true, force: true });
+});
 
 function runWorker(args: string[]): Promise<unknown> {
 	return new Promise((resolve, reject) => {
@@ -44,7 +53,7 @@ const lead = (dir: string): TaskEnv => ({
 });
 
 test("several processes creating tasks at once get distinct, consecutive ids", { timeout: 90_000 }, async () => {
-	const dir = join(mkdtempSync(join(tmpdir(), "taskproc-")), "session-w");
+	const dir = scratchDir();
 	const watchdog = setTimeout(killAll, 70_000);
 	watchdog.unref();
 	try {
@@ -77,7 +86,7 @@ test(
 	"a cycle two processes try to make at once is refused: for each pair at most one edge exists",
 	{ timeout: 90_000 },
 	async () => {
-		const dir = join(mkdtempSync(join(tmpdir(), "taskproc-")), "session-w");
+		const dir = scratchDir();
 		const pairs = 40;
 		for (let i = 0; i < pairs * 2; i++) await createTask(lead(dir), { subject: `t${i + 1}` });
 		const watchdog = setTimeout(killAll, 70_000);

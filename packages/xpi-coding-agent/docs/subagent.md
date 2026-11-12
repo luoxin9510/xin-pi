@@ -470,7 +470,7 @@ until every task it waits for is `completed`; completing one unblocks its depend
 |---|---|---|
 | `pending` to `in_progress` (claim) | any member, for itself | every `blockedBy` task completed, else `blocked` (naming them); no live member other than itself owns it, else `conflict` (naming the owner) |
 | `owner` set, no status (assign) | the lead | only a pending task, only a live member; the owner gets a message. `owner: ""` takes the owner away |
-| `in_progress` to `completed` | the owner, or the lead | `result` recommended |
+| `in_progress` to `completed` | the owner, or the lead | `result` recommended; `owner` cannot be given with a status change other than a claim |
 | `in_progress` to `pending` (release) | the owner, or the lead | the owner is cleared |
 | `completed` to `pending` (reopen) | the lead | the owner is cleared; dependents count as blocked again |
 | `pending` to `completed` | nobody | a task is claimed first |
@@ -494,7 +494,7 @@ rules are those of the mailboxes: an exclusive create holding `{ pid, at }`, ret
 taken over. Locks only make writes exclusive; a claim is the `owner` field.
 
 **Retention.** When a team is created, `session-*` directories under `tasks/` whose newest file is older than
-`agentTeams.taskRetentionDays` are removed, except this session's and any whose lead process is still running.
+`agentTeams.taskRetentionDays` are removed, except this session's and any whose lead process is still running (the lead writes its pid to `tasks/<team>/.lead` when it uses the task tools and when a resumed session starts). `taskRetentionDays` is at least 1.
 
 ### Hooks
 
@@ -529,6 +529,8 @@ pi.events.on("agent-teams:teammate_idle", (e) => {
   keeps working. This happens at most 3 times in a row per teammate: the fourth idle notice goes to the lead whatever the
   hooks say (handlers still see the event, but their answers count for nothing). Holds on `teammate_idle` are waited for in
   the background, so the teammate's slot is free meanwhile.
+- A `task_completed` hook runs for the exact state that is written: if the task changed while a hook was deciding, the check under the lock sees it and the hook runs again for the new state (a few tries, then the call throws and asks to try again).
+- A `teammate_idle` verdict that arrives after the teammate was woken again is dropped.
 - **Order.** Events, and any `hold`, run before a lock is taken. Once the step is allowed the writer takes its locks and
   checks again (blocked, conflict, cycle, a changed status), so a slow hook never holds a lock and a decision made on an old
   view cannot write a bad state.

@@ -156,10 +156,11 @@ test(
 	() => {
 		const dir = mkdtempSync(join(tmpdir(), "team-child-"));
 		writeFileSync(join(dir, "config.json"), JSON.stringify({ team: "t", members: [] }));
-		const keys = ["XPI_SUBAGENT_DEPTH", "XPI_TEAM_DIR", "XPI_TEAM_MEMBER", "XPI_TEAM_TOOLS"];
+		const keys = ["XPI_SUBAGENT_DEPTH", "XPI_TEAM", "XPI_TEAM_DIR", "XPI_TEAM_MEMBER", "XPI_TEAM_TOOLS"];
 		const saved = keys.map((k) => process.env[k]);
 		Object.assign(process.env, {
 			XPI_SUBAGENT_DEPTH: "1",
+			XPI_TEAM: "t",
 			XPI_TEAM_DIR: dir,
 			XPI_TEAM_MEMBER: "a",
 			XPI_TEAM_TOOLS: "direct",

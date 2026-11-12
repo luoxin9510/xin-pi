@@ -30,6 +30,14 @@ export interface TaskRec {
 	updatedAt: number;
 }
 
+// A live lead's mark in its task directory: its pid, refreshed on use. Retention never removes a directory whose lead is
+// running, whether or not it has a team yet (the lead has the task tools from session start).
+const leadMark = (dir: string): string => join(dir, ".lead");
+export function markLead(dir: string, create = true): void {
+	if (!create && !existsSync(dir)) return;
+	writeAtomic(leadMark(dir), JSON.stringify({ pid: process.pid, at: Date.now() }));
+}
+
 export const TASK_ID = /^[1-9][0-9]{0,8}$/;
 
 // What a task-list call needs to know about who it is and where it runs.
@@ -222,14 +230,28 @@ function plan(env: TaskEnv, t: TaskRec, i: UpdateInput): { next: TaskRec; assign
 				"a claim is for yourself. The lead gives a task to someone else with `owner` alone, no status",
 			);
 		if (t.owner !== undefined && env.live(t.owner)) throw new Error(`conflict: ${t.owner} owns task ${t.id}`);
+		const open = openBlockers(env.dir, next);
+		if (open.length > 0) throw new Error(`blocked: task ${t.id} waits for ${open.map((b) => `#${b}`).join(", ")}`);
 		next.owner = env.me;
 	}
+	if (
+		i.status === "in_progress" &&
+		t.status === "in_progress" &&
+		t.owner === env.me &&
+		i.owner !== undefined &&
+		i.owner !== env.me
+	)
+		throw forbidden("a claim is for yourself. The lead gives a task to someone else with `owner` alone, no status");
 	const changesStatus = i.status !== undefined && i.status !== t.status;
 	let assigned: string | undefined;
 	if (changesStatus) {
 		const to = i.status!;
 		if (!(TASK_STATUSES as readonly unknown[]).includes(to)) throw new Error(`unknown status "${String(to)}"`);
 		const via = `${t.status} -> ${to}`;
+		if (i.owner !== undefined && !(t.status === "pending" && to === "in_progress"))
+			throw new Error(
+				`\`owner\` cannot be set with a status change to ${to} (${via}): a release or reopen clears the owner, and only the lead assigns, with no status`,
+			);
 		if (t.status === "pending" && to === "in_progress") {
 			if (i.owner !== undefined && i.owner !== env.me)
 				throw forbidden(
@@ -261,7 +283,7 @@ function plan(env: TaskEnv, t: TaskRec, i: UpdateInput): { next: TaskRec; assign
 				`task ${t.id} is completed: the lead reopens it (status pending) before it is claimed again (${via})`,
 			);
 		}
-	} else if (i.owner !== undefined) {
+	} else if (i.owner !== undefined && i.status !== "in_progress") {
 		// owner without a status change: the lead gives the task to a member (or takes the owner away)
 		if (!env.lead) throw forbidden("only the lead assigns a task. To take one, claim it: status in_progress");
 		if (t.status !== "pending")
@@ -274,7 +296,8 @@ function plan(env: TaskEnv, t: TaskRec, i: UpdateInput): { next: TaskRec; assign
 		}
 	}
 	if (i.result !== undefined) {
-		if (!owns) throw forbidden(`only the owner (${t.owner ?? "none"}) or the lead sets task ${t.id}'s result`);
+		if (!owns && next.owner !== env.me)
+			throw forbidden(`only the owner (${t.owner ?? "none"}) or the lead sets task ${t.id}'s result`);
 		next.result = i.result;
 	}
 	return { next, ...(assigned !== undefined ? { assigned } : {}) };
@@ -283,32 +306,49 @@ function plan(env: TaskEnv, t: TaskRec, i: UpdateInput): { next: TaskRec; assign
 const sameTask = (a: TaskRec, b: TaskRec): boolean =>
 	JSON.stringify({ ...a, updatedAt: 0 }) === JSON.stringify({ ...b, updatedAt: 0 });
 
+const HOOK_RETRIES = 3;
+
+// The state a task_completed hook allowed: what would be written, but for the time.
+const stateKey = (t: TaskRec): string => JSON.stringify({ ...t, updatedAt: 0 });
+
 export async function updateTask(env: TaskEnv, input: UpdateInput): Promise<UpdateResult> {
 	const id = input.id;
 	if (typeof id !== "string" || !TASK_ID.test(id)) throw new Error(`"${String(id)}" is not a task id`);
-	const before = getTask(env, id);
-	// task_completed runs before any lock. Only for a change that looks allowed now; the locked check below decides again.
-	if (input.status === "completed" && before.status === "in_progress" && (env.lead || before.owner === env.me)) {
-		const draft: TaskRec = { ...before, status: "completed", result: input.result ?? before.result };
-		const verdict = await runHook(env.hooks, "task_completed", { team: env.team, task: draft, by: env.me });
-		if (verdict.blocked) throw refusedBy(verdict.feedback);
-	}
-	const run = async (): Promise<{ task: TaskRec; assigned?: string }> =>
-		withLock(taskFile(env.dir, id), () => {
+	getTask(env, id); // a clear error before any lock
+	type Outcome = { task: TaskRec; assigned?: string } | { needsHook: TaskRec };
+	const run = async (allowed: string | undefined): Promise<Outcome> =>
+		withLock(taskFile(env.dir, id), (): Outcome => {
 			const t = readTask(env.dir, id);
 			if (!t) throw new Error(`no task "${id}"`);
 			const { next, assigned } = plan(env, t, input);
 			if (input.blockedBy !== undefined) checkBlockedBy(env.dir, id, next.blockedBy);
 			if (sameTask(t, next)) return { task: t };
+			// A completion is decided here, under the lock, on the file as it is now: the hook must have allowed exactly this.
+			if (next.status === "completed" && t.status !== "completed" && allowed !== stateKey(next))
+				return { needsHook: next };
 			next.updatedAt = Date.now();
 			writeAtomic(taskFile(env.dir, id), JSON.stringify(next));
 			return { task: next, ...(assigned !== undefined ? { assigned } : {}) };
 		});
 	// A change to `blockedBy` also takes the team lock, so that two of them cannot make a cycle between them.
-	const done =
+	const attempt = (allowed: string | undefined): Promise<Outcome> =>
 		input.blockedBy !== undefined
-			? await withLockFile(teamLock(env.dir), `the task list of ${env.team}`, run)
-			: await run();
+			? withLockFile(teamLock(env.dir), `the task list of ${env.team}`, () => run(allowed))
+			: run(allowed);
+	let allowed: string | undefined;
+	let done: { task: TaskRec; assigned?: string } | undefined;
+	for (let tries = 0; done === undefined; tries++) {
+		const out = await attempt(allowed);
+		if ("task" in out) {
+			done = out;
+			break;
+		}
+		if (tries >= HOOK_RETRIES) throw new Error(`task ${id} changed while its task_completed hook ran: try again`);
+		// task_completed runs with no lock held; the step is then checked again against the file as it is by then.
+		const verdict = await runHook(env.hooks, "task_completed", { team: env.team, task: out.needsHook, by: env.me });
+		if (verdict.blocked) throw refusedBy(verdict.feedback);
+		allowed = stateKey(out.needsHook);
+	}
 	if (done.assigned === undefined) return { task: done.task };
 	try {
 		await env.assign?.(done.task, done.assigned);
@@ -390,6 +430,12 @@ export function sweepTasks(root: string, keep: string, days: number, teamsDir: s
 			continue;
 		}
 		if (now - newest <= days * DAY_MS) continue;
+		try {
+			const mark = JSON.parse(readFileSync(leadMark(dir), "utf8")) as { pid?: number };
+			if (Number.isInteger(mark.pid) && pidAlive(mark.pid!)) continue; // its lead is running
+		} catch {
+			// no mark
+		}
 		try {
 			const config = JSON.parse(readFileSync(join(teamsDir, name, "config.json"), "utf8")) as { leadPid?: number };
 			if (Number.isInteger(config.leadPid) && pidAlive(config.leadPid!)) continue;

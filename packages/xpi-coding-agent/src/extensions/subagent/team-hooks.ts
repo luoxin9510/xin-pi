@@ -23,6 +23,10 @@ export interface HookEnv {
 	bus: EventBus | undefined;
 	warn(message: string): void;
 	holdTimeoutMs?: number;
+	// The hold's timer does not keep the process alive (a decision nobody waits for in a tool call, e.g. at shutdown). A tool
+	// call awaiting a hold keeps it: if only an unref'd timer were left the process could exit, or the event loop drain,
+	// with the call pending.
+	backgroundHold?: boolean;
 }
 
 const blockedWith = (feedback: string): Verdict => ({ blocked: true, feedback: feedback || "blocked by a hook" });
@@ -38,6 +42,9 @@ export function emitHook(
 	if (!env.bus) return { sync: ALLOW };
 	const blocks: string[] = [];
 	const holds: Promise<string | undefined>[] = [];
+	// Answers are collected only while `emit` runs: the handlers are called synchronously (core/event-bus.ts), and the
+	// verdict is read right after it returns, so an answer after a handler's first `await` cannot count. This relies on
+	// that bus; a bus that calls handlers later would need the verdict to wait.
 	const open = !observeOnly; // observers see the event; their answers count for nothing
 	const answers: HookAnswers = {
 		block: (feedback) => {
@@ -63,7 +70,7 @@ async function settleHolds(env: HookEnv, event: HookEvent, holds: Promise<string
 	let timer: NodeJS.Timeout | undefined;
 	const timeout = new Promise<"timeout">((resolve) => {
 		timer = setTimeout(() => resolve("timeout"), ms);
-		timer.unref();
+		if (env.backgroundHold) timer.unref();
 	});
 	try {
 		const settled = await Promise.race([Promise.allSettled(holds), timeout]);

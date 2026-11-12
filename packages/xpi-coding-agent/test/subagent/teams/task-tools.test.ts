@@ -296,3 +296,34 @@ test("the prompts: the teammate's section explains the task list and self-claimi
 	assert.match(LEAD_PROMPT, /task list[\s\S]*blockedBy/);
 	assert.match(LEAD_PROMPT, /owner: name/);
 });
+
+test(
+	"the lead marks its task directory on use and at start of a resumed session; retention of another session leaves it",
+	{ timeout: 60_000 },
+	async () => {
+		const x = await lead({ enabled: true, taskRetentionDays: 1 });
+		await x.call("TaskCreate", { subject: "mine" });
+		assert.equal(JSON.parse(readFileSync(join(x.tasksDir, ".lead"), "utf8")).pid, process.pid);
+		const tasks = dirname(x.tasksDir);
+		const old = new Date(Date.now() - 90 * 86_400_000);
+		// a resumed session's list, old on disk, and a started team in this process
+		mkdirSync(join(tasks, "session-resumed"), { recursive: true });
+		writeFileSync(join(tasks, "session-resumed", "1.json"), "{}");
+		utimesSync(join(tasks, "session-resumed", "1.json"), old, old);
+		writeFileSync(join(tasks, "session-resumed", ".lead"), JSON.stringify({ pid: process.pid, at: Date.now() }));
+		x.s.scenario({ lines: ok() });
+		await x.t.run({ name: "w" });
+		assert.ok(existsSync(join(tasks, "session-resumed")), "a live lead's list stays");
+		await x.end();
+	},
+);
+
+test("a teammate process without XPI_TEAM registers SendMessage but no task tools", () => {
+	const tools: Record<string, any> = {};
+	registerTeamTools({ registerTool: (t: any) => (tools[t.name] = t) } as any, {
+		XPI_TEAM_DIR: join(sandbox().root, "agent", "teams", "session-x"),
+		XPI_TEAM_MEMBER: "a",
+		XPI_TEAM_TOOLS: "direct",
+	});
+	assert.deepEqual(Object.keys(tools), ["SendMessage"]);
+});

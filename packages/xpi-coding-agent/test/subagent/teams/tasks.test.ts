@@ -5,10 +5,12 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, utimesSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { readTeamSettings } from "../../../src/extensions/subagent/team-config.ts";
 import {
 	createTask,
 	getTask,
 	listTasks,
+	markLead,
 	releaseTasks,
 	sweepTasks,
 	type TaskEnv,
@@ -332,4 +334,60 @@ test("retention: session task directories whose newest file is older than the li
 		"session-recent",
 	]);
 	assert.deepEqual(sweepTasks(join(root, "nothing"), "x", 30, teamsDir, now), []);
+});
+
+test("owner cannot be set together with a release, a completion or a reopen", async () => {
+	const w = world();
+	await createTask(w.a, { subject: "1" });
+	await claimed(w.a, "1");
+	await assert.rejects(
+		updateTask(w.a, { id: "1", status: "pending", owner: "b" }),
+		/`owner` cannot be set with a status change to pending/,
+	);
+	await assert.rejects(
+		updateTask(w.a, { id: "1", status: "completed", owner: "b" }),
+		/cannot be set with a status change to completed/,
+	);
+	await updateTask(w.a, { id: "1", status: "completed" });
+	await assert.rejects(
+		updateTask(w.lead, { id: "1", status: "pending", owner: "b" }),
+		/cannot be set with a status change to pending/,
+	);
+	assert.equal(getTask(w, "1").status, "completed");
+});
+
+test("a take-over with an explicit owner: me is a plain claim, and it checks the blockers again", async () => {
+	const w = world(["a", "b"]);
+	await createTask(w.a, { subject: "1" });
+	await createTask(w.a, { subject: "2" });
+	await claimed(w.a, "2");
+	const b2 = w.as("b", { live: (n) => n === "lead" }); // a is gone
+	assert.equal((await updateTask(b2, { id: "2", status: "in_progress", owner: "b" })).task.owner, "b");
+	// a dependency was added after the claim: taking the task over is blocked like a claim
+	await createTask(w.a, { subject: "3" });
+	await claimed(w.a, "3");
+	await updateTask(w.lead, { id: "3", blockedBy: ["1"] });
+	await assert.rejects(updateTask(b2, { id: "3", status: "in_progress", owner: "b" }), /blocked: task 3 waits for #1/);
+	assert.equal(getTask(w, "3").owner, "a");
+});
+
+test("retention leaves a directory whose lead marker names a live process; a dead one's goes; taskRetentionDays must be 1 or more", () => {
+	const root = mkdtempSync(join(tmpdir(), "retain-mark-"));
+	const tasks = join(root, "tasks");
+	const old = new Date(Date.now() - 90 * 86_400_000);
+	for (const name of ["session-live", "session-dead"]) {
+		mkdirSync(join(tasks, name), { recursive: true });
+		writeFileSync(join(tasks, name, "1.json"), "x");
+		utimesSync(join(tasks, name, "1.json"), old, old);
+	}
+	markLead(join(tasks, "session-live"));
+	writeFileSync(join(tasks, "session-dead", ".lead"), JSON.stringify({ pid: 2 ** 22 + 4321, at: 1 }));
+	assert.deepEqual(sweepTasks(tasks, "session-other", 1, join(root, "teams")), ["session-dead"]);
+	assert.deepEqual(readdirSync(tasks), ["session-live"]);
+	assert.equal(JSON.parse(readFileSync(join(tasks, "session-live", ".lead"), "utf8")).pid, process.pid);
+	assert.throws(
+		() => readTeamSettings({ enabled: true, taskRetentionDays: 0 }),
+		/taskRetentionDays must be a number of days, 1 or more/,
+	);
+	assert.equal(readTeamSettings({ enabled: true, taskRetentionDays: 1 }).taskRetentionDays, 1);
 });

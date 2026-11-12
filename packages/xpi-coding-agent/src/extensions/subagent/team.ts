@@ -110,6 +110,7 @@ export class Team {
 	private kickTimer: NodeJS.Timeout | undefined;
 	private readonly selfWrites = new Map<string, number>(); // mailbox name -> when a pass last rewrote it
 	private readonly steerRefused = new Map<string, ChildHandle>(); // the child handle that refused a steer, per member: left alone while it is the current one
+	private readonly exchanges = new Map<string, number>(); // exchanges begun, per member: a hold's verdict is for one
 	private readonly idleBlocks = new Map<string, number>(); // teammate_idle blocks in a row, per teammate
 	private closing = false;
 	private readonly wakeSignal = new AbortController(); // wakes waiting for a slot at session end must not start a child
@@ -469,6 +470,7 @@ export class Team {
 
 	// Its child is about to start.
 	exchangeBegan(name: string): void {
+		this.exchanges.set(name, (this.exchanges.get(name) ?? 0) + 1);
 		this.steerRefused.delete(name);
 		const m = this.members.get(name);
 		if (!m) return;
@@ -574,16 +576,19 @@ export class Team {
 			warn: (msg: string) => this.host.warn(msg),
 			holdTimeoutMs: this.host.holdTimeoutMs,
 		};
+		const seq = this.exchanges.get(name) ?? 0;
 		const decided = emitHook(hooks, "teammate_idle", payload, capped);
-		if (decided.sync) return this.finishIdle(name, run, decided.sync);
+		if (decided.sync) return this.finishIdle(name, run, decided.sync, seq);
 		void decided.later
-			.then((verdict) => (this.closing ? undefined : this.finishIdle(name, run, verdict)))
+			.then((verdict) => (this.closing ? undefined : this.finishIdle(name, run, verdict, seq)))
 			.catch((err: Error) => this.host.warn(`team ${this.label}: ${err.message}`));
 	}
 
-	private async finishIdle(name: string, run: RunResult, verdict: HookVerdict): Promise<void> {
+	private async finishIdle(name: string, run: RunResult, verdict: HookVerdict, seq: number): Promise<void> {
 		const m = this.members.get(name);
-		if (!m || m.status === "stopped" || m.status === "stopping") return; // it went away while a hook decided
+		// The verdict is for the exchange that ended. If the teammate went away, or was woken (a new exchange began or is
+		// queued) while a hold decided, it is stale: neither the old notice nor feedback for a turn that is over.
+		if (!m || m.status !== "idle" || (this.exchanges.get(name) ?? 0) !== seq) return;
 		if (verdict.blocked) {
 			this.idleBlocks.set(name, (this.idleBlocks.get(name) ?? 0) + 1);
 			await appendEntry(inboxFile(this.dir, name), {

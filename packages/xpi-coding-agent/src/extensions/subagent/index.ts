@@ -1,5 +1,6 @@
 // subagent extension entry: register the `Agent` tool for codemode scripts.
 
+import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "../../core/extensions/types.ts";
 import { isStdoutTakenOver, writeRawStdout } from "../../core/output-guard.ts";
 import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.ts";
@@ -24,6 +25,7 @@ import { readTeamSettings, teamsAllowed } from "./team-config.ts";
 import { leadTaskEnv } from "./team-lead-tasks.ts";
 import { registerTeamTools } from "./team-send.ts";
 import { taskTools } from "./team-task-tools.ts";
+import { markLead, tasksRoot } from "./team-tasks.ts";
 import { LEAD_PROMPT } from "./team-text.ts";
 import { checkStalls, runningLine, statusText } from "./waiting.ts";
 import { startWorkflowCommand, workflowStartText } from "./workflow-run.ts";
@@ -308,6 +310,8 @@ export default function subagent(pi: ExtensionAPI) {
 		// Teams are decided here and fixed until /reload: the lead's tools and prompt section are set up now.
 		const teamsOn =
 			teamSettings.enabled && teamsAllowed({ mode: ctx.mode, sessionFile: ctx.sessionManager.getSessionFile() });
+		// A resumed session's old task list is in use again: mark it so retention (another session's) leaves it alone.
+		if (teamsOn) markLead(join(tasksRoot(), `session-${ctx.sessionManager.getSessionId()}`), false);
 		teams.configure(
 			teamsOn
 				? {

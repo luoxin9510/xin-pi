@@ -6,14 +6,16 @@ import type { EventBus } from "../../core/event-bus.ts";
 import type { ExtensionContext } from "../../core/extensions/types.ts";
 import { teams } from "./team.ts";
 import { sendToMember, type TeamSendInput } from "./team-send.ts";
-import { assignmentText, type TaskEnv, tasksRoot } from "./team-tasks.ts";
+import { assignmentText, markLead, type TaskEnv, tasksRoot } from "./team-tasks.ts";
 import { LEAD } from "./team-text.ts";
 
 export function leadTaskEnv(ctx: ExtensionContext, bus: EventBus): TaskEnv {
 	const team = `session-${ctx.sessionManager.getSessionId()}`;
 	const status = (name: string) => (name === LEAD ? "running" : teams.current()?.members.get(name)?.status);
+	const dir = join(tasksRoot(), team);
+	markLead(dir);
 	return {
-		dir: join(tasksRoot(), team),
+		dir,
 		team,
 		me: LEAD,
 		lead: true,

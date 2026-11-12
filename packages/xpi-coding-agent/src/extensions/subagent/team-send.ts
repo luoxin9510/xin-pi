@@ -117,17 +117,18 @@ export function registerTeamTools(pi: ExtensionAPI, env: NodeJS.ProcessEnv = pro
 	if (!dir || !me) return;
 	const exposure = env.XPI_TEAM_TOOLS === "codemode" ? ("codemode" as const) : ("direct" as const);
 	// The task list is next to the team's directory: <agent dir>/tasks/<team>.
-	const team = env.XPI_TEAM ?? "";
-	const tasksDir = join(dirname(dirname(dir)), "tasks", team);
+	const team = env.XPI_TEAM;
+	const tasksDir = join(dirname(dirname(dir)), "tasks", team ?? "");
 	const taskEnv: TaskEnv = {
 		dir: tasksDir,
-		team,
+		team: team ?? "",
 		me,
 		lead: false,
 		live: (name) => readRoster(dir).members.some((m) => m.name === name && LIVE.includes(m.status)),
 		hooks: { bus: pi.events, warn: (m) => process.stderr.write(`agent-teams: ${m}\n`) },
 	};
-	for (const tool of taskTools({ exposure, env: () => taskEnv })) pi.registerTool(tool as never);
+	// Without the team's name there is no task directory: the task tools are not registered.
+	if (team) for (const tool of taskTools({ exposure, env: () => taskEnv })) pi.registerTool(tool as never);
 	pi.registerTool({
 		name: "SendMessage",
 		label: "SendMessage",
