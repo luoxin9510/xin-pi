@@ -153,3 +153,5 @@ and main should idle until results return, without paying for an LLM turn on eac
    before and after, with Haiku and Opus.
 6. **Scope.** Codemode only. Grouping teammates' notices is asked before agent teams' PR 1, because it would change
    that spec's decision 7.
+
+The owner approved spec 09 on 2026-11-12 ("批准").

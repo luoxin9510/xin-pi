@@ -1,6 +1,6 @@
 # 09: Start agents and let the script end
 
-Status: draft for the owner's approval (Grill 7 in `decisions.md`, 2026-11-12)
+Status: approved by the owner on 2026-11-12 (Grill 7 in `decisions.md`)
 
 ## Problem
 

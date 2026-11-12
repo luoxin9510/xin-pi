@@ -20,7 +20,7 @@ Order of work, one spec each, each shippable on its own:
 | 5 | Inert agent-file fields: `mcpServers`, `hooks`, `permissionMode`, `background`, `autoCompactWindow`, `initialPrompt`; `--agents` | Only the ones the owner uses; spec after 1-3 land |
 
 09 (`09-smart-waiting.md`, start agents and let the script end): Grill 7 accepted 2026-11-12 (it replaced Grill 6),
-spec for approval.
+spec approved 2026-11-12.
 
 Not planned: plugin and managed agent sources. Agent teams have their own spec (`.scratch/agent-teams/`).
 
