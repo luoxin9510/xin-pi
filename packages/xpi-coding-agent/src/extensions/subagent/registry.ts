@@ -64,6 +64,13 @@ export const label = (r: Pick<SubagentRecord, "type" | "description" | "name">):
 			? `${r.type}(${r.description})`
 			: r.type;
 
+// How long a quiet stretch lasted: seconds under a minute, else whole minutes ("45s", "12m").
+export const quietFor = (ms: number): string =>
+	ms < 60_000 ? `${Math.floor(ms / 1000)}s` : `${Math.floor(ms / 60_000)}m`;
+
+// "stalled 12m": how long a stalled agent has been quiet (the panel row, the group message).
+export const stalledLabel = (ms: number): string => `stalled ${quietFor(ms)}`;
+
 export const AGENT_NAME = /^[A-Za-z0-9_-]{1,64}$/;
 
 // "model · effort", leaving out what the record does not have (older meta files have no model).
@@ -431,8 +438,11 @@ class Registry {
 
 	attach(id: string, handle: ChildHandle): void {
 		this.handles.set(id, handle);
-		// The stall clock starts with the child's process: waiting for a slot or a stagger is not a stall.
-		this.activity.set(id, Date.now());
+		// The stall clock starts with the child's process: waiting for a slot or a stagger is not a stall. A new process
+		// (a restart) ends a stall of the one before.
+		const now = Date.now();
+		this.endStall(id, now);
+		this.activity.set(id, now);
 		this.emit();
 	}
 

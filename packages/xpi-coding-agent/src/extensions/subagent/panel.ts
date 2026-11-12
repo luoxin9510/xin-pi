@@ -8,11 +8,10 @@ import type { Theme } from "../../modes/interactive/theme/theme.ts";
 import { type ScriptRecord, scriptLabel, scripts } from "./background.ts";
 import { tint } from "./color.ts";
 import type { Config } from "./config.ts";
-import { COLORS, ICONS, label, registry, type SubagentRecord } from "./registry.ts";
+import { COLORS, ICONS, label, registry, type SubagentRecord, stalledLabel } from "./registry.ts";
 import { elapsed, openScriptScreen, scriptStatus } from "./script-screen.ts";
 import { stopEverything } from "./stop-all.ts";
 import { openSubagentScreen } from "./subagent-screen.ts";
-import { stalledLabel } from "./waiting.ts";
 
 // Only a script whose code runs can be paused (a group's agents have all started or failed).
 const pausable = (s: ScriptRecord) => s.state === "foreground" || s.state === "background";

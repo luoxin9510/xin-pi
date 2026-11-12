@@ -6,7 +6,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { runRpc, waitMetrics, xpiDescendants } from "./rpc-driver.ts";
 
 const FAKE = join(dirname(fileURLToPath(import.meta.url)), "fake-rpc.mjs");
@@ -15,7 +15,7 @@ type Step =
 	| { wait: number }
 	| { out: unknown }
 	| { meta: { path: string; status: string } }
-	| { child: number }
+	| { child: number; own?: string }
 	| { exit: number };
 
 const start = { out: { type: "agent_start" } };
@@ -36,16 +36,25 @@ describe("the rpc driver", () => {
 		for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 	});
 
-	async function drive(steps: Step[], options: { capMs?: number; quietMs?: number } = {}) {
+	async function drive(
+		steps: Step[],
+		options: { capMs?: number; quietMs?: number; ignoreTerm?: boolean; shutdownMs?: number } = {},
+	) {
 		const dir = mkdtempSync(join(tmpdir(), "rpc-driver-"));
 		dirs.push(dir);
 		const sessionDir = join(dir, "sessions");
 		const record = join(dir, "record.jsonl");
-		const resolved = JSON.parse(JSON.stringify(steps).replaceAll("$SESSIONS", sessionDir)) as Step[];
+		const resolved = JSON.parse(
+			JSON.stringify(steps).replaceAll("$SESSIONS", sessionDir).replaceAll("$DIR", dir),
+		) as Step[];
 		const result = await runRpc({
 			cli: FAKE,
 			cwd: dir,
-			env: { ...process.env, FAKE_RPC_SCENARIO: JSON.stringify({ steps: resolved }), FAKE_RPC_RECORD: record },
+			env: {
+				...process.env,
+				FAKE_RPC_SCENARIO: JSON.stringify({ steps: resolved, ignoreTerm: options.ignoreTerm }),
+				FAKE_RPC_RECORD: record,
+			},
 			args: ["--model", "x/y"],
 			prompt: "do the work",
 			sessionDir,
@@ -53,6 +62,7 @@ describe("the rpc driver", () => {
 			quietMs: options.quietMs ?? 400,
 			settleMs: 300,
 			pollMs: 50,
+			shutdownMs: options.shutdownMs ?? 2_000,
 		});
 		const commands = existsSync(record)
 			? readFileSync(record, "utf8")
@@ -60,7 +70,7 @@ describe("the rpc driver", () => {
 					.filter(Boolean)
 					.map((line) => JSON.parse(line) as Record<string, unknown>)
 			: [];
-		return { result, commands };
+		return { result, commands, dir };
 	}
 
 	it("with the subagents status: ends when main is idle and the status is clear, counts wakes, cancels dialogs", async () => {
@@ -146,7 +156,26 @@ describe("the rpc driver", () => {
 		expect(xpiDescendants(14, ps)).toEqual([]);
 	});
 
-	it("reads timeoutMsSet, agentsStoppedByDeadline and released from a session file", () => {
+	it("an xpi that does not shut down in time is SIGKILLed with its children in their own process groups", async () => {
+		const { result, dir } = await drive([start, { child: 60_000, own: "$DIR/kid.pid" }], {
+			capMs: 600,
+			ignoreTerm: true,
+			shutdownMs: 500,
+		});
+		expect(result.endedBy).toBe("cap");
+		const kid = Number(readFileSync(join(dir, "kid.pid"), "utf8"));
+		const alive = () => {
+			try {
+				process.kill(kid, 0);
+				return true;
+			} catch {
+				return false;
+			}
+		};
+		await vi.waitFor(() => expect(alive()).toBe(false), { timeout: 3_000 });
+	});
+
+	it("counts codemode calls that set timeout_ms, also ones codemode refused", () => {
 		const dir = mkdtempSync(join(tmpdir(), "rpc-metrics-"));
 		dirs.push(dir);
 		const file = join(dir, "main.jsonl");
@@ -154,37 +183,14 @@ describe("the rpc driver", () => {
 			type: "message",
 			message: { role: "assistant", content: [{ type: "toolCall", name: "codemode", arguments: { code } }] },
 		});
-		const result = (text: string, calls: { name: string; status: string }[]) => ({
-			type: "message",
-			message: { role: "toolResult", toolName: "codemode", content: [{ type: "text", text }], details: { calls } },
-		});
 		const lines = [
 			call('// @options: {"timeout_ms": 600000}\ntools.Agent({});'),
+			call('// @options: {"timeout_ms": -5}\ntools.Agent({});'),
 			call("tools.Agent({});"),
 			call('// @options: {"max_output_tokens": 100}\nreturn 1;'),
 			call("// @options: {not json}\nreturn 1;"),
-			result("Script timed out: Execution timed out after 600000 ms", [
-				{ name: "Agent", status: "cancelled" },
-				{ name: "Agent", status: "error" },
-				{ name: "Agent", status: "ok" },
-				{ name: "bash", status: "cancelled" },
-			]),
-			result("Script completed", [
-				{ name: "Agent", status: "released" },
-				{ name: "Agent", status: "released" },
-				{ name: "Agent", status: "cancelled" },
-			]),
-			{
-				type: "message",
-				message: {
-					role: "custom",
-					customType: "subagent",
-					content:
-						"Background script S2 (audit) failed.\nError: Script timed out: Execution timed out after 300000 ms\nAgents:\n- a1 general-purpose stopped $0.0100\n- a2 general-purpose completed $0.0100\n- a3 Explore failed $0.0000",
-				},
-			},
 		];
 		writeFileSync(file, `${lines.map((l) => JSON.stringify(l)).join("\n")}\nnot json\n`);
-		expect(waitMetrics(file)).toEqual({ timeoutMsSet: 1, agentsStoppedByDeadline: 4, released: 2 });
+		expect(waitMetrics(file)).toEqual({ timeoutMsSet: 2, agentsStoppedByDeadline: 0, released: 0 });
 	});
 });

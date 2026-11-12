@@ -163,10 +163,15 @@ The options below come with the unit. Each says how to turn it off.
   result (the line after a user message), `ctx.ui.setStatus` (the `subagents` status) and `ctx.ui.notify` (stalls).
 - **Files**: `background.ts`, `runs.ts`, `waiting.ts` (in the unit either way).
 - **Wiring / turn off**: the setting `subagent.backgroundScripts: false` (read in `index.ts` by `runsInBackground` and
-  by the `enabled()` of `scripts.connect()`); scripts then stay in the foreground.
+  by the `enabled()` of `scripts.connect()`); scripts then stay in the foreground. Waiting for agents is wired apart
+  from that setting, in `index.ts`: `watch(ctx)` at the end of `session_start` (the 30 s stall check and the
+  `subagents` status; remove the call to drop both) and `pi.on("before_agent_start", ...)` (the line after a user
+  message; remove it to drop the line). `subagent.stallMs: 0` turns stall marks and notices off. Without groups (with
+  `backgroundScripts: false`) the line is never added.
 - **Verify**: `test/suite/codemode-scripts.test.ts`, `test/suite/codemode-background-nested.test.ts`,
-  `test/suite/codemode-run-in-background.test.ts`, `test/suite/subagent-release-groups.test.ts` (vitest, singly);
-  `npm run test:subagent:parent` (Haiku).
+  `test/suite/codemode-run-in-background.test.ts`, `test/suite/subagent-release-groups.test.ts`,
+  `test/suite/subagent-waiting.test.ts` (vitest, singly); `test/subagent/panel/stalls.test.ts` (in
+  `npm run test:subagent`); `npm run test:subagent:parent` (Haiku).
 
 ### subagents: panel and screens
 

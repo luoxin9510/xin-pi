@@ -266,7 +266,7 @@ While agents run in the background, main makes no model turns, and the user and 
 - **Stalls.** Every event of a child counts as activity; the clock starts when the child's process starts, not while
   the agent waits for a free slot (`maxConcurrent`) or a staggered start. Every 30 s, a running agent with no activity
   for `subagent.stallMs` (default 600000, 10 minutes; `0` turns it off) is marked stalled: its panel row shows
-  `stalled Nm` next to its last tool, and you get a notification naming the agent and its last tool. Main is never
+  `stalled Nm` (`stalled Ns` under a minute) next to its last tool, and you get a notification naming the agent and its last tool. Main is never
   told. The next event clears the mark. A quiet tool (a long build or test run) can look stalled, which is why the row
   shows the tool; nothing is stopped automatically, and `maxTurns` still applies. A group's message adds
   `stalled Nm` to the line of a member that stalled (its longest stall).

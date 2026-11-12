@@ -20,6 +20,8 @@
 //
 // EVAL_MAIN=<provider/model>  the main model (default: haiku, which tests the harness for cents)
 // EVAL_BUDGET=<dollars>       stop starting runs once this much is spent (default 20)
+// EVAL_KEEP=1                 keep the directory (repository and sessions) of a passing run too; a failing run's is
+//                             always kept, and listed with the failures
 // Results: test/delegation/results/<stamp>.json (ignored by git).
 
 import { execFileSync, spawn } from "node:child_process";

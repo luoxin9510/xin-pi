@@ -2,11 +2,8 @@
 // added to a user message during a group, stall detection, and the `subagents` status.
 
 import { type ScriptRecord, scripts } from "./background.ts";
-import { label, registry, type SubagentRecord } from "./registry.ts";
+import { label, quietFor, registry, type SubagentRecord } from "./registry.ts";
 import { elapsed } from "./script-screen.ts";
-
-// "stalled 12m": how long a stalled agent has been quiet, in whole minutes.
-export const stalledLabel = (ms: number): string => `stalled ${Math.floor(ms / 60_000)}m`;
 
 // The session's running groups: scripts whose code ended with agents left running.
 const runningGroups = (sessionId: string): ScriptRecord[] => scripts.list(sessionId).filter((s) => s.state === "ended");
@@ -49,7 +46,7 @@ export function statusText(sessionId: string): string | undefined {
 
 // What the user is told when an agent is marked stalled.
 export const stallNotice = (r: SubagentRecord, stallMs: number): string =>
-	`subagent: ${r.id} ${label(r)} has done nothing for ${Math.floor(stallMs / 60_000)}m${r.lastTool ? ` (last tool: ${r.lastTool})` : ""}; it keeps running, x in the panel stops it`;
+	`subagent: ${r.id} ${label(r)} has done nothing for ${quietFor(stallMs)}${r.lastTool ? ` (last tool: ${r.lastTool})` : ""}; it keeps running, x in the panel (TUI) stops it`;
 
 /** Mark the session's agents quiet for `stallMs` as stalled, and tell the user (never main). */
 export function checkStalls(

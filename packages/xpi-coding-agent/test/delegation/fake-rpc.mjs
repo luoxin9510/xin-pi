@@ -2,7 +2,9 @@
 // Scripted stand-in for `xpi --mode rpc`, for the rpc driver's offline test (rpc-driver.test.ts).
 // FAKE_RPC_SCENARIO: JSON { steps: Step[], exitCode? } played once the prompt command arrives. A step is
 // { wait: ms } | { out: object } (one stdout line) | { meta: { path, status } } (write a child meta file)
-// | { child: ms } (start a process with "--mode rpc" in its command line that lives that long) | { exit: code }.
+// | { child: ms, own?: path } (start a process with "--mode rpc" in its command line that lives that long; with `own`,
+// in its own process group like a subagent child, its pid written to that path) | { exit: code }.
+// With `ignoreTerm: true` in the scenario, SIGTERM does not stop it (an xpi still stopping its children).
 // FAKE_RPC_RECORD: where the commands received are written, as JSON lines.
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
@@ -18,11 +20,17 @@ const play = async () => {
 		else if ("meta" in step) {
 			mkdirSync(dirname(step.meta.path), { recursive: true });
 			writeFileSync(step.meta.path, JSON.stringify({ status: step.meta.status }));
-		} else if ("child" in step)
-			spawn(process.execPath, ["-e", `setTimeout(() => {}, ${step.child})`, "--", "--mode", "rpc"], { stdio: "ignore" });
+		} else if ("child" in step) {
+			const kid = spawn(process.execPath, ["-e", `setTimeout(() => {}, ${step.child})`, "--", "--mode", "rpc"], {
+				stdio: "ignore",
+				detached: Boolean(step.own),
+			});
+			if (step.own) writeFileSync(step.own, String(kid.pid));
+		}
 		else if ("exit" in step) process.exit(step.exit);
 	}
 };
+if (scenario.ignoreTerm) process.on("SIGTERM", () => {});
 let started = false;
 createInterface({ input: process.stdin }).on("line", (line) => {
 	if (process.env.FAKE_RPC_RECORD) appendFileSync(process.env.FAKE_RPC_RECORD, `${line}\n`);

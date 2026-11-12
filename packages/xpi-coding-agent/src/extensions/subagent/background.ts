@@ -18,7 +18,7 @@ import {
 	type CodemodeScriptKept,
 	codemodeScripts,
 } from "../codemode/scripts.ts";
-import { registry } from "./registry.ts";
+import { registry, stalledLabel } from "./registry.ts";
 import type { Status } from "./runner.ts";
 import { runs } from "./runs.ts";
 import { capText } from "./sessions.ts";
@@ -692,7 +692,7 @@ export function groupMessage(
 	// Its longest stall (spec 09), when it had one.
 	const stall = (m: AgentCall) => {
 		const ms = m.agentId !== undefined ? registry.longestStallOf(m.agentId, now) : undefined;
-		return ms !== undefined ? ` stalled ${Math.floor(ms / 60_000)}m` : "";
+		return ms !== undefined ? ` ${stalledLabel(ms)}` : "";
 	};
 	const lines = [
 		...members.map(

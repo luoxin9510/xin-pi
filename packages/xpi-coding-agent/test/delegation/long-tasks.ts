@@ -13,6 +13,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 import { LIBRARIES, ledgerPackage, notesPackage, routerPackage } from "./multi-agent-fixtures.ts";
 import { probe, read, type Task, unchanged, write } from "./tasks.ts";
 
@@ -197,8 +198,12 @@ function testsPass(repo: string, dir: string): string | undefined {
 	}
 }
 
-const libraryTests = Object.fromEntries(
-	LIBRARIES.map((lib) => [`packages/${lib.name}/test/${lib.name}.test.js`, lib.test]),
+// The tests and specs, which must stay as they are.
+const libraryFixed = Object.fromEntries(
+	LIBRARIES.flatMap((lib) => [
+		[`packages/${lib.name}/test/${lib.name}.test.js`, lib.test],
+		[`packages/${lib.name}/SPEC.md`, lib.spec],
+	]),
 );
 
 const threeLibraries: Task = {
@@ -227,7 +232,7 @@ const threeLibraries: Task = {
 		}
 	},
 	check(repo) {
-		const changed = unchanged(repo, libraryTests);
+		const changed = unchanged(repo, libraryFixed);
 		if (changed) return changed;
 		const failing = LIBRARIES.map((lib) => testsPass(repo, `packages/${lib.name}`)).filter(
 			(why) => why !== undefined,
@@ -270,7 +275,7 @@ const threeAudits: Task = {
 		const undocumented = read(repo, "packages/ledger/undocumented.json");
 		try {
 			const got = JSON.parse(undocumented ?? "null");
-			if (JSON.stringify(got) !== JSON.stringify(ledger.undocumented))
+			if (!isDeepStrictEqual(got, ledger.undocumented))
 				why.push(
 					`ledger: undocumented.json differs (${Array.isArray(got) ? got.length : "no array"} entries, expected ${ledger.undocumented.length})`,
 				);
@@ -293,7 +298,8 @@ const threeAudits: Task = {
 				"const got = {};",
 				'for (const f of require("fs").readdirSync("src").sort()) { log.length = 0; require(path.resolve("src", f)).run(); got[f] = log.map((o) => JSON.parse(JSON.stringify(o))); }',
 				`const want = ${expected};`,
-				"const bad = Object.keys(want).filter((f) => JSON.stringify(got[f]) !== JSON.stringify(want[f]));",
+				// Key order is free: request({ method, url }) is the same request.
+				'const bad = Object.keys(want).filter((f) => !require("node:util").isDeepStrictEqual(got[f], want[f]));',
 				'console.log(bad.length === 0 ? "ok" : "requests differ in " + bad.join(", "));',
 			].join("\n"),
 		);
@@ -305,14 +311,9 @@ const threeAudits: Task = {
 			}
 		// 3. notes
 		try {
-			const got = JSON.parse(read(repo, "packages/notes/todos.json") ?? "null") as Record<string, unknown>;
-			const canon = (todos: Record<string, unknown>) =>
-				JSON.stringify(
-					Object.keys(todos)
-						.sort()
-						.map((owner) => [owner, todos[owner]]),
-				);
-			if (canon(got) !== canon(notes.todos)) why.push("notes: todos.json differs");
+			const got = JSON.parse(read(repo, "packages/notes/todos.json") ?? "null");
+			// Key order (owners, and the fields of an entry) is free; the arrays are sorted by the task.
+			if (!isDeepStrictEqual(got, notes.todos)) why.push("notes: todos.json differs");
 		} catch {
 			why.push("notes: todos.json missing or not JSON");
 		}

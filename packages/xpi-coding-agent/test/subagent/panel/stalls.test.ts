@@ -5,8 +5,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { readConfig } from "../../../src/extensions/subagent/config.ts";
 import { Panel } from "../../../src/extensions/subagent/panel.ts";
-import { registry } from "../../../src/extensions/subagent/registry.ts";
-import { checkStalls, stalledLabel, statusText } from "../../../src/extensions/subagent/waiting.ts";
+import { registry, stalledLabel } from "../../../src/extensions/subagent/registry.ts";
+import { checkStalls, statusText } from "../../../src/extensions/subagent/waiting.ts";
 
 const theme: any = {
 	fg: (c: string, s: string) => (c === "warning" ? `<w>${s}</w>` : s),
@@ -107,7 +107,7 @@ test("the user is told once per stall, with the last tool; the panel row says `s
 	assert.equal(told.length, 1, "once per stall");
 	assert.match(told[0]!, /n1 Explore\(n1 task\) has done nothing for 10m \(last tool: bash\)/);
 	const row = panel.render(120).join("\n");
-	assert.match(row, /bash · <w>stalled \d+m<\/w>/, row);
+	assert.match(row, /bash · <w>stalled \d+[sm]<\/w>/, row);
 	assert.equal(statusText("st4"), "1 agent running · 1 stalled");
 	registry.event("n1", event);
 	assert.ok(!panel.render(120).join("\n").includes("stalled"), "cleared on activity");
@@ -116,7 +116,23 @@ test("the user is told once per stall, with the last tool; the panel row says `s
 	panel.dispose();
 });
 
-test("stalledLabel counts whole minutes", () => {
+test("stalledLabel: seconds under a minute, else whole minutes; the notice says the same", () => {
 	assert.equal(stalledLabel(10 * MIN + 59_000), "stalled 10m");
-	assert.equal(stalledLabel(59_000), "stalled 0m");
+	assert.equal(stalledLabel(59_900), "stalled 59s");
+	begin("st5", "n5");
+	registry.attach("n5", handle);
+	const told: string[] = [];
+	checkStalls("st5", 30_000, (m) => told.push(m), Date.now() + MIN);
+	assert.match(told[0]!, /has done nothing for 30s; it keeps running, x in the panel \(TUI\) stops it/);
+	registry.finish("n5", "completed");
+});
+
+test("a new process (a restart) ends the stall of the one before", () => {
+	begin("st6", "r6");
+	registry.attach("r6", handle);
+	assert.equal(registry.checkStalls("st6", 10 * MIN, Date.now() + 11 * MIN).length, 1);
+	registry.attach("r6", handle);
+	assert.equal(registry.stalledFor("r6"), undefined);
+	assert.notEqual(registry.longestStallOf("r6"), undefined, "its stall is remembered");
+	registry.finish("r6", "completed");
 });

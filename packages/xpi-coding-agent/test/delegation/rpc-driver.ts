@@ -31,6 +31,9 @@ export interface RpcRunOptions {
 	/** With the `subagents` status: how long main idle and the status clear must hold. */
 	settleMs?: number;
 	pollMs?: number;
+	/** How long xpi may take to shut down after SIGTERM before it and its children are SIGKILLed. Longer than
+	 * `subagent.shutdownGraceMs` (10 s), which xpi gives its children. */
+	shutdownMs?: number;
 	/** The live xpi child processes of a pid (default: from `ps`). */
 	children?: (pid: number) => number[];
 }
@@ -56,6 +59,7 @@ export async function runRpc(options: RpcRunOptions): Promise<RpcRunResult> {
 	const quietMs = options.quietMs ?? 10_000;
 	const settleMs = options.settleMs ?? 3_000;
 	const pollMs = options.pollMs ?? 1_000;
+	const shutdownMs = options.shutdownMs ?? 15_000;
 	const children = options.children ?? xpiChildren;
 	const started = Date.now();
 	const child = spawn(options.cli, ["--mode", "rpc", ...options.args], {
@@ -155,13 +159,18 @@ export async function runRpc(options: RpcRunOptions): Promise<RpcRunResult> {
 		}, pollMs);
 	});
 
+	// Subagent children run in their own process groups: a signal to xpi's group does not reach them, and once xpi is
+	// gone they are no longer its descendants. So they are looked up first, and SIGKILLed with xpi if it does not shut
+	// down (and stop them) in time.
+	const left = child.pid !== undefined && exited === undefined ? children(child.pid) : [];
 	stop(child.pid);
 	await new Promise<void>((resolve) => {
 		if (exited !== undefined) return resolve();
 		const kill = setTimeout(() => {
+			for (const pid of [...left, ...(child.pid !== undefined ? children(child.pid) : [])]) stop(pid, "SIGKILL");
 			stop(child.pid, "SIGKILL");
 			resolve();
-		}, 5_000);
+		}, shutdownMs);
 		child.on("exit", () => {
 			clearTimeout(kill);
 			resolve();
@@ -170,12 +179,17 @@ export async function runRpc(options: RpcRunOptions): Promise<RpcRunResult> {
 	return { ...result, wakes: Math.max(0, starts - 1), sawStatus, ms: Date.now() - started };
 }
 
+// Signal a process group, else the process alone.
 function stop(pid: number | undefined, signal: NodeJS.Signals = "SIGTERM"): void {
 	if (pid === undefined) return;
 	try {
 		process.kill(-pid, signal);
 	} catch {
-		// already gone
+		try {
+			process.kill(pid, signal);
+		} catch {
+			// already gone
+		}
 	}
 }
 
@@ -232,8 +246,9 @@ function xpiChildren(pid: number): number[] {
 export interface WaitMetrics {
 	/** codemode calls whose `@options` line sets `timeout_ms`. */
 	timeoutMsSet: number;
-	/** Agents stopped by a script's deadline: in a codemode result or a background script's end message that says
-	 * "Script timed out", the Agent calls that ended in an error or `cancelled` (the agents listed failed or stopped). */
+	/** Agents stopped by a script's deadline: in a codemode result that says "Script timed out", its nested Agent calls
+	 * that ended in an error or `cancelled`; in a background script's end message that says so, the same calls as its
+	 * "Tool calls made before the failure" line lists them (the agents themselves still show `running` there). */
 	agentsStoppedByDeadline: number;
 	/** Nested calls with the status `released`. */
 	released: number;
@@ -277,7 +292,9 @@ export function waitMetrics(file: string): WaitMetrics {
 				try {
 					if (parseCodemodeSource(part.arguments.code).options.timeoutMs !== undefined) metrics.timeoutMsSet++;
 				} catch {
-					// a source codemode refused: it ran nothing
+					// Refused (it ran nothing), but the model still asked for a deadline.
+					if (/^\s*\/\/\s*@options:.*"timeout_ms"/.test(part.arguments.code.split("\n")[0]!))
+						metrics.timeoutMsSet++;
 				}
 			}
 		}
@@ -289,11 +306,13 @@ export function waitMetrics(file: string): WaitMetrics {
 					(c) => c.name === "Agent" && (c.status === "error" || c.status === "cancelled"),
 				).length;
 		}
-		// A background script's end arrives as a message: its agent lines are "- <id> <type> <status> $<cost>".
+		// A background script's end arrives as a message with the script's failed result in it (codemode's formatError):
+		// "Script timed out: ...", then "Tool calls made before the failure (...): Agent (cancelled), bash (ok), ...".
 		if (message.role === "custom" && message.customType === "subagent") {
 			const text = textOf(message.content);
-			if (/^Background script \S+.* failed\.\nError: Script timed out/.test(text))
-				metrics.agentsStoppedByDeadline += (text.match(/^- \S+ \S+ (?:stopped|failed) \$/gm) ?? []).length;
+			if (!text.includes("Script timed out")) continue;
+			const summary = text.split("\n").find((l) => l.startsWith("Tool calls made before the failure"));
+			metrics.agentsStoppedByDeadline += (summary?.match(/\bAgent \((?:cancelled|error)\)/g) ?? []).length;
 		}
 	}
 	return metrics;

@@ -216,6 +216,7 @@ error that names the key. The thinking level selected for `relay/auto` itself is
   (default Haiku); `--force` tells the model to delegate, for comparison with its own decision. Two multi-agent
   tasks run through `xpi --mode rpc`, where scripts can run in the background, and also report how main waited for
   its agents (see [Subagents: Waiting for agents](subagent.md#waiting-for-agents)); `--cli <path>` runs another build.
+  A failing run keeps its directory (repository and sessions); `EVAL_KEEP=1` keeps those of passing runs too.
 
 ## Porting
 

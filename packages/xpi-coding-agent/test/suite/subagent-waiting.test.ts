@@ -3,18 +3,20 @@
 // starts a turn gets one line naming the agents still running; stalls are marked, told to the user and listed in the
 // group message; the `subagents` status follows running agents and groups.
 
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fauxAssistantMessage, fauxToolCall } from "xpi-ai";
 import { emitSessionShutdownEvent } from "../../src/core/extensions/runner.ts";
+import type { ExtensionAPI } from "../../src/core/extensions/types.ts";
 import { createCodemodeExtension } from "../../src/extensions/codemode/index.ts";
 import { codemodeScripts } from "../../src/extensions/codemode/scripts.ts";
-import { scripts } from "../../src/extensions/subagent/background.ts";
+import { endMessage, type ScriptRecord, scripts } from "../../src/extensions/subagent/background.ts";
 import subagent from "../../src/extensions/subagent/index.ts";
 import { registry } from "../../src/extensions/subagent/registry.ts";
 import { initTheme } from "../../src/modes/interactive/theme/theme.ts";
+import { waitMetrics } from "../delegation/rpc-driver.ts";
 import { ev, FAKE_PI, type Scenario } from "../subagent/helpers.ts";
 import { createHarness, createTestUiContext, type Harness } from "./harness.ts";
 
@@ -55,7 +57,9 @@ describe("spec 09: waiting without model turns", () => {
 		vi.unstubAllEnvs();
 	});
 
-	async function setup(options: { settings?: Record<string, unknown>; delayMs?: number } = {}) {
+	// `held`: Agent calls with these descriptions wait on their way through the host (before Agent's execute) until
+	// `open(description)`.
+	async function setup(options: { settings?: Record<string, unknown>; delayMs?: number; held?: string[] } = {}) {
 		const root = mkdtempSync(join(tmpdir(), "waiting-"));
 		const agentDir = join(root, "agent");
 		mkdirSync(agentDir, { recursive: true });
@@ -66,12 +70,25 @@ describe("spec 09: waiting without model turns", () => {
 		writeFileSync(join(root, "scenario.json"), JSON.stringify(scenario(options.delayMs ?? 150)));
 		const statuses: (string | undefined)[] = [];
 		const notices: string[] = [];
+		const gates = new Map<string, () => void>();
+		const hold = (pi: ExtensionAPI) => {
+			pi.on("tool_execution_start", async (event) => {
+				const description = (event.args as { description?: string } | undefined)?.description;
+				if (event.toolName !== "Agent" || !description || !options.held?.includes(description)) return;
+				await new Promise<void>((resolve) => gates.set(description, resolve));
+			});
+		};
+		const open = async (description: string) => {
+			await vi.waitFor(() => expect(gates.has(description)).toBe(true));
+			gates.get(description)!();
+			gates.delete(description);
+		};
 		const harness = await createHarness({
 			settings: {
 				subagent: { piCommand: FAKE_PI, staggerStart: false, panelLingerMs: 60_000, ...options.settings },
 			} as never,
 			initialActiveToolNames: ["codemode"],
-			extensionFactories: [createCodemodeExtension(), subagent],
+			extensionFactories: [createCodemodeExtension(), subagent, hold],
 		});
 		harnesses.push(harness);
 		await harness.session.bindExtensions({
@@ -101,7 +118,7 @@ describe("spec 09: waiting without model turns", () => {
 			// The calls reach Agent's execute one at a time: the script's code ends once both are on their way.
 			await vi.waitFor(() => expect(scripts.list(sessionId()).at(-1)?.state).not.toBe("background"));
 		};
-		return { harness, sessionId, custom, groupMessages, script, run, statuses, notices };
+		return { harness, sessionId, custom, groupMessages, script, run, statuses, notices, open };
 	}
 
 	describe("a user message during a group", () => {
@@ -240,7 +257,7 @@ describe("spec 09: waiting without model turns", () => {
 			await vi.waitFor(() => expect(registry.stalledFor(agentId())).toBeUndefined(), { timeout: 5_000 });
 			await vi.waitFor(() => expect(t.groupMessages()).toHaveLength(1), { timeout: 15_000 });
 			expect(t.groupMessages()[0]).toMatch(
-				new RegExp(`- ${agentId()} \\S+ "alpha" completed \\$\\S+ \\d+s stalled 0m`),
+				new RegExp(`- ${agentId()} \\S+ "alpha" completed \\$\\S+ \\d+s stalled \\d+s`),
 			);
 			expect(t.custom("subagent").some((m) => m.includes("has done nothing"))).toBe(false);
 		});
@@ -256,6 +273,82 @@ describe("spec 09: waiting without model turns", () => {
 			expect(t.notices.filter((n) => n.includes("has done nothing"))).toEqual([]);
 			await vi.waitFor(() => expect(t.groupMessages()).toHaveLength(1), { timeout: 15_000 });
 			expect(t.groupMessages()[0]).not.toMatch(/stalled/);
+		});
+	});
+
+	describe("the eval's wait metrics, from real results and messages", () => {
+		it("released calls, a deadline that cancels an agent (foreground result and background end message), timeout_ms", async () => {
+			// Released: a script that returns before its Agent calls reach Agent's execute.
+			const a = await setup({ held: ["alpha", "beta"] });
+			await a.run(`${agentCall("alpha")} ${agentCall("beta")} return 1;`, [fauxAssistantMessage("group noted")]);
+			await a.open("alpha");
+			await a.open("beta");
+			await vi.waitFor(() => expect(a.groupMessages()).toHaveLength(1), { timeout: 15_000 });
+
+			// A deadline that stops an agent: where agents do not outlive their script (backgroundScripts: false).
+			const b = await setup({ settings: { backgroundScripts: false } });
+			b.harness.setResponses([
+				fauxAssistantMessage(
+					[
+						fauxToolCall("codemode", {
+							// Output that names a call status, and a failed call of another tool: neither is counted.
+							code: `// @options: {"timeout_ms": 500}\ntext("earlier: Agent (error)"); await tools.SendMessage({ to: "nobody", message: "x" }).catch(() => {}); await ${agentCall("alpha")}`,
+						}),
+					],
+					{ stopReason: "toolUse" },
+				),
+				fauxAssistantMessage("it timed out"),
+			]);
+			await b.harness.session.prompt("go");
+			// A script that throws with an agent still running: cancelled too, but not by a deadline.
+			b.harness.setResponses([
+				fauxAssistantMessage(
+					[fauxToolCall("codemode", { code: `${agentCall("beta")} throw new Error("boom");` })],
+					{
+						stopReason: "toolUse",
+					},
+				),
+				fauxAssistantMessage("it threw"),
+			]);
+			await b.harness.session.prompt("again");
+			const threw = b.harness.session.messages.find(
+				(m) => m.role === "toolResult" && text((m as { content: unknown }).content).includes("boom"),
+			) as { content: unknown } | undefined;
+			expect(text(threw!.content)).toMatch(/Agent \((cancelled|error)\)/);
+			const timedOut = b.harness.session.messages.find(
+				(m) => m.role === "toolResult" && text((m as { content: unknown }).content).includes("Script timed out"),
+			) as { content: unknown } | undefined;
+			expect(text(timedOut!.content)).toMatch(/Tool calls made before the failure[^\n]*SendMessage \(error\)/);
+			// The same failed result as a background script's end message (endMessage writes it after "Error:").
+			const record = {
+				id: "S9",
+				description: "audit",
+				agents: [],
+				workflow: undefined,
+				run: undefined,
+				saved: undefined,
+			} as unknown as ScriptRecord;
+			const ended = endMessage(record, "failed", text(timedOut!.content), {
+				sessionFile: undefined,
+				sessionId: b.sessionId(),
+			});
+			expect(ended).toMatch(/^Background script S9 \(audit\) failed\.\nError: Script failed\n/);
+			const endedThrow = endMessage(record, "failed", text(threw!.content), {
+				sessionFile: undefined,
+				sessionId: b.sessionId(),
+			});
+
+			const dir = mkdtempSync(join(tmpdir(), "wait-metrics-"));
+			const file = join(dir, "main.jsonl");
+			const entries = [
+				...a.harness.session.messages,
+				...b.harness.session.messages,
+				{ role: "custom", customType: "subagent", content: ended, display: true },
+				{ role: "custom", customType: "subagent", content: endedThrow, display: true },
+			].map((message) => JSON.stringify({ type: "message", message }));
+			writeFileSync(file, `${entries.join("\n")}\n`);
+			expect(waitMetrics(file)).toEqual({ timeoutMsSet: 1, agentsStoppedByDeadline: 2, released: 2 });
+			rmSync(dir, { recursive: true, force: true });
 		});
 	});
 });
