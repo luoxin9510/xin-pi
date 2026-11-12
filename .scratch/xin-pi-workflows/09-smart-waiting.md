@@ -87,11 +87,12 @@ agent id, a controller or a registry record exists.
   - The worker slot is released as today.
   - An abort (Esc on a foreground script, `x` on a script row, the session ending) aborts everything, as today.
 - **Which calls outlive the script.** The codemode host passes `outlives` from its add-ons: a new add-on field
-  `outlives?(target)`. The subagent extension's add-on answers true for the tool `Agent` and for the global behind the
-  `agent()` and `parallel()` helpers (`__subagentAgent`). It answers false for `SendMessage` (a steer returns at once;
-  a continue is an `Agent` execute and is covered through it) and for `Workflow` (see above).
+  `outlives?(target)`. The subagent extension's add-on answers true for the tool `Agent`, for the global behind the
+  `agent()` and `parallel()` helpers (`__subagentAgent`), and for `SendMessage`: a continue is an agent run, and the
+  abort would reach it through the `SendMessage` call (a steer returns at once, so in practice only a continue is
+  kept; its `Agent` execute is a group member like any other). It answers false for `Workflow` (see above).
 - **The script record stays.** `codemodeScripts` keeps the script's record after the sandbox ends, marked
-  `ended: <reason>`, until its group ends. New API: `keep(callId)` at the end, and `release(callId)` at the group's
+  `ended: <reason>`, until its group ends. New API: `keep(scriptId)` at the end, and `release(scriptId)` at the group's
   end, which fires `onEnd`. So `owner()`, `countScriptAgent` (`maxAgentsPerScript`), `agentStarting`,
   `addAgent` and the panel rows work for calls that reach `Agent`'s execute after the script's last line. An `Agent`
   execute whose script is marked ended runs as a group member.

@@ -75,12 +75,21 @@ Paths below are relative to the repository root; `coding-agent/` stands for `pac
   `src/core/agent-session.ts`, `src/core/extensions/types.ts`, `runner.ts`); optional to the host (the call is
   `ctx.detachNestedCalls?.()`), but without it a script moved to the background loses its nested-call ids at
   `agent_end`.
+- **Calls that outlive the script** (host requirements, spec 09; the subagents unit relies on them): the sandbox
+  option `outlives` (`packages/xpi-codemode`: on every end but an abort, the pending calls it names are not aborted and
+  are recorded `released`); the add-on fields `outlives(target, sessionId)` and `describe(sessionId)` (`addons.ts`),
+  which `execute.ts` asks for a script's calls and `tool.ts` for the description (the replaceable sentence
+  `cancelledOnEnd`, `CODEMODE_DESCRIPTION_SENTENCES`), with the session id the extension records at `session_start`
+  (`getSessionId` in `index.ts`); and the kept script record: `codemodeScripts.keep(scriptId, ...)` at a script's end
+  with calls still running (the record stays, state `ended`, `onKeep` instead of `onEnd`) and
+  `codemodeScripts.release(scriptId)`, which the add-on's extension calls when those calls are over (`onRelease`, then
+  `onEnd`). A host without them cancels every pending call at the end, as before.
 - **Rewrite**: `getCodemodeWorkerSpecifier()` and `getQuickJSWasmPath()` (`coding-agent/src/config.ts`): where your
   build puts the worker and the wasm file. xpi also lists `codemode` in `DEFAULT_TOOL_NAMES`
   (`coding-agent/src/core/settings-manager.ts`); keep that if you want it on by default.
-- **Verify**: `npm test` in `packages/xpi-codemode`; `test/suite/agent-session-codemode.test.ts`,
-  `test/suite/codemode-scripts.test.ts`, `test/suite/codemode-background-nested.test.ts` in coding-agent (vitest,
-  singly).
+- **Verify**: `npm test` in `packages/xpi-codemode` (`outlives` is in `test/sandbox.test.ts` and
+  `test/deterministic.test.ts`); `test/suite/agent-session-codemode.test.ts`, `test/suite/codemode-scripts.test.ts`,
+  `test/suite/codemode-background-nested.test.ts` in coding-agent (vitest, singly).
 - **Linux**: nothing specific. **macOS**: the same.
 - **Guide**: [`packages/xpi-codemode/README.md`](../../xpi-codemode/README.md); the core changes are in
   [xin-pi.md](../../../docs/xin-pi.md) ("codemode background controller", "workflows", "codemode is a default tool").
@@ -141,16 +150,21 @@ The options below come with the unit. Each says how to turn it off.
 ### subagents: background
 
 - **Gives**: codemode scripts that move to the background (on the first `Agent` call, ctrl+b, or
-  `run_in_background`) and report to main when they end; `run_in_background: true` agents. See
-  [Background work](subagent.md#background-work).
-- **Depends on**: codemode's controller `codemodeScripts`; `ctx.detachNestedCalls()`; `pi.sendMessage(..., {
-  triggerTurn: true, deliverAs: "steer" })`; `session_shutdown` to stop what is left; a UI (print mode keeps scripts in
-  front).
+  `run_in_background`) and report to main when they end; `run_in_background: true` agents; agents that outlive their
+  script, grouped into one message per script, and `wake: "each"`. See [Background work](subagent.md#background-work)
+  and [Agents that outlive their script](subagent.md#agents-that-outlive-their-script).
+- **Depends on**: codemode's controller `codemodeScripts`, with `keep`/`release` and `onKeep`; codemode's add-on fields
+  `outlives` and `describe` (the add-on in `script-helpers.ts` answers them from `codemodeScripts.canBackground`);
+  `ctx.detachNestedCalls()` / `releaseNestedCalls()`; `pi.sendMessage(..., { triggerTurn: true, deliverAs: "steer" })`;
+  `session_shutdown` to stop what is left; a UI (print mode keeps scripts in front). The groups live in
+  `background.ts` (`join`, the group and its message) and `agent-tool.ts` (each agent of a script on its own
+  `AbortController`, detached from the call's signal when the script ends).
 - **Files**: `background.ts`, `runs.ts` (in the unit either way).
 - **Wiring / turn off**: the setting `subagent.backgroundScripts: false` (read in `index.ts` by `runsInBackground` and
   by the `enabled()` of `scripts.connect()`); scripts then stay in the foreground.
 - **Verify**: `test/suite/codemode-scripts.test.ts`, `test/suite/codemode-background-nested.test.ts`,
-  `test/suite/codemode-run-in-background.test.ts` (vitest, singly); `npm run test:subagent:parent` (Haiku).
+  `test/suite/codemode-run-in-background.test.ts`, `test/suite/subagent-release-groups.test.ts` (vitest, singly);
+  `npm run test:subagent:parent` (Haiku).
 
 ### subagents: panel and screens
 

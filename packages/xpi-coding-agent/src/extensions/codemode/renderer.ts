@@ -51,6 +51,8 @@ function statusIcon(call: CodemodeNestedCall, theme: Theme): string {
 			return theme.fg("error", "✗");
 		case "cancelled":
 			return theme.fg("muted", "⊘");
+		case "released":
+			return theme.fg("accent", "↗");
 	}
 }
 
@@ -62,6 +64,8 @@ function formatCall(call: CodemodeNestedCall, theme: Theme, expanded: boolean): 
 	const duration = formatDuration(call.durationMs);
 	let line = `${statusIcon(call, theme)} ${theme.fg("toolTitle", call.name)}`;
 	if (args) line += ` ${theme.fg("muted", args)}`;
+	// It keeps running after the script: what it does from here is not in this result.
+	if (call.status === "released") line += ` ${theme.fg("muted", "released: keeps running")}`;
 	if (duration) line += ` ${theme.fg("dim", duration)}`;
 	if (call.cost) line += ` ${theme.fg("dim", formatCost(call.cost))}`;
 	if (expanded && call.error) line += `\n    ${theme.fg("error", call.error.split("\n").join("\n    "))}`;

@@ -19,6 +19,7 @@ const record = (extra: Partial<ScriptRecord> = {}): ScriptRecord => ({
 	stopRequested: false,
 	pinned: false,
 	agents: [],
+	members: [],
 	phases: {},
 	calls: [],
 	logs: [],

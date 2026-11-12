@@ -12,8 +12,9 @@ import { COLORS, ICONS, type SubagentStatus } from "./registry.ts";
 
 const CODE_LINES = 20; // lines of the script's code shown before it is cut
 
+// "ended": its code is over and its group still runs.
 export const scriptStatus = (s: ScriptRecord): SubagentStatus =>
-	s.state === "foreground" || s.state === "background" ? "running" : s.state;
+	s.state === "completed" || s.state === "failed" || s.state === "stopped" ? s.state : "running";
 
 export const elapsed = (ms: number) =>
 	ms < 60_000

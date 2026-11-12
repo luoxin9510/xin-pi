@@ -4,6 +4,9 @@
  * change) and host globals the prelude may use (functions cannot cross into the sandbox, so helpers that take
  * callbacks live in the prelude and call the host through these).
  *
+ * An add-on can also let some calls outlive the script (`outlives`) and change the codemode description (`describe`).
+ * Add-ons are process-wide but those answers depend on the session, so both take its id.
+ *
  * `codemodeAddons` is a process-wide singleton, like `codemodeScripts`.
  */
 
@@ -17,6 +20,14 @@ export interface CodemodeAddonScript {
 	callTool(name: string, args: unknown, signal: AbortSignal): Promise<unknown>;
 }
 
+/** What an add-on changes in the codemode description of one session. */
+export interface CodemodeAddonDescription {
+	/** Replace named sentences of the description's intro (`CODEMODE_DESCRIPTION_SENTENCES`) with these texts. */
+	replace?: Readonly<Record<string, string>>;
+	/** Lines added after the intro. */
+	append?: readonly string[];
+}
+
 export interface CodemodeAddon {
 	/** Unique; registering the same name again replaces the earlier add-on. */
 	name: string;
@@ -26,6 +37,14 @@ export interface CodemodeAddon {
 	prelude: string;
 	/** Host globals for one script run. Their names must not clash with other globals. */
 	globals?(script: CodemodeAddonScript): CodemodeTool[];
+	/**
+	 * Whether a call still pending when a script of this session ends keeps running instead of being cancelled: a
+	 * tool (`tools.<name>`) or a host global. Asked for every end except an abort. A script that ends with such calls
+	 * is kept in `codemodeScripts` (`keep`) until the add-on's extension calls `release`.
+	 */
+	outlives?(target: { kind: "tool" | "global"; name: string }, sessionId: string): boolean;
+	/** Changes to the codemode description in this session. */
+	describe?(sessionId: string): CodemodeAddonDescription;
 }
 
 const addons = new Map<string, CodemodeAddon>();

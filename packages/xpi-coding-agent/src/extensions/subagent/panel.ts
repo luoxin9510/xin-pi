@@ -13,6 +13,9 @@ import { elapsed, openScriptScreen, scriptStatus } from "./script-screen.ts";
 import { stopEverything } from "./stop-all.ts";
 import { openSubagentScreen } from "./subagent-screen.ts";
 
+// Only a script whose code runs can be paused (a group's agents have all started or failed).
+const pausable = (s: ScriptRecord) => s.state === "foreground" || s.state === "background";
+
 export interface PanelOptions {
 	lingerMs: number; // finished rows drop out this long after they ended
 	viewable: boolean; // false for an in-memory session: subagents cannot be viewed, so no rows, only a notice
@@ -147,7 +150,7 @@ export class Panel {
 		} else if (
 			matchesKey(data, "p") &&
 			rows[this.selected]?.kind === "script" &&
-			(rows[this.selected] as Row & { kind: "script" }).script.endedAt === undefined
+			pausable((rows[this.selected] as Row & { kind: "script" }).script)
 		) {
 			scripts.togglePause((rows[this.selected] as Row & { kind: "script" }).script.id); // or resume
 		} else if (matchesKey(data, "s") && rows[this.selected]?.kind === "script" && this.options.save) {
@@ -209,6 +212,9 @@ export class Panel {
 				const running = agents.filter((a) => a.status === "running").length;
 				const label = scriptLabel(s);
 				const call = s.calls.findLast((c) => c.status === "running");
+				// A script whose code ended with agents left running: how many of them are done (spec 09).
+				const members = s.members.filter((m) => m.member);
+				const done = members.filter((m) => m.status !== "running").length;
 				parts = [
 					t.fg(COLORS[status], `${ICONS[status]} ${s.paused ? "paused" : s.state}`),
 					s.workflow
@@ -217,7 +223,8 @@ export class Panel {
 							? `${label} (${s.id})`
 							: `script ${s.id}`,
 				];
-				if (agents.length > 0) parts.push(t.fg("muted", `${running} agents running`));
+				if (s.state === "ended") parts.push(t.fg("muted", `${done}/${members.length} agents done`));
+				else if (agents.length > 0) parts.push(t.fg("muted", `${running} agents running`));
 				parts.push(t.fg("muted", elapsed((s.endedAt ?? Date.now()) - s.startedAt)));
 				if (call) parts.push(t.fg("muted", `${call.name}${call.label ? ` ${call.label}` : ""}`));
 				if (agents.length > 0) parts.push(t.fg("muted", `$${cost.toFixed(4)}`));
@@ -242,11 +249,7 @@ export class Panel {
 			const onScript = rows[this.selected]?.kind === "script" && this.options.save;
 			const row = rows[this.selected];
 			const pause =
-				row?.kind === "script" && row.script.endedAt === undefined
-					? row.script.paused
-						? " · p resume"
-						: " · p pause"
-					: "";
+				row?.kind === "script" && pausable(row.script) ? (row.script.paused ? " · p resume" : " · p pause") : "";
 			const restartable = row?.kind === "agent" && registry.restartRefusal(row.record.id) === undefined;
 			lines.push(
 				t.fg(

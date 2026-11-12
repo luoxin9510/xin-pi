@@ -166,6 +166,7 @@ test("end message and script rows name the workflow", () => {
 			stopRequested: false,
 			pinned: false,
 			agents: [],
+			members: [],
 			phases: {},
 			calls: [],
 			logs: [],

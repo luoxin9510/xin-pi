@@ -22,8 +22,8 @@ return [a.output, b.output].join("\n---\n");
 ## Contents
 
 - Setting up: [Enabling](#enabling), [Agent definitions](#agent-definitions), [Model selection](#model-selection)
-- Calling agents: [The Agent tool](#the-agent-tool), [Background work](#background-work),
-  [Structured output](#structured-output), [Names and SendMessage](#names-and-sendmessage), [Fork](#fork)
+- Calling agents: [The Agent tool](#the-agent-tool), [Background work](#background-work) (agents that outlive their
+  script), [Structured output](#structured-output), [Names and SendMessage](#names-and-sendmessage), [Fork](#fork)
 - Per-agent options: [Worktree isolation](#worktree-isolation), [Agent memory](#agent-memory), [MCP](#mcp),
   [Permission mode plan](#permission-mode-plan), [Extensions as hooks](#extensions-as-hooks),
   [Codemode-only children](#codemode-only-children)
@@ -147,13 +147,15 @@ Without Anthropic credentials, haiku (and so every agent by default) fails with 
 
 ## The Agent tool
 
-Input (compatible with Claude Code's Agent tool): `{ description, prompt, subagent_type?, model?, effort?, resume?, run_in_background?, isolation?, schema?, name? }`.
+Input (compatible with Claude Code's Agent tool): `{ description, prompt, subagent_type?, model?, effort?, resume?, run_in_background?, isolation?, schema?, name?, wake? }`.
 `subagent_type` defaults to `general-purpose`. `isolation` is `"worktree"` or omitted (see [Worktree isolation](#worktree-isolation)); `schema` makes the
 result a value (see [Structured output](#structured-output));
 `name` names the agent (see [Names and SendMessage](#names-and-sendmessage)). Children run as `xpi --mode rpc` and get the prompt as a protocol message on stdin, not as a command
 line argument, so prompts of any size work.
 
 `run_in_background`: omitted, the first `Agent` call moves its codemode script to the background; `false` keeps the script in the foreground; `true` returns `status: "running"` at once and main gets a message when the agent ends (output cut at 8 KB), without moving the script. See [Background work](#background-work).
+
+`wake`: `"group"` (default) or `"each"`, for an agent still running when its script ends. See [Agents that outlive their script](#agents-that-outlive-their-script).
 
 Result:
 
@@ -207,6 +209,50 @@ agent, with an optional `description` (a few words) that names it ("Script S1 (b
 ..."). Use it for a long command whose result main does not need this turn; the script should return a filtered result.
 See [Run in the background](codemode.md#run-in-the-background). With `subagent.backgroundScripts: false`, in print mode,
 or without this extension, the flag is ignored and the call waits.
+
+### Agents that outlive their script
+
+An `Agent` call still running when its codemode script ends is released, not cancelled: the agent runs on and reports
+to main. So a script can start agents without `await` and end at once; main's turn can end, main stays idle (no LLM
+turns) while the agents work, and wakes once when they are all done. The tool descriptions recommend this: start the
+agents and end the script, and `await` an agent only when the script must use its result. This applies to
+`tools.Agent(...)`, the `agent()` and `parallel()` helpers, and `SendMessage` (a continue is an agent run; a steer
+returns at once anyway), on every end but an abort: a normal end, a throw,
+`exit()`, the deadline (`timeout_ms` no longer stops agents), and a sandbox failure. Other calls still running are
+cancelled as before, and so is everything on an abort (Esc on a foreground script, `x` on a running script, the
+session's end).
+
+- **The group.** The agents a script leaves running form its group: the calls that were still on their way at the end
+  (in argument validation, a hook, a pause) and every `Agent` call the script started. A call that fails before its
+  agent starts (bad arguments, a blocked call, an unknown `subagent_type`, `maxAgentsPerScript`) is part of the group
+  with its error. The same agent continued later from another script belongs to that script's group. A
+  `run_in_background: true` agent is a member too, and ends when its agent's run ends; inside a group it sends no
+  message of its own. One whose run ends while the script's code still runs reports on its own, as before (the script
+  only saw `status: "running"`), and is a line of the group. A script that leaves nothing running has no group and ends as before.
+- **One message.** When every member has ended, main gets one message (a steer that triggers a turn): the script's
+  outcome if it ran in the background (its state, such as "every agent failed", is decided then), one line per member
+  (id, type, description, state, cost, duration, and the error of a failed one), the output of each member that was
+  still running when the script ended (cut at 8 KB, the rest in a file in `subagents/<session id>/`), and the total
+  cost and time. A member that ended before the script did gets only its line: the script could read its result. A
+  failed member does not wake main early. A foreground script whose agents all ended before it did has no such
+  message: its result carries them, as before.
+- **`wake: "each"`** on an `Agent` call takes it out of the group: if it is still running when the script ends, it
+  reports on its own when it ends, as a `run_in_background` agent does (for races). The group's message does not wait
+  for it, and a foreground script that leaves only such agents sends no group message. Its usage is still counted. On a
+  call that ends inside the script it changes nothing.
+- **Panel.** The script's row stays open while its group runs, for example `● ended · script S3 · 2/4 agents done ·
+  4m12s`, with its agents below. `x` on that row stops all of the script's agents, `wake: "each"` ones
+  included (calls that have not started an agent yet do not start one), and main gets the message with the state `stopped`. A group cannot be paused: a script paused when its
+  code ends is resumed, and the calls waiting for the resume do not start ("not started: the script was paused").
+- **Cost.** The agents' usage is added to the session when the group ends.
+- **Ending the session** stops the group's agents, and no message reaches the next session.
+- **Workflows.** A workflow run is a script of its own, with its own group. Its run stays `running` until the group
+  ends, and cannot be relaunched before.
+- **Where.** As for background scripts: with a UI and `subagent.backgroundScripts` on. In print mode and with
+  `backgroundScripts: false` a script waits for its agents, and its end cancels what is pending. Agents started
+  outside scripts, and `/subtask`, report one message each as before.
+
+The codemode result lists such a call with the status `released` (see [Codemode](codemode.md#scripts)).
 
 **ctrl+b** moves a running foreground script to the background (for example a slow script that starts no agent). It
 works only when the editor is empty; with text in the editor, or with no script running, ctrl+b stays cursor-left.

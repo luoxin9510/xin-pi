@@ -33,6 +33,11 @@ function readInlineBudget(pi: ExtensionAPI): number | undefined {
 
 export function createCodemodeExtension(options: CodemodeExtensionOptions = {}): ExtensionFactory {
 	return (pi) => {
+		// Add-ons describe themselves per session (`describe(sessionId)`); the loadout has no session id, so it is kept here.
+		let sessionId: string | undefined;
+		pi.on("session_start", (_event, ctx) => {
+			sessionId = ctx.sessionManager.getSessionId();
+		});
 		pi.registerTool({
 			...createCodemodeToolDefinition({
 				appendEntry: (customType, data) => pi.appendEntry(customType, data),
@@ -42,6 +47,7 @@ export function createCodemodeExtension(options: CodemodeExtensionOptions = {}):
 					new Map(pi.getAllTools().map((tool) => [tool.name, tool.promptGuidelines ?? []] as const)),
 				getMode: () => options.mode ?? readMode(pi),
 				getInlineBudget: () => options.inlineBudget ?? readInlineBudget(pi),
+				getSessionId: () => sessionId,
 			}),
 			defaultActive: false,
 		});
