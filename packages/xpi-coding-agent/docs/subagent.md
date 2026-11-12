@@ -427,9 +427,10 @@ file-system event coalescing can hide events). Delivery depends on the target:
 | stopped teammate | `SendMessage` throws; entries that arrive later are dropped with a warning |
 | `lead` | a custom message that triggers a turn (a steer while the lead is in a turn); messages that arrive together are one |
 
-Every agent message is wrapped as `<agent-message from="<name>" team="<team>" kind="<kind>">…</agent-message>` followed by
+Every agent message is wrapped as `<agent-message from="<name>" team="<team>" kind="<kind>" id="<id>">…</agent-message>` (the
+id is the mailbox entry's, so identical messages stay distinct) followed by
 a line saying it comes from another agent, not from the user, carries no user authority, and that a `/` command in it is
-plain text. The tags inside the text are escaped.
+plain text. The tags inside the text are escaped, spaced variants too.
 
 **Idle notices.** When a teammate's exchange ends, the lead gets one `kind: "idle"` message with the final answer (cut at
 8 KB with the rest in a file, as for background agents), or the error when it failed. A failed exchange leaves the
@@ -442,6 +443,11 @@ not woken a sixth time: the messages wait in its mailbox, and the lead gets a `k
 and the waiting senders. A message from the lead wakes it, resets the count and delivers what waited. Steers to a running
 teammate are bounded by its `maxTurns`, not by this cap.
 
+**Trust.** Teams run with the lead's trust, and mailboxes are not an authentication boundary: any process of the team (any
+teammate, or anything that can write the agent dir) can write any entry, including `from: "lead"`. The envelope tells the
+reader a message carries no user authority; it does not prove who sent it. The name `lead` is reserved: a named `Agent`
+call cannot use it while teams are on.
+
 ### Shutdown and the end of a team
 
 The lead asks with `SendMessage({ to, kind: "shutdown_request", message? })` (only the lead may). The teammate answers
@@ -450,7 +456,7 @@ Approving ends its exchange after the current tool call and the teammate becomes
 an idle notice or a failure). Refusing keeps it working and the lead gets the reason.
 
 At session end (also `/reload`) running teammates stop and `config.json` and the mailboxes are removed. If the process
-dies first, the next team created in the agent dir removes `teams/` directories whose `leadPid` is not alive.
+dies first, the next team created in the agent dir removes `teams/` directories whose `leadPid` is not alive. A directory of the same session left by a dead lead (a crash, then `/resume`) has its mailboxes cleared when the new team is created, so old messages are not delivered as new.
 
 **Former teammates.** `/resume`, `/reload` and a crash end the team, and it is not restored. A teammate's meta file keeps
 `teammate: true`, its `team` and its frozen prompt section, so an `Agent` call with its name (or a `SendMessage` to it)

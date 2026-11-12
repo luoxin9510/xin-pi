@@ -51,7 +51,7 @@ export interface TeamHost {
 	parent(): ParentContext;
 	toLead(content: string): boolean; // a custom message with triggerTurn; false when the session is ending
 	warn(message: string): void;
-	wake(member: Member, prompt: () => string): Promise<void>; // a new exchange for an idle teammate; settles when it ends
+	wake(member: Member, prompt: () => string, signal: AbortSignal): Promise<void>; // a new exchange for an idle teammate; settles when it ends
 }
 
 export const MAX_WAKES = 5;
@@ -99,6 +99,7 @@ export class Team {
 	private chain: Promise<unknown> = Promise.resolve();
 	private queuedPass = false;
 	private closing = false;
+	private readonly wakeSignal = new AbortController(); // wakes waiting for a slot at session end must not start a child
 	private timer: NodeJS.Timeout | undefined;
 	private watcher: ReturnType<typeof watch> | undefined;
 
@@ -108,6 +109,14 @@ export class Team {
 		this.name = `session-${sessionId}`;
 		this.label = teamLabel(this.name);
 		this.dir = join(root, this.name);
+		// A directory left by a lead that is gone (a crash, then /resume of the same session): its mailboxes were written for a
+		// run that no longer exists, and must not be delivered as new.
+		try {
+			const old = JSON.parse(readFileSync(this.configPath, "utf8")) as Partial<TeamConfigFile>;
+			if (old.leadPid !== process.pid) rmSync(join(this.dir, "inboxes"), { recursive: true, force: true });
+		} catch {
+			// no config.json: nothing was left
+		}
 		ensureDir(join(this.dir, "inboxes"));
 		this.members.set(LEAD, {
 			name: LEAD,
@@ -164,15 +173,27 @@ export class Team {
 		if (!m || m.status === status) return;
 		m.status = status;
 		m.since = Date.now();
-		if (status !== "stopping") delete m.shutdownRequested;
+		// The request stays while the teammate wakes and runs; it ends when answered (below) or when it has stopped.
+		if (status === "stopped") delete m.shutdownRequested;
 		this.save();
 	}
 
 	// The lead asks a teammate to shut down: the teammate's response needs this mark.
-	markShutdownRequested(name: string): void {
+	// Returns what was marked before, for `restoreShutdownRequested` when the request could not be sent.
+	markShutdownRequested(name: string): number | undefined {
+		const m = this.members.get(name);
+		if (!m) return undefined;
+		const before = m.shutdownRequested;
+		m.shutdownRequested = Date.now();
+		this.save();
+		return before;
+	}
+
+	restoreShutdownRequested(name: string, before: number | undefined): void {
 		const m = this.members.get(name);
 		if (!m) return;
-		m.shutdownRequested = Date.now();
+		if (before === undefined) delete m.shutdownRequested;
+		else m.shutdownRequested = before;
 		this.save();
 	}
 
@@ -312,15 +333,10 @@ export class Team {
 		this.pending.set(m.name, wake);
 		this.setStatus(m.name, "queued");
 		const prompt = () => wake.text ?? joinEnvelopes(wake.entries, this.name);
-		this.host.wake(m, prompt).catch((err: Error) => {
+		this.host.wake(m, prompt, this.wakeSignal.signal).catch((err: Error) => {
 			// It failed before its exchange began (an exchange that began handles its own end): the messages were not taken
 			// by anyone. They are dropped, loudly, because a mailbox that kept them would try again every second.
-			if (this.pending.get(m.name) !== wake) return;
-			this.pending.delete(m.name);
-			if (this.members.get(m.name)?.status === "queued") this.setStatus(m.name, "idle");
-			const why = `could not wake ${m.name}: ${err.message}; ${wake.entries.length} message(s) dropped`;
-			this.host.warn(`team ${this.label}: ${why}`);
-			this.host.toLead(`Team ${this.label}: ${why}`);
+			if (this.pending.get(m.name) === wake) this.wakeFailed(m.name, err);
 		});
 	}
 
@@ -392,10 +408,24 @@ export class Team {
 		this.kick();
 	}
 
-	// The exchange was aborted while it waited for its turn or a slot: the teammate is stopped.
-	exchangeAbandoned(name: string): void {
+	// A wake that failed before its child started (the agent type is gone, a worktree could not be made): the teammate is
+	// idle as before, since a failed exchange leaves it live. The messages were taken by nobody; they are dropped, loudly,
+	// because a mailbox that kept them would try again every second.
+	private wakeFailed(name: string, err: Error): void {
+		const wake = this.pending.get(name);
 		this.pending.delete(name);
-		if (!this.closing) this.setStatus(name, "stopped");
+		if (this.closing) return;
+		if (this.members.get(name)?.status === "queued") this.setStatus(name, "idle");
+		const why = `could not wake ${name}: ${err.message}; ${wake?.entries.length ?? 0} message(s) dropped`;
+		this.host.warn(`team ${this.label}: ${why}`);
+		this.host.toLead(`Team ${this.label}: ${why}`);
+	}
+
+	// The exchange did not begin: it was aborted while it waited for its turn or a slot, or it could not start. A teammate
+	// that never ran is stopped; one that was woken stays idle, with a warning.
+	exchangeAbandoned(name: string, err: Error): void {
+		if (this.pending.has(name)) this.wakeFailed(name, err);
+		else if (!this.closing) this.setStatus(name, "stopped");
 	}
 
 	// The exchange ended. Decides what the teammate is now: `stopped` after an approved shutdown, a stop, or the session's
@@ -446,6 +476,7 @@ export class Team {
 	// Stop delivering. Running teammates are stopped by the caller (they are subagents), which then calls `finishClose`.
 	beginClose(): void {
 		this.closing = true;
+		this.wakeSignal.abort();
 		if (this.timer) clearInterval(this.timer);
 		this.timer = undefined;
 		this.watcher?.close();

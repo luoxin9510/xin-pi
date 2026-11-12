@@ -207,7 +207,7 @@ test("the lead's SendMessage to a running teammate: written to its mailbox, deli
 	await until("the steer", () => heard.length === 1);
 	assert.match(
 		heard[0]!,
-		/^<agent-message from="lead" team="session-0190msg-" kind="message">\ncheck the tests\n<\/agent-message>/,
+		/^<agent-message from="lead" team="session-0190msg-" kind="message" id="[0-9a-f]{16}">\ncheck the tests\n<\/agent-message>/,
 	);
 	assert.deepEqual(peekEntries(inboxFile(teams.current()!.dir, "a")), []);
 	registry.stop(a.agentId);
@@ -240,7 +240,7 @@ test("a message between two teammates goes through the mailboxes and the lead's 
 	})();
 	await mine.execute("c", { to: "b", message: "which file is it?" }, undefined, undefined, { abort() {} });
 	await until("the delivery", () => heard.length === 1, 4000);
-	assert.match(heard[0]!, /from="a" team="[^"]+" kind="message">\nwhich file is it\?/);
+	assert.match(heard[0]!, /from="a" team="[^"]+" kind="message" id="[0-9a-f]+">\nwhich file is it\?/);
 	registry.stop(a.agentId);
 	registry.stop(b.agentId);
 	await x.end();
@@ -280,7 +280,7 @@ test("shutdown, end to end: the request is delivered, the teammate approves, and
 	const heard = x.told(a.agentId);
 	await x.send({ to: "a", kind: "shutdown_request", message: "we are done" });
 	await until("the request", () => heard.length === 1);
-	assert.match(heard[0]!, /kind="shutdown_request">\nwe are done/);
+	assert.match(heard[0]!, /kind="shutdown_request" id="[0-9a-f]+">\nwe are done/);
 	assert.ok(teams.current()!.members.get("a")!.shutdownRequested !== undefined);
 	// its child answers (its tool, as the child process runs it), then its run is aborted
 	const registered: Record<string, any> = {};
@@ -344,6 +344,60 @@ test("a message to an idle teammate wakes it: a new exchange continues its sessi
 	);
 	assert.equal(rec.argv[rec.argv.indexOf("--session-id") + 1], a.agentId, "the same session");
 	assert.match(x.messages().filter((m) => /kind="idle"/.test(m))[1]!, /second answer/);
+	await x.end();
+});
+
+test("a sender that is not a member of the team cannot send", async () => {
+	const c = childTool("ghost", [{ name: "a", status: "running" }]);
+	await assert.rejects(c.call({ to: "a", message: "x" }), /ghost is not a member of team session-abcdef12/);
+	assert.deepEqual(c.inbox("a"), []);
+});
+
+test("shutting down an idle teammate: the request wakes it, it approves, it stops, and there is no idle notice for that exchange", async () => {
+	const x = await lead();
+	x.s.scenario({ lines: ok("first") });
+	const a = (await x.t.run({ name: "a" })).structuredContent;
+	await until("idle", () => teams.current()?.members.get("a")?.status === "idle");
+	await until("its notice", () => x.messages().some((m) => /kind="idle"/.test(m)));
+	x.s.scenario({ lines: ok(), hang: true, abortSettles: true, takeSteers: true });
+	await x.send({ to: "a", kind: "shutdown_request", message: "wrap up" });
+	await until(
+		"woken and running",
+		() => teams.current()!.members.get("a")!.status === "running" && registry.handle(a.agentId) !== undefined,
+	);
+	const member = () =>
+		JSON.parse(readFileSync(teams.current()!.configPath, "utf8")).members.find((m: Member) => m.name === "a");
+	await until("config.json says so", () => member().shutdownRequested !== undefined);
+	const registered: Record<string, any> = {};
+	registerTeamTools({ registerTool: (t: any) => (registered[t.name] = t) } as any, {
+		XPI_TEAM_DIR: teams.current()!.dir,
+		XPI_TEAM_MEMBER: "a",
+		XPI_TEAM_TOOLS: "codemode",
+	});
+	await registered.SendMessage.execute(
+		"c",
+		{ to: "lead", kind: "shutdown_response", approve: true },
+		undefined,
+		undefined,
+		{ abort() {} },
+	);
+	registry.handle(a.agentId)!.send({ type: "abort" });
+	await until("stopped", () => teams.current()!.members.get("a")!.status === "stopped");
+	await until("the response", () => x.messages().some((m) => /kind="shutdown_response"/.test(m)));
+	assert.equal(x.messages().filter((m) => /kind="idle"/.test(m)).length, 1, "only the first exchange's notice");
+	await x.end();
+});
+
+test("a shutdown request that is refused leaves no mark", async () => {
+	const x = await lead();
+	x.s.scenario({ lines: ok(), hang: true, abortSettles: true });
+	const a = (await x.t.run({ name: "a" })).structuredContent;
+	await until("the child", () => registry.handle(a.agentId) !== undefined);
+	teams.current()!.members.get("a")!.status = "stopping"; // sendToMember refuses a request to a member already shutting down
+	await assert.rejects(x.send({ to: "a", kind: "shutdown_request" }), /already shutting down/);
+	assert.equal(teams.current()!.members.get("a")!.shutdownRequested, undefined);
+	teams.current()!.members.get("a")!.status = "running";
+	registry.stop(a.agentId);
 	await x.end();
 });
 

@@ -149,7 +149,7 @@ export async function exchange(
 		return await runExchange(parent, spec, info, signal, onProgress, state);
 	} catch (err) {
 		// aborted while it waited for its turn or a slot, or it could not start
-		if (mate && !state.began) team?.exchangeAbandoned(mate.name);
+		if (mate && !state.began) team?.exchangeAbandoned(mate.name, err as Error);
 		throw err;
 	}
 }

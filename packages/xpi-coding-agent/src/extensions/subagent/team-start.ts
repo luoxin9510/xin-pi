@@ -12,7 +12,7 @@ import type { ChildSpec, ParentContext, TeamLaunch } from "./resolve.ts";
 import { emptyUsage } from "./runner.ts";
 import { runs } from "./runs.ts";
 import { teams } from "./team.ts";
-import { teamLabel } from "./team-text.ts";
+import { LEAD, teamLabel } from "./team-text.ts";
 import { workflowOf } from "./workflow-run.ts";
 
 export type TeamCall = { kind: "new" } | { kind: "former"; record: SubagentRecord };
@@ -26,6 +26,7 @@ const fromWorkflow = (toolCallId: string): boolean =>
 // Throws, saying why, for a named call a team refuses.
 export function classifyTeamCall(params: AgentInput, parent: ParentContext, toolCallId: string): TeamCall | undefined {
 	if (!teams.on) return undefined;
+	if (params.name === LEAD) throw new Error(`"${LEAD}" is reserved for the session itself: choose another name`);
 	if (params.subagent_type === FORK_TYPE || params.isolation !== undefined) return undefined;
 	let record: SubagentRecord | undefined;
 	// A name a member of the team has, whether or not its record exists yet (it is added once its agent is resolved).
@@ -121,6 +122,7 @@ export async function startTeammate(
 				try {
 					checkRoom(); // again, now: two calls of one tick both passed the first check
 				} catch (err) {
+					controller.abort(err); // the agent was resolved but has no place: nothing of it may start
 					return reject(err);
 				}
 				registry.detach(spec.agentId, parent.sessionId, controller);

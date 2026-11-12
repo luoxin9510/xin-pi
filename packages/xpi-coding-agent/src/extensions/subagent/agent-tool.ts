@@ -355,7 +355,8 @@ async function startAgent(
 	});
 	// A new fork starts from main's conversation as it is now, before anything else is said in it.
 	if (agentType === FORK_TYPE && !stored) seedForkSession(parent, agentId, spec.cwd);
-	scripts.addAgent(toolCallId, spec.agentId, agentPhase.getStore());
+	// A teammate is not the script's agent: stopping the script, its end message and its status are not about it.
+	if (!launch) scripts.addAgent(toolCallId, spec.agentId, agentPhase.getStore());
 	if (worktreeWarning) spec.warnings.push(worktreeWarning);
 	if (stored && input.isolation !== undefined) {
 		spec.warnings.push(

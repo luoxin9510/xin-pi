@@ -164,6 +164,9 @@ The options below come with the unit. Each says how to turn it off.
   `send-message-tool.ts`, `exchange.ts` (hooks, no typing note for teammates), `resolve.ts` (environment, tool list, prompt
   section, `prefixKey`), `talk.ts` (`continueAgent`), `registry.ts` (meta fields), `index.ts` (wiring), and the
   `agentTeams` schema in `core/settings-schema.ts`.
+- **Trust**: mailboxes are plain files any team process can write, `from: "lead"` included; they are not an authentication
+  boundary, and teams run with the lead's trust. Do not port this to a setting where teammates are less trusted than the
+  lead without adding authentication.
 - **Wiring / turn off**: the `agentTeams` setting (unset or `false` turns it off); in code, the `teams.configure(...)` call
   at `session_start` and `registerTeamTools(pi)` in the child branch of `index.ts`.
 - **Verify**: `test/subagent/teams/*.test.ts` (in `npm run test:subagent`).

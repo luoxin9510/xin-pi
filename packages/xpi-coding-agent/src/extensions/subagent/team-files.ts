@@ -25,6 +25,7 @@ export const DIR_MODE = 0o700;
 export const LOCK_RETRY_MS = 25;
 export const LOCK_TIMEOUT_MS = 2000;
 export const LOCK_STALE_MS = 30_000;
+const GUARD_UNREADABLE_MS = 1000;
 
 export const ensureDir = (dir: string): void => {
 	mkdirSync(dir, { recursive: true, mode: DIR_MODE });
@@ -77,10 +78,15 @@ function readLock(lock: string): { raw: string; info: LockInfo | undefined } | u
 
 // A lock is stale when its holder is gone, or it is older than LOCK_STALE_MS. A lock file that cannot be read yet (its
 // holder created it and has not written it) is not stale until it has been there that long.
-function stale(lock: string, seen: { raw: string; info: LockInfo | undefined }, now: number): boolean {
+function stale(
+	lock: string,
+	seen: { raw: string; info: LockInfo | undefined },
+	now: number,
+	unreadableMs = LOCK_STALE_MS,
+): boolean {
 	if (seen.info) return !pidAlive(seen.info.pid) || now - seen.info.at > LOCK_STALE_MS;
 	try {
-		return now - statSync(lock).mtimeMs > LOCK_STALE_MS;
+		return now - statSync(lock).mtimeMs > unreadableMs;
 	} catch {
 		return false;
 	}
@@ -97,7 +103,8 @@ function takeOver(lock: string, seen: { raw: string }): void {
 	} catch {
 		// another taker is at it; a guard whose taker died is stale itself
 		const g = readLock(guard);
-		if (g && stale(guard, g, Date.now())) rmSync(guard, { force: true });
+		// (a guard is held for a moment: an empty or unreadable one older than a second is a taker that died)
+		if (g && stale(guard, g, Date.now(), GUARD_UNREADABLE_MS)) rmSync(guard, { force: true });
 		return;
 	}
 	try {
@@ -130,7 +137,8 @@ export async function withLock<T>(file: string, fn: () => T | Promise<T>): Promi
 		const seen = readLock(lock);
 		if (seen && stale(lock, seen, Date.now())) {
 			takeOver(lock, seen);
-			continue; // create our own lock straight away
+			if (!existsSync(lock)) continue; // create our own lock straight away
+			// another taker holds the guard: wait like any other contender (the deadline and the sleep below)
 		}
 		if (Date.now() >= deadline) throw new Error(`busy: ${basename(file)} is locked by another agent`);
 		await sleep(LOCK_RETRY_MS);
@@ -164,7 +172,7 @@ const MEMBER_NAME = (s: unknown): boolean => typeof s === "string" && (s === LEA
 export function entryProblem(entry: unknown): string | undefined {
 	if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return "not an object";
 	const e = entry as Record<string, unknown>;
-	if (typeof e.id !== "string" || e.id === "") return "no id";
+	if (typeof e.id !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(e.id)) return "bad id";
 	if (!MEMBER_NAME(e.from)) return "bad from";
 	if (!MEMBER_NAME(e.to)) return "bad to";
 	if (typeof e.text !== "string") return "no text";

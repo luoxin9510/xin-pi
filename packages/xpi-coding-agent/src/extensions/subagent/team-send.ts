@@ -51,6 +51,8 @@ export async function sendToMember(
 	params: TeamSendInput,
 ): Promise<{ status: "sent"; to: string; id: string; kind: EntryKind }> {
 	const to = params.to;
+	if (!view.members.some((m) => m.name === from))
+		throw new Error(`${from} is not a member of team ${teamLabel(view.team)}`);
 	if (to === from) throw new Error("you cannot send a message to yourself");
 	const target = view.members.find((m) => m.name === to);
 	if (!target) throw new Error(`no member "${to}" in team ${teamLabel(view.team)}. Members: ${roster(view)}`);

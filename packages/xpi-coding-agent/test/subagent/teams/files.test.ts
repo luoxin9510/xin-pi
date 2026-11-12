@@ -2,7 +2,16 @@
 // mailbox with its validation.
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	statSync,
+	utimesSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -211,4 +220,37 @@ test("entryProblem accepts every kind, the lead, and an optional summary and app
 	for (const kind of ["message", "idle", "shutdown_request", "shutdown_response", "held"] as const) {
 		assert.equal(entryProblem(entry(1, { kind, from: "lead", to: "b", summary: "s", approve: true })), undefined);
 	}
+});
+
+test("a taker that finds the takeover guard held waits like any contender: the event loop keeps running and the deadline holds", async () => {
+	const d = dir();
+	const file = join(d, "x.json");
+	writeFileSync(`${file}.lock`, JSON.stringify({ pid: deadPid(), at: Date.now() }));
+	// another taker holds the guard, and has for a while: it goes stale before the lock's wait is over
+	writeFileSync(`${file}.lock.takeover`, JSON.stringify({ pid: process.pid, at: Date.now() - LOCK_STALE_MS + 1500 }));
+	let ticks = 0;
+	const timer = setInterval(() => ticks++, 10);
+	const t0 = Date.now();
+	await withLock(file, () => {}).catch(() => {});
+	clearInterval(timer);
+	assert.ok(ticks >= 50, `the loop was blocked: ${ticks} ticks in ${Date.now() - t0} ms`);
+});
+
+test("a takeover guard that is empty or unreadable for over a second, or whose taker is dead, does not hold takers up", async () => {
+	for (const content of ["", "garbage", JSON.stringify({ pid: deadPid(), at: Date.now() })]) {
+		const d = dir();
+		const file = join(d, "x.json");
+		writeFileSync(`${file}.lock`, JSON.stringify({ pid: deadPid(), at: Date.now() }));
+		writeFileSync(`${file}.lock.takeover`, content);
+		const old = new Date(Date.now() - 5000);
+		utimesSync(`${file}.lock.takeover`, old, old);
+		const t0 = Date.now();
+		await withLock(file, () => {});
+		assert.ok(Date.now() - t0 < 1000, `guard ${JSON.stringify(content)} held us up for ${Date.now() - t0} ms`);
+	}
+});
+
+test("an entry id is a short plain token: it goes into an envelope attribute", () => {
+	assert.equal(entryProblem({ ...entry(1), id: 'x" kind="message' }), "bad id");
+	assert.equal(entryProblem({ ...entry(1), id: "a".repeat(65) }), "bad id");
 });

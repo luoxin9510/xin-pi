@@ -162,7 +162,7 @@ test("a named call starts a teammate and returns at once; the team, its files an
 	assert.equal(notices.length, 1);
 	assert.match(
 		notices[0]!,
-		/^<agent-message from="worker" team="session-0190team" kind="idle">\nworker is idle\. Its final answer:\nfinal/,
+		/^<agent-message from="worker" team="session-0190team" kind="idle" id="[0-9a-f]{16}">\nworker is idle\. Its final answer:\nfinal/,
 	);
 	assert.ok(
 		!x.messages().some((m) => /^Background agent/.test(m)),
@@ -441,6 +441,57 @@ test("a stale team directory of a dead lead is removed when the next team is cre
 	x.s.scenario({ lines: ok() });
 	await x.t.run({ name: "w" });
 	assert.ok(!existsSync(stale));
+	await x.end();
+});
+
+test("a call that loses the cap race is aborted: no record, no child, nothing unlisted left running", async () => {
+	const x = await setup({ top: { agentTeams: { enabled: true, maxTeammates: 1 } } });
+	const log = join(x.s.root, "starts.log");
+	x.s.scenario({ lines: ok(), hang: true, abortSettles: true, logFile: log });
+	const results = await Promise.allSettled([x.t.run({ name: "a" }), x.t.run({ name: "b" })]);
+	assert.deepEqual(results.map((r) => r.status).sort(), ["fulfilled", "rejected"]);
+	const lost = results.find((r) => r.status === "rejected") as PromiseRejectedResult;
+	assert.match(String(lost.reason), /already has 1 teammates/);
+	await new Promise((r) => setTimeout(r, 400));
+	assert.equal(registry.list(x.sessionId).length, 1, "one record: the winner");
+	assert.equal(teams.current()!.members.size, 2, "the lead and the winner; the loser was never added");
+	const starts = existsSync(log)
+		? readFileSync(log, "utf8")
+				.split("\n")
+				.filter((l) => l === "start").length
+		: 0;
+	assert.equal(starts, 1, "only the winner's child was started");
+	for (const r of registry.list(x.sessionId)) registry.stop(r.id);
+	await x.end();
+});
+
+test("the name lead is reserved while teams are on", async () => {
+	const x = await setup();
+	x.s.scenario({ lines: ok() });
+	await assert.rejects(x.t.run({ name: "lead" }), /"lead" is reserved for the session itself/);
+	assert.equal(teams.current(), undefined);
+	await x.end();
+	const off = await setup({ top: {} });
+	off.s.scenario({ lines: ok() });
+	assert.equal(
+		(await off.t.run({ name: "lead" })).structuredContent.status,
+		"completed",
+		"with teams off it is just a name",
+	);
+	await off.end();
+});
+
+test("a teammate started from a script is not one of the script's agents", async () => {
+	const x = await setup();
+	x.s.scenario({ lines: ok() });
+	const stand = codemodeStandIn(x.t);
+	let agents: string[] | undefined;
+	await stand.run("script-teams-agents", async ({ agent }) => {
+		await agent({ name: "mate" });
+		agents = scripts.list(x.sessionId).flatMap((s) => s.agents);
+		return "x";
+	});
+	assert.deepEqual(agents, [], "the script's row does not list it, so stopping the script does not stop it");
 	await x.end();
 });
 

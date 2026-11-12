@@ -85,12 +85,20 @@ export function sendMessageTool(agent: ReturnType<typeof agentTool>, withTeams =
 				if (params.to === LEAD) throw new Error("you are the lead");
 				if (team && member) {
 					if (kind === "shutdown_response") throw new Error("only a teammate answers a shutdown request");
-					if (kind === "shutdown_request") team.markShutdownRequested(member.name);
-					const sent = await sendToMember(
-						{ team: team.name, dir: team.dir, members: [...team.members.values()] },
-						LEAD,
-						params as TeamSendInput,
-					);
+					// The teammate's answer needs the mark, so it is set before the request can arrive; a request that could
+					// not be sent leaves what was there before.
+					const before = kind === "shutdown_request" ? team.markShutdownRequested(member.name) : undefined;
+					let sent: Awaited<ReturnType<typeof sendToMember>>;
+					try {
+						sent = await sendToMember(
+							{ team: team.name, dir: team.dir, members: [...team.members.values()] },
+							LEAD,
+							params as TeamSendInput,
+						);
+					} catch (err) {
+						if (kind === "shutdown_request") team.restoreShutdownRequested(member.name, before);
+						throw err;
+					}
 					team.kick();
 					const result = { status: sent.status, to: sent.to, id: sent.id };
 					return {

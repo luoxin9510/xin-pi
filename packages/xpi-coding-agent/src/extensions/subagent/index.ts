@@ -321,10 +321,10 @@ export default function subagent(pi: ExtensionAPI) {
 							return true;
 						},
 						warn: (message) => tell(current!, `subagent: ${message}`, "warning"),
-						wake: (member, prompt) => {
+						wake: (member, prompt, signal) => {
 							const record = registry.get(member.agentId);
 							if (!record) throw new Error(`no record of agent ${member.agentId}`);
-							return continueAgent(parentContext(current!), record, prompt);
+							return continueAgent(parentContext(current!), record, prompt, undefined, signal);
 						},
 					}
 				: undefined,

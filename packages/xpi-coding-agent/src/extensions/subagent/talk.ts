@@ -31,6 +31,7 @@ export async function continueAgent(
 	r: SubagentRecord,
 	prompt: string | (() => string),
 	said?: string,
+	signal?: AbortSignal,
 ): Promise<void> {
 	const def = r.type === FORK_TYPE ? FORK_DEFINITION : discoverAgents(parent.cwd).agents.get(r.type);
 	if (!def) throw new Error(`cannot continue ${r.id}: agent "${r.type}" no longer exists`);
@@ -71,7 +72,7 @@ export async function continueAgent(
 					}
 				: {}),
 		},
-		undefined,
+		signal,
 		() => {},
 	);
 }
