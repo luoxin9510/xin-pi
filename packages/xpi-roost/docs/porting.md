@@ -407,10 +407,10 @@ processes (M78).
 `xpi-roost` builds with `tsc -p tsconfig.build.json` before the coding agent. The coding agent's bundle
 (`scripts/build-coding-agent-bundle.mjs`) inlines it and writes two more entry files, `roost-daemon.js` and
 `roost-host.js`, next to its chunks; `getRoostEntries()` (`src/config.ts`) finds them, or `xpi-roost/daemon` and
-`xpi-roost/host` when unbundled. `@xterm/*` is inlined into the host; node-pty stays external, an
-`optionalDependencies` entry that only the host imports (the build fails otherwise), allowed to run its install script
-(it compiles on Linux; decision 8). A standalone binary has no Node runtime for the daemon and says roost needs the npm
-installation.
+`xpi-roost/host` when unbundled. `@xterm/*` is inlined into the host; node-pty stays external, an `optionalDependencies`
+entry of `xpi-coding-agent` (a regular dependency of `xpi-roost`) that only the host imports (the build fails
+otherwise), allowed to run its install script (it compiles on Linux; decision 8). A standalone binary has no Node
+runtime for the daemon and says roost needs the npm installation.
 
 ## Tests
 
@@ -432,20 +432,25 @@ Linux is the reference platform; macOS differences follow each point.
   to `/tmp/xpi-roost-<uid>/<key>`, as does a path whose longest socket would pass 100 bytes (`runtimeDir()`; the kernel
   limit is 108). macOS: there is no `XDG_RUNTIME_DIR`, so it is always `/tmp/xpi-roost-<uid>/<key>` (not `$TMPDIR`,
   whose path is long; the limit is 104). Under `/tmp` both levels are checked to be this user's directories, not links
-  (`checkLevels`). `ROOST_RUNTIME_DIR` overrides it on both.
+  (`checkLevels`). `ROOST_RUNTIME_DIR` overrides it on both, when it belongs to the agent directory asked for
+  (`overridesApply()` in `lib/paths.ts`: `ROOST_AGENT_DIR` unset or naming the same directory).
 - **node-pty.** Linux: no prebuild; it compiles at install (python3, make, a C++ compiler). An install that skips
-  scripts (`npm ci --ignore-scripts`, as CI does) needs `npm rebuild node-pty`. It is an optional dependency, so an
-  install that cannot compile it still succeeds and roost says how to get it. macOS: a prebuild ships with a
+  scripts (`npm ci --ignore-scripts`, as CI does) needs `npm rebuild node-pty`. It is an optional dependency of the
+  published `xpi-coding-agent` only (`optionalDependencies`; its install lock marks it `optional`), which inlines
+  `xpi-roost` (a `devDependency` there) into its bundle, so an `npm install` of xpi that cannot compile node-pty still
+  succeeds and roost says how to get it. In `packages/xpi-roost/package.json` it is a regular dependency: a source
+  checkout's `npm ci` with scripts needs the toolchain. macOS: a prebuild ships with a
   `spawn-helper` executable that can lose its execute bit; the host sets it again (`fixSpawnHelper`).
 - **Process groups.** Hosts are started detached (their own process group and session) on both, so a daemon's exit or
   its service manager does not take the sessions with it.
-- **The login service.** Linux: a systemd user unit in `~/.config/systemd/user`, `systemctl --user enable`, started
-  now only when no daemon runs; `KillMode=process` so stopping the daemon leaves the sessions in its cgroup alone. A
-  user unit runs from login until the last session of the user ends; `loginctl enable-linger <user>` keeps it running
-  without a login. The unit keeps the `ROOST_RUNTIME_DIR` (else `XDG_RUNTIME_DIR`) and `ROOST_HOME` of the terminal
-  that installed it; a terminal that resolves another runtime directory is told `other_runtime_dir`. macOS: a launchd
-  agent in `~/Library/LaunchAgents`, `launchctl bootstrap gui/<uid>`; `launchctl bootout` SIGTERMs the daemon the
-  agent started (it shuts down keeping its sessions), so uninstall and a reinstall wait for it and start it again.
+- **The login service.** Linux: a systemd user unit in `~/.config/systemd/user`, `systemctl --user enable`, started now
+  only when no daemon runs; `KillMode=process` so stopping the daemon leaves the sessions in its cgroup alone. A user
+  unit runs from login until the last session of the user ends; then logind also removes `/run/user/<uid>`, the sockets
+  with it. `loginctl enable-linger <user>` keeps both without a login. The unit keeps the `ROOST_RUNTIME_DIR` (else
+  `XDG_RUNTIME_DIR`) and `ROOST_HOME` of the terminal that installed it; a terminal that resolves another runtime
+  directory is told `other_runtime_dir`. macOS: a launchd agent in `~/Library/LaunchAgents`, `launchctl bootstrap
+  gui/<uid>`; `launchctl bootout` SIGTERMs the daemon the agent started (it shuts down keeping its sessions), so
+  uninstall and a reinstall wait for it and start it again.
 - **Windows**: not supported (decision 10); the adapter says so.
 
 ## Known limits

@@ -24,11 +24,16 @@ If your agent still loads pi extensions and still has pi's CLI, you may need no 
 | 1. Child process (CLI + rpc) | everything: each subagent is a child process | `src/extensions/subagent/resolve.ts`, `src/extensions/subagent/runner.ts` |
 | 2. Session files | resume, `/subagents` after reload, the transcript on the subagent screen | `src/extensions/subagent/sessions.ts`, `src/extensions/subagent/registry.ts`, `src/extensions/subagent/subagent-screen.ts` |
 | 3. Extension API (parent) | the `Agent` tool, config, the note to main | `src/extensions/subagent/index.ts`, `src/extensions/subagent/agent-tool.ts`, `src/extensions/subagent/config.ts` |
-| 4. Codemode | calling `Agent` from scripts; codemode-only children; background scripts | `src/extensions/subagent/agent-tool.ts`, `src/extensions/subagent/child-codemode.ts`, `src/extensions/subagent/resolve.ts`, `src/extensions/subagent/background.ts` (host: `src/extensions/codemode/scripts.ts`) |
-| 5. TUI | the panel, the subagent screen, `/subagents`, `/model` picker | `src/extensions/subagent/panel.ts`, `src/extensions/subagent/subagent-screen.ts`, `src/extensions/subagent/subagents-command.ts`, `src/extensions/subagent/live.ts` |
+| 4. Codemode | calling `Agent` from scripts; codemode-only children; background scripts | `src/extensions/subagent/agent-tool.ts`, `src/extensions/subagent/index.ts` (the codemode-only child), `src/extensions/subagent/resolve.ts`, `src/extensions/subagent/background.ts` (host: `src/extensions/codemode/scripts.ts`, `addons.ts`) |
+| 5. TUI | the panel, the subagent screen, `/subagents`, `/model` picker | `src/extensions/subagent/panel.ts`, `src/extensions/subagent/subagent-screen.ts`, `src/extensions/subagent/subagents-command.ts`, `src/extensions/subagent/script-screen.ts`, `src/extensions/subagent/talk.ts`, `src/extensions/subagent/stop-all.ts`, `src/extensions/subagent/live.ts` |
 
-Layers 1-4 are the `Agent` tool. Layer 5 is only the UI: without it (a headless or web front end) the tool works and
-the UI parts can be left out (see [Without pi's TUI](#without-pis-tui)).
+Layers 1-4 are the `Agent` tool. Layer 5 is only the UI: without it (a headless or web front end) the tool works, and
+the UI is turned off by removing its wiring in `index.ts` (see [Without pi's TUI](#without-pis-tui)).
+
+The layers are for reading, not for copying apart: the files import each other across them (`agent-tool.ts` imports
+`background.ts`, `runs.ts` and `script-helpers.ts`, which import codemode's `scripts.ts` and `addons.ts`; `resolve.ts`
+imports the MCP built-in's `config.ts`), so the directory is copied whole and a feature is turned off by a setting or
+by removing the line in `index.ts` that wires it in. The [component menu](porting.md#subagents) names those lines.
 
 ## 1. Child process
 
@@ -45,13 +50,13 @@ build as the running process: its Node and entry script, or a compiled binary it
 | `--thinking <level>` | `effort`, or the parent's level; must accept `off` |
 | `--tools a,b` | the agent's `tools`, mapped (`Read→read`, `Glob→find`, ...). Without a list, `--tools +codemode`: the `+` prefix adds to the default tools and must be supported |
 | `--exclude-tools a,b` | `disallowedTools`, and `mcp__*` when `tools` lists no MCP tool: entries are glob patterns |
-| `--system-prompt <path>` | the agent body + skills + environment block, written to a temp file; pi reads a path as the prompt's contents. If your agent takes the value as literal text, every child gets the path as its prompt: change `runChild` in `src/extensions/subagent/runner.ts` |
+| `--system-prompt <path>`, `--system-prompt-tail <path>` | the prompt in two cache regions, each written to a temp file by `runChild` (`src/extensions/subagent/runner.ts`): the head (a fixed preamble, the same for every agent type) and the tail (the agent body, skills, memory, environment block). `--system-prompt-tail` is a xin-pi core addition (`src/cli/args.ts`, `src/main.ts`). pi reads a path as the prompt's contents. If your agent takes the value as literal text, every child gets the path as its prompt: change `runChild` |
 | `--mcp-config <json>` | the agent's inline `mcpServers` definitions as `{"mcpServers": {...}}`, which the child's MCP extension adds after `mcp.json`. Only those the agent's `scope` allows: a `project` agent file's (`AgentDefinition.scope`, set by discovery: `project`, `user`, `cli` or `builtin`) only when the parent's project is trusted |
 | `--no-context-files` | `omitClaudeMd` |
 | `--approve` / `--no-approve` | the child gets the parent's project trust |
 | `--session-dir <dir> --session-id <id>` | a persisted child session (or `--no-session` for an in-memory parent) |
 | `-e <path or source>`, `--strict-extensions` | the agent's `extensions`, one `-e` each (local paths absolute), and `--strict-extensions` with them so one that cannot load stops the child. Without `--strict-extensions` a failed package install only warns: the agent would run without its guard |
-| `-e <file>` | `src/extensions/subagent/child-codemode.ts` for codemode-only children (layer 4). Loaded as TypeScript source, as pi loads every extension (the subagent extension has no build step): your agent's extension loader must handle `.ts` |
+| (environment) `XPI_SUBAGENT_DEPTH=1`, `XPI_SUBAGENT_CHILD_CODEMODE=only` | every child loads the same subagent extension, which sees `XPI_SUBAGENT_DEPTH` and registers no `Agent` tool; for codemode-only children (layer 4) `resolve.ts` also sets `XPI_SUBAGENT_CHILD_CODEMODE=only`, and `index.ts` then registers `createCodemodeExtension({ mode: "only" })` in the child. No extra `-e` is passed |
 
 The environment is the parent's plus `XPI_SUBAGENT_DEPTH=1`. The extension does nothing when that variable is set, so
 children get no `Agent` tool. If your agent drops unknown environment variables before loading extensions, nesting
@@ -187,12 +192,15 @@ that import `@earendil-works/*` are not supported by xpi; see [xin-pi.md](../../
 ## 4. Codemode
 
 - `Agent` is registered with `exposure: "codemode"`: the model reaches it only from codemode scripts
-  (`tools.Agent(...)`). If your agent has no codemode, change it to a direct tool (`exposure` default) and drop the
-  codemode examples in [subagent.md](subagent.md). Everything else is unchanged.
-- Codemode-only children (`subagent.childCodemode: "only"`, the default) load `src/extensions/subagent/child-codemode.ts`, which registers
-  `createCodemodeExtension({ mode: "only" })` from the package index. The host then skips its built-in codemode extension
-  (an extension that registers the same tool replaces a built-in one). Without that export or that replacement rule,
-  set `"childCodemode": "inherit"`: children get direct tools, as in v1.
+  (`tools.Agent(...)`). The codemode unit is needed to build the extension either way (its controller and add-ons are
+  imported). To expose `Agent` as a direct tool, change `exposure` in `agent-tool.ts`, `send-message-tool.ts` and
+  `workflow-tool.ts` and drop the codemode examples in [subagent.md](subagent.md); that path is not tested.
+- Codemode-only children (`subagent.childCodemode: "only"`, the default) get `XPI_SUBAGENT_CHILD_CODEMODE=only`
+  (`src/extensions/subagent/resolve.ts`). The child's own subagent extension sees it and registers
+  `createCodemodeExtension({ mode: "only" })` (`src/extensions/subagent/index.ts`, imported from
+  `src/extensions/codemode/index.ts`). The host then skips its built-in codemode extension (an extension that registers
+  the same tool replaces a built-in one). Your agent must load the subagent extension in children and pass the variable
+  through; without that or the replacement rule, set `"childCodemode": "inherit"`: children get direct tools, as in v1.
 - Background scripts. In xpi the codemode built-in owns the mechanism and the subagent extension owns the policy; the
   `codemode` tool is not wrapped, proxied or replaced. The host must provide:
   - A script controller exported from the package index, `codemodeScripts` (`src/extensions/codemode/scripts.ts`): `owner`,
