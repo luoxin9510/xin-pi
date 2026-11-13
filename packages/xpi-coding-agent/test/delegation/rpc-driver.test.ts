@@ -229,4 +229,19 @@ describe("the rpc driver", () => {
 		writeFileSync(file, `${JSON.stringify({ type: "message", message })}\n`);
 		expect(waitMetrics(file).agentsStoppedByDeadline).toBe(2);
 	});
+
+	it("counts the full summary line when the cut falls inside it", () => {
+		const dir = mkdtempSync(join(tmpdir(), "rpc-metrics-"));
+		dirs.push(dir);
+		const head = `Background script s1 failed.\nError: Script timed out: 600000ms${"x".repeat(7800)}\n`;
+		const full = `${head}Tool calls made before the failure (they are not undone): ${"Agent (cancelled), ".repeat(20)}Agent (error)`;
+		const spill = join(dir, "script-s1.txt");
+		writeFileSync(spill, full);
+		// The shown text ends inside the summary line, after a few of its entries.
+		const shown = `${full.slice(0, head.length + 120)}\n... (cut, ${full.length} bytes; all of it is in ${spill})`;
+		const file = join(dir, "main.jsonl");
+		const message = { role: "custom", customType: "subagent", content: shown };
+		writeFileSync(file, `${JSON.stringify({ type: "message", message })}\n`);
+		expect(waitMetrics(file).agentsStoppedByDeadline).toBe(21);
+	});
 });

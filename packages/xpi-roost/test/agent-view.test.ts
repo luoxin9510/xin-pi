@@ -2319,7 +2319,8 @@ describe("the hub before the daemon's list", () => {
 		expect(before).toContain("did not answer within 50 ms");
 		await sleep(250);
 		expect(view0(s.view)).not.toContain("latecomer");
-		expect(connects).toBeGreaterThan(0);
+		await sleep(2200); // the retry comes 2 s after the timeout
+		expect(connects).toBeGreaterThan(1);
 		s.view.dispose();
 	}, 10_000);
 
