@@ -2,7 +2,6 @@
  * Model resolution, scoping, and initial selection
  */
 
-import chalk from "chalk";
 import { minimatch } from "minimatch";
 import type { ThinkingLevel } from "xpi-agent-core";
 import { type Api, type AuthOperationOptions, type KnownProvider, type Model, modelsAreEqual } from "xpi-ai";
@@ -407,18 +406,6 @@ export async function resolveModelScopeWithDiagnostics(
 	options?: AuthOperationOptions,
 ): Promise<ResolveModelScopeResult> {
 	return resolveModelScopeFromModels(patterns, await modelRuntime.getAvailable(undefined, options));
-}
-
-export async function resolveModelScope(
-	patterns: string[],
-	modelRuntime: ModelRuntime,
-	options?: AuthOperationOptions,
-): Promise<ScopedModel[]> {
-	const { scopedModels, diagnostics } = await resolveModelScopeWithDiagnostics(patterns, modelRuntime, options);
-	for (const diagnostic of diagnostics) {
-		console.warn(chalk.yellow(`Warning: ${diagnostic.message}`));
-	}
-	return scopedModels;
 }
 
 export interface ResolveCliModelResult {
