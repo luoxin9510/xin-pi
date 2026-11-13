@@ -106,6 +106,7 @@ class Registry {
 	private tails = new Map<string, Promise<void>>(); // per subagent: resolves when the last queued turn has ended
 	private queued = new Map<string, number>(); // per subagent: turns running or waiting
 	private stopping = new Set<string>(); // stop requested for the exchange in progress
+	private interrupting = new Set<string>(); // interrupt requested (a teammate's Esc): the run ends, the agent lives on
 	private restarting = new Set<string>(); // restart requested for the exchange in progress
 	private firstRun = new Set<string>(); // running its first exchange (not a resume): the only one that can restart
 	private ranHere = new Set<string>(); // started an exchange in this process; only these linger in the panel
@@ -127,13 +128,17 @@ class Registry {
 	}
 
 	// What the panel shows: running subagents, and those that ended in this process less than `lingerMs` ago. Oldest
-	// first, so rows do not jump. Records rebuilt from the meta files are never shown.
-	visible(parentSessionId: string, lingerMs: number): SubagentRecord[] {
+	// first, so rows do not jump. Records rebuilt from the meta files are never shown. `keep` names rows that stay
+	// however long ago they ended (a teammate that is not stopped).
+	visible(parentSessionId: string, lingerMs: number, keep?: (r: SubagentRecord) => boolean): SubagentRecord[] {
 		const now = Date.now();
 		// list() is newest first and keeps insertion order among equal start times (calls in one tick)
 		return this.list(parentSessionId)
 			.map((r, i) => ({ r, i }))
-			.filter(({ r }) => this.ranHere.has(r.id) && (r.endedAt === undefined || now - r.endedAt < lingerMs))
+			.filter(
+				({ r }) =>
+					this.ranHere.has(r.id) && (r.endedAt === undefined || now - r.endedAt < lingerMs || keep?.(r) === true),
+			)
 			.sort((a, b) => a.r.startedAt - b.r.startedAt || a.i - b.i)
 			.map(({ r }) => r);
 	}
@@ -228,6 +233,26 @@ class Registry {
 		return true;
 	}
 
+	// Interrupt a running subagent: the abort of `stop`, but the exchange does not end as stopped or failed (exchange.ts asks
+	// `interruptRequested`): a teammate's Esc. False when it is not running.
+	interrupt(id: string): boolean {
+		if (!this.handles.get(id)?.send({ type: "abort" })) return false;
+		this.interrupting.add(id);
+		return true;
+	}
+
+	// True once, if an interrupt was requested for the exchange that just ended.
+	interruptRequested(id: string): boolean {
+		return this.interrupting.delete(id);
+	}
+
+	// An idle teammate that the user stopped: it has no process, so its record is closed here.
+	markStopped(id: string): void {
+		const r = this.records.get(id);
+		if (!r || r.status === "running") return;
+		this.writeMeta(this.update(id, { status: "stopped", endedAt: Date.now() }));
+	}
+
 	// Why this subagent cannot be restarted; undefined when it can. A restart starts the agent over with the prompt of
 	// the exchange in progress, so only a first run qualifies: a continued agent would lose its earlier conversation, and
 	// a fork's start is a copy of main taken once.
@@ -263,6 +288,7 @@ class Registry {
 		this.handles.delete(id);
 		this.lives.delete(id);
 		this.stopping.delete(id);
+		this.interrupting.delete(id);
 		this.update(id, { turns: prior.turns + run.turns, usage, lastTool: undefined });
 	}
 
@@ -522,6 +548,7 @@ class Registry {
 		this.handles.delete(id);
 		this.lives.delete(id);
 		this.stopping.delete(id);
+		this.interrupting.delete(id);
 		this.restarting.delete(id);
 		this.firstRun.delete(id);
 		const record = this.update(id, {

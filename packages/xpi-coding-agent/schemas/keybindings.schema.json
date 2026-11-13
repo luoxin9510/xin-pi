@@ -263,6 +263,10 @@
       "$ref": "#/$defs/KeybindingValue",
       "description": "Paste files on macOS, images, or text from clipboard"
     },
+    "app.team.tasks": {
+      "$ref": "#/$defs/KeybindingValue",
+      "description": "Open the agent team's task list (/tasks)"
+    },
     "app.session.new": {
       "$ref": "#/$defs/KeybindingValue",
       "description": "Start a new session"

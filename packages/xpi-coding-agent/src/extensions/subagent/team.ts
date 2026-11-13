@@ -78,15 +78,29 @@ function messageText(message: { content?: unknown } | undefined): string {
 
 interface Steer {
 	entries: InboxEntry[];
+	user?: string; // set when the user typed it: it never was a mailbox entry, so an untaken one is kept in memory
 	text: string;
 	taken: boolean;
 }
 
+// Something about the members changed (the panel and the screens redraw). In-process: no file is involved.
+const changeListeners = new Set<() => void>();
+export function onTeamChange(fn: () => void): () => void {
+	changeListeners.add(fn);
+	return () => changeListeners.delete(fn);
+}
+const changed = (): void => {
+	for (const fn of [...changeListeners]) fn();
+};
+
 // An idle teammate's new exchange that has not started yet (it waits for a slot): messages that come meanwhile join it.
 interface PendingWake {
 	entries: InboxEntry[];
+	user: string[]; // what the user typed meanwhile, which comes first (it is not an agent message)
 	text?: string; // set once the exchange began: the prompt is then fixed
 }
+
+export type Delivery = "steered" | "queued" | "started";
 
 export type Verdict = "idle" | "stopped";
 
@@ -112,6 +126,12 @@ export class Team {
 	private readonly steerRefused = new Map<string, ChildHandle>(); // the child handle that refused a steer, per member: left alone while it is the current one
 	private readonly exchanges = new Map<string, number>(); // exchanges begun, per member: a hold's verdict is for one
 	private readonly idleBlocks = new Map<string, number>(); // teammate_idle blocks in a row, per teammate
+	private readonly userQueue = new Map<string, string[]>(); // what the user typed that no running child has taken yet
+	private readonly wakeControllers = new Map<string, AbortController>(); // a woken teammate's exchange waiting for a slot
+	private readonly userStops = new Set<string>(); // the user stopped these while their exchange was still waiting
+	// The user stopped these while they ran: the abort goes to the child once it is up (a pass), and whatever way the exchange
+	// ends (even by itself, before the abort landed) it ends stopped. `sent`: the abort reached the child.
+	private readonly runStops = new Map<string, { sent: boolean }>();
 	private closing = false;
 	private readonly wakeSignal = new AbortController(); // wakes waiting for a slot at session end must not start a child
 	private timer: NodeJS.Timeout | undefined;
@@ -213,6 +233,7 @@ export class Team {
 		const member: Member = { name, agentId, agentType, status, since: Date.now() };
 		this.members.set(name, member);
 		this.save();
+		changed();
 		return member;
 	}
 
@@ -225,8 +246,10 @@ export class Team {
 		if (status === "stopped") {
 			delete m.shutdownRequested;
 			this.releaseTasks(name); // a stopped member keeps no work: its in_progress tasks go back to pending
+			this.userQueue.delete(name);
 		}
 		this.save();
+		changed();
 	}
 
 	// The lead asks a teammate to shut down: the teammate's response needs this mark.
@@ -307,7 +330,12 @@ export class Team {
 		if (this.closing) return;
 		this.passCount++;
 		await this.drainLead();
-		for (const m of [...this.members.values()]) if (m.name !== LEAD) await this.drainTeammate(m);
+		for (const m of [...this.members.values()])
+			if (m.name !== LEAD) {
+				this.applyStop(m);
+				this.flushUser(m);
+				await this.drainTeammate(m);
+			}
 		await this.drainStrays();
 	}
 
@@ -413,15 +441,147 @@ export class Team {
 		if (taken.some((e) => e.from === LEAD)) this.wakes.set(m.name, 0);
 		else this.wakes.set(m.name, (this.wakes.get(m.name) ?? 0) + 1);
 		this.held.delete(m.name);
-		const wake: PendingWake = { entries: taken };
+		this.startWake(m, { entries: taken, user: [] });
+	}
+
+	// A new exchange for an idle teammate with this prompt material.
+	private startWake(m: Member, wake: PendingWake): void {
 		this.pending.set(m.name, wake);
 		this.setStatus(m.name, "queued");
-		const prompt = () => wake.text ?? joinEnvelopes(wake.entries, this.name);
-		this.host.wake(m, prompt, this.wakeSignal.signal).catch((err: Error) => {
-			// It failed before its exchange began (an exchange that began handles its own end): the messages were not taken
-			// by anyone. They are dropped, loudly, because a mailbox that kept them would try again every second.
-			if (this.pending.get(m.name) === wake) this.wakeFailed(m.name, err);
-		});
+		const controller = new AbortController(); // the user's `x` on this wait
+		this.wakeControllers.set(m.name, controller);
+		this.host
+			.wake(
+				m,
+				() => wake.text ?? this.wakePrompt(wake),
+				AbortSignal.any([this.wakeSignal.signal, controller.signal]),
+			)
+			.catch((err: Error) => {
+				// It failed before its exchange began (an exchange that began handles its own end): the messages were not taken
+				// by anyone. They are dropped, loudly, because a mailbox that kept them would try again every second.
+				if (this.pending.get(m.name) === wake) this.wakeFailed(m.name, err);
+			})
+			.finally(() => {
+				if (this.wakeControllers.get(m.name) === controller) this.wakeControllers.delete(m.name);
+			});
+	}
+
+	// What the user typed comes first, as typed (it carries the user's authority); agent messages follow in envelopes.
+	private wakePrompt(wake: PendingWake): string {
+		return [...wake.user, ...(wake.entries.length > 0 ? [joinEnvelopes(wake.entries, this.name)] : [])].join("\n\n");
+	}
+
+	// --- the user (the teammate's screen): never through a mailbox file
+
+	// The user typed `text` to a teammate: a steer while it runs, a new exchange when it is idle. It is the user's own
+	// words, so it resets the loop count. Throws when the teammate takes nothing (stopped, stopping).
+	say(name: string, text: string): Delivery {
+		const m = this.member(name);
+		if (!m) throw new Error(`no teammate "${name}"`);
+		if (this.closing || m.status === "stopping" || m.status === "stopped")
+			throw new Error(`${name} is ${this.closing ? "closing" : m.status}: it takes no messages`);
+		this.wakes.delete(name);
+		if (m.status === "idle") {
+			this.held.delete(name);
+			this.startWake(m, { entries: [], user: [text] });
+			return "started";
+		}
+		if (m.status === "queued") {
+			const wake = this.pending.get(name);
+			if (wake && wake.text === undefined)
+				wake.user.push(text); // its exchange has not begun: the text joins it
+			else this.queueUser(name, text); // its first start: the text waits until it runs
+			return "queued";
+		}
+		const handle = registry.handle(m.agentId);
+		if (handle && this.steerRefused.get(name) !== handle && this.steerUser(m, text)) return "steered";
+		this.queueUser(name, text); // its child is not up yet, or settling: the next pass, or its next exchange
+		return "queued";
+	}
+
+	private queueUser(name: string, text: string): void {
+		this.userQueue.set(name, [...(this.userQueue.get(name) ?? []), text]);
+		this.kick();
+	}
+
+	private steerUser(m: Member, text: string): boolean {
+		if (!registry.handle(m.agentId)?.send({ type: "steer", message: text })) return false;
+		this.steers.set(m.name, [...(this.steers.get(m.name) ?? []), { entries: [], user: text, text, taken: false }]);
+		return true;
+	}
+
+	// A stop the user asked for before the child was up: sent once it is.
+	private applyStop(m: Member): void {
+		const stop = this.runStops.get(m.name);
+		if (!stop || stop.sent || m.status !== "stopping") return;
+		if (registry.handle(m.agentId) && registry.stop(m.agentId)) stop.sent = true;
+	}
+
+	// Texts the user typed before the child could take them: steered once it is up.
+	private flushUser(m: Member): void {
+		const queue = this.userQueue.get(m.name);
+		if (!queue || queue.length === 0 || m.status !== "running") return;
+		const handle = registry.handle(m.agentId);
+		if (!handle || this.steerRefused.get(m.name) === handle) return;
+		this.userQueue.delete(m.name);
+		const rest = [...queue];
+		while (rest.length > 0) {
+			if (!this.steerUser(m, rest[0]!)) {
+				this.steerRefused.set(m.name, handle);
+				this.userQueue.set(m.name, rest);
+				return;
+			}
+			rest.shift();
+		}
+	}
+
+	// A new exchange for what the user typed that nobody took (its child settled first).
+	private startQueuedUser(name: string): void {
+		const m = this.members.get(name);
+		const texts = this.userQueue.get(name);
+		if (!m || m.status !== "idle" || !texts || texts.length === 0 || this.closing) return;
+		this.userQueue.delete(name);
+		this.startWake(m, { entries: [], user: texts });
+	}
+
+	// Stop a teammate in any state (the user's `x`), with no process needed for an idle or queued one. Returns false when
+	// there is nothing to stop (already stopping or stopped, unknown) or a running child cannot be reached yet.
+	stop(name: string): boolean {
+		const m = this.member(name);
+		if (!m || this.closing || m.status === "stopped" || m.status === "stopping") return false;
+		this.userQueue.delete(name);
+		switch (m.status) {
+			case "running": {
+				// Recorded first: with no child to reach yet (before it attaches) or one that has just settled, the stop still
+				// holds. The abort is sent now if it can be, else by the next pass; exchangeEnded makes it stopped either way.
+				this.runStops.set(name, { sent: registry.stop(m.agentId) });
+				this.setStatus(name, "stopping");
+				this.kick();
+				return true;
+			}
+			case "queued": {
+				// Waiting for its turn or a slot: aborting its signal ends the wait; exchangeAbandoned makes it stopped.
+				const controller = this.wakeControllers.get(name);
+				this.userStops.add(name);
+				if (controller) controller.abort();
+				else registry.abortQueued([m.agentId]); // its first start
+				return true;
+			}
+			case "idle":
+				this.pending.delete(name);
+				this.held.delete(name);
+				this.setStatus(name, "stopped");
+				registry.markStopped(m.agentId);
+				this.host.toLead(`Teammate "${name}" was stopped.`);
+				return true;
+		}
+	}
+
+	// The user's Esc on a running teammate's screen: its turn ends, it stays a member and becomes idle (exchangeEnded).
+	interrupt(name: string): boolean {
+		const m = this.member(name);
+		if (!m || m.status !== "running") return false;
+		return registry.interrupt(m.agentId);
 	}
 
 	// An idle teammate that woke 5 times in a row on other teammates' messages waits; the lead is told once.
@@ -471,12 +631,14 @@ export class Team {
 	// Its child is about to start.
 	exchangeBegan(name: string): void {
 		this.exchanges.set(name, (this.exchanges.get(name) ?? 0) + 1);
+		this.userStops.delete(name); // a stop that came too late to end the wait
+		this.runStops.delete(name);
 		this.steerRefused.delete(name);
 		const m = this.members.get(name);
 		if (!m) return;
 		const wake = this.pending.get(name);
 		if (wake) {
-			wake.text = joinEnvelopes(wake.entries, this.name); // the prompt is fixed from here
+			wake.text = this.wakePrompt(wake); // the prompt is fixed from here
 			this.pending.delete(name);
 		}
 		if (!this.closing && m.status !== "stopping") this.setStatus(name, "running");
@@ -488,7 +650,10 @@ export class Team {
 				const message = event.message as { role?: string; content?: unknown } | undefined;
 				if (event.type !== "message_end" || message?.role !== "user") return;
 				const text = messageText(message).trim();
-				for (const s of this.steers.get(name) ?? []) if (s.text.trim() === text) s.taken = true;
+				// Each user message that was read marks one steer, the oldest not yet taken with that text (the same line typed
+				// twice is two steers).
+				const s = (this.steers.get(name) ?? []).find((x) => !x.taken && x.text.trim() === text);
+				if (s) s.taken = true;
 			}),
 		);
 		this.kick();
@@ -501,10 +666,24 @@ export class Team {
 		const wake = this.pending.get(name);
 		this.pending.delete(name);
 		if (this.closing) return;
+		if (this.userStops.delete(name)) {
+			this.stoppedWhileQueued(name);
+			return;
+		}
 		if (this.members.get(name)?.status === "queued") this.setStatus(name, "idle");
 		const why = `could not wake ${name}: ${err.message}; ${wake?.entries.length ?? 0} message(s) dropped`;
 		this.host.warn(`team ${this.label}: ${why}`);
 		this.host.toLead(`Team ${this.label}: ${why}`);
+	}
+
+	// The user stopped a teammate whose exchange was waiting: it ends stopped, with no warning (it is what they asked).
+	private stoppedWhileQueued(name: string): void {
+		const m = this.members.get(name);
+		if (!m || m.status === "stopped") return;
+		this.setStatus(name, "stopped");
+		const id = m.agentId;
+		if (registry.get(id)) registry.markStopped(id);
+		this.host.toLead(`Teammate "${name}" was stopped.`);
 	}
 
 	// The exchange did not begin: it was aborted while it waited for its turn or a slot, or it could not start. A teammate
@@ -515,6 +694,10 @@ export class Team {
 			return;
 		}
 		if (this.closing) return;
+		if (this.userStops.delete(name)) {
+			this.stoppedWhileQueued(name);
+			return;
+		}
 		const m = this.members.get(name);
 		if (m?.status === "queued" && registry.get(m.agentId)) {
 			// it has run before (the user continued it, say): a failed exchange leaves it idle
@@ -528,13 +711,15 @@ export class Team {
 	// the mailbox, so the next exchange takes them.
 	async exchangeEnded(
 		name: string,
-		outcome: { run?: RunResult; aborted?: boolean; userStopped?: boolean },
+		outcome: { run?: RunResult; aborted?: boolean; userStopped?: boolean; interrupted?: boolean },
 	): Promise<Verdict> {
 		this.unwatch.get(name)?.();
 		this.unwatch.delete(name);
 		this.steerRefused.delete(name);
 		const m = this.members.get(name);
-		const untaken = (this.steers.get(name) ?? []).filter((s) => !s.taken).flatMap((s) => s.entries);
+		const notTaken = (this.steers.get(name) ?? []).filter((s) => !s.taken);
+		const untaken = notTaken.flatMap((s) => s.entries);
+		const untakenUser = notTaken.flatMap((s) => (s.user === undefined ? [] : [s.user]));
 		this.steers.delete(name);
 		if (this.closing || !m) return "stopped";
 		// A shutdown response may still be in the lead's mailbox: read it before deciding, so an approved shutdown is never
@@ -542,18 +727,23 @@ export class Team {
 		await this.enqueue(() => this.drainLead());
 		this.steerRefused.delete(name);
 		if (this.closing) return "stopped";
+		const userStop = this.runStops.delete(name);
 		if (this.approved.delete(name)) {
 			this.setStatus(name, "stopped");
 			return "stopped";
 		}
-		if (outcome.userStopped || outcome.aborted || m.status === "stopped") {
+		if (outcome.userStopped || outcome.aborted || userStop || m.status === "stopped") {
 			this.setStatus(name, "stopped");
 			this.host.toLead(`Teammate "${name}" was stopped.`);
 			return "stopped";
 		}
 		if (untaken.length > 0) await putBack(inboxFile(this.dir, name), untaken);
+		// Only now: while the end was being decided a pass must not steer them into the child that has settled.
+		if (untakenUser.length > 0) this.userQueue.set(name, [...untakenUser, ...(this.userQueue.get(name) ?? [])]);
 		this.setStatus(name, "idle");
-		if (outcome.run) await this.idleNotice(name, outcome.run);
+		// The user's Esc: no idle notice and no teammate_idle (a hook could wake it again at once). It is still woken by messages.
+		if (outcome.run && !outcome.interrupted) await this.idleNotice(name, outcome.run);
+		this.startQueuedUser(name);
 		this.kick();
 		return "idle";
 	}

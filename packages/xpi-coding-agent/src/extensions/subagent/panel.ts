@@ -2,7 +2,7 @@
 // the registry and redrawn on its changes. ↓ on an empty editor moves focus into it; while it has focus it consumes
 // the keys it uses (↑ ↓ enter x X esc) and lets every other key through to pi.
 
-import { isKeyRelease, matchesKey, truncateToWidth } from "xpi-tui";
+import { getKeybindings, isKeyRelease, matchesKey, truncateToWidth } from "xpi-tui";
 import type { ExtensionContext } from "../../core/extensions/types.ts";
 import type { Theme } from "../../modes/interactive/theme/theme.ts";
 import { type ScriptRecord, scriptLabel, scripts } from "./background.ts";
@@ -12,6 +12,18 @@ import { COLORS, ICONS, label, registry, type SubagentRecord, stalledLabel } fro
 import { elapsed, openScriptScreen, scriptStatus } from "./script-screen.ts";
 import { stopEverything } from "./stop-all.ts";
 import { openSubagentScreen } from "./subagent-screen.ts";
+import { type Member, onTeamChange, teams } from "./team.ts";
+import { LEAD } from "./team-text.ts";
+import {
+	isLiveMate,
+	memberOf,
+	openTasksScreen,
+	ownedSubject,
+	stateOf,
+	TEAM_COLORS,
+	TEAM_ICONS,
+	type TeamState,
+} from "./team-ui.ts";
 
 // Only a script whose code runs can be paused (a group's agents have all started or failed).
 const pausable = (s: ScriptRecord) => s.state === "foreground" || s.state === "background";
@@ -27,7 +39,9 @@ export interface PanelOptions {
 // `phase()` title it was started in).
 type Row =
 	| { kind: "script"; script: ScriptRecord }
-	| { kind: "agent"; record: SubagentRecord; indent: boolean; phase?: string };
+	| { kind: "agent"; record: SubagentRecord; indent: boolean; phase?: string }
+	// A teammate that has no record yet (queued for its first start): it cannot be opened, but it can be stopped.
+	| { kind: "mate"; member: Member };
 
 export class Panel {
 	private focused = false;
@@ -56,7 +70,7 @@ export class Panel {
 			this.sync();
 			this.requestRender();
 		};
-		const offs = [registry.subscribe(changed), scripts.subscribe(changed)];
+		const offs = [registry.subscribe(changed), scripts.subscribe(changed), onTeamChange(changed)];
 		this.unsubscribe = () => {
 			for (const off of offs) off();
 		};
@@ -68,7 +82,7 @@ export class Panel {
 	private rows(): Row[] {
 		if (!this.options.viewable) return [];
 		const now = Date.now();
-		const agents = registry.visible(this.sessionId, this.options.lingerMs);
+		const agents = registry.visible(this.sessionId, this.options.lingerMs, isLiveMate);
 		const shown = scripts
 			.list(this.sessionId)
 			.filter((s) => s.endedAt === undefined || now - s.endedAt < this.options.lingerMs);
@@ -90,6 +104,14 @@ export class Panel {
 		for (const record of agents)
 			if (!inScript.has(record.id))
 				groups.push({ at: record.startedAt, rows: [{ kind: "agent", record, indent: false }] });
+		// Teammates queued for their first start have no record yet; a stopped one lingers like any finished row.
+		for (const member of teams.current()?.members.values() ?? [])
+			if (
+				member.name !== LEAD &&
+				!registry.get(member.agentId) &&
+				(member.status !== "stopped" || now - member.since < this.options.lingerMs)
+			)
+				groups.push({ at: member.since, rows: [{ kind: "mate", member }] });
 		return groups.sort((a, b) => a.at - b.at).flatMap((g) => g.rows);
 	}
 
@@ -103,7 +125,16 @@ export class Panel {
 		if (rows.length === 0) this.focused = false;
 		this.selected = Math.min(this.selected, Math.max(0, rows.length - 1));
 		clearTimeout(this.timer);
-		const endOf = (r: Row) => (r.kind === "script" ? r.script.endedAt : r.record.endedAt);
+		const endOf = (r: Row) =>
+			r.kind === "script"
+				? r.script.endedAt
+				: r.kind === "mate"
+					? r.member.status === "stopped"
+						? r.member.since
+						: undefined
+					: isLiveMate(r.record)
+						? undefined // a teammate that is not stopped never expires
+						: r.record.endedAt;
 		const delays = rows
 			.map(endOf)
 			.filter((t) => t !== undefined)
@@ -146,7 +177,7 @@ export class Panel {
 		else if (matchesKey(data, "enter")) {
 			const row = rows[this.selected]!;
 			if (row.kind === "agent") this.open(row.record);
-			else this.options.openScript?.(row.script);
+			else if (row.kind === "script") this.options.openScript?.(row.script);
 		} else if (
 			matchesKey(data, "p") &&
 			rows[this.selected]?.kind === "script" &&
@@ -160,16 +191,20 @@ export class Panel {
 		} else if (
 			matchesKey(data, "r") &&
 			rows[this.selected]?.kind === "agent" &&
+			memberOf((rows[this.selected] as Row & { kind: "agent" }).record) === undefined &&
 			registry.restartRefusal((rows[this.selected] as Row & { kind: "agent" }).record.id) === undefined
 		) {
 			registry.restart((rows[this.selected] as Row & { kind: "agent" }).record.id); // it starts over; its call keeps waiting
 		} else if (data === "X" || matchesKey(data, "shift+x")) {
 			void stopEverything(this.sessionId); // every script and subagent of the session; the rows show the result
 		} else if (matchesKey(data, "x")) {
-			// a row that is not running: nothing to stop
 			const row = rows[this.selected]!;
 			if (row.kind === "script") void scripts.stop(row.script.id);
-			else registry.stop(row.record.id);
+			else if (row.kind === "mate")
+				teams.current()?.stop(row.member.name); // queued: no process yet
+			else if (memberOf(row.record))
+				teams.current()?.stop(row.record.name!); // any state, idle included
+			else registry.stop(row.record.id); // a row that is not running: nothing to stop
 		} else {
 			this.focused = false; // any other key (ctrl+c, ctrl+d, text) belongs to pi: the editor has the keyboard again
 			this.requestRender();
@@ -189,8 +224,8 @@ export class Panel {
 		}
 		const rows = this.rows();
 		if (rows.length === 0) return [];
-		const nAgents = rows.filter((r) => r.kind === "agent").length;
-		const nScripts = rows.length - nAgents;
+		const nScripts = rows.filter((r) => r.kind === "script").length;
+		const nAgents = rows.length - nScripts;
 		const lines = [t.fg("muted", `Subagents (${nAgents})${nScripts > 0 ? ` · Scripts (${nScripts})` : ""}`)];
 		rows.forEach((r, i) => {
 			// A phase title above the first agent of each phase of a script.
@@ -230,13 +265,29 @@ export class Panel {
 				if (agents.length > 0) parts.push(t.fg("muted", `$${cost.toFixed(4)}`));
 				if (s.saved) parts.push(t.fg("muted", `${s.saved} from saved results`));
 				if (s.log) parts.push(t.fg("muted", s.log));
+			} else if (r.kind === "mate") {
+				const state: TeamState = r.member.status;
+				parts = [
+					t.fg(TEAM_COLORS[state], `${TEAM_ICONS[state]} ${state}`),
+					`${r.member.name} (${r.member.agentType})`,
+				];
+				const subject = ownedSubject(r.member.name);
+				if (subject) parts.push(t.fg("muted", `task: ${subject}`));
 			} else {
 				const a = r.record;
-				parts = [
-					t.fg(COLORS[a.status], `${ICONS[a.status]} ${a.status}`),
-					tint(a.color, label(a)),
-					t.fg("muted", `${a.turns} turns`),
-				];
+				const state = stateOf(a);
+				parts = state
+					? [t.fg(TEAM_COLORS[state], `${TEAM_ICONS[state]} ${state}`), tint(a.color, `${a.name} (${a.type})`)]
+					: [
+							t.fg(COLORS[a.status], `${ICONS[a.status]} ${a.status}`),
+							tint(a.color, label(a)),
+							t.fg("muted", `${a.turns} turns`),
+						];
+				if (state) {
+					const subject = ownedSubject(a.name!);
+					if (subject) parts.push(t.fg("muted", `task: ${subject}`));
+					parts.push(t.fg("muted", `${a.turns} turns`));
+				}
 				if (a.lastTool) parts.push(t.fg("muted", a.lastTool));
 				// Quiet for subagent.stallMs (spec 09): shown next to its last tool, which may just be slow.
 				const stall = registry.stalledFor(a.id);
@@ -253,7 +304,10 @@ export class Panel {
 			const row = rows[this.selected];
 			const pause =
 				row?.kind === "script" && pausable(row.script) ? (row.script.paused ? " · p resume" : " · p pause") : "";
-			const restartable = row?.kind === "agent" && registry.restartRefusal(row.record.id) === undefined;
+			const restartable =
+				row?.kind === "agent" &&
+				memberOf(row.record) === undefined &&
+				registry.restartRefusal(row.record.id) === undefined;
 			lines.push(
 				t.fg(
 					"dim",
@@ -320,6 +374,11 @@ export function installPanel(
 	);
 	state.removeHook = ctx.ui.onTerminalInput((data) => {
 		if (!state.panel || !focusedIsEditor()) return undefined;
+		// `app.team.tasks` (no default key): the task list, from the editor
+		if (teams.on && !isKeyRelease(data) && getKeybindings().matches(data, "app.team.tasks")) {
+			void openTasksScreen(current);
+			return { consume: true };
+		}
 		return state.panel.handleKey(data, ctx.ui.getEditorText() === "") ? { consume: true } : undefined;
 	});
 }

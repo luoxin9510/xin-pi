@@ -76,6 +76,7 @@ const APP_KEYBINDINGS = {
 		defaultKeys: windowsKeybindings ? ["alt+v", "ctrl+v"] : "ctrl+v",
 		description: "Paste files on macOS, images, or text from clipboard",
 	},
+	"app.team.tasks": { defaultKeys: [], description: "Open the agent team's task list (/tasks)" },
 	"app.session.new": { defaultKeys: [], description: "Start a new session" },
 	"app.session.tree": { defaultKeys: [], description: "Open session tree" },
 	"app.session.fork": { defaultKeys: [], description: "Fork current session" },

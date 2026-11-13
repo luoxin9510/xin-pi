@@ -153,7 +153,8 @@ The options below come with the unit. Each says how to turn it off.
   other teammates through mailbox files, with idle notices, a loop cap and shutdown requests, plus a shared task list
   (`TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate`: dependencies, claims, liveness, retention) and three extension events
   (`teammate_idle`, `task_created`, `task_completed`) that can block with feedback. Built so far: teammates, messages,
-  shutdown, cleanup, tasks, hooks. The UI changes come later. See [Agent teams](subagent.md#agent-teams).
+  shutdown, cleanup, tasks, hooks and the UI (teammate rows in the panel that never hide, typing and Esc on the screen,
+  `x` in any state, `/tasks` and the `app.team.tasks` key). See [Agent teams](subagent.md#agent-teams).
 - **Depends on**: names and `SendMessage`, the Agent tool and its exchanges, `registry.ts` (watch, steer, stop),
   `pi.events` (the hooks go through it; `emit` must call handlers synchronously, so they can answer in it), `ctx.mode` (teams are on only for `"tui"`), a custom message with `triggerTurn`, the
   `before_agent_start` event with mutable `systemPromptOptions.sections`, and a file system with exclusive create and
@@ -163,9 +164,10 @@ The options below come with the unit. Each says how to turn it off.
   mailboxes), `team-send.ts` (`SendMessage` between members; the teammate's tools), `team-tasks.ts` (the task list: files,
   dependencies, the status rules, retention), `team-task-tools.ts` (the four tools), `team-lead-tasks.ts` (the lead's side:
   its environment, the assignment message), `team-hooks.ts` (the events, `block` and `hold`), `team-start.ts` (the named call and its
-  refusals), `team-text.ts` (envelope, prompt sections), `team-config.ts` (the setting); small edits in `agent-tool.ts`,
+  refusals), `team-text.ts` (envelope, prompt sections), `team-config.ts` (the setting), `team-ui.ts` (teammate states, the `/tasks` overlay); small edits in `agent-tool.ts`,
   `send-message-tool.ts`, `exchange.ts` (hooks, no typing note for teammates), `resolve.ts` (environment, tool list, prompt
-  section, `prefixKey`), `talk.ts` (`continueAgent`), `registry.ts` (meta fields), `index.ts` (wiring), and the
+  section, `prefixKey`), `talk.ts` (`continueAgent`), `registry.ts` (meta fields, `interrupt`, `markStopped`, a `keep` filter on `visible`), `panel.ts` and
+  `subagent-screen.ts` (rows, keys, typing, Esc, `✉` lines), `index.ts` (wiring, `/tasks`), `core/keybindings.ts` (`app.team.tasks`), and the
   `agentTeams` schema in `core/settings-schema.ts`.
 - **Trust**: mailboxes are plain files any team process can write, `from: "lead"` included; they are not an authentication
   boundary, and teams run with the lead's trust. Do not port this to a setting where teammates are less trusted than the

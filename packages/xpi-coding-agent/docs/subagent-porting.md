@@ -334,6 +334,13 @@ rest of the extension:
   never rely on the watch alone.
 - **Extension API**: `ctx.mode === "tui"` to decide where teams are on; `pi.sendMessage` with `triggerTurn` and
   `deliverAs: "steer"` for messages to the lead; `before_agent_start` with `systemPromptOptions.sections` for the lead's prompt.
+- **UI**: a widget below the editor with a terminal-input hook (the panel's keys), and an overlay from `ctx.ui.custom` (the
+  screens and `/tasks`). `app.team.tasks` is matched in the panel's input hook with the host's keybindings manager
+  (`getKeybindings()` from `xpi-tui`, since the extension is built in); a host without that can register a shortcut instead.
+  The screen sends typed text to `team.say` in the lead process (no file), and Esc calls `team.interrupt`, which aborts the
+  child through the same rpc `abort` as a stop but marks the exchange as an interrupt (`registry.interrupt`) so it ends idle.
+  `/tasks` re-reads the task files on a timer; do not watch the task directory (a watcher that reacts to its own writes
+  spins).
 - **Child process**: the variables `XPI_TEAM`, `XPI_TEAM_MEMBER`, `XPI_TEAM_DIR` and `XPI_TEAM_TOOLS` (`codemode` or
   `direct`: whether the child has codemode); `SendMessage` and the four task tools registered in the child when they are set; `--tools`
   entries (`+SendMessage`, `+TaskCreate`...) for tools an extension registers; `ctx.abort()` in a tool, used after an approved shutdown.

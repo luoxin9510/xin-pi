@@ -367,8 +367,8 @@ get neither `Agent` nor `SendMessage`, except teammates of an [agent team](#agen
 Experimental, off by default. With agent teams on, an `Agent` call with a `name` starts a **teammate**: a subagent that
 runs in parallel with the session (the **lead**), messages the lead and other teammates by name, and is woken again by
 messages. It is modelled on Claude Code's agent teams. This page describes what exists now: teammates, messages, idle
-notices, shutdown, the end of a team, the shared task list and the `agent-teams:` events. The panel and screen
-changes (typing to a teammate, Esc, `/tasks`) come in a later change.
+notices, shutdown, the end of a team, the shared task list, the `agent-teams:` events and [the UI](#the-teams-ui) (rows in
+the panel, typing to a teammate, Esc, `x`, `/tasks`).
 
 ### Turning it on
 
@@ -548,6 +548,41 @@ dies first, the next team created in the agent dir removes `teams/` directories 
 **Former teammates.** `/resume`, `/reload` and a crash end the team, and it is not restored. A teammate's meta file keeps
 `teammate: true`, its `team` and its frozen prompt section, so an `Agent` call with its name (or a `SendMessage` to it)
 continues it as a member of the new team, with its history and the same prompt section.
+
+### The teams UI
+
+Teammates use the [subagent panel](#the-panel) and the [subagent screen](#the-subagent-screen).
+
+**Panel.** A teammate is a row with its state, `name (type)`, the subject of the task it owns (the one in progress, else the
+first it owns that is not done), its turns and its cost. The state is `running`, `queued`, `idle`, `stopping`, `stopped` or
+`failed` (the teammate is idle, but its last exchange failed: it is still live, woken by messages, and keeps its tasks).
+`idle` (`○`, green) and `stopping` (`◍`, yellow) have their own mark and colour. A teammate that is not stopped never leaves the
+panel: `subagent.panelLingerMs` applies only to a stopped one. A teammate that has not started yet (queued for its first
+start) is a row too, but it has no screen to open and shows no turns or cost. `↑` `↓` select, `Enter` opens the screen, and `x` stops the teammate in any
+state: a running one is aborted; a queued one stops waiting; an idle one has no process, so it is simply marked `stopped` (its
+in-progress tasks go back to pending and the lead is told). A stop is kept even when it cannot reach a child yet (before it
+starts) or when the run finishes by itself first: the teammate still ends `stopped`, with no idle notice. `X` (stop all)
+also stops teammates waiting for a slot, through the team, and leaves idle teammates alone. `r` (restart) is not offered for a teammate.
+
+**Screen.**
+
+- Typing sends your text to the teammate with your authority: it goes straight from the screen to the lead process's
+  deliverer, never through a mailbox file, and it is not wrapped in an agent-message envelope. A running teammate is steered
+  (it reads the text after its current step; if its run ends before it did, the text becomes a new exchange, so nothing is
+  lost); an idle one starts a new exchange with the text first (messages that arrive while it waits for a slot follow it).
+  Typing resets the teammate's loop count. A stopped or stopping teammate takes nothing.
+- `Esc` interrupts the teammate's current turn without stopping it: the run is aborted, the teammate becomes `idle` (the
+  record is `completed`, not `failed`), and it is still woken by messages. Messages (and text you typed) it had not read yet are
+  kept and start a new exchange once it is idle, so nothing is lost. An interrupted exchange sends no idle notice and
+  fires no `teammate_idle`, so a hook cannot wake it again at once. A second `Esc`, or `Esc` while the teammate is not running,
+  closes the screen. (On the screen of an ordinary subagent `Esc` still closes it.) `/stop` stops it, in any state.
+- Agent messages in the transcript are drawn as one line each, `✉ <from>: <first line>`, instead of the raw envelope.
+
+**Task list.** `/tasks` opens an overlay of the session's task list: id, status, owner (with the owner's state), subject and
+the blockers still open. It refreshes about every 0.75 s by reading the task files again (nothing watches the directory, so
+nothing can react to its own writes; the overlay writes nothing) and at once when a teammate's state changes. `Esc`, `q` or `Enter`
+closes it. `/tasks` is registered only while teams are on (after a `/reload` that turns them off it stays and says so). The keybinding `app.team.tasks` opens it from the prompt; it has no default key
+because `Ctrl+T` is the thinking toggle (see [keybindings](keybindings.md)).
 
 ### Prompts
 
@@ -934,7 +969,8 @@ Subagents (2)
 A row shows the type and description, turns, the last tool, `stalled Nm` when it is [stalled](#waiting-for-agents), and cost. A finished row stays 30 s (setting `panelLingerMs`) and then
 drops out; running rows stay. Only subagents that ran in this pi process show as rows: ones rebuilt from disk after a
 `/reload` are not rows and are reached with `/subagents`. The panel hides when it is empty. Older subagents of the session are still reachable with
-`/subagents`.
+`/subagents`. Teammates of an [agent team](#the-teams-ui) are rows too, with their own states, and
+never drop out while they are not stopped.
 
 | Key | Effect |
 |---|---|

@@ -47,7 +47,7 @@ const CORE: Record<string, How> = {
 /**
  * The commands xpi's built-in extensions register, by what each does:
  * - /commit asks to confirm the message, /mcp (bare) and /llama open their managers, /workflows and /subagents (bare)
- *   open a list, /agents opens the hub inside the session: picker.
+ *   open a list, /tasks opens the agent team's task overlay, /agents opens the hub inside the session: picker.
  * - /relay only says where the work stands (a notice on the session's screen): screen.
  * - /handover, /handback, /subtask, /upstream and the built-in /review workflow start or steer work: reply.
  */
@@ -57,6 +57,7 @@ export const EXTENSION_COMMANDS: Record<string, How & { description: string; arg
 	llama: { how: "picker", description: "Manage llama.cpp router models" },
 	workflows: { how: "picker", description: "Saved workflows and this session's workflow runs" },
 	subagents: { how: "picker", args: "optional", description: "This session's subagents" },
+	tasks: { how: "picker", description: "The agent team's task list" },
 	agents: { how: "picker", description: "The hub, inside the session" },
 	relay: { how: "screen", description: "Relay: who has the work, the round and the two models" },
 	handover: { how: "reply", args: "optional", description: "Relay: give the work to the worker model now" },
