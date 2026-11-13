@@ -1029,6 +1029,7 @@ export async function main(args: string[], options?: MainOptions) {
 		await runRpcMode(runtime);
 	} else if (appMode === "interactive") {
 		const interactiveMode = new InteractiveMode(runtime, {
+			configuredSessionDir: sessionDir,
 			migratedProviders,
 			startupDiagnostics,
 			modelFallbackMessage,

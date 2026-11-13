@@ -2,8 +2,9 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ENV_AGENT_DIR } from "../src/config.ts";
 import { type MissingSessionCwdChoice, MissingSessionCwdError } from "../src/core/session-cwd.ts";
-import { SessionManager } from "../src/core/session-manager.ts";
+import { getDefaultSessionDir, SessionManager } from "../src/core/session-manager.ts";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 
 type SwitchSession = (sessionPath: string, options?: { cwdOverride?: string }) => Promise<{ cancelled: boolean }>;
@@ -18,10 +19,12 @@ type ResumeContext = {
 	handleFatalRuntimeError: (prefix: string, error: unknown) => Promise<never>;
 	promptForMissingSessionCwd: unknown;
 	switchToForkedSession: unknown;
+	options: { configuredSessionDir?: string };
 };
 
 type InteractiveModePrototype = {
 	handleResumeSession(this: ResumeContext, sessionPath: string): Promise<{ cancelled: boolean }>;
+	handleImportCommand(this: unknown, text: string): Promise<void>;
 	promptForMissingSessionCwd: unknown;
 	switchToForkedSession: unknown;
 };
@@ -37,14 +40,25 @@ function createTempDir(name: string): string {
 // earendil-works/pi#11060
 describe("InteractiveMode /resume with a missing session cwd", () => {
 	const cleanupPaths: string[] = [];
+	const originalAgentDir = process.env[ENV_AGENT_DIR];
 
 	afterEach(() => {
+		if (originalAgentDir === undefined) delete process.env[ENV_AGENT_DIR];
+		else process.env[ENV_AGENT_DIR] = originalAgentDir;
 		for (const path of cleanupPaths.splice(0)) {
 			rmSync(path, { recursive: true, force: true });
 		}
 	});
 
-	function setup(options: { choice: MissingSessionCwdChoice | undefined; switchCancelled: boolean }) {
+	function setup(options: {
+		choice: MissingSessionCwdChoice | undefined;
+		switchCancelled: boolean;
+		configuredSessionDir?: string;
+	}) {
+		// Keep the default session folders inside a temp agent dir.
+		const agentDir = createTempDir("pi-resume-missing-cwd-agent");
+		cleanupPaths.push(agentDir);
+		process.env[ENV_AGENT_DIR] = agentDir;
 		const currentCwd = createTempDir("pi-resume-missing-cwd");
 		const missingCwd = join(currentCwd, "renamed-away");
 		const oldSessionDir = createTempDir("pi-resume-missing-cwd-old");
@@ -80,6 +94,7 @@ describe("InteractiveMode /resume with a missing session cwd", () => {
 			}),
 			promptForMissingSessionCwd: interactiveModePrototype.promptForMissingSessionCwd,
 			switchToForkedSession: interactiveModePrototype.switchToForkedSession,
+			options: { configuredSessionDir: options.configuredSessionDir },
 		};
 		return { context, currentCwd, currentSessionDir, sessionPath, original, switchSession, showStatus };
 	}
@@ -94,9 +109,13 @@ describe("InteractiveMode /resume with a missing session cwd", () => {
 
 		expect(result).toEqual({ cancelled: false });
 		const forkPath = switchSession.mock.calls[1][0];
-		// The fork lands next to the source, not in the (possibly scratch) current session folder.
-		expect(dirname(forkPath)).toBe(dirname(sessionPath));
+		// The fork is stored like a new session for the new cwd: not in the (possibly scratch) current session folder
+		// and not in the old cwd's folder.
+		expect(dirname(forkPath)).toBe(getDefaultSessionDir(currentCwd));
+		expect(dirname(forkPath)).not.toBe(currentSessionDir);
+		expect(dirname(forkPath)).not.toBe(dirname(sessionPath));
 		expect(readdirSync(currentSessionDir)).toEqual([]);
+		expect(readdirSync(dirname(sessionPath))).toEqual(["orphan.jsonl"]);
 		const lines = readFileSync(forkPath, "utf8").trim().split("\n");
 		const header = JSON.parse(lines[0]);
 		expect(header).toMatchObject({ type: "session", cwd: currentCwd, parentSession: sessionPath });
@@ -104,6 +123,59 @@ describe("InteractiveMode /resume with a missing session cwd", () => {
 		expect(JSON.parse(lines[1])).toMatchObject({ id: "m1" });
 		expect(readFileSync(sessionPath, "utf8")).toBe(original);
 		expect(showStatus).toHaveBeenCalledWith(`Forked into new session ${header.id} in ${currentCwd}`);
+	});
+
+	it("forks into the configured session dir when one is set", async () => {
+		const configured = createTempDir("pi-resume-missing-cwd-configured");
+		cleanupPaths.push(configured);
+		const { context, currentCwd, currentSessionDir, sessionPath, switchSession } = setup({
+			choice: "fork",
+			switchCancelled: false,
+			configuredSessionDir: configured,
+		});
+
+		await interactiveModePrototype.handleResumeSession.call(context, sessionPath);
+
+		const forkPath = switchSession.mock.calls[1][0];
+		expect(dirname(forkPath)).toBe(configured);
+		expect(dirname(forkPath)).not.toBe(getDefaultSessionDir(currentCwd));
+		expect(readdirSync(currentSessionDir)).toEqual([]);
+		expect(readdirSync(dirname(sessionPath))).toEqual(["orphan.jsonl"]);
+	});
+
+	it("forks an /import file into the session folder, not next to the input file", async () => {
+		const { context, currentCwd, currentSessionDir, sessionPath, switchSession } = setup({
+			choice: "fork",
+			switchCancelled: false,
+		});
+		const downloads = createTempDir("pi-import-downloads");
+		cleanupPaths.push(downloads);
+		const inputPath = join(downloads, "x.jsonl");
+		writeFileSync(inputPath, readFileSync(sessionPath, "utf8"));
+		const importContext = {
+			...context,
+			getPathCommandArgument: (text: string) => text.slice("/import ".length),
+			showExtensionConfirm: vi.fn(async () => true),
+			showError: vi.fn(),
+			runtimeHost: {
+				...context.runtimeHost,
+				importFromJsonl: vi.fn(async () => {
+					throw new MissingSessionCwdError({
+						sessionFile: inputPath,
+						sessionCwd: join(currentCwd, "renamed-away"),
+						fallbackCwd: currentCwd,
+					});
+				}),
+			},
+		};
+
+		await interactiveModePrototype.handleImportCommand.call(importContext, `/import ${inputPath}`);
+
+		const forkPath = switchSession.mock.calls[0][0];
+		expect(dirname(forkPath)).toBe(getDefaultSessionDir(currentCwd));
+		expect(dirname(forkPath)).not.toBe(downloads);
+		expect(dirname(forkPath)).not.toBe(currentSessionDir);
+		expect(readdirSync(downloads)).toEqual(["x.jsonl"]);
 	});
 
 	it("continues the original session in the current cwd without writing a file", async () => {

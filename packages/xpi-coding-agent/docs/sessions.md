@@ -24,7 +24,7 @@ Each session records the working directory it was created in and never changes i
 If a session's working directory no longer exists, for example after the project folder was renamed, interactive mode asks how to open it:
 
 - **Continue** runs the session in the current directory. Pi does not store that choice, so it asks again the next time you open the session.
-- **Fork** copies the session into the current directory as a new session with a new ID, like `--fork`. The original stays unchanged. At startup the copy is stored like other new sessions for the current directory; from `/resume` or `/import` it is stored next to the source session.
+- **Fork** copies the session into the current directory as a new session with a new ID, like `--fork`. The original stays unchanged. The copy is stored like other new sessions for the current directory (in the configured session directory if one is set), whether it comes from startup, `/resume` or `/import`.
   The fork gets a new session id, so the old session's subagents and teammates (under `subagents/<oldSessionId>/`) are not carried over, same as `--fork`.
 - **Cancel** leaves the current session open, or exits at startup.
 

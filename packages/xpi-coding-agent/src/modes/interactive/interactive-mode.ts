@@ -453,6 +453,8 @@ export interface InteractiveModeOptions {
 	verbose?: boolean;
 	/** TUI layout mode. */
 	tuiMode?: TuiMode;
+	/** Session dir from --session-dir, the environment or settings; unset means the default folder per cwd. */
+	configuredSessionDir?: string;
 	/** Initial interactive theme setting for this invocation. */
 	initialThemeSetting?: string;
 	/** Terminal implementation. Defaults to the current process terminal. */
@@ -5987,9 +5989,10 @@ export class InteractiveMode {
 		cwd: string,
 		options?: Parameters<ExtensionCommandContext["switchSession"]>[1],
 	): Promise<{ cancelled: boolean }> {
-		const fork = // Store the fork beside its source, never in the current session's folder: the current session may be a
-			// roost scratch session, and a fork stored there would be mistaken for an empty hand-off session.
-			SessionManager.forkFrom(sourcePath, cwd, path.dirname(sourcePath));
+		// Pick the fork's folder like startup does: the configured session dir if any, else the default folder for the
+		// fork's cwd. Never the current session's folder (it may be a roost scratch session, where the fork would be
+		// mistaken for an empty hand-off session) nor the source's folder (for /import that is the user's own file).
+		const fork = SessionManager.forkFrom(sourcePath, cwd, this.options.configuredSessionDir);
 		const forkPath = fork.getSessionFile()!;
 		const result = await this.runtimeHost.switchSession(forkPath, {
 			withSession: options?.withSession,
