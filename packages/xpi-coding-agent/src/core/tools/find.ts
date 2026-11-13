@@ -25,7 +25,8 @@ export function relativizeFindResultPath(
 
 const findSchema = Type.Object({
 	pattern: Type.String({
-		description: "Glob pattern to match files, e.g. '*.ts', '**/*.json', or 'src/**/*.spec.ts'",
+		description:
+			"Glob pattern relative to the search directory, e.g. 'src/**/*.ts'. Without '/', e.g. '*.ts', it matches file names at any depth",
 	}),
 	path: Type.Optional(Type.String({ description: "Directory to search in (default: current directory)" })),
 	limit: Type.Optional(Type.Number({ description: "Maximum number of results (default: 1000)" })),
@@ -211,13 +212,21 @@ export function createFindToolDefinition(
 						args.push("--max-results", String(effectiveLimit + 1));
 
 						// fd --glob matches against the basename unless --full-path is set; in --full-path
-						// mode it matches against the absolute candidate path, so a path-containing
-						// pattern like 'src/**/*.spec.ts' needs a leading '**/' to match anything.
-						let effectivePattern = pattern;
-						if (pattern.includes("/")) {
+						// mode it matches against the absolute candidate path.
+						// fd's full paths never contain "/./", so "./src/*.ts" would find nothing; drop the "./" (#12020).
+						let effectivePattern = pattern.replace(/^(?:\.\/)+/, "");
+						if (effectivePattern.includes("/")) {
 							args.push("--full-path");
-							if (!pattern.startsWith("/") && !pattern.startsWith("**/") && pattern !== "**") {
-								effectivePattern = `**/${pattern}`;
+							// A relative path pattern is anchored at the search path, like grep's glob (#12066):
+							// 'src/*.ts' finds 'src/a.ts' but not 'pkg/src/b.ts'; '**/src/*.ts' finds both.
+							// fd matches the absolute path, so the pattern is prefixed with the glob-escaped search
+							// path. fd's smart case would look at the whole pattern, so the search path's letters
+							// must not decide it: an all-lowercase user pattern is matched case-insensitively.
+							if (!path.isAbsolute(effectivePattern)) {
+								const root = process.platform === "win32" ? searchPath.replaceAll("\\", "/") : searchPath;
+								const escapedRoot = root.replace(/\/+$/, "").replace(/[\\*?[\]{}]/g, "\\$&");
+								if (effectivePattern === effectivePattern.toLowerCase()) args.push("--ignore-case");
+								effectivePattern = `${escapedRoot}/${effectivePattern}`;
 							}
 							// fd matches full paths using native separators on Windows.
 							if (process.platform === "win32")
@@ -225,6 +234,9 @@ export function createFindToolDefinition(
 						}
 						args.push("--", effectivePattern, searchPath);
 
+						// An abort during the .git lookup above already rejected the call, but there was no
+						// child to stop yet. Do not start fd.
+						if (signal?.aborted) return;
 						const child = spawn(fdPath, args, { stdio: ["ignore", "pipe", "pipe"] });
 						const rl = createInterface({ input: child.stdout });
 						let stderr = "";
