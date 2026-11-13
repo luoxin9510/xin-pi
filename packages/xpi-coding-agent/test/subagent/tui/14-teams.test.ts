@@ -55,14 +55,14 @@ test("Esc on a running teammate's screen interrupts its turn and leaves it idle,
 		await pi.waitFor((s) => /running · ally \(general-purpose\) · .*bash/.test(s), 60_000); // it is in its sleep
 		await selectAlly(pi);
 		pi.press("enter");
-		await pi.waitFor((s) => /main › ally/.test(s) && s.includes("● running"), 15_000);
+		await pi.waitFor((s) => /main › [^\n]*\(ally\)/.test(s) && s.includes("● running"), 15_000);
 
 		pi.press("esc");
 		const v = await pi.waitFor(
 			(s) => s.includes("interrupted: the teammate is idle") || s.includes("○ idle"),
 			30_000,
 		);
-		await pi.waitFor((s) => /main › ally/.test(s) && s.includes("○ idle"), 30_000);
+		await pi.waitFor((s) => /main › [^\n]*\(ally\)/.test(s) && s.includes("○ idle"), 30_000);
 		assert.doesNotMatch(pi.viewport(), /■ stopped|✗ failed/, `not stopped, not failed:\n${v}`);
 
 		pi.press("esc"); // the second Esc closes the screen
@@ -78,13 +78,13 @@ test("typing on an idle teammate's screen starts a new exchange with the user's 
 		await lead(pi, QUICK, IDLE_ROW);
 		await selectAlly(pi);
 		pi.press("enter");
-		await pi.waitFor((s) => /main › ally/.test(s) && s.includes("○ idle"), 15_000);
+		await pi.waitFor((s) => /main › [^\n]*\(ally\)/.test(s) && s.includes("○ idle"), 15_000);
 
 		pi.type("Reply with the word PONG immediately followed by the number 7731, no space, nothing else.");
 		pi.press("enter");
 		await pi.waitFor("● running", 30_000); // a new exchange began
 		await pi.waitFor(/PONG7731/, 90_000); // its answer, drawn on the screen
-		await pi.waitFor((s) => /main › ally/.test(s) && s.includes("○ idle"), 60_000);
+		await pi.waitFor((s) => /main › [^\n]*\(ally\)/.test(s) && s.includes("○ idle"), 60_000);
 
 		pi.press("esc"); // idle: Esc closes
 		await pi.waitGone("main ›");
