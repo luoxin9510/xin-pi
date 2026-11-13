@@ -318,34 +318,142 @@ pi exits before answering.
 
 ## Agent teams
 
-Optional and experimental; see [Agent teams](subagent.md#agent-teams) for behaviour. What it asks of the host beyond the
-rest of the extension:
+Optional and experimental; see [Agent teams](subagent.md#agent-teams) for behaviour, and the [menu entry](porting.md#subagents-agent-teams)
+for what to switch on and off. Everything here is in `src/extensions/subagent/`. A team is the lead (the session) plus
+teammates, which are ordinary subagent children; what is added is files that every process of the team reads and writes, and
+a deliverer in the lead that turns mailbox entries into steers and new exchanges.
 
-- **File system**: exclusive create (`O_EXCL`), rename within one directory as an atomic replace, and file modes 0600 and
-  0700. Lock files hold `{ pid, at }`; a stale lock is removed under a `<lock>.takeover` guard, also an exclusive create.
-  Pid liveness is `kill(pid, 0)` (`EPERM` counts as alive).
-- **Task list**: one JSON file per task and a counter `next` in `<agent dir>/tasks/<team>/`, changed only under the same lock
-  files (a task's own, `next.lock`, and for creating a task or changing `blockedBy` the directory's `.lock`, always taken in
-  that order, team first). Liveness comes from `config.json` in a teammate (the lead reads its memory). Retention is
-  an age check on the newest file of each `session-*` directory.
-- **Events**: an event bus whose `emit` calls every handler synchronously (up to its first `await`), so a handler can answer
-  in it. `team-hooks.ts` collects the answers and awaits holds; run events before any lock, and check again after.
-- **Directory watching**: `fs.watch` on `inboxes/` plus a 1 s poll. Linux uses inotify; macOS FSEvents coalesces events, so
-  never rely on the watch alone.
-- **Extension API**: `ctx.mode === "tui"` to decide where teams are on; `pi.sendMessage` with `triggerTurn` and
-  `deliverAs: "steer"` for messages to the lead; `before_agent_start` with `systemPromptOptions.sections` for the lead's prompt.
-- **UI**: a widget below the editor with a terminal-input hook (the panel's keys), and an overlay from `ctx.ui.custom` (the
-  screens and `/tasks`). `app.team.tasks` is matched in the panel's input hook with the host's keybindings manager
-  (`getKeybindings()` from `xpi-tui`, since the extension is built in); a host without that can register a shortcut instead.
-  The screen sends typed text to `team.say` in the lead process (no file), and Esc calls `team.interrupt`, which aborts the
-  child through the same rpc `abort` as a stop but marks the exchange as an interrupt (`registry.interrupt`) so it ends idle.
-  `/tasks` re-reads the task files on a timer; do not watch the task directory (a watcher that reacts to its own writes
-  spins).
-- **Child process**: the variables `XPI_TEAM`, `XPI_TEAM_MEMBER`, `XPI_TEAM_DIR` and `XPI_TEAM_TOOLS` (`codemode` or
-  `direct`: whether the child has codemode); `SendMessage` and the four task tools registered in the child when they are set; `--tools`
-  entries (`+SendMessage`, `+TaskCreate`...) for tools an extension registers; `ctx.abort()` in a tool, used after an approved shutdown.
-- **rpc events**: `message_end` of the user message, to know that a steer was taken; if the child settles first, the lead
-  delivers the message as a new exchange.
+### The pieces
+
+| piece | file | what it does |
+|---|---|---|
+| the setting | `team-config.ts` | `agentTeams` (`true` or `{ enabled, maxTeammates, taskRetentionDays }`) or `XPI_EXPERIMENTAL_AGENT_TEAMS=1`; read at `session_start` |
+| the team | `team.ts` (`Team`, `teams`) | `config.json`, members and their states, the cap, the loop cap, shutdown, closing; the deliverer |
+| the file layer | `team-files.ts` | `writeAtomic`, `withLock`, `withLockFile`, `pidAlive`, mailboxes (`appendEntry`, `takeEntries`, `putBack`, `entryProblem`) |
+| messages | `team-send.ts`, `team-text.ts` | `SendMessage` between members, the envelope, idle notices, the prompt sections |
+| the named call | `team-start.ts` | what an `Agent` call with `name` does with teams on, and its refusals |
+| tasks | `team-tasks.ts`, `team-task-tools.ts`, `team-lead-tasks.ts` | the task files, the four tools, the lead's side |
+| events | `team-hooks.ts` | `agent-teams:teammate_idle`, `task_created`, `task_completed` with `block` and `hold` |
+| UI | `team-ui.ts`, `panel.ts`, `subagent-screen.ts` | rows, the teammate screen (typing, Esc), `/tasks` |
+
+Port them in this order, running the matching tests (below) after each: file layer, team and deliverer, messages, tasks,
+events, UI. The UI is optional; without it the tools still work.
+
+### What the host must provide
+
+- **Event bus** (`pi.events`): `emit` calls every handler synchronously (up to its first `await`), so a handler can answer
+  during `emit` by calling `block(feedback)` or `hold(promise)` on the payload. `team-hooks.ts` reads the answers right after
+  `emit` returns; a bus that calls handlers later would make every answer count for nothing.
+- **Mode** (`ctx.mode`): teams are on only for `"tui"` (not print, not rpc, where `hasUI` is true too), and only in a saved
+  session (not `--no-session`, where nothing can be continued).
+- **rpc in the child**: `steer` (a running teammate takes a message), `abort` (stop, and Esc's interrupt), the `message_end`
+  event of the user message (to know that a steer was taken), and the settle event of the exchange. If the child settles
+  before it takes a steer, `handle.send` returns false and the lead keeps the messages for the next exchange.
+- **File system**: exclusive create (`O_EXCL`, `wx`) for lock files, rename onto an existing name as an atomic replace, in
+  one directory (the temporary file is a dot file next to its target), and modes 0600 and 0700.
+- **Process liveness**: `kill(pid, 0)`; `EPERM` counts as alive.
+- **Child environment**: `XPI_TEAM` (the team name), `XPI_TEAM_MEMBER`, `XPI_TEAM_DIR`, `XPI_TEAM_TOOLS` (`codemode` or
+  `direct`: whether the child has codemode). `registerTeamTools(pi)` in `index.ts` adds `SendMessage` and the four task tools
+  when they are set; the lead adds `+SendMessage`, `+TaskCreate`... to an explicit `--tools` list.
+- **Extension API**: a custom message with `triggerTurn` (idle notices and messages for the lead), `before_agent_start`
+  with mutable `systemPromptOptions.sections` (the lead's team section), `ctx.abort()` in a tool (after an approved
+  shutdown the teammate ends its own turn).
+
+### On-disk formats
+
+Under `<agent dir>` (`getAgentDir()`):
+
+```
+teams/session-<session id>/config.json        the lead writes it; teammates read it
+teams/session-<session id>/inboxes/<name>.json  one mailbox per member, `lead` included
+tasks/session-<session id>/<id>.json          one file per task
+tasks/session-<session id>/next               the id counter (a decimal number)
+tasks/session-<session id>/.lead              { "pid": ... } while the lead runs
+tasks/session-<session id>/.lock, next.lock, <id>.json.lock
+```
+
+- **`config.json`**: `{ team, leadSessionId, leadPid, members: [{ name, agentId, agentType, status, since,
+  shutdownRequested? }] }`. `status` is `running`, `queued`, `idle`, `stopping` or `stopped`. The lead is a member
+  (`name: "lead"`, `agentType: "team-lead"`). Only the lead writes it; writes are queued in order and atomic.
+- **Mailbox**: one JSON array of entries `{ id, from, to, text, summary?, kind, at, approve? }`; `kind` is `message`, `idle`,
+  `shutdown_request`, `shutdown_response` or `held`. Names are `lead` or valid agent names, `id` matches
+  `[A-Za-z0-9_-]{1,64}`. The mailbox is a trust boundary: `entryProblem` validates each entry on read and the deliverer drops
+  (and reports) invalid ones, or the whole file if it is not an array. A send counts once `appendEntry` has returned. An
+  empty mailbox is `[]` and is not locked when read (locking writes files in the watched directory).
+- **Task file**: `{ id, subject, description, status, owner?, blockedBy, result?, createdBy, createdAt, updatedAt }`;
+  `status` is `pending`, `in_progress` or `completed`; ids match `[1-9][0-9]{0,8}`. `taskProblem` validates on read.
+- **Locks**: `<file>.lock` holds `{ pid, at }`, created exclusively, retried every 25 ms for up to 2 s, then `busy`. A lock
+  is stale when its pid is dead or it is older than 30 s (an unreadable lock file: older than 1 s). A stale lock is removed
+  under `<lock>.takeover`, itself an exclusive create, and only if it still holds the content that was judged stale. A bare
+  rename of the stale lock is wrong: a second taker could rename the fresh lock its rival had just made, and for a moment
+  nobody would hold it. Task changes take the task's own lock; creating a task or changing `blockedBy` also takes the
+  directory's `.lock` (so two writers cannot make a cycle), and the counter takes `next.lock`. The order is always the
+  directory lock first, then `next.lock` or the task's.
+- **`.lead`**: the pid of the running lead, refreshed when the lead uses the list. Retention (`taskRetentionDays`, checked
+  against the newest file of each `session-*` directory) never removes a directory whose lead is alive, with or without a
+  team. At the end of a session `teams/session-<id>/` is removed and `tasks/session-<id>/` stays. A directory whose lead is
+  dead (a crash) is swept at the next team start (`sweepStaleTeams`).
+
+### The deliverer (`Team.start`, `pass`, `steer`)
+
+The lead watches `inboxes/` and, per pass, takes each mailbox's entries: a running teammate gets a `steer` message, an idle one
+a new exchange (entries that arrive together are joined), the lead's own mailbox becomes a custom message with `triggerTurn`.
+
+- `fs.watch` on the directory, plus a poll every 1 s (`POLL_MS`); the poll is the guarantee, the watch only makes delivery fast.
+- The watch handler ignores names that start with `.` or do not end in `.json`, so lock files and temporary files are not news.
+- It ignores a mailbox the lead's own pass rewrote in the last 200 ms (`SELF_WRITE_MS`, `selfWrites`).
+- Events are debounced: one pass 50 ms after the first event of a burst (`WATCH_DEBOUNCE_MS`). Passes run one at a time.
+- Taking an empty mailbox does not lock it (see above).
+- A refused steer (`handle.send` returns false: the child settled on its way out) puts the entries back (`putBack`) and
+  remembers that child handle (`steerRefused`); the next pass leaves that member alone until a new exchange starts.
+
+Why: inotify does not coalesce, so every create and remove of a lock file or temporary file in the directory is an event.
+Taking a mailbox writes exactly such files, so a watcher that reacted to them, or to its own rename, made every pass cause
+the next, and the lead spun at full speed (found on Linux). Three filters together stop it: only `*.json`, ignore own writes
+for 200 ms, and a debounce that bounds the rate whatever else writes. A port that watches the same directory must keep all
+three. `/tasks` re-reads the task files on a timer instead of watching `tasks/`, for the same reason.
+
+A teammate woken 5 times in a row by other teammates' messages (`MAX_WAKES`) is not woken again until a message from the lead
+or the user; the lead is told. `maxTeammates` counts members that are not `stopped`.
+
+### The extension events contract
+
+`agent-teams:teammate_idle` (in the lead, when an exchange ends), `agent-teams:task_created` and `agent-teams:task_completed`
+(in whichever process makes the change; a teammate's process loads the extensions xpi discovers). The payload carries the data
+plus `block(feedback)` and `hold(promise<string | undefined>)`; a string from a hold blocks. `block` refuses the step and sends
+the feedback; a `hold` is awaited up to 5 minutes, then the step is allowed with a warning. At most 3 `teammate_idle` blocks in
+a row per teammate; after that handlers only observe. Rules for a port: run the event before taking any lock (a hold may take
+minutes), and check the step again once the locks are held, since the list may have changed meanwhile; answers given after a
+handler's first `await` count for nothing.
+
+### Linux and macOS
+
+Linux is the reference: `fs.watch` on a directory is inotify, fast and exact, and a lock is a file, not `flock`. macOS
+`fs.watch` is FSEvents, which coalesces events and may report them late or with no file name (the handler treats a missing
+name as news). Never rely on the watch alone: the 1 s poll must stay, and tests that wait for delivery should allow a poll
+interval. The self-write window and the debounce matter less there but are harmless. Windows is not covered: the rename and
+`kill(pid, 0)` semantics differ.
+
+### Verify
+
+All offline, in `npm run test:subagent` (fake children, no model), under `test/subagent/teams/`:
+
+- `files.test.ts`: locks, takeover and its guard, mailboxes, concurrent writers (`lock-worker.ts` is the second process).
+- `team.test.ts`: members and `config.json`, delivery, the loop cap, shutdown, stale team directories, and the watcher
+  scenarios run in their own process (`watch-worker.ts`: no run-away passes on the lead's own lock files, a refused steer, a
+  rewritten mailbox). These are the tests to keep green on a new OS: a pass count above the bound means the watcher feeds on
+  its own writes.
+- `messages.test.ts`: the envelope and its escaping, delivery to the lead and to idle teammates.
+- `start.test.ts`: where teams are on, the refusals, the setting.
+- `tasks.test.ts`, `task-tools.test.ts`, `tasks-processes.test.ts` (ids from several processes; `task-worker.ts`): the list, dependencies
+  and cycles, retention, the tools, the events across processes.
+- `hooks.test.ts`: `block`, `hold`, timeouts (`hold-worker.ts`).
+- `ui.test.ts`, `ui-live.test.ts`: rows, the screens, typing, `x`, `/tasks`.
+
+A port is done when these pass against its host's fake. By hand on a real model (Haiku), after `npm run build`:
+`test/subagent/tui/14-teams.test.ts` (the UI in a pty) and `test/subagent/tui/15-teams-flow.test.ts` (a lead with two
+teammates, a dependent task, messages, an approved shutdown, the end of the session). Both are part of
+`npm run test:subagent:tui`.
 
 ## Keeping up with pi
 
