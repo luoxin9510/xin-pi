@@ -272,6 +272,18 @@ const textOf = (content: unknown) =>
 			? content.map((c) => (c as { text?: string }).text ?? "").join("")
 			: "";
 
+/** A subagent message's text in full. `capText` (8 KB) cuts a long end message and points at a file holding all of it;
+ * the "Tool calls made before the failure" line sits at the end, so a cut text undercounts. */
+const fullText = (text: string) => {
+	const spill = text.match(/\(cut, \d+ bytes; all of it is in (.+)\)\s*$/m)?.[1];
+	if (!spill) return text;
+	try {
+		return readFileSync(spill, "utf8");
+	} catch {
+		return text;
+	}
+};
+
 /** The wait metrics of a main session file. */
 export function waitMetrics(file: string): WaitMetrics {
 	const metrics: WaitMetrics = { timeoutMsSet: 0, agentsStoppedByDeadline: 0, released: 0 };
@@ -309,7 +321,7 @@ export function waitMetrics(file: string): WaitMetrics {
 		// A background script's end arrives as a message with the script's failed result in it (codemode's formatError):
 		// "Script timed out: ...", then "Tool calls made before the failure (...): Agent (cancelled), bash (ok), ...".
 		if (message.role === "custom" && message.customType === "subagent") {
-			const text = textOf(message.content);
+			const text = fullText(textOf(message.content));
 			if (!text.includes("Script timed out")) continue;
 			const summary = text.split("\n").find((l) => l.startsWith("Tool calls made before the failure"));
 			metrics.agentsStoppedByDeadline += (summary?.match(/\bAgent \((?:cancelled|error)\)/g) ?? []).length;
