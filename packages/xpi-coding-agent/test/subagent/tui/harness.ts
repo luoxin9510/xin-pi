@@ -196,8 +196,8 @@ export class PiTerminal {
 	}
 
 	kill(): void {
-		if (this.exited) return;
 		this.exited = true;
+		// always: after a normal /quit the pty's process group may still hold leftovers (ESRCH when none is left)
 		for (const target of [-this.proc.pid, this.proc.pid]) {
 			// the pty child leads its own process group: take its subagents down with it
 			try {

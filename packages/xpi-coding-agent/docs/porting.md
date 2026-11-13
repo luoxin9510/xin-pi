@@ -174,9 +174,13 @@ The options below come with the unit. Each says how to turn it off.
   lead without adding authentication.
 - **Wiring / turn off**: by setting, leave `agentTeams` unset or `false` (and `XPI_EXPERIMENTAL_AGENT_TEAMS` unset): `teamsOn`
   is then false, the `teams.configure(...)` call at `session_start` in `index.ts` gets `undefined`, and no team tool, prompt
-  section or `/tasks` exists. To leave the code out, remove in `index.ts` the `registerTeamTools(pi)` line (child branch), the
-  `teams.configure(...)` call, the `tasks` command registration and the lead's task-tool registration (`if (teamsOn)` after
-  `pi.registerTool(sendMessageTool(agent, teamsOn))`), and the teams argument of `describeAgents`; the teammate rows are
+  section or `/tasks` exists. To leave the code out, remove in `index.ts` the team imports (`teams`, `readTeamSettings`, `teamsAllowed`, `leadTaskEnv`, `registerTeamTools`, `taskTools`, `markLead`,
+  `tasksRoot`, `LEAD_PROMPT`, `openTasksScreen`), the `registerTeamTools(pi)`
+  line (child branch), the `teams.beginClose()` and `await teams.finishClose()` calls at shutdown, the `teamSettings`/`teamsOn`
+  computation and the `markLead(...)` line in `session_start`, the `tasks` command registration (`tasksCommand`), the
+  `teams.configure(...)` call, the `teamsOn` arguments of `describeAgents(...)`, `agentTool(...)` and `sendMessageTool(...)`,
+  the lead's task-tool registration (`if (teamsOn)` after `pi.registerTool(sendMessageTool(agent, teamsOn))`) and the
+  `if (teams.on) ... sections["agent-teams"] = LEAD_PROMPT` line in `before_agent_start`; the teammate rows are
   inert without a team. The rest of subagents does not need any of it.
 - **Verify**: `test/subagent/teams/*.test.ts` (in `npm run test:subagent`, offline; the watcher scenarios in `team.test.ts`
   are the ones to watch on a new OS). By hand on Haiku after `npm run build`: `test/subagent/tui/14-teams.test.ts` (UI) and

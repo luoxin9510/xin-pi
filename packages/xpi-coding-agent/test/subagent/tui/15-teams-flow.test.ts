@@ -109,7 +109,7 @@ test(
 			const config = () => readJson<Config>(join(teamDir, "config.json"));
 			const member = (name: string) => config()?.members.find((m) => m.name === name)?.status;
 
-			// Both teammates complete their task (each claimed its own) and go idle; task 3 stayed blocked until then.
+			// Both teammates complete their task (each claimed its own) and go idle. Task 3 is checked below: its blockedBy is stored as [1, 2] and it is still pending.
 			await until(
 				"tasks 1 and 2 completed",
 				() => (task("1")?.status === "completed" && task("2")?.status === "completed" ? true : undefined),
@@ -121,7 +121,7 @@ test(
 				pi,
 			);
 			const t3 = task("3");
-			assert.deepEqual(t3?.blockedBy, ["1", "2"], "task 3 waits for 1 and 2");
+			assert.deepEqual(t3?.blockedBy, ["1", "2"], "task 3 stores 1 and 2 as blockers");
 			assert.equal(t3?.status, "pending", "nobody took task 3 yet");
 			assert.equal(task("1")?.owner, "alpha");
 			assert.equal(task("2")?.owner, "beta");
@@ -136,13 +136,16 @@ test(
 			await until("alpha stopped", () => (member("alpha") === "stopped" ? true : undefined), pi);
 			assert.notEqual(member("beta"), "stopped", "only the member that was asked stops");
 
-			// The messages between the teammates arrived: each one's session holds an envelope from the other.
-			const files = filesUnder(pi.root).filter((f) => f.endsWith(".jsonl"));
+			// The messages between the teammates arrived: a teammate's (child) session holds an envelope from the other whose
+			// body carries the marker. The lead's own session is left out: it holds both markers in its prompt and the idle notices.
+			const files = filesUnder(pi.root).filter((f) => f.endsWith(".jsonl") && f.includes(`${sep}subagents${sep}`));
 			const sawEnvelope = (from: string, marker: string) =>
-				files.some((f) => {
-					const text = readFileSync(f, "utf8");
-					return text.includes(marker) && new RegExp(`agent-message from=\\\\*"${from}\\\\*"`).test(text);
-				});
+				files.some((f) =>
+					// In the JSON-escaped file the envelope reads: agent-message from=\"alpha\" ... >\n<text>
+					new RegExp(`agent-message from=\\\\*"${from}\\\\*"[^>]*>\\\\n[^<]*${marker}`).test(
+						readFileSync(f, "utf8"),
+					),
+				);
 			assert.ok(sawEnvelope("alpha", "ALPHA-HELLO-7731"), "beta received alpha's message");
 			assert.ok(sawEnvelope("beta", "BETA-HELLO-4417"), "alpha received beta's message");
 			// The lead got an idle notice from each teammate: its own session file (not a subagent's) holds an envelope of
