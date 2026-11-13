@@ -103,7 +103,11 @@ const RESYNC_MS = 15_000;
 function raceTimeout<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
 	let timer: NodeJS.Timeout | undefined;
 	const late = new Promise<never>((_, reject) => {
-		timer = setTimeout(() => reject(new Error(`${what} did not answer within ${Math.ceil(ms / 1000)} s`)), ms);
+		timer = setTimeout(
+			() =>
+				reject(new Error(`${what} did not answer within ${ms < 1000 ? `${ms} ms` : `${Math.ceil(ms / 1000)} s`}`)),
+			ms,
+		);
 	});
 	return Promise.race([work, late]).finally(() => clearTimeout(timer));
 }
@@ -520,7 +524,7 @@ export class AgentView implements Component {
 			client = await this.o.connect();
 			if (this.closed) return client.close();
 			const first = this.firstRequests(client);
-			const { jobs, after } = await raceTimeout(first, this.o.requestTimeoutMs ?? 10_000, "the background service");
+			const { jobs, after } = await raceTimeout(first, this.o.requestTimeoutMs ?? 10_000, "it");
 			if (this.closed) return client.close();
 			this.rows = new Map(jobs.map((j) => [j.id, j]));
 			for (const e of after) this.applyRow(e);

@@ -275,13 +275,16 @@ const textOf = (content: unknown) =>
 /** A subagent message's text in full. `capText` (8 KB) cuts a long end message and points at a file holding all of it;
  * the "Tool calls made before the failure" line sits at the end, so a cut text undercounts. */
 const fullText = (text: string) => {
-	const spill = text.match(/\(cut, \d+ bytes; all of it is in (.+)\)\s*$/m)?.[1];
-	if (!spill) return text;
-	try {
-		return readFileSync(spill, "utf8");
-	} catch {
-		return text;
+	let all = text;
+	// Append every spill file (the script's own text and agents' `Output of <id>:` sections can each be cut).
+	for (const m of text.matchAll(/\(cut, \d+ bytes; all of it is in (.+)\)\s*$/gm)) {
+		try {
+			all += `\n${readFileSync(m[1], "utf8")}`;
+		} catch {
+			// keep what is shown
+		}
 	}
+	return all;
 };
 
 /** The wait metrics of a main session file. */

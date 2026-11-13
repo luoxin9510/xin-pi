@@ -2286,10 +2286,40 @@ describe("the hub before the daemon's list", () => {
 			},
 		});
 		await s.view.start(); // returns once the wait is over; before the fix it never did
-		expect(view0(s.view)).toContain("background service: the background service did not answer within 1 s");
+		expect(view0(s.view)).toContain("background service: it did not answer within 50 ms");
 		expect(closed).toEqual([1]);
 		await sleep(2200);
 		expect(connects).toBeGreaterThan(1);
+		s.view.dispose();
+	}, 10_000);
+
+	it("an answer after the timeout changes nothing on screen, and the retry proceeds", async () => {
+		let connects = 0;
+		const late = {
+			request: () => sleep(150).then(() => ({ jobs: [row({ id: "late", name: "latecomer" })] })),
+			requestAt: () =>
+				sleep(150).then(() => ({ result: { jobs: [row({ id: "late", name: "latecomer" })] }, at: 0 })),
+			onEvent: () => () => {},
+			onClose: () => {},
+			position: () => 0,
+			isClosed: false,
+			close: () => {},
+		};
+		const s = setup([], {
+			extra: {
+				requestTimeoutMs: 50,
+				connect: async () => {
+					connects++;
+					return late as unknown as DaemonClient;
+				},
+			},
+		});
+		await s.view.start();
+		const before = view0(s.view);
+		expect(before).toContain("did not answer within 50 ms");
+		await sleep(250);
+		expect(view0(s.view)).not.toContain("latecomer");
+		expect(connects).toBeGreaterThan(0);
 		s.view.dispose();
 	}, 10_000);
 

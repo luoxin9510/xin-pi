@@ -210,4 +210,23 @@ describe("the rpc driver", () => {
 		writeFileSync(file, `${JSON.stringify({ type: "message", message })}\n`);
 		expect(waitMetrics(file).agentsStoppedByDeadline).toBe(6);
 	});
+
+	it("keeps the count when only an agent's output section is cut, not the script's text", () => {
+		const dir = mkdtempSync(join(tmpdir(), "rpc-metrics-"));
+		dirs.push(dir);
+		const spill = join(dir, "agent-a1.txt");
+		const agentFull = "agent output line\n".repeat(900);
+		writeFileSync(spill, agentFull);
+		const shown = [
+			"Background script s1 failed.",
+			"Error: Script timed out: 600000ms",
+			"Tool calls made before the failure (they are not undone): Agent (cancelled), Agent (error)",
+			"Output of a1:",
+			`${agentFull.slice(0, 8000)}\n... (cut, ${agentFull.length} bytes; all of it is in ${spill})`,
+		].join("\n");
+		const file = join(dir, "main.jsonl");
+		const message = { role: "custom", customType: "subagent", content: shown };
+		writeFileSync(file, `${JSON.stringify({ type: "message", message })}\n`);
+		expect(waitMetrics(file).agentsStoppedByDeadline).toBe(2);
+	});
 });
