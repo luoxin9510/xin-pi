@@ -53,6 +53,7 @@ export class PiTerminal {
 	private term: InstanceType<typeof xterm.Terminal>;
 	private proc: pty.IPty;
 	private exited = false;
+	private exitWaiters: (() => void)[] = [];
 
 	constructor(o: PiOptions = {}) {
 		const cols = o.cols ?? 120;
@@ -104,7 +105,10 @@ export class PiTerminal {
 		this.term.onData((reply) => {
 			if (!this.exited) this.proc.write(reply);
 		});
-		this.proc.onExit(() => (this.exited = true));
+		this.proc.onExit(() => {
+			this.exited = true;
+			for (const w of this.exitWaiters.splice(0)) w();
+		});
 	}
 
 	type(text: string): void {
@@ -177,6 +181,18 @@ export class PiTerminal {
 	waitGone(what: string | RegExp, timeoutMs = 60_000): Promise<string> {
 		const has = (s: string) => (typeof what === "string" ? s.includes(what) : what.test(s));
 		return this.waitFor((s) => !has(s), timeoutMs);
+	}
+
+	// Resolve true when the process has exited on its own (a /quit), false when it is still up after `timeoutMs`.
+	waitExit(timeoutMs: number): Promise<boolean> {
+		if (this.exited) return Promise.resolve(true);
+		return new Promise((resolve) => {
+			const timer = setTimeout(() => resolve(this.exited), timeoutMs);
+			this.exitWaiters.push(() => {
+				clearTimeout(timer);
+				resolve(true);
+			});
+		});
 	}
 
 	kill(): void {
