@@ -193,4 +193,55 @@ describe("the rpc driver", () => {
 		writeFileSync(file, `${lines.map((l) => JSON.stringify(l)).join("\n")}\nnot json\n`);
 		expect(waitMetrics(file)).toEqual({ timeoutMsSet: 2, agentsStoppedByDeadline: 0, released: 0 });
 	});
+
+	it("counts agents stopped by a deadline from the full text of a background end message cut at 8 KB", () => {
+		const dir = mkdtempSync(join(tmpdir(), "rpc-metrics-"));
+		dirs.push(dir);
+		const full = [
+			"Background script s1 failed.",
+			`Error: Script timed out: 600000ms${"x".repeat(9000)}`,
+			`Tool calls made before the failure (they are not undone): ${"Agent (cancelled), bash (ok), ".repeat(5)}Agent (error)`,
+		].join("\n");
+		const spill = join(dir, "script-s1.txt");
+		writeFileSync(spill, full);
+		const shown = `${full.slice(0, 8000)}\n... (cut, ${full.length} bytes; all of it is in ${spill})`;
+		const file = join(dir, "main.jsonl");
+		const message = { role: "custom", customType: "subagent", content: shown };
+		writeFileSync(file, `${JSON.stringify({ type: "message", message })}\n`);
+		expect(waitMetrics(file).agentsStoppedByDeadline).toBe(6);
+	});
+
+	it("keeps the count when only an agent's output section is cut, not the script's text", () => {
+		const dir = mkdtempSync(join(tmpdir(), "rpc-metrics-"));
+		dirs.push(dir);
+		const spill = join(dir, "agent-a1.txt");
+		const agentFull = "agent output line\n".repeat(900);
+		writeFileSync(spill, agentFull);
+		const shown = [
+			"Background script s1 failed.",
+			"Error: Script timed out: 600000ms",
+			"Tool calls made before the failure (they are not undone): Agent (cancelled), Agent (error)",
+			"Output of a1:",
+			`${agentFull.slice(0, 8000)}\n... (cut, ${agentFull.length} bytes; all of it is in ${spill})`,
+		].join("\n");
+		const file = join(dir, "main.jsonl");
+		const message = { role: "custom", customType: "subagent", content: shown };
+		writeFileSync(file, `${JSON.stringify({ type: "message", message })}\n`);
+		expect(waitMetrics(file).agentsStoppedByDeadline).toBe(2);
+	});
+
+	it("counts the full summary line when the cut falls inside it", () => {
+		const dir = mkdtempSync(join(tmpdir(), "rpc-metrics-"));
+		dirs.push(dir);
+		const head = `Background script s1 failed.\nError: Script timed out: 600000ms${"x".repeat(7800)}\n`;
+		const full = `${head}Tool calls made before the failure (they are not undone): ${"Agent (cancelled), ".repeat(20)}Agent (error)`;
+		const spill = join(dir, "script-s1.txt");
+		writeFileSync(spill, full);
+		// The shown text ends inside the summary line, after a few of its entries.
+		const shown = `${full.slice(0, head.length + 120)}\n... (cut, ${full.length} bytes; all of it is in ${spill})`;
+		const file = join(dir, "main.jsonl");
+		const message = { role: "custom", customType: "subagent", content: shown };
+		writeFileSync(file, `${JSON.stringify({ type: "message", message })}\n`);
+		expect(waitMetrics(file).agentsStoppedByDeadline).toBe(21);
+	});
 });

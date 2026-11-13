@@ -1,6 +1,6 @@
 # 01: Agent teams
 
-Status: PRs 1-3 are merged (#86 core, #87 tasks and events, #88 UI); PR 4 (wrap-up: the detailed porting section, the menu entry, `docs/xin-pi.md`, the real-flow test `tui/15-teams-flow.test.ts`) is in progress.
+Status: done. All four PRs are merged (#86 core, #87 tasks and events, #88 UI, #89 wrap-up: the detailed porting section, the menu entry, `docs/xin-pi.md`, the real-flow test `tui/15-teams-flow.test.ts`) and released in v1.11.0 (release PR #90).
 
 Approval: approved by the owner on 2026-11-12 (Grill 1–4 and the approval in `decisions.md`). It had two independent reviews:
 round 1 led to Grill 4, and round 2 found no blocking issue; its should-fix items are applied.

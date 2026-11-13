@@ -243,7 +243,8 @@ In a session the daemon runs, `/agents` marks that session's own row "this sessi
 delete or restart it, or run xpi's commands in it: leave the hub to use it.
 
 Until the daemon's list arrives the hub says it is connecting to the background service (and reconnecting, after the
-daemon went away). Rows are grouped by state (needs input, working, completed; pinned first) or by directory. Each row shows its name, what
+daemon went away). A daemon that accepts the connection but does not answer the first requests (subscribe, list) within 10 s
+is dropped: the hub shows `background service: ... did not answer` and tries again. Rows are grouped by state (needs input, working, completed; pinned first) or by directory. Each row shows its name, what
 it is doing or its last result, its model and context use, what it spent, and its age. A schedule's run shows
 `↻ <schedule>` before what it is doing.
 

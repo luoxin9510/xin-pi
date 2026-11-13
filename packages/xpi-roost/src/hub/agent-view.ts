@@ -98,6 +98,19 @@ const MIN_SUMMARY = 24;
 const MODEL_COL = 20;
 /** M22: how often the view checks its rows against the daemon's. */
 const RESYNC_MS = 15_000;
+
+/** `work`, or an error after `ms`: a daemon that accepts the connection but never answers must not hang the hub. */
+function raceTimeout<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
+	let timer: NodeJS.Timeout | undefined;
+	const late = new Promise<never>((_, reject) => {
+		timer = setTimeout(
+			() =>
+				reject(new Error(`${what} did not answer within ${ms < 1000 ? `${ms} ms` : `${Math.ceil(ms / 1000)} s`}`)),
+			ms,
+		);
+	});
+	return Promise.race([work, late]).finally(() => clearTimeout(timer));
+}
 /** M8: how long a sent /model or /thinking may take to show in the session's reports. */
 const SWITCH_CHECK_MS = 8000;
 
@@ -122,6 +135,9 @@ export interface HubCore {
 	cwd: string;
 	/** The daemon connection (xpi's roost: its agent directory and entry files); tests pass a fake. */
 	connect: () => Promise<DaemonClient>;
+	/** How long the first requests on a new connection (subscribe, list) may take before the hub gives up on it, shows
+	 * an error and tries again (default 10 s, the wait `live()` allows). */
+	requestTimeoutMs?: number;
 	/** Decision 11: the key that detaches an attached session (the user's `app.suspend`). */
 	isDetachKey: DetachKeyMatcher;
 	/** How that key is named in the help ("ctrl+z"). */
@@ -507,8 +523,8 @@ export class AgentView implements Component {
 		try {
 			client = await this.o.connect();
 			if (this.closed) return client.close();
-			await this.portFor(client).subscribe((e) => this.onEvent(e));
-			const { jobs, after } = await this.listFrom(client);
+			const first = this.firstRequests(client);
+			const { jobs, after } = await raceTimeout(first, this.o.requestTimeoutMs ?? 10_000, "it");
 			if (this.closed) return client.close();
 			this.rows = new Map(jobs.map((j) => [j.id, j]));
 			for (const e of after) this.applyRow(e);
@@ -541,6 +557,12 @@ export class AgentView implements Component {
 			setTimeout(() => void this.connect(), 2000).unref?.();
 		}
 		this.render0();
+	}
+
+	/** The first requests on a new connection: subscribe, then the first list. */
+	private async firstRequests(client: DaemonClient): Promise<{ jobs: JobRow[]; after: Event[] }> {
+		await this.portFor(client).subscribe((e) => this.onEvent(e));
+		return this.listFrom(client);
 	}
 
 	/**

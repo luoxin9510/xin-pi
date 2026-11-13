@@ -224,6 +224,7 @@ function setup(
 const type = (view: AgentView, text: string) => {
 	for (const ch of text) view.handleInput(ch);
 };
+const view0 = (view: AgentView) => view.render(120).join("\n");
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 describe("AgentView render", () => {
@@ -2263,6 +2264,66 @@ describe("PR 4 review: the hub inside a session the daemon runs, and a stale xpi
 });
 
 describe("the hub before the daemon's list", () => {
+	it("a daemon that never answers the first requests ends in an error on screen and a retry, not a hang", async () => {
+		let connects = 0;
+		const closed: number[] = [];
+		const stuck = {
+			request: () => new Promise(() => {}),
+			requestAt: () => new Promise(() => {}),
+			onEvent: () => () => {},
+			onClose: () => {},
+			position: () => 0,
+			isClosed: false,
+			close: () => closed.push(1),
+		};
+		const s = setup([], {
+			extra: {
+				requestTimeoutMs: 50,
+				connect: async () => {
+					connects++;
+					return stuck as unknown as DaemonClient;
+				},
+			},
+		});
+		await s.view.start(); // returns once the wait is over; before the fix it never did
+		expect(view0(s.view)).toContain("background service: it did not answer within 50 ms");
+		expect(closed).toEqual([1]);
+		await sleep(2200);
+		expect(connects).toBeGreaterThan(1);
+		s.view.dispose();
+	}, 10_000);
+
+	it("an answer after the timeout changes nothing on screen, and the retry proceeds", async () => {
+		let connects = 0;
+		const late = {
+			request: () => sleep(150).then(() => ({ jobs: [row({ id: "late", name: "latecomer" })] })),
+			requestAt: () =>
+				sleep(150).then(() => ({ result: { jobs: [row({ id: "late", name: "latecomer" })] }, at: 0 })),
+			onEvent: () => () => {},
+			onClose: () => {},
+			position: () => 0,
+			isClosed: false,
+			close: () => {},
+		};
+		const s = setup([], {
+			extra: {
+				requestTimeoutMs: 50,
+				connect: async () => {
+					connects++;
+					return late as unknown as DaemonClient;
+				},
+			},
+		});
+		await s.view.start();
+		const before = view0(s.view);
+		expect(before).toContain("did not answer within 50 ms");
+		await sleep(250);
+		expect(view0(s.view)).not.toContain("latecomer");
+		await sleep(2200); // the retry comes 2 s after the timeout
+		expect(connects).toBeGreaterThan(1);
+		s.view.dispose();
+	}, 10_000);
+
 	it("says it is connecting, with no counts or groups, until the first list; and reconnecting after a drop", async () => {
 		let open: (() => void) | undefined;
 		const gate = new Promise<void>((r) => {
