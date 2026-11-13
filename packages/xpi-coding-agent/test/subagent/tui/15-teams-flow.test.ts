@@ -6,7 +6,7 @@
 //   node --test --experimental-strip-types test/subagent/tui/15-teams-flow.test.ts
 import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { test } from "node:test";
 import { type PiTerminal, withPi } from "./harness.ts";
 
@@ -145,10 +145,20 @@ test(
 				});
 			assert.ok(sawEnvelope("alpha", "ALPHA-HELLO-7731"), "beta received alpha's message");
 			assert.ok(sawEnvelope("beta", "BETA-HELLO-4417"), "alpha received beta's message");
-			// The lead's idle notices are drawn on its screen (informational: the wording is the model-facing text of the notice).
-			const screen = pi.screen();
-			console.log(
-				`idle notices seen on screen: alpha=${/alpha is idle/.test(screen)} beta=${/beta is idle/.test(screen)}`,
+			// The lead got an idle notice from each teammate: its own session file (not a subagent's) holds an envelope of
+			// kind "idle" from each of them. Polled, since a notice may still be on its way to the lead.
+			const sawIdle = (from: string) =>
+				filesUnder(pi.root)
+					.filter((f) => f.endsWith(".jsonl") && !f.includes(`${sep}subagents${sep}`))
+					.some((f) =>
+						new RegExp(
+							`agent-message from=\\\\*"${from}\\\\*" team=\\\\*"[^"\\\\]*\\\\*" kind=\\\\*"idle\\\\*"`,
+						).test(readFileSync(f, "utf8")),
+					);
+			await until(
+				"idle notices from both teammates in the lead's session",
+				() => (sawIdle("alpha") && sawIdle("beta") ? true : undefined),
+				pi,
 			);
 
 			// End the session the way a user does. A kill would count as a crash and leave the team directory behind.
