@@ -54,7 +54,7 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
     for codemode scripts, the script helpers (`agent`, `parallel`, `pipeline`, `phase`, `log`), saved workflows
     (`/<name>`, `/workflows`), built-in workflows (`builtin/workflows/*.js`, found last by `discoverWorkflows`, runnable
     in untrusted projects; today `/review`, which runs the built-in read-only `reviewer` agent in `builtin/reviewer.md`),
-    the `fork` agent type and `/subtask`, the panel, `/subagents`, the `--agents` flag. Settings namespace `subagent.*`, env `XPI_SUBAGENT_*`, branches `subagent/<id>`. It was the separate
+    the `fork` agent type and `/subtask`, experimental agent teams (named teammates, mailboxes, a shared task list, `/tasks`; `agentTeams` setting), the panel, `/subagents`, the `--agents` flag. Settings namespace `subagent.*`, env `XPI_SUBAGENT_*`, branches `subagent/<id>`. It was the separate
     extension pi-pipipi. User docs: [subagent.md](../packages/xpi-coding-agent/docs/subagent.md); porting contracts:
     [subagent-porting.md](../packages/xpi-coding-agent/docs/subagent-porting.md), reached from the component menu
     [porting.md](../packages/xpi-coding-agent/docs/porting.md).
@@ -445,6 +445,26 @@ stops. The subagent extension passes
 it to a child whose agent has `extensions`. User docs: `cli.md#resource-options`, `subagent.md#extensions-as-hooks`.
 Tests: `test/strict-extensions.test.ts`.
 
+## Core changes: agent teams
+
+Experimental (`agentTeams` setting or `XPI_EXPERIMENTAL_AGENT_TEAMS=1`, TUI and saved sessions only). Nearly all of it is
+in the `subagent` extension (`src/extensions/subagent/team*.ts`); the core touches are small:
+
+- `src/core/settings-schema.ts`: the `agentTeams` schema (`true`, or `{ enabled, maxTeammates, taskRetentionDays }`), with
+  `schemas/settings.schema.json`.
+- `src/core/keybindings.ts`: `app.team.tasks` (no default key, since `Ctrl+T` is the thinking toggle), with
+  `schemas/keybindings.schema.json`.
+- Data lives under the agent dir: `teams/session-<session id>/` (removed at session end) and `tasks/session-<session id>/`
+  (kept, then removed by age). Formats, locks and the deliverer's watch rules are in
+  [subagent-porting.md](../packages/xpi-coding-agent/docs/subagent-porting.md#agent-teams); behaviour in
+  [subagent.md](../packages/xpi-coding-agent/docs/subagent.md#agent-teams); the porting menu entry in
+  [porting.md](../packages/xpi-coding-agent/docs/porting.md#subagents-agent-teams).
+- Tests: `test/subagent/teams/*.test.ts` (offline, in `npm run test:subagent`: files and locks, the team and its watcher in
+  worker processes, messages, start, tasks, hooks, UI). By hand on Haiku, part of `npm run test:subagent:tui`:
+  `test/subagent/tui/14-teams.test.ts` (rows, Esc, `x`, typing, `/tasks` in a pty) and `15-teams-flow.test.ts` (a lead with
+  two teammates, a dependent task, messages, an approved shutdown and the end of the session, checked on the task files,
+  `config.json` and the session files).
+
 ## Testing
 
 Everything below runs from `packages/xpi-coding-agent/`. Tests assert on structure and side effects (result fields,
@@ -457,7 +477,7 @@ files, the child's session file), never on model wording, and never start a test
 | `npm run test:upstream` | offline `node:test` for `/upstream`: temp git repos with a fake `upstream` remote, a stubbed fetch, a fake pi API, a temp agent dir | nothing |
 | `npm run test:subagent:real` | `real/*`: the extension in-process, children are the built xpi on real haiku | `npm run build`, auth |
 | `npm run test:subagent:parent` | `parent/*`: a real `xpi --mode rpc` parent, background scripts, `/subagents stop` | `npm run build`, auth |
-| `npm run test:subagent:tui` | `tui/*`: interactive xpi in a pty (node-pty + headless xterm): panel, screen, keys | `npm run build`, auth |
+| `npm run test:subagent:tui` | `tui/*`: interactive xpi in a pty (node-pty + headless xterm): panel, screen, keys, workflows, agent teams (`14-teams`, `15-teams-flow`) | `npm run build`, auth |
 | `npm run test:subagent:evals -- --runs 3` | `evals/`: 22 cases on haiku, graded on structure | `npm run build`, auth |
 | `npm run test:subagent:stress -- --calls 20 --limit 20` | `stress/`: 20 concurrent children | `npm run build`, auth, about 4 GB of memory |
 | `npm run test:subagent:cache` | `cache/`: what the provider's prompt cache reuses between agent types, a worktree child and a memory edit, siblings at once with `staggerStart` off and on, plus a payload dump | `npm run build`, auth |

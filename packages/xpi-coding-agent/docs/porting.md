@@ -152,9 +152,9 @@ The options below come with the unit. Each says how to turn it off.
 - **Gives**: experimental agent teams (off by default): a named `Agent` call starts a teammate that messages the lead and
   other teammates through mailbox files, with idle notices, a loop cap and shutdown requests, plus a shared task list
   (`TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate`: dependencies, claims, liveness, retention) and three extension events
-  (`teammate_idle`, `task_created`, `task_completed`) that can block with feedback. Built so far: teammates, messages,
-  shutdown, cleanup, tasks, hooks and the UI (teammate rows in the panel that never hide, typing and Esc on the screen,
-  `x` in any state, `/tasks` and the `app.team.tasks` key). See [Agent teams](subagent.md#agent-teams).
+  (`teammate_idle`, `task_created`, `task_completed`) that can block with feedback, and the UI: teammate rows in the panel that
+  never hide, typing and Esc on the teammate's screen, `x` in any state, `/tasks` and the `app.team.tasks` key. Everything
+  is built; teams are on only for `ctx.mode === "tui"` in a saved session. See [Agent teams](subagent.md#agent-teams).
 - **Depends on**: names and `SendMessage`, the Agent tool and its exchanges, `registry.ts` (watch, steer, stop),
   `pi.events` (the hooks go through it; `emit` must call handlers synchronously, so they can answer in it), `ctx.mode` (teams are on only for `"tui"`), a custom message with `triggerTurn`, the
   `before_agent_start` event with mutable `systemPromptOptions.sections`, and a file system with exclusive create and
@@ -172,12 +172,21 @@ The options below come with the unit. Each says how to turn it off.
 - **Trust**: mailboxes are plain files any team process can write, `from: "lead"` included; they are not an authentication
   boundary, and teams run with the lead's trust. Do not port this to a setting where teammates are less trusted than the
   lead without adding authentication.
-- **Wiring / turn off**: the `agentTeams` setting (unset or `false` turns it off); in code, the `teams.configure(...)` call
-  at `session_start` and `registerTeamTools(pi)` in the child branch of `index.ts`.
-- **Verify**: `test/subagent/teams/*.test.ts` (in `npm run test:subagent`).
-- **Linux**: `fs.watch` on a directory uses inotify; keep the one-second poll next to it. Locks are lock files, not
-  `flock`; pid liveness is `kill(pid, 0)`. **macOS**: `fs.watch` uses FSEvents, which coalesces events and may report
-  them late, so the poll does the delivering when it must; the rest is the same.
+- **Wiring / turn off**: by setting, leave `agentTeams` unset or `false` (and `XPI_EXPERIMENTAL_AGENT_TEAMS` unset): `teamsOn`
+  is then false, the `teams.configure(...)` call at `session_start` in `index.ts` gets `undefined`, and no team tool, prompt
+  section or `/tasks` exists. To leave the code out, remove in `index.ts` the `registerTeamTools(pi)` line (child branch), the
+  `teams.configure(...)` call, the `tasks` command registration and the lead's task-tool registration (`if (teamsOn)` after
+  `pi.registerTool(sendMessageTool(agent, teamsOn))`), and the teams argument of `describeAgents`; the teammate rows are
+  inert without a team. The rest of subagents does not need any of it.
+- **Verify**: `test/subagent/teams/*.test.ts` (in `npm run test:subagent`, offline; the watcher scenarios in `team.test.ts`
+  are the ones to watch on a new OS). By hand on Haiku after `npm run build`: `test/subagent/tui/14-teams.test.ts` (UI) and
+  `15-teams-flow.test.ts` (lead, two teammates, dependent task, messages, approved shutdown, end of session).
+- **Linux**: `fs.watch` on a directory is inotify, which does not coalesce: every create and remove of a lock or temporary
+  file in `inboxes/` is an event, so the watcher must react only to `*.json`, ignore the lead's own writes for 200 ms and
+  debounce 50 ms, or it busy-loops on its own writes. Keep the one-second poll next to the watch. Locks are lock files
+  (`wx` create, stale takeover under `<lock>.takeover`), not `flock`; pid liveness is `kill(pid, 0)`.
+  **macOS**: `fs.watch` is FSEvents, which coalesces events and may report them late or without a file name, so the poll does
+  the delivering when it must; the rest is the same. Windows is not covered.
 - **Guide**: [Porting the subagent extension](subagent-porting.md#agent-teams).
 
 ### subagents: background
