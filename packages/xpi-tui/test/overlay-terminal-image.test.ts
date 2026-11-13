@@ -29,7 +29,7 @@ function staticComponent(lines: string[]): Component {
 	return { render: () => lines, invalidate: () => {} };
 }
 
-// Regression tests for #11584: overlays left a hole where they intersected a terminal image.
+// Regression tests for earendil-works/pi#11584: overlays left a hole where they intersected a terminal image.
 describe("overlays over terminal images", () => {
 	it("deletes a Kitty image under an overlay and redraws it after the overlay closes", async () => {
 		setCapabilities({ images: "kitty", trueColor: true, hyperlinks: true });

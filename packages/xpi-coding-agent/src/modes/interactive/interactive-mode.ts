@@ -5981,13 +5981,15 @@ export class InteractiveMode {
 		}
 	}
 
-	/** Fork a session whose stored cwd is gone into `cwd` and switch to the fork, like `--session <id>` from another project (#11060). */
+	/** Fork a session whose stored cwd is gone into `cwd` and switch to the fork, like `--session <id>` from another project (earendil-works/pi#11060). */
 	private async switchToForkedSession(
 		sourcePath: string,
 		cwd: string,
 		options?: Parameters<ExtensionCommandContext["switchSession"]>[1],
 	): Promise<{ cancelled: boolean }> {
-		const fork = SessionManager.forkFrom(sourcePath, cwd, this.sessionManager.getSessionDir());
+		const fork = // Store the fork beside its source, never in the current session's folder: the current session may be a
+			// roost scratch session, and a fork stored there would be mistaken for an empty hand-off session.
+			SessionManager.forkFrom(sourcePath, cwd, path.dirname(sourcePath));
 		const forkPath = fork.getSessionFile()!;
 		const result = await this.runtimeHost.switchSession(forkPath, {
 			withSession: options?.withSession,

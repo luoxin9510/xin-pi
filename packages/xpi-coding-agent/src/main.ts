@@ -762,7 +762,7 @@ export async function main(args: string[], options?: MainOptions) {
 				case "continue":
 					sessionManager = SessionManager.open(sessionFile, sessionDir, cwd);
 					break;
-				// Fork like `--session <id>` from another project, so the choice sticks without rewriting history (#11060).
+				// Fork like `--session <id>` from another project, so the choice sticks without rewriting history (earendil-works/pi#11060).
 				case "fork":
 					sessionManager = forkSessionOrExit(sessionFile, cwd, sessionDir);
 					break;
@@ -885,7 +885,7 @@ export async function main(args: string[], options?: MainOptions) {
 					})
 				: { scopedModels: [], diagnostics: [] };
 		// Returned as diagnostics instead of printed: this factory runs again on /new, /resume and /fork,
-		// while the interactive TUI draws on the terminal (#11264).
+		// while the interactive TUI draws on the terminal (earendil-works/pi#11264).
 		diagnostics.push(...modelScopeDiagnostics);
 		const {
 			options: sessionOptions,

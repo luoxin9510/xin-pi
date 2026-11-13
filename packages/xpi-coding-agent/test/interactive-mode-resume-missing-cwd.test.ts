@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type MissingSessionCwdChoice, MissingSessionCwdError } from "../src/core/session-cwd.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
@@ -34,7 +34,7 @@ function createTempDir(name: string): string {
 	return dir;
 }
 
-// #11060
+// earendil-works/pi#11060
 describe("InteractiveMode /resume with a missing session cwd", () => {
 	const cleanupPaths: string[] = [];
 
@@ -94,7 +94,9 @@ describe("InteractiveMode /resume with a missing session cwd", () => {
 
 		expect(result).toEqual({ cancelled: false });
 		const forkPath = switchSession.mock.calls[1][0];
-		expect(forkPath.startsWith(currentSessionDir)).toBe(true);
+		// The fork lands next to the source, not in the (possibly scratch) current session folder.
+		expect(dirname(forkPath)).toBe(dirname(sessionPath));
+		expect(readdirSync(currentSessionDir)).toEqual([]);
 		const lines = readFileSync(forkPath, "utf8").trim().split("\n");
 		const header = JSON.parse(lines[0]);
 		expect(header).toMatchObject({ type: "session", cwd: currentCwd, parentSession: sessionPath });
@@ -129,6 +131,7 @@ describe("InteractiveMode /resume with a missing session cwd", () => {
 
 		expect(result).toEqual({ cancelled: true });
 		expect(existsSync(switchSession.mock.calls[1][0])).toBe(false);
+		expect(readdirSync(dirname(sessionPath))).toEqual(["orphan.jsonl"]);
 		expect(readdirSync(currentSessionDir)).toEqual([]);
 	});
 

@@ -214,7 +214,7 @@ describe("AgentSessionRuntime characterization", () => {
 		]);
 	});
 
-	// #11060
+	// earendil-works/pi#11060
 	it("leaves no copy behind when an import fails on a missing session cwd", async () => {
 		const { runtime, tempDir } = await createRuntimeForTest(() => {});
 		const sessionDir = runtime.session.sessionManager.getSessionDir();

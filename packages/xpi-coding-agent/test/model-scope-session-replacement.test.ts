@@ -47,7 +47,7 @@ async function runNewSessionOverRpc(agentDir: string, projectDir: string): Promi
 }
 
 describe("model scope warnings on session replacement", () => {
-	// #11264: the runtime factory runs again on /new, /resume and /fork. It printed the model scope warnings
+	// earendil-works/pi#11264: the runtime factory runs again on /new, /resume and /fork. It printed the model scope warnings
 	// with console.warn, which drew over the interactive TUI. They are now startup diagnostics, reported once.
 	it("reports unmatched enabledModels patterns once at startup, not again on new_session", async () => {
 		const tempRoot = mkdtempSync(join(tmpdir(), "pi-model-scope-replacement-"));

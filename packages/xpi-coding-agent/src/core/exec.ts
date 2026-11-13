@@ -149,7 +149,7 @@ export async function execCommand(
 	}
 
 	// A signal-killed command has no exit code. Use the shell convention, as the bash tool does, so a
-	// timeout, an abort or a crash does not read as success (#12088).
+	// timeout, an abort or a crash does not read as success (earendil-works/pi#12088).
 	const exitCode = code ?? (proc.signalCode ? 128 + (osConstants.signals[proc.signalCode] ?? 0) : 1);
 	return {
 		stdout,

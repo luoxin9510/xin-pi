@@ -1189,7 +1189,7 @@ describe("TuiAltScreen", () => {
 	});
 
 	it("keeps uploaded Kitty images across a full redraw", async () => {
-		// Regression test for #12010: Kitty frees image data without placements on ED 2, so a full redraw
+		// Regression test for earendil-works/pi#12010: Kitty frees image data without placements on ED 2, so a full redraw
 		// that deleted placements and then cleared the screen left placement-only reuse pointing at nothing.
 		let tui: TuiAltScreen | undefined;
 		setCapabilities({ images: "kitty", trueColor: true, hyperlinks: true });
