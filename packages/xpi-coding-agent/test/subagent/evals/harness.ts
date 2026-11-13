@@ -120,6 +120,7 @@ export async function directTool(cwd: string, signal: AbortSignal, options: Dire
 		ui: {
 			notify: (m: string) => warnings.push(m),
 			setWidget: () => {},
+			setStatus: () => {},
 			onTerminalInput: () => () => {},
 			custom: async () => {},
 		},

@@ -81,7 +81,7 @@ test("run_in_background:false pins the script: later calls do not move it and th
 	}
 });
 
-test("run_in_background:true returns running at once, the script stays in the foreground, and the agent's end reaches main as a message", async () => {
+test("run_in_background:true returns running at once, the script stays tracked as the agent's group, and the group's end reaches main as one message", async () => {
 	const p = startParent();
 	try {
 		const code = `const r = await tools.Agent({description:'wait',prompt:'Run the bash command \`sleep 4\` then reply with the word DONE',run_in_background:true});\nreturn 'TOK-' + (6*7) + ' ' + r.status + ' ' + r.agentId + ' [' + r.output + ']';`;
@@ -99,8 +99,10 @@ test("run_in_background:true returns running at once, the script stays in the fo
 		const settled = await p.waitFor("main's first turn to settle", (e) => e.type === "agent_settled", 60_000);
 		const message = await p.waitFor("the agent's message", isCustom, 90_000);
 		const body = textOfMessage(message.message);
-		assert.match(body, new RegExp(`^Background agent ${m![1]} general-purpose completed \\(\\$`));
-		assert.match(body, /Output:\nDONE/);
+		// Spec 09: an agent a script starts is a member of the script's group, so main gets one group message.
+		assert.match(body, /^Agents left running by script \S+.* have ended\./);
+		assert.match(body, new RegExp(`- ${m![1]} general-purpose .*completed`));
+		assert.match(body, new RegExp(`Output of ${m![1]}:\\nDONE`));
 		assert.ok(message.at > settled.at);
 		await p.waitFor(
 			"main's reply",

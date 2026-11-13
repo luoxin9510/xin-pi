@@ -61,7 +61,8 @@ test("/subagents stop stops two slow background agents, tells the user how many,
 			60_000,
 			from,
 		);
-		assert.match(notice.message, /stopped 2 subagents and 0 scripts/);
+		// The script that started the two agents is still tracked as their group (spec 09), so it is stopped too.
+		assert.match(notice.message, /stopped 2 subagents and 1 script\b/);
 		await until("both stopped", () => agents(p.sessionDir).every((a) => a.status === "stopped"), 30_000);
 		const [a, b] = agents(p.sessionDir);
 		assert.ok(a && b && a.id !== b.id);

@@ -109,6 +109,7 @@ export async function loadTool(settings: Record<string, unknown>, c: Ctx) {
 		ui: {
 			notify: (m: string) => notes.push(m),
 			setWidget: () => {},
+			setStatus: () => {},
 			onTerminalInput: () => () => {},
 			// Build the component like pi would (fake tui and theme), record what it draws, leave at once.
 			custom: (factory: any) => {
