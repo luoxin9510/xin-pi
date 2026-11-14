@@ -78,3 +78,13 @@ The owner approved the spec after six review rounds (one review and five delta c
 
 18. **The main session** edits the primary workspace like any checkout. Sandboxes are for subagents and teammates.
 19. **Teammates** each get a sandbox in a shadow-git workspace. Elsewhere teams are unchanged.
+
+## Follow-up (2026-11-14)
+
+The owner accepted the recommendation ("好的可以的").
+
+20. **An AGENTS.md template, no skill.** xpi's prompt already carries the rules, so a skill would repeat it. The
+    template carries what the prompt cannot: commit subjects written for the host check-in, scratch paths for output,
+    the sandbox branch, and places to fill in for the workspace (host write commands and `shadow.blockCommand`,
+    build, test, shared paths). `xpi sg init --agents-md` writes it as a local-only file; `xpi sg agents-md` prints it,
+    also for another tool's instructions file.

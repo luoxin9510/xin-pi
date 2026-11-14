@@ -1,3 +1,4 @@
+import { AGENTS_MD_TEMPLATE } from "./agents-md.ts";
 import { createContext, type SgContext, type SgOptions } from "./context.ts";
 import { precondition, SgError } from "./errors.ts";
 import { checkGitVersion, repoEnv } from "./git.ts";
@@ -11,7 +12,9 @@ import { abortImport, asWriter, exportMain, importHost, mergeBranch } from "./sy
 const HELP = `Usage: xpi sg [--repo <name>] <command>
 
   init <name> --adapter <a> [--scope <paths>] [--local-only <glob>...] [--config <key>=<value>] [--gitfile]
-                    Register the current directory as a workspace
+       [--agents-md]
+                    Register the current directory as a workspace (--agents-md also writes a local-only AGENTS.md)
+  agents-md         Print the AGENTS.md template (for CLAUDE.md or another tool's instructions file)
   import [--abort]  Bring host changes into the host branch and merge them into main; resume or abort a stopped one
   export            Print the export plan (host..main)
   export --apply    Check the plan in through the adapter and advance host
@@ -49,6 +52,7 @@ function parseInit(args: string[]): Parameters<typeof initRepo>[1] {
 	const localOnly: string[] = [];
 	const config: string[] = [];
 	let gitfile = false;
+	let agentsMd = false;
 	for (let at = 0; at < rest.length; at++) {
 		const flag = rest[at];
 		const value = (): string => {
@@ -60,13 +64,14 @@ function parseInit(args: string[]): Parameters<typeof initRepo>[1] {
 		else if (flag === "--scope") scope = value().split(/\s+/).filter(Boolean);
 		else if (flag === "--config") config.push(value());
 		else if (flag === "--gitfile") gitfile = true;
+		else if (flag === "--agents-md") agentsMd = true;
 		else if (flag === "--local-only") {
 			localOnly.push(value());
 			while (rest[at + 1] !== undefined && !rest[at + 1].startsWith("--")) localOnly.push(rest[++at]);
 		} else throw precondition(`unknown argument ${flag}`);
 	}
 	if (!adapter) throw precondition("init needs --adapter <name>");
-	return { name, adapter, scope, localOnly, config, gitfile };
+	return { name, adapter, scope, localOnly, config, gitfile, agentsMd };
 }
 
 // git's global options that take a separate value
@@ -140,6 +145,10 @@ async function dispatch(ctx: SgContext, args: string[]): Promise<number> {
 		case "init":
 			await initRepo(ctx, parseInit(tail));
 			ctx.out(`registered ${ctx.cwd} as ${tail[0]}\n`);
+			return 0;
+		case "agents-md":
+			takeFlags(tail, []);
+			ctx.out(AGENTS_MD_TEMPLATE);
 			return 0;
 		case "list":
 			takeFlags(tail, []);

@@ -360,7 +360,7 @@ Project `.pi/mcp.json` files are only read for projects that are already trusted
 ## Shadow-git commands
 
 `xpi sg` puts a private git history over a workspace that another version control system owns: `init`, `import`,
-`export`, `status`, `env`, `list`, `merge`, `sbx` (sandboxes for parallel agents), and git for everything else. See [shadow-git](shadow-git.md).
+`export`, `status`, `env`, `list`, `merge`, `sbx` (sandboxes for parallel agents), `agents-md` (an AGENTS.md template), and git for everything else. See [shadow-git](shadow-git.md).
 
 ## Background session commands
 

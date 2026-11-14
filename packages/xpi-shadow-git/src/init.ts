@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { callAdapter, findAdapter, lines } from "./adapter.ts";
+import { AGENTS_MD_FILE, AGENTS_MD_TEMPLATE } from "./agents-md.ts";
 import { localOnlySpecs, scopeOf } from "./config.ts";
 import type { SgContext } from "./context.ts";
 import { precondition } from "./errors.ts";
@@ -17,6 +18,8 @@ export interface InitOptions {
 	config: string[];
 	/** Write the opt-in `.git` file into the workspace (`shadow.gitfile`). */
 	gitfile: boolean;
+	/** Write the AGENTS.md template into the workspace as a local-only file, committed on main (never on host). */
+	agentsMd?: boolean;
 }
 
 const NO_SPACE = /^\S+$/;
@@ -53,6 +56,11 @@ function validate(ctx: SgContext, workspace: string, options: InitOptions): void
 	if (existsSync(gitDirOf(ctx, options.name))) {
 		throw precondition(`${gitDirOf(ctx, options.name)} exists already; pick another name`);
 	}
+	if (options.agentsMd && existsSync(join(workspace, AGENTS_MD_FILE))) {
+		throw precondition(
+			`${join(workspace, AGENTS_MD_FILE)} exists: --agents-md would replace it (print the template with "xpi sg agents-md")`,
+		);
+	}
 	if (options.gitfile && existsSync(join(workspace, ".git"))) {
 		throw precondition(`${join(workspace, ".git")} exists: --gitfile would replace it`);
 	}
@@ -74,8 +82,21 @@ export async function initRepo(ctx: SgContext, options: InitOptions): Promise<Re
 		try {
 			return populate(repo, options);
 		} catch (error) {
-			rmSync(repo.gitDir, { recursive: true, force: true });
-			removeRegistry(ctx, repo.name);
+			// Each step on its own: one failing (the store's own I/O, say) must not keep the others from running.
+			const undo = (step: () => void): void => {
+				try {
+					step();
+				} catch {}
+			};
+			// validate() refused an existing AGENTS.md, so one holding the template now is this run's own
+			const agentsMd = join(workspace, AGENTS_MD_FILE);
+			undo(() => {
+				if (options.agentsMd && existsSync(agentsMd) && readFileSync(agentsMd, "utf8") === AGENTS_MD_TEMPLATE) {
+					rmSync(agentsMd, { force: true });
+				}
+			});
+			undo(() => rmSync(repo.gitDir, { recursive: true, force: true }));
+			undo(() => removeRegistry(ctx, repo.name));
 			throw error;
 		}
 	});
@@ -96,7 +117,11 @@ function populate(repo: Repo, options: InitOptions): Repo {
 	}
 	git(repo, ["config", "shadow.adapter", options.adapter]);
 	if (options.scope.length > 0) git(repo, ["config", "shadow.scope", options.scope.join(" ")]);
-	for (const glob of options.localOnly) git(repo, ["config", "--add", "shadow.localOnly", glob]);
+	const localOnly =
+		options.agentsMd && !options.localOnly.includes(AGENTS_MD_FILE)
+			? [...options.localOnly, AGENTS_MD_FILE]
+			: options.localOnly;
+	for (const glob of localOnly) git(repo, ["config", "--add", "shadow.localOnly", glob]);
 	for (const setting of options.config) {
 		const at = setting.indexOf("=");
 		git(repo, ["config", setting.slice(0, at), setting.slice(at + 1)]);
@@ -117,6 +142,13 @@ function populate(repo: Repo, options: InitOptions): Repo {
 	baseline(repo);
 	git(repo, ["commit", "-q", "--allow-empty", "-m", "sg: baseline"]);
 	git(repo, ["checkout", "-q", "-b", "main"]);
+	// The template lands on main only: host stays the host's state, and the file is local-only, so never exported.
+	if (options.agentsMd) {
+		writeFileSync(join(repo.workspace, AGENTS_MD_FILE), AGENTS_MD_TEMPLATE);
+		// -f: a workspace .gitignore or the adapter's excludes may match AGENTS.md
+		git(repo, ["add", "-f", "--", `:(literal)${AGENTS_MD_FILE}`]);
+		git(repo, ["commit", "-q", "-m", "sg: add AGENTS.md (local-only)"]);
+	}
 	if (options.gitfile) writeFileSync(join(repo.workspace, ".git"), `gitdir: ${repo.gitDir}\n`);
 	appendRegistry(repo.ctx, { path: repo.workspace, name: repo.name });
 	return repo;

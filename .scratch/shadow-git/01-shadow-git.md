@@ -678,3 +678,8 @@ PR 4 (wrap-up): the real-model check is `test/subagent/real/24-shadow-git.test.t
 namespace backend is also run end to end offline in `test/subagent/shadow-git/namespace.test.ts` (an isolated subagent and a
 teammate; skips where namespaces are unavailable). The detailed porting guide is the section "shadow-git: the detailed
 guide" of `porting.md`.
+
+Follow-up (decision 20): the AGENTS.md template. `xpi sg agents-md` prints it; `xpi sg init --agents-md` writes it into
+the workspace, adds `AGENTS.md` to the local-only globs and commits it on `main` only. The export plan and the check-in
+message now take only the subjects of commits that touch an exported path, so a commit that only changes local-only
+paths never reaches the host's check-in message.
