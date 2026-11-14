@@ -12,6 +12,8 @@ the docs, the real Haiku runs before merge.
       fallback, entries for mixups/stalls/pause, `agent_before_settle` through the machine, commands through the
       machine
 - [ ] R6 role prompts: the `context_with_system` handler and the `relay` section per role; neutral tool descriptions
+- [ ] R6b observability: `relay.transition` entries, a visible line per transition and repair, `/relay` history and
+      spend, repairs in the record
 - [ ] R7 suite tests of the spec's list
 - [ ] R8 docs: `relay.md`, `codemode.md`, `extensions.md`, `porting.md`, `xin-pi.md`, READMEs
 - [ ] R9 real runs (the lead runs them): `npm run test:relay:real`, and a Haiku-lead session across a handover and a

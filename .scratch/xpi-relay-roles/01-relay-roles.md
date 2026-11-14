@@ -10,6 +10,12 @@ turn. Relay's control flow is spread over `nextState()`, the tools' `execute`, `
 commands, so the cases where two of them meet (a `/model` switch in a worker phase, `/handback` against a worker's
 `handback`, two calls in one turn) have no single answer.
 
+## Purpose (owner, 2026-11-15)
+
+Relay exists for transparency, observability and saving money. Orchestrating several agents belongs to workflows,
+not to relay. Every choice below is checked against that: the user can see what happened, can look it up afterwards,
+and the strong model's tokens go down, not up.
+
 ## Goal
 
 Each model always knows its role from its own prompt; it can only reach its own hand tool, and only from codemode;
@@ -129,7 +135,21 @@ during acceptance leaves `worker`, as today).
   role reminder (`continue: true` and a custom message), at most twice per phase; then the worker case hands back
   `blocked` and the lead case settles.
 
-### 6. Model switch (decision 9)
+### 6. Observability (purpose)
+
+Nothing a hook repairs or decides is silent:
+
+- Every transition the machine makes is written as one custom entry `relay.transition` on the branch
+  (`{ from, to, event, round, at }`), and shown in the TUI as one dim line (`relay: lead → worker (round 2)`).
+- Every repair is shown the same way and names what it did: `relay: direct handover(...) run through codemode`,
+  `relay: worker called handover, corrected (1 of 2)`, `relay: worker stopped after an error, continued (1 of 2)`,
+  `relay: roles mixed up twice, handed back as blocked`. In print mode they go to stderr only with `--verbose`.
+- `/relay` shows, besides who has the work and the two models, this round's transitions and repairs and the
+  session's per-model spend (the `spendFact()` numbers the lead already gets).
+- The hand-back record gets one line per repair of the round, so the lead knows when the worker needed help.
+- Repairs cost no lead tokens: a correction or a continuation goes to the model that erred.
+
+### 7. Model switch (decision 9)
 
 `model_select` away from `relay/auto` in a worker phase writes a `paused` entry and notifies; selecting `relay/auto`
 again writes `resumed` and the worker answers the next request. The tools are removed from and restored to the active
@@ -147,11 +167,14 @@ set as `syncTools` does today (only matters for the direct fallback).
   off falls back to direct tools.
 - Codemode: nested `terminate` (seam B); unlisted tools (seam A).
 - Agent loop: seam C.
+- Observability: each transition writes a `relay.transition` entry; each repair shows its line; `/relay` lists
+  them; the record lists the round's repairs.
 - `npm run test:relay:real` (Haiku both roles) passes; the lead runs it by hand before merge, plus a session where
   Haiku is the lead, to see that neither role stops after a handover or a hand back.
 
 ## Docs
 
-`docs/relay.md` (the tools are called from codemode, the role prompts, the table as a diagram, repairs, pause),
+`docs/relay.md` (the purpose, the tools are called from codemode, the role prompts, the table as a diagram, repairs
+and how they are shown, `/relay`, pause),
 `docs/codemode.md` (nested terminate, unlisted tools, direct-call repair), `docs/extensions.md` (seams A and C),
 `docs/porting.md` (relay row: the new host requirements), `docs/xin-pi.md`, both READMEs if they describe relay.

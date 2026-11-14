@@ -50,3 +50,9 @@ Causes found in the code (author):
     { next, effects }`, with states `lead`, `worker`, `verifying`, `paused` and events for the hand tools, acceptance
     results, `/model`, the commands, wrong-role calls and repeated calls. Decisions 9-12 are rows of it; every
     (state, event) pair has a test. Not a user-configurable graph: multi-agent graphs belong to workflows.
+
+## Purpose (owner, 2026-11-15)
+
+"Relay mode is for transparency, observability and saving money. For an orchestrator over several agents we have
+workflows." The spec adds an observability section from this: every transition and every repair leaves a visible
+line and an entry, and `/relay` and the record show them.
