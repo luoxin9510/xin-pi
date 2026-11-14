@@ -77,6 +77,7 @@ session file. It does not start the daemon's session when roost cannot run here;
 | `xpi roost attach <id\|name>` | Open the session's TUI in this terminal |
 | `xpi roost stop <id\|name>` / `rm <id\|name>` | Stop it; `rm` also deletes its record |
 | `xpi roost respawn <id\|name>` | Start an ended session again, or restart a running xpi session (a running shell session is left alone); `--all` restarts every running xpi session, and reaped ones load the new code when they start again |
+| `xpi roost restart [<id\|name>] [--if-stale]` | Move the daemon and every running xpi session onto the installed xpi (after an upgrade or a rebuild), or one session only; see [After xpi is rebuilt or upgraded](#after-xpi-is-rebuilt-or-upgraded) |
 
 A session is named by its id, a unique prefix of it, or its name. The full list, with the daemon's own commands, is in
 [CLI](cli.md#background-session-commands).
@@ -257,7 +258,7 @@ it is doing or its last result, its model and context use, what it spent, and it
 | Space | Peek: its task, directory, state, model, cost, queued replies and the end of its transcript, with a reply box |
 | in a peek: Enter / Alt+Enter | Send the reply: it joins the current work (as in xpi), or waits for it to end |
 | in a peek: 1…9 | On an empty reply, fill in the session's numbered choice |
-| in a peek: `/…` | Act on that session: `/stop`, `/respawn`, `/rm`, `/pin`, `/rename`, `/attach`, `/model`, `/thinking`, `/name`, `/compact`, `/continue`, `/log`, `/transcript`, the session's own commands, and xpi's (see below) |
+| in a peek: `/…` | Act on that session: `/stop`, `/respawn`, `/restart`, `/rm`, `/pin`, `/rename`, `/attach`, `/model`, `/thinking`, `/name`, `/compact`, `/continue`, `/log`, `/transcript`, the session's own commands, and xpi's (see below) |
 | Ctrl+X | Stop; again within 2 s deletes (on a group header: the group) |
 | Ctrl+T, Ctrl+R | Pin or unpin (pinned sessions are never stopped for being idle), rename |
 | Ctrl+O | Mark the row (on a header: the group); typed text, `/model`, `/thinking`, Ctrl+X and Ctrl+T then act on every marked session |
@@ -282,6 +283,7 @@ The hub's own commands, typed in the input:
 | `/log` | What happened lately: starts, questions, results, replies, schedules' runs (catch-ups marked) and skipped slots (a missing directory too), newest first |
 | `/schedule <name> <when> <task>` | Add a [schedule](#schedules) in the hub's directory (the text stays in the input when the daemon refuses it): a new session on the rule, with the model and thinking level chosen for new sessions (else the `roost` settings'). The launch is built as `xpi roost schedule add` builds it: the trust decision stored for the directory only, your environment as the hub's process has it, filtered by the `roost` settings, and the hub's session directory |
 | `/schedule` | The schedules: rule, next run, last run with its result (done, failed, needs input, ...; while the run is still listed) or skip. Enter runs the selected one now, `p` pauses or resumes it, `e` edits its rule (the launch is built again here, with its stored task, model and thinking), `x` twice removes it, `r` reloads |
+| `/restart` | Restart the daemon and every running xpi session onto the installed xpi, as `xpi roost restart` does. In `xpi roost hub` it then says that the hub itself still runs the old build until it is started again; its notice stays. The hub inside a session (`/agents`) restarts with its session, which goes last |
 | `/exit` | Leave the hub (also `/quit`) |
 
 xpi's own commands typed in a peek run in that session's xpi: those that show something (`/session`, `/export`,
@@ -387,12 +389,60 @@ What it says:
   process of its own) the hub itself runs an older build. The hub inside a session (`/agents`) restarts with its
   session and leaves itself out.
 - **`/reload`**: in a session that runs an older build than the installed one it says that xpi's own code changed and
-  `/reload` does not load it. In a session the daemon runs it says to restart the session (`xpi roost respawn <id>`
-  from outside); in an ordinary session, to quit and start it again with the command it prints (the one that resumes
-  this session).
+  `/reload` does not load it. In a session the daemon runs it says to use `/restart`; in an ordinary session, to quit
+  and start it again with the command it prints (the one that resumes this session).
 
-To move everything to the installed code, run `xpi roost daemon stop --keep-workers`, then
-`xpi roost respawn --all`. Running only the second leaves the daemon on the old code.
+Every notice names one fix, `xpi roost restart` (`/restart` inside xpi).
+
+### `xpi roost restart`
+
+`xpi roost restart` moves the daemon and every running xpi session onto the installed code. It prints one line per step
+and per session, and exits 1 if anything failed:
+
+1. It reads the daemon's pid and build and the running xpi sessions.
+2. It stops the daemon, leaving the sessions running, and waits up to 10 s for that process to go.
+3. It starts the daemon again (any client may have started it in between: it is the installed code either way) and
+   checks that its pid is new and its build is the installed one. The new daemon runs with the environment of whoever
+   started it, as any daemon started on demand does; a session's worker gets the environment stored in its record
+   and the roost location variables from the daemon.
+4. It lists the sessions once: a session whose process the new daemon did not take over (its host was gone) is
+   reported as `ended while the daemon restarted` and counts as a failure. Then one request restarts the others,
+   each in its own new process.
+
+A session that was working carries on in its new process, with "Continue where you left off."; one that was idle comes
+back showing where it left off. Sessions that are not running are left alone and load the installed code when they next
+start; shell sessions are never restarted.
+
+- `xpi roost restart <id|name>` restarts that session only and leaves the daemon alone (it says so when the daemon is
+  older). A session that is not running is not started: it says `not running` and exits 1; `xpi roost respawn` starts
+  one.
+- `--if-stale` does only what is behind: the daemon if its build is not the installed one, each session likewise. A
+  build that is not known counts as behind here, so the flag is safe with a daemon that predates build ids.
+- A daemon started by the login service is stopped and started the same way; the service has no keep-alive, so the
+  new daemon is not the service's until the next login.
+- `xpi roost respawn --all` and `xpi roost daemon stop --keep-workers` stay as they are.
+
+### `/restart` in a session
+
+`/restart` in a background session asks the daemon to restart this session; `/restart all` runs the whole `xpi roost
+restart`, with this session last. In a foreground session (not one the daemon runs) there is nothing to restart it from
+outside: `/restart` prints how to do it by hand, quit it and start it again with the command that resumes it. In a
+peek, `/restart` restarts the peeked session.
+
+The agent may run `xpi roost restart` itself (or `xpi roost restart <its own name>`) from its shell tool; nothing
+refuses it. The daemon cannot tell that the caller is a session, so the command, like `/restart`, opens a connection of
+its own, and when `ROOST_JOB_ID` names a session among those to restart it asks for that session last. The restart
+is one request that the daemon finishes after the caller's process is gone. When the caller was working (the agent
+ran the command in a tool call), its new process is told that xpi was restarted on the installed build, that the
+command that asked for it was cut short and shows no result, and not to run it again; when it was idle (a person
+typed `/restart`), it comes back showing where it left off and no prompt is sent.
+
+### Terminals attached to a restarting session
+
+A terminal attached to a session when it restarts (by any of the above) says `restarting…`, waits up to 30 s for
+the new process and attaches again by itself, in `xpi roost attach` and in the hub alike. The daemon marks the row
+`restarting` from before it ends the old process until the new one is up (or the start failed), and the old process
+tells its attached terminal why it ended (`restart`). A session that does not come back ends the attach as any other end.
 
 ## Not in this version
 

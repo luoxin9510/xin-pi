@@ -168,8 +168,9 @@ use.
    output also feeds an `@xterm/headless` terminal (scrollback 1000) whose text goes to `screen.txt`. Its socket speaks
    binary frames (`lib/framing.ts`): `[type u8][length u32 BE][payload]`, at most 16 MiB, types `HELLO`, `DATA`,
    `RESIZE`, `DETACHED`, `CONTROL`, `REPLY`. The first frame is `HELLO {role: "attach" | "control", cols, rows}`. One
-   attach at a time; a new one takes over (`DETACHED {reason: "takeover"}`). Control ops: `snapshot`, `status`,
-   `detach`, `terminate` (SIGTERM, SIGKILL after 5 s), `terminate-idle`, `command`. On Linux node-pty is compiled at
+   attach at a time; a new one takes over (`DETACHED {reason: "takeover"}`). A host the daemon ends for a restart
+   (`terminate` with `reason: "restart"`) tells its terminal `DETACHED {reason: "restart"}`, not `exit`. Control ops:
+   `snapshot`, `status`, `detach`, `terminate` (SIGTERM, SIGKILL after 5 s), `terminate-idle`, `command`. On Linux node-pty is compiled at
    install and spawns directly; on macOS its prebuilt `spawn-helper` can lose its execute bit, and the host sets it
    again (`fixSpawnHelper`), node-pty's scripts do not.
 8. **The daemon** (`daemon/main.ts`). It takes its locks, loads the jobs, takes over the hosts that `roster.json` names
@@ -183,10 +184,12 @@ use.
    relative or missing directory, an empty command, a relative session file, and a file that is locked or already run
    by a job (`locked`); a taken name gets ` (2)`. Each job gets a random token, given to its worker by the host.
 9. **The command line** (`src/cli.ts`): `ls`/`list` (`--all`, `--cwd`, `--json`), `logs`, `log` (`-n`, `--follow`),
-   `attach`, `reply`, `stop`, `rm`, `respawn` (`--all`), `daemon status|logs|stop` (`--keep-workers`), `hub`; phase 2
-   adds `schedule ...` and `daemon install|uninstall`. A daemon of another version gets a warning with the way out: `xpi
-   roost daemon stop --keep-workers`, then `xpi roost respawn --all`.
-10. **The attach loop** (`lib/attach.ts`): raw mode, bytes passed through. The caller's matcher says which whole key
+   `attach`, `reply`, `stop`, `rm`, `respawn` (`--all`), `restart` (`[<id|name>] [--if-stale]`, the steps in `lib/restart.ts`, which the hub's and the
+   session's `/restart` call too), `daemon status|logs|stop` (`--keep-workers`), `hub`; phase 2 adds `schedule ...` and
+   `daemon install|uninstall`. A daemon of another version, or one that runs an older build than the installed one,
+   gets a warning with the way out: `xpi roost restart`.
+10. **The attach loop** (`lib/attach.ts`): raw mode, bytes passed through; `attachFollowingRestart` attaches again to the
+    new host when this one ended with the reason `restart` (or the row says `restarting`), for up to 30 s. The caller's matcher says which whole key
     detaches (decision 11: xpi passes its `app.suspend` binding); a key split over reads is held until whole; a
     bracketed paste is text. On the way out it resets the terminal (`TERMINAL_RESET`: keyboard protocols, bracketed
     paste, mouse, cursor).
@@ -460,8 +463,9 @@ Linux is the reference platform; macOS differences follow each point.
   ported, phase 2 decision 1). A reply or `respawn` starts it again.
 - Schedules run only while the daemon runs: on demand, or from login with `xpi roost daemon install`. A slot missed
   while it was off runs once if it is the latest and within 7 days.
-- After an upgrade the running daemon and hosts keep their old code until `xpi roost daemon stop --keep-workers` and
-  `xpi roost respawn --all`.
+- After an upgrade or a rebuild the running daemon, hosts and sessions keep their old code until `xpi roost restart`
+  (the daemon stopped with `shutdown {keepWorkers: true}`, started again, then one `respawn {ids, last}`). The new
+  code is noticed by a build id (`lib/version.ts`); a session may restart itself, and goes last.
 - A crashed session is restarted three times in a row at most; then a reply starts it.
 - The hub's keys are fixed (AGENTS.md's exemption); only the detach key follows the user's keybindings.
 - pi-roost's state in `~/.pi/agent/roost/` is never read (decision 9): its sessions do not appear.

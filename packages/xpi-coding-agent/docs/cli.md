@@ -380,6 +380,7 @@ pseudo-terminals, so they keep running after the terminal that started them clos
 | `xpi roost rm <id\|name>` | Stop it and delete its record |
 | `xpi roost respawn <id\|name>` | Start an ended session again, or restart a running xpi session (a running shell session is left alone) |
 | `xpi roost respawn --all` | Restart every running xpi session, for example after an upgrade; reaped sessions load the new code when they start again |
+| `xpi roost restart [<id\|name>] [--if-stale]` | Move the daemon and every running xpi session onto the installed xpi: stop the daemon keeping its sessions, wait up to 10 s, start it, check its pid and build, restart the sessions (one line per step and per session; exit 1 if any failed). With a session, only that one (it must be running). `--if-stale`: only what runs an older build (an unknown build counts as older). Run from a session, that session goes last |
 | `xpi roost schedule add <name> <when> <task> [--cwd <dir>] [--model <m>] [--thinking <t>]` | Start `<task>` as a new background session on a rule in local time: `every <n>m\|h\|d`, `daily HH:MM`, `weekdays HH:MM`, `weekly <mon..sun> HH:MM`, `cron "<5 fields>"` or `manual`; runs are at least five minutes apart. Prints its next run; see [Schedules](roost.md#schedules) |
 | `xpi roost schedule list [--json]` | The schedules with their rule, next run and last run or skip. Does not start a daemon: without one it reads the schedules from the state directory and says nothing runs until the daemon does |
 | `xpi roost schedule run <name>` | Run it now, also when paused or `manual`; refused while its previous run works |
@@ -395,7 +396,7 @@ pseudo-terminals, so they keep running after the terminal that started them clos
 The commands outside `daemon` and `schedule list` start the agent directory's daemon when it is not running; `daemon ...` and `schedule list` never start one. Inside a background session (`ROOST_JOB_ID` is set), `schedule add`, `edit` and `run` exit with `1` and say why. A session is named by its id, a
 unique id prefix or its name. An unknown command exits with `2`.
 
-After an upgrade, or a rebuild at the same version, the running daemon still has the old code. `xpi roost` commands other than `hub`, `daemon logs` and `daemon stop` (and `xpi --bg`) warn about it once while the daemon's version or build id (the `build-id` file of the installed bundle) differs from the installed one, and `xpi roost ls` prints one line on stderr when running sessions run an older build. Run `xpi roost daemon stop --keep-workers`, then `xpi roost respawn --all`. See [After xpi is rebuilt or upgraded](roost.md#after-xpi-is-rebuilt-or-upgraded).
+After an upgrade, or a rebuild at the same version, the running daemon still has the old code. `xpi roost` commands other than `hub`, `daemon logs` and `daemon stop` (and `xpi --bg`) warn about it once while the daemon's version or build id (the `build-id` file of the installed bundle) differs from the installed one, and `xpi roost ls` prints one line on stderr when running sessions run an older build. Run `xpi roost restart` (or `/restart` inside a session). See [After xpi is rebuilt or upgraded](roost.md#after-xpi-is-rebuilt-or-upgraded).
 
 Requirements:
 
