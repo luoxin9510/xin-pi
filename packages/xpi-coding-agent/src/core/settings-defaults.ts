@@ -32,6 +32,10 @@ export const SETTINGS_DEFAULTS = {
 	commit: {
 		model: "haiku",
 	},
+	checks: {
+		timeoutMs: 60000,
+		maxErrors: 20,
+	},
 	hideThinkingBlock: false,
 	staleEditGuard: true,
 	showCacheMissNotices: false,
