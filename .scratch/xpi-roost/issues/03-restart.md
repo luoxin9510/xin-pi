@@ -53,7 +53,10 @@ docs for what it adds.
       (`test/attach-follow.test.ts`: the gap keeps the terminal raw, keys dropped, detach key and Ctrl-C leave, early
       end); the hub and the session's command. The PTY test for a typed `/restart` was replaced by the lead's manual
       pty check.
-- [ ] R13b the real Haiku check (the lead runs it)
+- [x] R13b the real Haiku check (the lead runs it)
+      Done (2026-11-14, by hand, an isolated agent directory, the built bundle): a Haiku session started with `xpi --bg`
+      ran `xpi roost restart <its own name>` in its shell tool; the session's process was replaced, the new process got
+      the restart prompt, and the model did not run the command again and said in one sentence what had happened.
 
 - [x] R14 docs: `roost.md` section, `cli.md`, `protocol.md`, hub help, the repository's `AGENTS.md`; R4's warning text
       names `xpi roost restart`
