@@ -62,8 +62,10 @@ restarting subagents on their own, hot-swapping code inside a running process.
   restarts with its session.
 - `/reload` (any session, roost or not): builtin:roost, which loads in every session, handles `session_start` with
   reason `reload`; if this process is stale it shows a notice: xpi's own code changed and `/reload` does not load it.
-  In a roost session (`ROOST_JOB_ID` is set) the notice names `/restart`; in a foreground session it gives the command
-  to start this session again (`formatResumeCommand`, not a fixed string). Core and `/reload` itself do not change.
+  In a roost session (`isRoostSession()`, not a bare `ROOST_JOB_ID`: an xpi started from the agent's shell inherits
+  the variable) the notice names `/restart`; in a foreground session it gives the command
+  to start this session again (`formatResumeCommand` with the session's `SessionManager`, imported from the
+  interactive mode or moved to a shared module; not a fixed string). Core and `/reload` itself do not change.
 
 ### 4. `xpi roost restart` (decision 4)
 
@@ -74,10 +76,12 @@ restarting subagents on their own, hot-swapping code inside a running process.
   3. connects with `connectOrStart`. Another client may have started the daemon in between (the hub reconnects by
      itself after 500 ms): that is fine, it is the installed code either way. `restart` then checks that `status.pid`
      is not the old one and that `status.build` is not stale, and fails if either is wrong. The new daemon's
-     environment is its starter's, as for any daemon started on demand today; sessions keep the environment stored in
-     their records;
-  4. waits until the new daemon has adopted the running hosts (the sessions of step 1 are in its roster, 10 s), then
-     sends one `respawn` request for them.
+     environment is its starter's, as for any daemon started on demand today. A session's worker gets the environment
+     stored in its record, plus the roost location variables (`ROOST_AGENT_DIR`, `ROOST_HOME`, `ROOST_RUNTIME_DIR`,
+     `ROOST_HOST_ENTRY`) from the daemon; the host process runs with the daemon's environment;
+  4. asks for one `list`. A daemon adopts running hosts before it listens, so there is nothing to wait for: a session
+     of step 1 whose row has `pid === null` was not adopted (its host was gone). It is reported as `ended while the
+     daemon restarted`, left out, and counts as a failure for the exit code. Then one `respawn` request for the rest.
   Sessions that are not running are left alone; they load the installed code when they next start. Shell sessions are
   never restarted (as `respawn --all` today).
 - `xpi roost restart <id|name>`: restarts that session only, without touching the daemon. It says so when the daemon
