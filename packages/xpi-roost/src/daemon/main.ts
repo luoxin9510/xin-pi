@@ -71,7 +71,7 @@ import {
 	updateState,
 } from "../lib/store.ts";
 import { usageFrom } from "../lib/usage.ts";
-import { ROOST_VERSION } from "../lib/version.ts";
+import { ROOST_BUILD, ROOST_VERSION } from "../lib/version.ts";
 
 /** How long a stop waits for a host to go before it is killed (ROOST_STOP_WAIT_MS: tests shorten it). */
 const WAIT_MS = Number(roostEnv("STOP_WAIT_MS")) || 6000;
@@ -169,7 +169,7 @@ interface Conn {
 	/** The job whose report this connection sent (a Session, lib/callers.ts). */
 	peer?: { id: string };
 	/** M31: what the agent on this connection said in its hello. */
-	hello?: { name: string; version: string | null; capabilities: string[] };
+	hello?: { name: string; version: string | null; build?: string; capabilities: string[] };
 	/** M47: an agent's connection (it said hello or reported): never the hub's, even before its peer is set. */
 	agentSide?: boolean;
 	/** M49: requests being handled, and lines waiting their turn (the socket is paused while INFLIGHT_MAX are). */
@@ -300,6 +300,8 @@ function rowOf(id: string): JobRow | undefined {
 		order: typeof st.order === "number" ? st.order : null,
 		orderKey: typeof st.orderKey === "string" ? st.orderKey : null,
 		...(caps ? { capabilities: caps } : {}),
+		// spec 03: the build its process runs; a session that is not running has none
+		...(live && agentBuild(st) ? { build: agentBuild(st) } : {}),
 		// M48: the task it was started on, and the user replies waiting for it (the peek shows both)
 		task: rowTask(rec),
 		queued: pendingReplies(id).length,
@@ -311,6 +313,12 @@ function rowOf(id: string): JobRow | undefined {
 function agentCaps(st: JobState): string[] | undefined {
 	const c = (st.agentInfo as { capabilities?: unknown } | undefined)?.capabilities;
 	return Array.isArray(c) ? c.filter(str) : undefined;
+}
+
+/** Spec 03: the build a job's agent said it runs, from state.json (set when its connection is bound). */
+function agentBuild(st: JobState): string | undefined {
+	const b = (st.agentInfo as { build?: unknown } | undefined)?.build;
+	return typeof b === "string" && b ? b : undefined;
 }
 
 function send(conn: Conn, value: unknown): void {
@@ -948,6 +956,8 @@ async function respawn(
 			tool: null,
 			error: null,
 			reportedAt: undefined,
+			// spec 03: what the old process said about itself (its build) must not show on the restarted row
+			agentInfo: undefined,
 			endedAt: undefined,
 			stopRequested: false,
 			removeAt: undefined,
@@ -1232,12 +1242,22 @@ function hello(
 	conn: Conn,
 	args: { protocol?: unknown; agent?: unknown; capabilities?: unknown } | undefined,
 ): HelloResult {
-	const a = (args?.agent && typeof args.agent === "object" ? args.agent : {}) as { name?: unknown; version?: unknown };
+	const a = (args?.agent && typeof args.agent === "object" ? args.agent : {}) as {
+		name?: unknown;
+		version?: unknown;
+		build?: unknown;
+	};
 	const name = (str(a.name) ? oneLineText(a.name, 64) : "") || "unknown";
 	const caps = Array.isArray(args?.capabilities)
 		? [...new Set(args.capabilities.filter(str).map((c) => c.slice(0, 40)))].slice(0, 32)
 		: [];
-	conn.hello = { name, version: str(a.version) ? a.version.slice(0, 40) : null, capabilities: caps };
+	conn.hello = {
+		name,
+		version: str(a.version) ? a.version.slice(0, 40) : null,
+		// spec 03: the build of the code the agent runs; absent from an agent that does not say
+		...(str(a.build) && a.build ? { build: a.build.slice(0, 40) } : {}),
+		capabilities: caps,
+	};
 	return {
 		protocol: PROTOCOL_VERSION,
 		daemon: { name: "roost", version: ROOST_VERSION },
@@ -1452,6 +1472,7 @@ async function handle(conn: Conn, op: string, args: any): Promise<unknown> {
 				socketDir: runtimeDir(),
 				liveJobs: roster.size,
 				totalJobs: recs.size,
+				...(ROOST_BUILD ? { build: ROOST_BUILD } : {}),
 				ptyError,
 				startedAt,
 			};

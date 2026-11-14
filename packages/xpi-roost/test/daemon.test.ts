@@ -1021,6 +1021,27 @@ describe("M31 the agent protocol", () => {
 	});
 });
 
+describe("spec 03: the build ids", () => {
+	it("status has no build from sources; a hello's build reaches the row with the first report, and a respawn clears it", async () => {
+		const { client } = await startDaemon();
+		expect((await client.request("status", {})).build).toBeUndefined();
+		const { id } = await client.request("dispatch", args("sleep 30"));
+		await waitFor(async () => (await find(client, id))?.pid);
+		expect((await find(client, id))?.build).toBeUndefined();
+		const worker = await asWorker();
+		await worker.request("hello", { protocol: 1, agent: { name: "xpi", version: "1", build: "0123456789abcdef" } });
+		const report = { state: "done" as const, status: "idle" as const, waitingFor: null, summary: "ok" };
+		await worker.request("report", { id, token: readState(id)?.jobToken as string, report: report as never });
+		expect((await find(client, id))?.build).toBe("0123456789abcdef");
+		await client.request("respawn", { id, restart: true });
+		await waitFor(async () => (await find(client, id))?.pid);
+		expect((await find(client, id))?.build).toBeUndefined();
+		await client.request("stop", { id });
+		await waitFor(async () => (await find(client, id))?.endedAt);
+		expect((await find(client, id))?.build).toBeUndefined();
+	});
+});
+
 describe("M35 a state file lost in a crash", () => {
 	it("leaves the job listed, failed and startable, after a restart", async () => {
 		const first = await startDaemon();

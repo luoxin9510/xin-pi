@@ -113,6 +113,11 @@ export const JobRowSchema = obj({
 	order: nullable(num(), "AV-K13: the user's position within its group, or null when never moved."),
 	orderKey: nullable(str(), "The section the order belongs to (a state group or `dir:<cwd>`); stale elsewhere."),
 	capabilities: opt(arr(str(), "M31: what its agent said it can do in its hello (absent: it never said).")),
+	build: opt(
+		str(
+			"Spec 03: the build id of the code its process runs, from its hello (absent: not running, or its agent did not say).",
+		),
+	),
 	task: opt(nullable(str(), "M48: the task it was started on (one line, at most 200 characters).")),
 	queued: opt(num("M48: user replies waiting for it.")),
 	schedule: opt(nullable(str(), "Phase 2: the schedule that started it (absent or null: none).")),
@@ -208,6 +213,7 @@ export const DaemonStatusSchema = obj({
 	socketDir: str(),
 	liveJobs: num(),
 	totalJobs: num(),
+	build: opt(str("Spec 03: the build id of the code this daemon runs (absent: unknown, as from sources).")),
 	ptyError: nullable(str()),
 	startedAt: num(),
 });
@@ -221,7 +227,7 @@ export const HelloArgsSchema = obj(
 			min: 1,
 			message: "protocol must be a version number",
 		}),
-		agent: opt(loose(obj({ name: str(), version: opt(str()) }))),
+		agent: opt(loose(obj({ name: str(), version: opt(str()), build: opt(str()) }))),
 		capabilities: opt(
 			loose(
 				arr(

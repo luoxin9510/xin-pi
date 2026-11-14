@@ -232,7 +232,7 @@ M31: an agent says which protocol and capabilities it has, before it reports.
 | Field | Type | Required | Limit | |
 |---|---|---|---|---|
 | `protocol` | `integer` | yes |  | The highest protocol version the agent speaks. |
-| `agent` | `{ name: string, version?: string }` | no |  |  |
+| `agent` | `{ name: string, version?: string, build?: string }` | no |  |  |
 | `capabilities` | `string[]` | no |  | What the agent can do (AGENT_CAPABILITIES); unknown ones are ignored (and what is not a string). |
 
 #### `HelloResult`
@@ -293,6 +293,7 @@ What a worker reports about itself (full snapshot every time).
 | `order` | `number \| null` | yes |  | AV-K13: the user's position within its group, or null when never moved. |
 | `orderKey` | `string \| null` | yes |  | The section the order belongs to (a state group or `dir:<cwd>`); stale elsewhere. |
 | `capabilities` | `string[]` | no |  | M31: what its agent said it can do in its hello (absent: it never said). |
+| `build` | `string` | no |  | Spec 03: the build id of the code its process runs, from its hello (absent: not running, or its agent did not say). |
 | `task` | `string \| null` | no |  | M48: the task it was started on (one line, at most 200 characters). |
 | `queued` | `number` | no |  | M48: user replies waiting for it. |
 | `schedule` | `string \| null` | no |  | Phase 2: the schedule that started it (absent or null: none). |
@@ -306,6 +307,7 @@ What a worker reports about itself (full snapshot every time).
 | `socketDir` | `string` | yes |  |  |
 | `liveJobs` | `number` | yes |  |  |
 | `totalJobs` | `number` | yes |  |  |
+| `build` | `string` | no |  | Spec 03: the build id of the code this daemon runs (absent: unknown, as from sources). |
 | `ptyError` | `string \| null` | yes |  |  |
 | `startedAt` | `number` | yes |  |  |
 
