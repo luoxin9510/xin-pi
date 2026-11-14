@@ -62,10 +62,10 @@ const BUDGETS = {
 		// and the worker's state, the launch builder, the recap's list (30 files). The daemon and the host are processes of
 		// their own, never imported (they start servers, and the host loads node-pty).
 		".": { maxFiles: 32, forbid: ["roost/src/daemon/", "roost/src/host/"] },
-		// What every xpi session loads (the write lock, whether it is a roost session): files and the environment only,
-		// nothing that connects to the daemon.
+		// What every xpi session loads (the write lock, whether it is a roost session, the build id for the /reload
+		// notice): files and the environment only, nothing that connects to the daemon.
 		"./session": {
-			maxFiles: 6,
+			maxFiles: 7,
 			forbid: [
 				"roost/src/daemon/",
 				"roost/src/host/",
@@ -77,7 +77,7 @@ const BUDGETS = {
 		},
 		// The daemon never reaches the host (nor node-pty through it).
 		// The hub (`/agents`, `xpi roost hub`): xpi-tui and the client; never the daemon, the host or the command line.
-		"./hub": { maxFiles: 80, forbid: ["roost/src/daemon/", "roost/src/host/", "roost/src/cli.ts"] },
+		"./hub": { maxFiles: 81, forbid: ["roost/src/daemon/", "roost/src/host/", "roost/src/cli.ts"] },
 		"./daemon": { maxFiles: 30, forbid: ["roost/src/host/", "roost/src/cli.ts"] },
 		"./host": { maxFiles: 25, forbid: ["roost/src/daemon/", "roost/src/cli.ts"] },
 	},

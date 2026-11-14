@@ -13,7 +13,12 @@ export function quoteIfNeeded(value: string): string {
  * The command that opens this session again, or undefined (not a terminal, a session that is not saved). Shared by
  * the interactive mode's exit line and builtin:roost's stale-build notice, so neither imports the other.
  */
-export function formatResumeCommand(sessionManager: SessionManager): string | undefined {
+export type ResumableSession = Pick<
+	SessionManager,
+	"isPersisted" | "getSessionFile" | "usesDefaultSessionDir" | "getSessionDir" | "getSessionId"
+>;
+
+export function formatResumeCommand(sessionManager: ResumableSession): string | undefined {
 	if (!process.stdout.isTTY) return undefined;
 	if (!sessionManager.isPersisted()) return undefined;
 

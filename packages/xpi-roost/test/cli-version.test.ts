@@ -91,8 +91,13 @@ describe("a daemon of an older build, at the same version (spec 03)", () => {
 
 	/** The real daemon runs from sources and has no build id; its answers are made to say one (and this version). */
 	function daemonSays(build: string | undefined, jobs?: (rows: unknown[]) => unknown[]) {
-		const real = DaemonClient.prototype.request;
-		vi.spyOn(DaemonClient.prototype, "request").mockImplementation(async function (this: DaemonClient, op, args) {
+		type Request = (op: string, args: unknown) => Promise<unknown>;
+		const real = DaemonClient.prototype.request as unknown as Request;
+		vi.spyOn(DaemonClient.prototype as unknown as { request: Request }, "request").mockImplementation(async function (
+			this: DaemonClient,
+			op: string,
+			args: unknown,
+		) {
 			const r = (await real.call(this, op, args)) as Record<string, unknown>;
 			if (op === "status") return { ...r, version: "0.0.1-new", ...(build ? { build } : {}) } as never;
 			if (op === "list" && jobs) return { jobs: jobs(r.jobs as unknown[]) } as never;

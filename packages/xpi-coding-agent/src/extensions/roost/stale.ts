@@ -6,7 +6,7 @@
 
 import { buildOnDisk, isRoostSession, isStale, ROOST_BUILD, readJobEnv } from "xpi-roost/session";
 import type { ExtensionContext } from "../../core/extensions/types.ts";
-import { formatResumeCommand } from "../../utils/resume-command.ts";
+import { formatResumeCommand, type ResumableSession } from "../../utils/resume-command.ts";
 
 const WHAT = "xpi's own code changed since this session started, and /reload does not load it";
 
@@ -40,6 +40,7 @@ export function reloadNoticeFor(ctx: ExtensionContext): string | undefined {
 		running: ROOST_BUILD,
 		onDisk,
 		roostId,
-		resume: roostId ? undefined : formatResumeCommand(ctx.sessionManager),
+		// the runner hands extensions the session's own SessionManager, typed read-only
+		resume: roostId ? undefined : formatResumeCommand(ctx.sessionManager as unknown as ResumableSession),
 	});
 }
