@@ -19,3 +19,7 @@ not from the turn's results; no check when every result of the turn terminates t
 by `ctx.signal`; the wait for the baseline is bounded and a command without one reports nothing once; the message is a
 `display: true` entry returned with the earlier entries; a status line while checks run; `docs/xin-pi.md` and the
 READMEs in the docs list.
+
+After the second review (author): `TurnEndEvent.terminated` is added in core (an extension cannot otherwise see that a
+batch ended the run); a call counts as run only when its `tool_result` arrives; "this turn" is by time, cleared at
+each `turn_end`.

@@ -41,18 +41,24 @@ A `checks` block in settings:
 
 ### 2. When (decisions 1, 4)
 
-- Effects are not on `turn_end`'s tool results. The extension records them from the `tool_call` event, which carries
-  `effect`, keyed by `toolCallId` (nested calls with `parentToolCallId`, codemode's tool calls, count too). A call a
-  `tool_call` handler blocks never ran and is not recorded. An unknown tool never reaches `tool_call` (it fails as
-  "not found" before it) and triggers nothing.
-- Effects as built today: `codemode`, `bash`, `powershell`, `Agent` and `Workflow` are `exec`; `edit`, `write`,
-  `SendMessage` and team messages are `write`. So a turn that only starts a read-only subagent still runs the checks
+- Effects are not on `turn_end`'s tool results. The extension notes each call's effect at the `tool_call` event,
+  which carries `effect`, keyed by `toolCallId`, and counts the call as run only when a `tool_result` with the same id
+  arrives: a call another extension blocks gets no `tool_result` (and `tool_call` handlers stop at the first block, so
+  the checks handler may have seen it). Codemode's nested calls emit both events too (ids `<parent>/<n>`, with
+  `parentToolCallId`); they are not in `turn_end`'s `toolResults`, so "this turn" is by time: the run calls noted
+  since the previous `turn_end`, cleared at each `turn_end`. A background codemode script's calls between turns count
+  for the next turn. An unknown tool never reaches `tool_call` (it fails as "not found" before it) and triggers
+  nothing.
+- Effects as built today: `codemode`, `bash`, `powershell` (undeclared, so `exec`), `Agent` and `Workflow` are
+  `exec`; `edit`, `write`, `SendMessage`, team messages and the task board's write tools are `write`. So a turn that only starts a read-only subagent still runs the checks
   (accepted: the subagent may have changed files).
 - A turn's `turn_end`: if a recorded call of this turn is `write` or `exec`, run the commands once.
-- The next request: a turn whose tool calls did not all end the run has a next request, so the message reaches the
-  model before it; no `continue` is needed. A turn whose tool results all `terminate` the run (relay's `handback`, for
-  one) ends the run: no check is run then (the message would have no request to reach). A turn without tool calls ran
-  no tool and triggers nothing.
+- The next request: a turn whose tool batch did not end the run has a next request, so the message reaches the model
+  before it; no `continue` is needed. A batch can end the run (every result `terminate`s, as relay's `handback`
+  does), and today an extension cannot see that at `turn_end`. **Core change:** `TurnEndEvent` gains
+  `terminated: boolean`, the loop's `executedToolBatch.terminate` passed through `finishTurn`'s turn; `docs/extensions.md`
+  (the turn_end section and the list of fields a host must provide) says so. When `terminated` is true no check is
+  run (the message would have no request to reach). A turn without tool calls ran no tool and triggers nothing.
 - Abort: `outcome` reflects the assistant message only, so Escape during tool execution still gives `completed`. A
   check is not started when `outcome` is not `completed` or `ctx.signal` is aborted, and a running check listens to
   `ctx.signal` and kills its process group when it fires (no message then).
