@@ -54,6 +54,12 @@ describe("RoostPort adapter", () => {
 		expect(result).toEqual({ answered: op });
 	});
 
+	it("jobs.restart sends ids and last, and returns the session's result", async () => {
+		const { client, sent } = recording(() => ({ results: [{ id: "a", started: true }] }));
+		expect(await roostPort(client).jobs.restart("a", { id: "a" })).toEqual({ id: "a", started: true });
+		expect(sent).toEqual([{ op: "respawn", args: { ids: ["a"], last: { id: "a" } } }]);
+	});
+
 	it("jobs.listAt returns the reply and its place in the stream", async () => {
 		const { client, sent } = recording(() => ({ jobs: [] }));
 		expect(await roostPort(client).jobs.listAt({})).toEqual({ result: { jobs: [] }, at: 7 });

@@ -291,7 +291,7 @@ command line (`src/cli.ts`) and their library (`src/lib/`), plus the hub (`src/h
 ### roost core
 
 - **Gives**: background sessions: a daemon per agent directory that runs sessions in PTYs held by host processes, and
-  the `xpi roost` command line (`ls`, `attach`, `logs`, `log`, `reply`, `stop`, `rm`, `respawn`, `daemon ...`). See
+  the `xpi roost` command line (`ls`, `attach`, `logs`, `log`, `reply`, `stop`, `rm`, `respawn`, `restart`, `daemon ...`). See
   [Background Sessions](roost.md).
 - **Depends on**: no other unit, and nothing of the host agent. Host capabilities: node-pty, unix sockets, detached
   child processes, and a CLI that can start a session from an argv with a session file (`buildLaunch`,

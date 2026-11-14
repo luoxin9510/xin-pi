@@ -14,6 +14,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DaemonClient, type DaemonError } from "../src/lib/client.ts";
+import { FrameDecoder, FrameType, parseJsonPayload } from "../src/lib/framing.ts";
+import { connectHost } from "../src/lib/hostclient.ts";
 import { TEST_DIR_PREFIX } from "../src/lib/orphans.ts";
 import { daemonSocketPath, jobDir } from "../src/lib/paths.ts";
 import { isAlive, processStartToken } from "../src/lib/proc.ts";
@@ -1443,5 +1445,89 @@ describe("phase 2: schedules in the daemon", () => {
 		await client.request("schedule-add", { name: "fresh", when: "manual", launch: launch("true") });
 		expect(readFileSync(join(home, bad[0]!), "utf8")).toBe('[{"name": "half');
 		expect(readFileSync(join(home, "daemon.log"), "utf8")).toContain("schedules file unreadable");
+	});
+});
+
+describe("spec 03: restarting sessions by id", () => {
+	it("refuses what the schema cannot say: ids with all or id, last outside ids, last alone", async () => {
+		const { client } = await startDaemon();
+		const bad = (a: Record<string, unknown>) =>
+			expect(client.request("respawn", a as never)).rejects.toMatchObject({ code: "bad_request" });
+		await bad({ ids: ["a"], all: true });
+		await bad({ ids: ["a"], id: "a" });
+		await bad({ ids: ["a"], last: { id: "b" } });
+		await bad({ last: { id: "a" } });
+		await bad({ ids: [""] });
+		await bad({ ids: ["a"], last: {} });
+		expect((await client.request("respawn", { ids: [] })).results).toEqual([]);
+	});
+
+	it("restarts the running ones in order, `last` at the end with its prompt, and reports the rest one by one", async () => {
+		const { client } = await startDaemon();
+		const mk = async (script: string, over: Record<string, unknown> = {}) => {
+			const a = args(script, over);
+			writeFileSync(a.sessionFile, "{}\n");
+			return (await client.request("dispatch", a)).id;
+		};
+		const [a, b, c] = [await mk("sleep 30"), await mk("sleep 30"), await mk("sleep 30")] as [string, string, string];
+		const ended = await mk("true");
+		const shell = (await client.request("dispatch", args("sleep 30", { kind: "shell", sessionFile: "" }))).id;
+		await waitFor(
+			async () => (await find(client, a))?.pid && (await find(client, b))?.pid && (await find(client, c))?.pid,
+		);
+		await waitFor(async () => (await find(client, ended))?.endedAt);
+		const hosts = [a, b, c].map((id) => readState(id)?.hostPid);
+		const { results } = await client.request("respawn", {
+			ids: [a, ended, "nope", b, shell, c],
+			last: { id: a, prompt: "  go on, restarted  " },
+		});
+		expect(results).toEqual([
+			{ id: ended, started: false, error: "not running" },
+			{ id: "nope", started: false, error: "no such job: nope" },
+			{ id: b, started: true },
+			{ id: shell, started: false, error: "not running" },
+			{ id: c, started: true },
+			{ id: a, started: true },
+		]);
+		const at = (id: string) => readState(id)?.restartedAt as number;
+		expect(at(b)).toBeLessThanOrEqual(at(c));
+		expect(at(c)).toBeLessThanOrEqual(at(a));
+		const last = (id: string) => (readState(id)?.command as string[]).at(-1);
+		expect(last(a)).toBe("go on, restarted");
+		expect(last(b)).toBe("Continue where you left off.");
+		expect([a, b, c].map((id) => readState(id)?.hostPid).every((p, i) => p !== hosts[i])).toBe(true);
+	});
+
+	it("marks the row restarting from before its host is ended until the new one is up, and tells an attached terminal why", async () => {
+		const { client } = await startDaemon();
+		const a = args("sleep 30");
+		writeFileSync(a.sessionFile, "{}\n");
+		const { id } = await client.request("dispatch", a);
+		await waitFor(async () => (await find(client, id))?.pid);
+		const seen: (boolean | undefined)[] = [];
+		await client.request("subscribe", {});
+		client.onEvent((e) => {
+			if (e.event === "job" && e.job.id === id) seen.push(e.job.restarting);
+		});
+		// a terminal attached to the old host
+		const sock = await waitFor(() => connectHost(id, { role: "attach", cols: 80, rows: 24 }).catch(() => undefined));
+		const dec = new FrameDecoder();
+		let reason: string | undefined;
+		sock.on("data", (chunk) => {
+			for (const f of dec.push(chunk))
+				if (f.type === FrameType.DETACHED) reason = parseJsonPayload<{ reason: string }>(f).reason;
+		});
+		const done = client.request("respawn", { ids: [id] });
+		await waitFor(() => reason);
+		expect(reason).toBe("restart");
+		expect((await done).results).toEqual([{ id, started: true }]);
+		expect(seen).toContain(true);
+		expect(seen.at(-1)).toBeUndefined();
+		expect((await find(client, id))?.restarting).toBeUndefined();
+		expect(readState(id)?.restarting).toBeUndefined();
+		// the old process ending for a restart is not an event of the feed, and the state is what it was
+		const { events } = await client.request("events", {});
+		expect(events.filter((e) => e.kind === "state" && e.id === id && e.state === "stopped")).toEqual([]);
+		sock.destroy();
 	});
 });

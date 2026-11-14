@@ -76,8 +76,7 @@ describe("a daemon of another version", () => {
 		const ls = await roost("ls");
 		expect(ls.code).toBe(0);
 		expect(ls.out).toBe("no background sessions\n");
-		const warning =
-			"this xpi is 0.0.1-new; restart it with: xpi roost daemon stop --keep-workers, then xpi roost respawn --all";
+		const warning = "this xpi is 0.0.1-new; restart it with: xpi roost restart";
 		expect(ls.err).toContain(warning);
 		expect(ls.err.split(warning)).toHaveLength(2);
 		const status = await roost("daemon", "status");
@@ -87,7 +86,7 @@ describe("a daemon of another version", () => {
 });
 
 describe("a daemon of an older build, at the same version (spec 03)", () => {
-	const recipe = "xpi roost daemon stop --keep-workers, then xpi roost respawn --all";
+	const recipe = "xpi roost restart";
 
 	/** The real daemon runs from sources and has no build id; its answers are made to say one (and this version). */
 	function daemonSays(build: string | undefined, jobs?: (rows: unknown[]) => unknown[]) {
@@ -109,7 +108,7 @@ describe("a daemon of an older build, at the same version (spec 03)", () => {
 		disk.build = undefined;
 	});
 
-	it("warns, once, naming the two commands", async () => {
+	it("warns, once, naming `xpi roost restart`", async () => {
 		disk.build = "bbbbbbbbbbbbbbbb";
 		daemonSays("aaaaaaaaaaaaaaaa");
 		const ls = await roost("ls");

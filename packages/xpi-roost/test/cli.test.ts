@@ -140,6 +140,9 @@ describe("xpi roost", () => {
 		expect(help.code).toBe(0);
 		expect(help.out).toContain("xpi roost ls [--all] [--cwd <dir>] [--json]");
 		expect(help.out).toContain("ctrl+z detaches");
+		expect(help.out).toContain("xpi roost restart [<id|name>] [--if-stale]");
+		expect((await roost("restart", "a", "b")).code).toBe(2);
+		expect((await roost("restart", "--bogus")).err).toContain("restart: unknown option --bogus");
 		expect((await roost()).code).toBe(2);
 		const bad = await roost("frobnicate");
 		expect(bad.code).toBe(2);

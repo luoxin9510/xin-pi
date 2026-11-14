@@ -78,6 +78,7 @@ Linux with the npm installation of xpi.
 | `/agents` | Open the hub: the sessions the daemon runs; start, peek, reply, attach, stop. Also in a session the daemon runs |
 | `/bg [prompt]` | Hand this conversation to the daemon and open the hub on it; a running turn is interrupted and continues there. Also `/background`; the left arrow on an empty prompt does it too (`roost.leftArrowOpensAgents`) |
 | `/bg-fork [prompt]` | Copy this conversation into a new background session; this one carries on |
+| `/restart [all]` | Restart this session onto the installed build of xpi; `all` also restarts the daemon and every other running session (`xpi roost restart`). In a foreground session it prints how to do it by hand. Registered in every session |
 
 `/bg`, `/background` and `/bg-fork` are not there in a session the daemon runs (it is in the background already).
 

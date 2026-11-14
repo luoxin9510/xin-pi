@@ -22,9 +22,7 @@ export function reloadNotice(o: {
 	resume?: string;
 }): string | undefined {
 	if (!isStale(o.running, o.onDisk)) return undefined;
-	// `/restart` does not exist yet: the command line does the same from outside
-	if (o.roostId)
-		return `${WHAT}. Restart this session to run the installed build: xpi roost respawn ${o.roostId} (from outside the session).`;
+	if (o.roostId) return `${WHAT}. Restart this session to run the installed build: /restart`;
 	return o.resume
 		? `${WHAT}. Quit and start it again: ${o.resume}`
 		: `${WHAT}. Quit and start xpi again to run the installed build.`;
@@ -38,6 +36,16 @@ function resumeCommandOf(ctx: ExtensionContext): string | undefined {
 	const sm = ctx.sessionManager as unknown as Partial<ResumableSession>;
 	if (typeof sm.isPersisted !== "function" || typeof sm.usesDefaultSessionDir !== "function") return undefined;
 	return formatResumeCommand(sm as ResumableSession);
+}
+
+/**
+ * What `/restart` says in a session the daemon does not run: it cannot restart itself (nothing outside it could start
+ * it again), so it is quit and started again by hand.
+ */
+export function restartByHand(ctx: ExtensionContext): string {
+	const resume = resumeCommandOf(ctx);
+	const how = resume ? `quit it and start it again: ${resume}` : "quit it and start xpi again";
+	return `/restart works in background sessions. This session runs in the foreground: ${how}`;
 }
 
 /** The notice for this process now. */

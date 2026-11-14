@@ -25,15 +25,39 @@ docs for what it adds.
 
 ## PR 2: restart (branch `roost-restart`)
 
-- [ ] R8 `xpi roost restart [<id|name>] [--if-stale]` (decision 4): stop keeping sessions, wait, start, restart
+- [x] R8 `xpi roost restart [<id|name>] [--if-stale]` (decision 4): stop keeping sessions, wait, start, restart
       sessions; output and exit code
-- [ ] R9 the daemon's `respawn` op: `ids` and `last: {id, prompt?}` (decision 6); the request finishes after the
+      Done: `lib/restart.ts` (`restartRoost`, injected clients and clock; `lastFor`, `RESTART_PROMPT`), wired as `xpi roost restart [<id|name>] [--if-stale]` in `cli.ts` (usage text too). Tests: `test/restart.test.ts` (17: order, `--if-stale`, failures, caller last), `test/restart-cli.test.ts` (real daemon and hosts: daemon pid and hosts replaced, shell and ended sessions left alone, single session, `--if-stale`).
+
+- [x] R9 the daemon's `respawn` op: `ids` and `last: {id, prompt?}` (decision 6); the request finishes after the
       caller's death; `restarting` in the state and the host's `restart` exit reason
-- [ ] R10 `/restart` and `/restart all` in a session (builtin:roost, a new connection, `last` with the prompt only
+      Done: `respawn` takes `ids` and `last` (`protocol-schema.ts`, with `argsProblem`'s cross-field checks); the daemon's `restartSessions` runs them in order, `last` at the end, to completion whatever the socket does; `restarting` in the state and on rows (cleared when the new host is up, the start failed, or the daemon starts); the host ends an attached terminal with `restart` (`terminate {reason}`). Tests: `test/daemon.test.ts` ("spec 03: restarting sessions by id"), `test/restart-cli.test.ts` (a request that outlives its client).
+
+- [x] R10 `/restart` and `/restart all` in a session (builtin:roost, a new connection, `last` with the prompt only
       when working), the foreground wording, the peek's `/restart` in `PEEK_COMMANDS`, the row of class `hub` in the
       command table (`test/roost-commands.test.ts`)
-- [ ] R11 hub `/restart`, and what it says about itself afterwards (decision 7)
-- [ ] R12 attach: a terminal follows its session through a restart (decision 7)
-- [ ] R13 tests per the spec: integration, PTY, the real Haiku check
-- [ ] R14 docs: `roost.md` section, `cli.md`, `protocol.md`, hub help, the repository's `AGENTS.md`; R4's warning text
+      Done: builtin:roost registers `/restart [all]` (`extensions/roost/index.ts`, `restart.ts`, `stale.ts` for the foreground wording); the peek's `/restart` is in `PEEK_COMMANDS` with its own case; the `hub` row is in `commands.ts`; the CLI names the caller last through `ROOST_JOB_ID`. Tests: `test/roost-restart-command.test.ts`, `test/roost-restart-session.test.ts`, `test/roost-commands.test.ts`, `test/agent-view.test.ts` ("spec 03: /restart in the hub").
+
+- [x] R11 hub `/restart`, and what it says about itself afterwards (decision 7)
+      Done: the hub's main-input `/restart` runs `restartRoost` (self last inside a session); the standalone hub says it itself still runs the old build until started again, and its stale line stays. Tests: `test/agent-view.test.ts`.
+
+- [x] R12 attach: a terminal follows its session through a restart (decision 7)
+      Done: `attachFollowingRestart` (`lib/attach.ts`) in `xpi roost attach` and the hub's attach: `restarting…`, up to 30 s, attach again. Tests: `test/attach-follow.test.ts` (6), `test/restart-cli.test.ts` (an attached terminal in a pty follows `restart`).
+
+- [x] R13 tests per the spec: integration and unit tests
+      Done: unit tests for the orchestration (order, `--if-stale`, failures, caller last, the prompt only for the CLI,
+      the older-daemon fallback: `test/restart.test.ts`); integration tests with a real daemon and hosts
+      (`test/restart-cli.test.ts`: the daemon and every running xpi session replaced, shell and ended sessions left
+      alone, a request that outlives its client with `last` last, an attached terminal in a pty following a restart;
+      `test/daemon.test.ts`: `ids`/`last`, `restarting`, the exit reason, no `stopped` event); attach follow
+      (`test/attach-follow.test.ts`: the gap keeps the terminal raw, keys dropped, detach key and Ctrl-C leave, early
+      end); the hub and the session's command. The PTY test for a typed `/restart` was replaced by the lead's manual
+      pty check.
+- [x] R13b the real Haiku check (the lead runs it)
+      Done (2026-11-14, by hand, an isolated agent directory, the built bundle): a Haiku session started with `xpi --bg`
+      ran `xpi roost restart <its own name>` in its shell tool; the session's process was replaced, the new process got
+      the restart prompt, and the model did not run the command again and said in one sentence what had happened.
+
+- [x] R14 docs: `roost.md` section, `cli.md`, `protocol.md`, hub help, the repository's `AGENTS.md`; R4's warning text
       names `xpi roost restart`
+      Done: `roost.md` ("After xpi is rebuilt or upgraded": `xpi roost restart`, `/restart`, the agent, attached terminals, the login service), `cli.md`, `slash-commands.md`, `protocol.md`, `porting.md` (xpi-roost and coding-agent), the hub's help, the CLI usage and the root `AGENTS.md`; every notice of PR 1 now names `xpi roost restart` or `/restart` (CLI warnings, `ls` line, `daemon status`, the hub's line, `background.ts`, `stale.ts`) with their tests.

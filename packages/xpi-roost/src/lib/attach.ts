@@ -2,7 +2,7 @@ import { connect, type Socket } from "node:net";
 import { encodeFrame, encodeJsonFrame, type Frame, FrameDecoder, FrameType, parseJsonPayload } from "./framing.ts";
 import { checkLevels, socketDirLevels } from "./paths.ts";
 
-export type DetachReason = "local" | "takeover" | "exit" | "request" | "closed" | "error";
+export type DetachReason = "local" | "takeover" | "exit" | "request" | "restart" | "closed" | "error";
 
 export interface AttachIO {
 	stdin: NodeJS.ReadStream;
@@ -193,7 +193,12 @@ export class DetachScanner {
 export function attachToHost(
 	socketPath: string,
 	io: AttachIO,
-	opts: { isDetachKey: DetachKeyMatcher },
+	opts: {
+		isDetachKey: DetachKeyMatcher;
+		onAttached?: () => void;
+		/** `attachFollowingRestart` owns the terminal's mode: leave it raw and reading when this attach ends. */
+		keepTerminal?: boolean;
+	},
 ): Promise<DetachReason> {
 	// the host's socket is in the runtime directory: its levels are checked before it is used
 	try {
@@ -233,8 +238,10 @@ export function attachToHost(
 			clearTimeout(holdTimer);
 			stdin.off("data", onInput);
 			stdout.off("resize", onResize);
-			stdin.pause();
-			if (stdin.isTTY) stdin.setRawMode(wasRaw);
+			if (!opts.keepTerminal) {
+				stdin.pause();
+				if (stdin.isTTY) stdin.setRawMode(wasRaw);
+			}
 			stdout.write(TERMINAL_RESET + (alt ? ALT_OFF : ""));
 			sock?.destroy();
 			resolve(reason);
@@ -258,9 +265,12 @@ export function attachToHost(
 				return finish("error");
 			}
 			for (const frame of frames) {
-				if (frame.type === FrameType.HELLO) greeted = true;
-				else if (frame.type === FrameType.DATA) {
+				if (frame.type === FrameType.HELLO) {
+					greeted = true;
+					opts.onAttached?.();
+				} else if (frame.type === FrameType.DATA) {
 					if (greeted === undefined) {
+						opts.onAttached?.();
 						greeted = false;
 						stdout.write("\x1b[2J\x1b[H");
 					}
@@ -275,4 +285,84 @@ export function attachToHost(
 		sock.on("error", () => finish("error"));
 		sock.on("close", () => finish("closed"));
 	});
+}
+
+/**
+ * Spec 03: an attached terminal follows its session through a restart. When the host ends with the reason `restart`
+ * (or the session is marked restarting), it says so and attaches again to the new host, trying for `waitMs` (the new
+ * host's socket appears a moment after the old one goes). A session that does not come back ends with the reason of
+ * the last try. An attach that was open and ended otherwise (detached, taken over, the session ended) is not followed.
+ * `attachOnce` is one attach (pass `keepTerminal: true` to `attachToHost`), calling `onAttached` once the host has
+ * greeted.
+ *
+ * With `io` the terminal stays raw and read for the whole follow: in the gaps the detach key or Ctrl-C ends the
+ * attach (`local`) and any other key is dropped, not echoed and not sent to the new session. The terminal's mode
+ * is put back when the follow ends.
+ */
+export async function attachFollowingRestart(
+	attachOnce: (onAttached: () => void) => Promise<DetachReason>,
+	d: {
+		/** Whether the session's row says it is restarting (a host that was killed gives no reason). */
+		restarting?: () => boolean | Promise<boolean>;
+		/** While waiting: why the session is not coming back (its row is not restarting and has ended: a new host that is up but has no worker pid yet is not that), or undefined. */
+		ended?: () => string | undefined | Promise<string | undefined>;
+		say: (text: string) => void;
+		io?: { stdin: NodeJS.ReadStream; stdout: NodeJS.WriteStream; isDetachKey: DetachKeyMatcher };
+		waitMs?: number;
+		retryMs?: number;
+	},
+): Promise<DetachReason> {
+	const waitMs = d.waitMs ?? 30_000;
+	const stdin = d.io?.stdin;
+	const wasRaw = stdin?.isTTY ? stdin.isRaw : false;
+	/** Sleeps `ms` reading the keyboard: true when the person asked to leave. */
+	const gap = (ms: number): Promise<boolean> =>
+		new Promise((resolve) => {
+			if (!d.io || !stdin) return void setTimeout(() => resolve(false), ms);
+			const scanner = new DetachScanner(d.io.isDetachKey);
+			let timer: NodeJS.Timeout | undefined;
+			const done = (leave: boolean) => {
+				clearTimeout(timer);
+				stdin.off("data", onData);
+				resolve(leave);
+			};
+			const onData = (chunk: Buffer | string) => {
+				const text = (Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, "utf8")).toString("latin1");
+				if (text.includes("\x03") || scanner.push(text, Date.now()).detach) done(true);
+			};
+			if (stdin.isTTY) stdin.setRawMode(true);
+			stdin.on("data", onData);
+			stdin.resume();
+			timer = setTimeout(() => done(false), ms);
+		});
+	let deadline: number | undefined;
+	try {
+		for (;;) {
+			let attached = false;
+			const reason = await attachOnce(() => {
+				attached = true;
+			});
+			if (reason === "local" || reason === "takeover" || reason === "request") return reason;
+			if (attached || deadline === undefined) {
+				// a session that was open (or the first try): is it going away for a restart?
+				if (reason !== "restart" && !(await d.restarting?.())) return reason;
+				d.say("restarting…");
+				deadline = Date.now() + waitMs;
+			} else {
+				if (Date.now() > deadline) return reason;
+				// the restart failed (not restarting any more, and the row has ended): no need to wait it out
+				const why = await d.ended?.();
+				if (why !== undefined) {
+					d.say(`not restarted: ${why}`);
+					return "exit";
+				}
+			}
+			if (await gap(d.retryMs ?? 200)) return "local";
+		}
+	} finally {
+		if (stdin) {
+			stdin.pause();
+			if (stdin.isTTY) stdin.setRawMode(wasRaw);
+		}
+	}
 }

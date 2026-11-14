@@ -44,7 +44,7 @@ describe("reloadNotice", () => {
 	it("names the session's id in a roost session and the resume command in a foreground one", () => {
 		const roostSession = reloadNotice({ running: "a", onDisk: "b", roostId: "j1" });
 		expect(roostSession).toContain("/reload does not load it");
-		expect(roostSession).toContain("xpi roost respawn j1");
+		expect(roostSession).toContain("Restart this session to run the installed build: /restart");
 		const foreground = reloadNotice({ running: "a", onDisk: "b", resume: "xpi --session abc" });
 		expect(foreground).toContain("/reload does not load it");
 		expect(foreground).toContain("Quit and start it again: xpi --session abc");
@@ -96,7 +96,9 @@ describe("builtin:roost on /reload", () => {
 			ROOST_JOB_DIR: "/tmp/none",
 		});
 		const notes = await sessionStart({ reason: "reload" });
-		expect(notes.map((n) => n.message).join("\n")).toContain("xpi roost respawn j1");
+		expect(notes.map((n) => n.message).join("\n")).toContain(
+			"Restart this session to run the installed build: /restart",
+		);
 	});
 
 	it("a bare ROOST_JOB_ID (an xpi started from the agent's shell) is a foreground session", async () => {
