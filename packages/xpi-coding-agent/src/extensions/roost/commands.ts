@@ -59,7 +59,7 @@ export const EXTENSION_COMMANDS: Record<string, How & { description: string; arg
 	subagents: { how: "picker", args: "optional", description: "This session's subagents" },
 	tasks: { how: "picker", description: "The agent team's task list" },
 	sg: {
-		how: "reply",
+		how: "screen",
 		args: "optional",
 		argumentHint: "import | export [--apply] | merge <branch> | status | sbx ls",
 		description: "shadow-git: import, export, merge and status for this workspace",
