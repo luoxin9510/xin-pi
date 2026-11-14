@@ -272,7 +272,11 @@ function registerSandbox(pi: ExtensionAPI): void {
 		}
 		const paths = toolPaths(event);
 		if (paths.length === 0) return undefined;
-		writable ??= writableDirs(extension.sessionManager.getSessionDir(), sandbox.repo.ctx.store);
+		writable ??= writableDirs(
+			extension.sessionManager.getSessionDir(),
+			sandbox.repo.ctx.store,
+			process.env.XPI_SUBAGENT_MEMORY_DIR,
+		);
 		for (const { path, access } of paths) {
 			const reason = pathDenied(sandbox, backend, writable, extension.cwd, path, access);
 			if (reason) return { block: true, reason };

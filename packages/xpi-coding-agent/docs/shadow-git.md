@@ -416,6 +416,7 @@ any checkout: the user is present and commits on `main`. Sandboxes are for the a
   allowed. The hook searches the command text; it is a guard rail against an agent that does not try to get around it,
   not a shell parser. It also matches the words inside quotes (`echo "xpi sg import"` is blocked). A bare `sg` is a
   different system command on Linux, so the prompt and these docs always say `xpi sg`.
+- **Order.** `shadow-git` is the first built-in extension: its `session_start` sets the environment, and the `session_start` of the ones after it (`mcp` starting servers, for example) already sees it.
 - **Prompt.** A short paragraph (one section, the same every turn) says that a host VCS owns the workspace, that agents
   never call it to write, that `xpi sg export` shows the user what is pending, and to write `xpi sg`, never `sg`.
 
@@ -434,7 +435,9 @@ has `XPI_SG_SANDBOX` set. It registers no `/sg` and no live entry.
   xpi itself. These are always writable, whatever the rules say, and only these:
   - the session's own directory (a subagent's session is below its parent's);
   - the system's temp directory (`os.tmpdir()`);
-  - `~/.claude/agent-memory`, where user-scope agent memory lives;
+  - the agent's own memory directory, which the subagent runner passes in `XPI_SUBAGENT_MEMORY_DIR` (so another agent's
+    memory is refused: it could plant instructions for it). Project-scope memory (`<workspace>/.claude/agent-memory`) is in
+    the primary workspace, so a sandboxed agent's writes to it are refused too;
   - the sandbox's own `scratch` and `tree` (already writable by the policy).
 
   xpi's agent directory as a whole is not on the list: `settings.json`, `auth.json` and `extensions/` there are read by
@@ -491,7 +494,7 @@ under `.pi/worktrees` (nothing is put in the workspace):
   submounts below.
 - **The bash block list is a guard rail.** It searches command text, so a command built at run time, or a program the
   agent writes and runs, is not caught.
-- **The always-writable paths.** The session directory, the temp directory and the user's agent memory are writable
+- **The always-writable paths.** The session directory, the temp directory and the agent's own memory directory are writable
   from a sandboxed session's file tools, so a sandboxed agent can change other sessions' files there and anything in
   the temp directory that other programs read. Under `namespace`, ordinary file permissions apply everywhere
   outside the workspace, the store and the listed mounts, for `bash` as well.

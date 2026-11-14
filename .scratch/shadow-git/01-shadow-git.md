@@ -661,3 +661,11 @@ After review of PR 3:
   cannot be tracked (documented).
 - **Smaller:** `findWorkspace` returns `undefined` on any error; a sandbox child's `ref.backend` and cwd follow the backend
   used at launch; the subdirectory is `/`-separated.
+
+After the second review of PR 3:
+
+- **`builtin:shadow-git` is first in `builtInExtensions`**, so its `session_start` (which sets `GIT_DIR` and `GIT_WORK_TREE`)
+  runs before `mcp`, `codemode` and the rest start anything. Handlers run in the array's order.
+- **Memory.** Not `~/.claude/agent-memory` as a whole: the subagent runner sets `XPI_SUBAGENT_MEMORY_DIR` to the child's own
+  memory directory (it follows `claudeDir`), and only that is writable. Project-scope memory is in the primary, so a
+  sandboxed agent's writes there are refused (documented).

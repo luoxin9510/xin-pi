@@ -8,6 +8,7 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { beginCodemodeScript } from "../../../src/extensions/codemode/scripts.ts";
+import { builtInExtensions } from "../../../src/extensions/index.ts";
 import { blockReason, compilePatterns } from "../../../src/extensions/shadow-git/guard.ts";
 import { createShadowGitExtension, parseSgArgs } from "../../../src/extensions/shadow-git/index.ts";
 import { scripts } from "../../../src/extensions/subagent/background.ts";
@@ -394,6 +395,27 @@ test("/sg import, export --apply and merge are refused while the main agent work
 		assert.match(refused, /^error: .*no other xpi session in .*live: pid \d+/s);
 		assert.equal(existsSync(join(l.ws, "other.txt")), false, "nothing was imported");
 		assert.match(await sg("status"), /^info: /);
+	} finally {
+		l.restore();
+	}
+});
+
+test("shadow-git loads first, so the session_start of later built-ins (mcp, codemode, subagent) already sees GIT_DIR", async () => {
+	const names = builtInExtensions.map((extension) => (typeof extension === "function" ? "" : extension.name));
+	assert.equal(names[0], "shadow-git");
+	for (const later of ["mcp", "codemode", "tool-search", "subagent", "roost"]) {
+		assert.ok(names.indexOf(later) > names.indexOf("shadow-git"), later);
+	}
+	const l = await lab();
+	try {
+		const api = fakeApi();
+		const seen: (string | undefined)[] = [];
+		const shadow = builtInExtensions[0];
+		assert.ok(typeof shadow !== "function");
+		await shadow.factory(api.pi);
+		api.pi.on("session_start", () => seen.push(process.env.GIT_DIR)); // what a later extension's start does
+		await api.emit("session_start", { type: "session_start", reason: "startup" }, fakeCtx(l.ws).ctx);
+		assert.deepEqual(seen, [join(l.store, "demo.git")]);
 	} finally {
 		l.restore();
 	}

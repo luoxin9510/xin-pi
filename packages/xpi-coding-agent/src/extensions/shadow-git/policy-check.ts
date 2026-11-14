@@ -4,8 +4,7 @@
  */
 
 import { realpathSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { type Backend, type Sandbox, sandboxPolicy } from "xpi-shadow-git";
 import { resolveToCwd } from "../../core/tools/path-utils.ts";
 
@@ -26,15 +25,19 @@ const within = (path: string, root: string): boolean =>
  * session that is not sandboxed.
  */
 export interface WritableDirs {
-	/** The session directory (a subagent's session is below its parent's), the temp directory and the user's agent memory (real paths). */
+	/** The session directory (a subagent's session is below its parent's), the temp directory and the agent's own memory directory (real paths). */
 	dirs: string[];
 	/** The shadow-git store (real path): never writable from a sandbox, wherever it is. */
 	store: string;
 }
 
-export function writableDirs(sessionDir: string | undefined, store: string): WritableDirs {
+export function writableDirs(
+	sessionDir: string | undefined,
+	store: string,
+	memoryDir: string | undefined,
+): WritableDirs {
 	return {
-		dirs: [...(sessionDir ? [sessionDir] : []), tmpdir(), join(homedir(), ".claude", "agent-memory")].map(realOrSelf),
+		dirs: [...(sessionDir ? [sessionDir] : []), tmpdir(), ...(memoryDir ? [memoryDir] : [])].map(realOrSelf),
 		store: realOrSelf(store),
 	};
 }

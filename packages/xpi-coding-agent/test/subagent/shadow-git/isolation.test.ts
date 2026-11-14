@@ -348,3 +348,17 @@ test("the launcher follows the backend that is used now: the ref's recorded back
 		l.restore();
 	}
 });
+
+test("a child with memory gets its own memory directory in XPI_SUBAGENT_MEMORY_DIR; one without gets none", async () => {
+	const { l, s, load } = await setup();
+	try {
+		s.write(join(s.home, ".claude/agents/m.md"), agentFile("name: m\ndescription: d\nmemory: user"));
+		s.scenario({ lines: happyLines("hi") });
+		await (await load()).run({ subagent_type: "m" });
+		assert.equal(s.record().env!.XPI_SUBAGENT_MEMORY_DIR, join(s.home, ".claude", "agent-memory", "m"));
+		await (await load()).run({ subagent_type: "x" });
+		assert.equal(s.record().env!.XPI_SUBAGENT_MEMORY_DIR, undefined);
+	} finally {
+		l.restore();
+	}
+});

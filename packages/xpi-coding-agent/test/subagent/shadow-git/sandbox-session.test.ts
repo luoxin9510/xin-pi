@@ -179,6 +179,32 @@ test("a scheme path is not checkable and is refused; a path with :// inside is a
 	}
 });
 
+test("memory: the agent's own memory directory is writable, another agent's and the project's are not", async () => {
+	const l = await lab();
+	try {
+		const ownTmp = mkdtempSync(join(tmpdir(), "xpi-sg-tmp-"));
+		process.env.TMPDIR = ownTmp;
+		const mine = join(l.home, ".claude", "agent-memory", "mine");
+		process.env.XPI_SUBAGENT_MEMORY_DIR = mine;
+		const { call } = await inSandbox(l);
+		try {
+			assert.equal(await call("write", { path: join(mine, "MEMORY.md"), content: "x" }), undefined);
+			for (const path of [
+				join(l.home, ".claude", "agent-memory", "other", "MEMORY.md"),
+				join(l.home, ".claude", "agent-memory", "mine-not", "MEMORY.md"),
+				join(l.ws, ".claude", "agent-memory", "mine", "MEMORY.md"), // project scope: in the primary
+			]) {
+				assert.equal((await call("write", { path, content: "x" })).block, true, path);
+			}
+		} finally {
+			delete process.env.XPI_SUBAGENT_MEMORY_DIR;
+			rmSync(ownTmp, { recursive: true, force: true });
+		}
+	} finally {
+		l.restore();
+	}
+});
+
 test("bash in a sandbox: the same block list; the paragraph says whose sandbox it is and that the primary is read-only", async () => {
 	const l = await lab();
 	try {

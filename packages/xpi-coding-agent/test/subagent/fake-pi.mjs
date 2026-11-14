@@ -38,7 +38,7 @@ const record = () =>
         XPI_TEAM_TOOLS: process.env.XPI_TEAM_TOOLS,
       },
       env: Object.fromEntries(
-        ["XPI_SG_SANDBOX", "XPI_SG_BACKEND", "XPI_SG_STORE", "GIT_DIR", "GIT_WORK_TREE"].map((name) => [name, process.env[name]]),
+        ["XPI_SG_SANDBOX", "XPI_SG_BACKEND", "XPI_SG_STORE", "GIT_DIR", "GIT_WORK_TREE", "XPI_SUBAGENT_MEMORY_DIR"].map((name) => [name, process.env[name]]),
       ),
       commands,
       cwd: process.cwd(),

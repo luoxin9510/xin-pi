@@ -11,6 +11,11 @@ import toolSearchExtension from "./tool-search/index.ts";
 import upstreamExtension from "./upstream/index.ts";
 
 export const builtInExtensions: InlineExtension[] = [
+	// First: its `session_start` sets GIT_DIR and GIT_WORK_TREE, and the `session_start` of the extensions after it (mcp
+	// starts servers, codemode and subagents start children) must already see them. Handlers run in this order. It acts
+	// only when the session's cwd is in a registered shadow-git workspace or XPI_SG_SANDBOX is set. Not replaceable.
+	// Disable it with `-builtin:shadow-git`.
+	{ name: "shadow-git", factory: shadowGitExtension, builtin: true },
 	{ name: "llama.cpp", factory: llamaExtension, builtin: true },
 	// Replaceable: an extension that registers `codemode`, `tool_search`, or `/mcp` (such as a third-party
 	// MCP extension) takes over instead of running alongside the built-in one.
@@ -25,9 +30,6 @@ export const builtInExtensions: InlineExtension[] = [
 	{ name: "upstream", factory: upstreamExtension, builtin: true },
 	// Not replaceable. Disable it with `-builtin:commit`.
 	{ name: "commit", factory: commitExtension, builtin: true },
-	// Not replaceable. Registers nothing unless the cwd is in a registered shadow-git workspace or XPI_SG_SANDBOX is set.
-	// Disable it with `-builtin:shadow-git`.
-	{ name: "shadow-git", factory: shadowGitExtension, builtin: true },
 	// Not replaceable. Background sessions (xpi roost): the session write lock, `--bg`, the worker role in a session the
 	// daemon runs. Disable it with `-builtin:roost`.
 	{ name: "roost", factory: roostExtension, builtin: true },

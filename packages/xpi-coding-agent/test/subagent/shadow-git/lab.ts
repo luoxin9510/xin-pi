@@ -25,6 +25,7 @@ const TOUCHED = [
 	"GIT_COMMITTER_EMAIL",
 	"HOME",
 	"TMPDIR",
+	"XPI_SUBAGENT_MEMORY_DIR",
 ];
 
 export interface Lab {

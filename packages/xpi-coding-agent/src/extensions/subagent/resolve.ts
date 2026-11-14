@@ -464,9 +464,8 @@ export function resolveChild(
 	);
 	const extensions = childExtensions(def, parent.trusted);
 	const cwd = options.worktree ? worktreeCwd(options.worktree) : parent.cwd;
-	const memory = def.memory
-		? memorySection(memoryDir(def, parent, options), tools.memoryReadOnly, tools.warnings)
-		: undefined;
+	const memoryPath = def.memory ? memoryDir(def, parent, options) : undefined;
+	const memory = memoryPath ? memorySection(memoryPath, tools.memoryReadOnly, tools.warnings) : undefined;
 	const teamPrompt = options.team
 		? (options.team.prompt ?? teammatePrompt(options.team.team, options.team.member, options.team.roster))
 		: undefined;
@@ -506,6 +505,8 @@ export function resolveChild(
 		env: {
 			...(process.env as Record<string, string>),
 			XPI_SUBAGENT_DEPTH: "1",
+			// The agent's own memory directory: a sandboxed child may write there (builtin:shadow-git), nowhere else in memory.
+			...(memoryPath ? { XPI_SUBAGENT_MEMORY_DIR: memoryPath } : {}),
 			...(codemode ? { XPI_SUBAGENT_CHILD_CODEMODE: "only" } : {}),
 			...(options.team
 				? {
