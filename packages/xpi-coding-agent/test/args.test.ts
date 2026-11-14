@@ -273,6 +273,17 @@ describe("parseArgs", () => {
 			const result = parseArgs(["--extension", "./ext1.ts", "-e", "./ext2.ts"]);
 			expect(result.extensions).toEqual(["./ext1.ts", "./ext2.ts"]);
 		});
+
+		test("refuses an override pattern: -e cannot turn a built-in off", () => {
+			const result = parseArgs(["-e", "-builtin:checks", "-e", "./ok.ts"]);
+			expect(result.extensions).toEqual(["./ok.ts"]);
+			expect(result.diagnostics).toHaveLength(1);
+			expect(result.diagnostics[0]).toMatchObject({ type: "error" });
+			expect(result.diagnostics[0]!.message).toContain('add "-builtin:checks" to "extensions" in settings');
+			const other = parseArgs(["--extension", "+./x.ts"]);
+			expect(other.extensions).toBeUndefined();
+			expect(other.diagnostics[0]!.message).toContain('cannot start with "+"');
+		});
 	});
 
 	describe("--no-extensions flag", () => {
