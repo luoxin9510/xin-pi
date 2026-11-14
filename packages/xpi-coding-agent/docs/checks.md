@@ -63,7 +63,7 @@ Each output line (stdout and stderr) is matched against these formats, in order:
 - `path:line:col: message` (ruff `--output-format=concise`, eslint `-f unix`, gcc-like tools)
 
 Absolute paths inside the working directory are shown relative to it. If no line matched but the command exited
-non-zero, it counts as one error holding the last 20 lines of its output, identified by its exit code. Output is capped
+non-zero (or was killed by a signal xpi did not send, such as an out-of-memory kill), it counts as one error holding the last 20 lines of its output, identified by its exit code (or "signal"). In the `path:line:col` and mypy formats, a line whose message starts with `warning` or `note`, or contains eslint's `[Warning/`, is skipped; in the GitHub format only `::error` counts. Stdout and stderr are interleaved as they arrive. Output is capped
 at 1 MiB per command, and a command is killed with its whole process group on timeout, on abort and at shutdown.
 
 ## What you and the model see
@@ -88,7 +88,7 @@ isolated). A subagent's baseline is its own. Two overlaps are accepted:
 - a subagent that is not isolated changes the parent's tree, so the parent checks again after its `Agent` turn and may
   report errors the subagent already saw (they are new to the parent);
 - an isolated worktree without dependencies (`node_modules`) makes a command fail with output nobody can parse; that is
-  in its baseline, so it is reported only if the output changes.
+  in its baseline, so it is reported only if its exit code changes.
 
 ## Development
 

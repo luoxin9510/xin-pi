@@ -95,7 +95,7 @@ Built-in line formats, tried in order on each output line (stdout and stderr):
 - `path:line:col: message` (ruff `--output-format=concise`, eslint `-f unix`, gcc-like tools)
 - `path:line: error: message` (mypy)
 
-Paths are made relative to the working directory. Warnings count as errors only for the GitHub format's `::error`.
+Paths are made relative to the working directory. Warnings do not count as errors: in the GitHub format only `::error` counts; in the `path:line:col` and mypy formats a line whose message starts with `warning` or `note` (case-insensitive), or contains eslint's `[Warning/`, is skipped. A command killed by a signal we did not send is an unparsable failure, identified by `(command, "", "signal")`.
 
 ### 5. What the model and the person see (decision 6)
 
@@ -118,7 +118,7 @@ directory (its worktree when isolated). A subagent's baseline is its own. Accept
 - a subagent that is not isolated changes the parent's tree; the parent checks again after its `Agent` turn and may
   report errors the subagent already saw (they are new to the parent);
 - an isolated worktree without dependencies (`node_modules`) makes a command fail unparsed; that is in its baseline,
-  so it is reported only if its output changes.
+  so it is reported only if its exit code changes.
 
 ### 7. Where it lives
 
