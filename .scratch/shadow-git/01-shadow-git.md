@@ -580,3 +580,16 @@ After review of PR 2:
 - **Inside a sandbox**, `init` and `--repo <other>` are refused too; `XPI_SG_STORE` passed to the command is the
   store's real path; the final `cd` of the script is a setup step (exit 125); `strictatime` is among the repeated
   mount flags.
+
+After the second review of PR 2:
+
+- **Steps 6 and 7 of the script.** The git directory's `worktrees/` is read-only, with the sandbox's own
+  `worktrees/<id>` writable except `commondir`, `gitdir` and `config.worktree`; `<name>.sbx` is read-only with this
+  sandbox's `tree` and `scratch` writable. The writable parts are bound first, then the parent is bound with `--rbind`
+  and remounted read-only, since a read-only remount covers the top mount only. The tree is still bound over the
+  workspace's path in step 4, before these, so its view there stays writable.
+- **Checks outside the namespace.** Before any git runs on a sandbox's tree from outside, `commondir` must still be
+  `../..` and `config.worktree` must hold only `core.excludesFile`; otherwise the sandbox is `broken: commondir
+  changed` or `broken: config.worktree changed`. Removing a sandbox no longer runs `git worktree remove` on its tree:
+  the directories go by hand and `git worktree prune` follows. Under `policy` the attack stays possible for plain git
+  started by hand in a tree; this is documented.

@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { namespaceCommand } from "../src/backend.ts";
 import { createContext, loadSandbox, namespaceScript, resolveRepo, sandboxPolicy } from "../src/index.ts";
+import { changedFiles } from "../src/sandbox.ts";
 import { cleanup, initialised, type Lab, read, write } from "./helpers.ts";
 
 afterEach(cleanup);
@@ -588,13 +589,87 @@ describe("review fixes", () => {
 			`${gitDir}/info`,
 			`${sbx.gitDir}/config.worktree`,
 		];
-		let at = script.indexOf("# 6.");
+		const at = script.indexOf("# 6.");
 		expect(at).toBeGreaterThan(script.indexOf("# 5."));
-		for (const guard of guards) {
-			const found = script.indexOf(`ro_remount '${guard}'`, at);
-			expect(found, guard).toBeGreaterThan(-1);
-			at = found;
+		for (const guard of guards) expect(script.indexOf(`ro_remount '${guard}'`, at), guard).toBeGreaterThan(at);
+		const last = script.indexOf("# 7.");
+		expect(script.indexOf("step cd")).toBeGreaterThan(last);
+	});
+
+	it("reports a sandbox whose commondir or config.worktree was changed as broken, and runs no git in it", async () => {
+		const l = await sandboxLab();
+		await create(l, "a");
+		await create(l, "b");
+		const marker = join(l.ws, "..", "filter-ran");
+		const filter = `[filter "x"]\n\tclean = touch '${marker}'\n`;
+		// a: commondir points at a copy of the git dir whose config names a filter driver
+		const fake = join(l.ws, "..", "fake.git");
+		spawnSync("cp", ["-R", join(l.store, "demo.git"), fake]);
+		writeFileSync(join(fake, "config"), filter, { flag: "a" });
+		writeFileSync(join(l.store, "demo.git", "worktrees", "a", "commondir"), `${fake}\n`);
+		writeFileSync(join(sbxDir(l, "a"), "tree", ".gitattributes"), "* filter=x\n");
+		writeFileSync(join(sbxDir(l, "a"), "tree", "a.txt"), "edited so status has to look at it\n");
+		// b: its own config.worktree names one
+		writeFileSync(join(l.store, "demo.git", "worktrees", "b", "config.worktree"), filter, { flag: "a" });
+		writeFileSync(join(sbxDir(l, "b"), "tree", ".gitattributes"), "* filter=x\n");
+		writeFileSync(join(sbxDir(l, "b"), "tree", "a.txt"), "edited so status has to look at it\n");
+
+		for (const args of [["sbx", "ls"], ["status"]]) {
+			const result = await l.sg(args);
+			expect(result.code, args.join(" ")).toBe(0);
+			expect(result.out).toContain("a  broken: commondir changed");
+			expect(result.out).toContain("b  broken: config.worktree changed");
 		}
-		expect(script.indexOf("step cd")).toBeGreaterThan(at);
+		expect((await l.sg(["sbx", "run", "a", "--", "true"])).code).toBe(2);
+		expect((await l.sg(["sbx", "rm", "a"])).err).toContain("commondir changed");
+		expect(existsSync(marker)).toBe(false);
+		// --force removes them without running git on the tree, and keeps the branches
+		expect((await l.sg(["sbx", "rm", "a", "--force"])).code).toBe(0);
+		expect((await l.sg(["sbx", "rm", "b", "--force"])).code).toBe(0);
+		expect(existsSync(marker)).toBe(false);
+		expect(existsSync(join(l.store, "demo.git", "worktrees", "a"))).toBe(false);
+		expect(l.git("branch", "--list", "sbx/a")).toContain("sbx/a");
+	});
+
+	it("builds the git guards of the namespace script in order: own admin directory, worktrees, then the sandboxes directory", async () => {
+		const l = await sandboxLab();
+		await create(l);
+		const sbx = sandboxOf(l);
+		const script = namespaceScript(sbx);
+		const gitDir = join(l.store, "demo.git");
+		const wt = `${gitDir}/worktrees`;
+		const sandboxes = join(realpathSync(l.store), "demo.sbx");
+		const order = [
+			"# 6.",
+			`mount --bind '${wt}/a' '${wt}/a'`,
+			`ro_remount '${wt}/a/commondir'`,
+			`ro_remount '${wt}/a/gitdir'`,
+			`ro_remount '${wt}/a/config.worktree'`,
+			`mount --rbind '${wt}' '${wt}'`,
+			`ro_remount '${wt}'`,
+			"# 7.",
+			`mount --bind '${sbx.tree}' '${sbx.tree}'`,
+			`mount --bind '${sbx.scratch}' '${sbx.scratch}'`,
+			`mount --rbind '${sandboxes}' '${sandboxes}'`,
+			`ro_remount '${sandboxes}'`,
+		];
+		let last = -1;
+		for (const needle of order) {
+			const found = script.indexOf(needle, last + 1);
+			expect(found, needle).toBeGreaterThan(last);
+			last = found;
+		}
+		expect(script.indexOf("step cd")).toBeGreaterThan(script.indexOf("# 7."));
+		// the tree is bound over the workspace before any of this, so its view there is writable
+		expect(script.indexOf(`mount --rbind '${sbx.tree}' '${l.ws}'`)).toBeLessThan(script.indexOf("# 6."));
+	});
+
+	it("checks a sandbox that was opened before it was tampered with, at every git call", async () => {
+		const l = await sandboxLab();
+		await create(l);
+		const sbx = sandboxOf(l);
+		expect(changedFiles(sbx)).toEqual([]);
+		writeFileSync(join(sbx.gitDir, "commondir"), "/elsewhere\n");
+		expect(() => changedFiles(sbx)).toThrow("commondir changed");
 	});
 });

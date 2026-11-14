@@ -1,5 +1,5 @@
 import { statSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { configGet } from "./config.ts";
 import type { SgContext } from "./context.ts";
 import { precondition } from "./errors.ts";
@@ -110,19 +110,21 @@ function hiddenPaths(sbx: Sandbox): { all: string[]; inRw: string[] } {
 }
 
 /**
- * Files and directories of the shadow repo's git directory that a sandbox must not write: a changed `config`, a hook or
- * a `config.worktree` would run as the user's own commands later (a `core.fsmonitor`, a filter driver, a hook).
- * Refs and objects stay writable: that is how a sandbox commits.
+ * What a sandbox must not write, because it would run as the user's own commands later (a `core.fsmonitor`, a filter
+ * driver, a hook): the shadow repo's `config`, `config.worktree`, `hooks` and `info`, every other sandbox's
+ * `worktrees/<id>` and the sandbox directory `<name>.sbx` (the other sandboxes' trees). The sandbox's own
+ * `worktrees/<id>` (HEAD, index, logs), `tree` and `scratch` stay writable, except `commondir`, `gitdir` and
+ * `config.worktree` of its own `worktrees/<id>`: a `commondir` pointed at a directory of its own would make git read
+ * that directory's config. Refs and objects stay writable: that is how a sandbox commits.
  */
-export function gitGuards(sbx: Sandbox): string[] {
+export function gitGuards(sbx: Sandbox): { ownFiles: string[]; readOnly: string[]; own: string; worktrees: string } {
 	const dir = gitDirOf(sbx.repo.ctx, sbx.repo.name);
-	return [
-		join(dir, "config"),
-		join(dir, "config.worktree"),
-		join(dir, "hooks"),
-		join(dir, "info"),
-		join(sbx.gitDir, "config.worktree"),
-	];
+	return {
+		ownFiles: ["commondir", "gitdir", "config.worktree"].map((name) => join(sbx.gitDir, name)),
+		readOnly: [join(dir, "config"), join(dir, "config.worktree"), join(dir, "hooks"), join(dir, "info")],
+		own: sbx.gitDir,
+		worktrees: dirname(sbx.gitDir),
+	};
 }
 
 /**
@@ -178,10 +180,23 @@ export function namespaceScript(sbx: Sandbox): string {
 		const target = !rule.ws && rule.mode === "hidden" ? kindOf(rule.path) : undefined;
 		if (target) out.push(cover(target));
 	}
+	const guards = gitGuards(sbx);
 	out.push("# 6. the shared git directory: what runs as the user's own commands is read-only");
-	for (const target of gitGuards(sbx)) {
+	// Submounts are made first: a read-only remount covers the top mount only, so they stay as they are.
+	out.push(`step mount --bind ${shq(guards.own)} ${shq(guards.own)}`);
+	for (const file of guards.ownFiles)
+		out.push(`step mount --bind ${shq(file)} ${shq(file)}`, `ro_remount ${shq(file)}`);
+	out.push(
+		`step mount --rbind ${shq(guards.worktrees)} ${shq(guards.worktrees)}`,
+		`ro_remount ${shq(guards.worktrees)}`,
+	);
+	for (const target of guards.readOnly) {
 		out.push(`step mount --rbind ${shq(target)} ${shq(target)}`, `ro_remount ${shq(target)}`);
 	}
+	const sandboxes = dirname(sbx.root);
+	out.push("# 7. the other sandboxes: read-only; this one's tree and scratch stay writable");
+	for (const own of [sbx.tree, sbx.scratch]) out.push(`step mount --bind ${shq(own)} ${shq(own)}`);
+	out.push(`step mount --rbind ${shq(sandboxes)} ${shq(sandboxes)}`, `ro_remount ${shq(sandboxes)}`);
 	out.push(`step cd ${shq(ws)}`, 'exec "$@"');
 	return `${out.join("\n")}\n`;
 }

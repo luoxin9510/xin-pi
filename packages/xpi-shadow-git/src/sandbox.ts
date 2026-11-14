@@ -82,17 +82,40 @@ function configFile(repo: Repo, file: string, key: string): string[] {
 	return result.status === 0 ? result.stdout.split("\n").filter((line) => line !== "") : [];
 }
 
+const ALLOWED_WORKTREE_CONFIG = /^(\[core\]|excludesFile\s*=.*|)$/i;
+
+/**
+ * A sandbox can write its own `worktrees/<id>` under `policy`. Git run from outside on its tree reads `commondir` and
+ * `config.worktree`, which can name a program (a filter driver). So they must still be what `create` wrote.
+ */
+function assertIntact(sbx: Sandbox): void {
+	const commondir = join(sbx.gitDir, "commondir");
+	if (!existsSync(commondir) || readFileSync(commondir, "utf8").trim() !== "../..")
+		throw precondition("commondir changed");
+	const config = join(sbx.gitDir, "config.worktree");
+	if (
+		existsSync(config) &&
+		!readFileSync(config, "utf8")
+			.split("\n")
+			.every((line) => ALLOWED_WORKTREE_CONFIG.test(line.trim()))
+	) {
+		throw precondition("config.worktree changed");
+	}
+}
+
 /** Open a sandbox that exists: its rules and metadata paths come from the snapshot taken at creation. */
 export function loadSandbox(repo: Repo, id: string): Sandbox {
 	validateId(id);
 	const base = layout(repo, id);
 	const file = policyFile(base.root);
 	if (!existsSync(file) || !existsSync(base.tree)) throw precondition(`no sandbox ${repo.name}/${id}`);
-	return {
+	const sbx = {
 		...base,
 		rules: configFile(repo, file, "sandbox.rule").map((text) => parseRule(text, repo.workspace, file)),
 		metadata: configFile(repo, file, "sandbox.metadata"),
 	};
+	assertIntact(sbx);
+	return sbx;
 }
 
 /** The sandbox that `XPI_SG_SANDBOX` (`<name>/<id>`) names, or undefined when the variable is not set. */
@@ -106,6 +129,7 @@ export function sandboxFromEnv(ctx: SgContext): Sandbox | undefined {
 
 /** Run git as the sandbox: its own index, branch and work tree. */
 export function sandboxGit(sbx: Sandbox, args: string[], options: { allowFail?: boolean } = {}) {
+	assertIntact(sbx);
 	return gitIn(
 		sbx.repo.ctx,
 		{ cwd: sbx.tree, env: { ...cleanEnv(sbx.repo.ctx.env), GIT_DIR: sbx.gitDir, GIT_WORK_TREE: sbx.tree } },
@@ -247,9 +271,10 @@ export function createSandbox(repo: Repo, id: string, options: CreateOptions): S
 	return sbx;
 }
 
+// No git runs on the tree: its worktree config could name a program. The admin directory goes by hand, as `prune` would.
 function discard(sbx: Sandbox): void {
-	if (existsSync(sbx.tree)) git(sbx.repo, ["worktree", "remove", "--force", sbx.tree], { allowFail: true });
 	rmSync(sbx.root, { recursive: true, force: true });
+	rmSync(sbx.gitDir, { recursive: true, force: true });
 	git(sbx.repo, ["worktree", "prune"], { allowFail: true });
 }
 

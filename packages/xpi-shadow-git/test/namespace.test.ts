@@ -179,6 +179,35 @@ describe.skipIf(!probe.ok)("namespace backend", () => {
 		expect(existsSync(join(gitDir, "hooks", "pre-commit"))).toBe(false);
 	});
 
+	it("cannot reach another sandbox, or change its own commondir or worktree config", async () => {
+		const l = await labWith([]);
+		expect((await l.sg(["sbx", "create", "b"])).code).toBe(0);
+		const gitDir = join(realpathSync(l.store), "demo.git");
+		const other = join(realpathSync(l.store), "demo.sbx", "b");
+		const own = join(realpathSync(l.store), "demo.sbx", "a");
+		const result = await inside(
+			l,
+			[
+				`(echo '${l.ws}' > '${gitDir}/worktrees/a/commondir') 2>/dev/null && echo own-commondir-written`,
+				`(echo x >> '${gitDir}/worktrees/a/gitdir') 2>/dev/null && echo own-gitdir-written`,
+				`(echo x >> '${gitDir}/worktrees/b/config.worktree') 2>/dev/null && echo other-config-written`,
+				`(echo x >> '${gitDir}/worktrees/b/commondir') 2>/dev/null && echo other-commondir-written`,
+				`(echo x > '${other}/tree/a.txt') 2>/dev/null && echo other-tree-written`,
+				`(touch '${other}/tree/new.txt') 2>/dev/null && echo other-tree-created`,
+				`(echo x > '${own}/excludes') 2>/dev/null && echo own-excludes-written`,
+				// what a sandbox needs stays writable: its tree at the workspace path and at its store path, scratch
+				`echo ok > "$WS/new.txt" && echo ok > '${own}/tree/second.txt' && echo ok > "$SCRATCH/s.txt"`,
+				`cd "$WS" && git add new.txt second.txt && git commit -qm two && git log --format=%s -1`,
+			].join("; "),
+		);
+		expect(result.err).toBe("");
+		expect(result.out).toBe("two\n");
+		expect(readFileSync(join(gitDir, "worktrees", "a", "commondir"), "utf8").trim()).toBe("../..");
+		expect(existsSync(join(other, "tree", "new.txt"))).toBe(false);
+		expect(read(own, "scratch/s.txt")).toBe("ok\n");
+		expect(l.git("log", "--format=%s", "main..sbx/a").trim()).toBe("two");
+	});
+
 	it("returns the command's exit code", async () => {
 		const l = await labWith([]);
 		expect((await l.sg(["sbx", "run", "a", "--", "sh", "-c", "exit 3"])).code).toBe(3);

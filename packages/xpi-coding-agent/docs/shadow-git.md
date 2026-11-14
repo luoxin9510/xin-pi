@@ -314,8 +314,12 @@ the primary workspace through the host's mount namespace. Every mount point exis
    sandbox `/proj/ws` shows the agent's files, so scripts that hard-code the workspace path work unchanged.
 5. `shared-ro` rules for absolute paths outside the workspace are bound read-only over themselves, and `hidden`
    absolute paths are covered.
-6. The shadow repo's `config`, `config.worktree`, `hooks/` and `info/`, and the sandbox's own `config.worktree`, are
-   bound read-only. A changed config or a hook would run as your own commands later (a `core.fsmonitor`, a filter
+6. The shadow repo's `config`, `config.worktree`, `hooks/`, `info/` and `worktrees/` are bound read-only. The sandbox's
+   own `worktrees/<id>` (HEAD, index, logs) stays writable, but its `commondir`, `gitdir` and `config.worktree` are
+   read-only again: a `commondir` pointed at a directory of the sandbox's own would make git read that directory's
+   config.
+7. `<name>.sbx` is bound read-only, so other sandboxes' trees and files cannot be written, with this sandbox's `tree`
+   and `scratch` writable. A changed config or a hook would run as your own commands later (a `core.fsmonitor`, a filter
    driver, a hook). Refs and objects stay writable: that is how a sandbox commits. `sbx` creates the `hooks/`
    directory if it is missing, so it can be covered.
 
@@ -384,8 +388,12 @@ Results it writes back into the workspace are the user's to handle.
 - **The git directory is shared.** Refs are shared, so a sandbox can move `main` or any other branch (and write
   `HEAD`), and can rewrite objects it can reach. `namespace` makes `config`, `hooks/` and `info/` read-only (step 6),
   which keeps a sandbox from planting something your own commands then run. Under `policy` the git directory is fully
-  writable. Config in the sandbox's own `config.worktree` (a `diff` or `filter` driver, a `textconv`) is covered by
-  `namespace` but not by `policy`, and only `core.hooksPath` and `core.fsmonitor` are switched off in the commands
+  writable. Under `policy` a sandbox can write its own `worktrees/<id>/commondir` or `config.worktree` (or another
+  sandbox's) so that git, run later from outside, reads a config with a `filter` driver. The commands `xpi sg` runs
+  on a sandbox's tree from outside (`sbx ls`, `status`, `rm`, `run`) therefore check first that `commondir` is still
+  `../..` and `config.worktree` holds only `core.excludesFile`; if not, the sandbox is listed as
+  `broken: commondir changed` (or `config.worktree changed`) and no git runs in it. `sbx rm --force` removes it
+  without running git on its tree. Plain git that you start by hand inside a sandbox's tree is not checked. Only `core.hooksPath` and `core.fsmonitor` are switched off in the commands
   `xpi sg` runs itself (`sbx ls`, `status`). Read a sandbox's work with `git diff` in the sandbox before you trust its
   attributes and config.
 - **The in-sandbox refusal is a guard rail.** Inside a sandbox `xpi sg import`, `merge` and the like exit 2 because
