@@ -1085,6 +1085,32 @@
       "additionalProperties": true,
       "description": "Settings of the built-in commit extension (/commit)."
     },
+    "checks": {
+      "type": "object",
+      "properties": {
+        "commands": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Shell commands run in the session's working directory after a turn that changed something (a write or exec tool ran). New errors in their output go to the model before its next request. Empty or unset: the feature is off."
+        },
+        "timeoutMs": {
+          "type": "number",
+          "minimum": 1,
+          "description": "Per command; a command that runs longer is killed and skipped for that check.",
+          "default": 60000
+        },
+        "maxErrors": {
+          "type": "number",
+          "minimum": 1,
+          "description": "Most errors listed in one message to the model.",
+          "default": 20
+        }
+      },
+      "additionalProperties": true,
+      "description": "Settings of the built-in checks extension (checks after edits)."
+    },
     "roost": {
       "type": "object",
       "properties": {
