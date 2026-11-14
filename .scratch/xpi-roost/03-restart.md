@@ -28,11 +28,16 @@ restarting subagents on their own, hot-swapping code inside a running process.
 ### 1. The build id (decision 1)
 
 - The bundle build (`scripts/build-coding-agent-bundle.mjs`) writes `dist/bundle/build-id`: one line, the first 16 hex
-  digits of a SHA-256 over the bundle's files (path and content, in sorted path order, the `build-id` file left out).
-  The same sources give the same id, so building again without a change does not ask for a restart.
+  digits of a SHA-256 over the files under `dist/bundle` (each file's path relative to `dist/bundle` and its content,
+  in sorted path order, the `build-id` file left out). The same sources give the same id in any checkout, so building
+  again without a change does not ask for a restart. Files outside `dist/bundle` (the subagent definitions, say) are
+  read when needed and are not part of the id. `xpi:pack` ships the file (the package's `files` include `dist`).
 - `xpi-roost` `lib/version.ts` exports `ROOST_BUILD` (read once, when the process starts) and `buildOnDisk()` (reads the
-  file again). Both look for `build-id` next to the entry files of the bundle. Without the file (running from sources,
-  an unbundled build) both are `undefined`, and everything in this spec that compares builds does nothing.
+  file again). The entry files are in `dist/bundle` and the daemon's, the host's and the shared chunks in
+  `dist/bundle/chunks`, so both walk up from `import.meta.url` to the first directory that has a `build-id`, and stop
+  at the first `package.json` (as `readVersion` does). Running from sources or an unbundled build, the walk ends at
+  `packages/xpi-roost/package.json`: both are `undefined`, and everything in this spec that compares builds does
+  nothing.
 - "Stale" means: both ids are known and they differ. An unknown id is never stale.
 - The id is not part of the protocol version. An old daemon without the field counts as unknown; the existing version
   warning still covers a real upgrade.
@@ -40,8 +45,9 @@ restarting subagents on their own, hot-swapping code inside a running process.
 ### 2. Who reports what (decision 2)
 
 - The daemon's `status` answer gains `build`.
-- A session's worker reports its `ROOST_BUILD` with its first report; the daemon stores it in the session's state and
-  `list` rows carry `build`. A session that is not running has none.
+- A session's worker says its build in the `hello` it already sends (`agent: {name, version, build}`). The daemon
+  copies it into the session's state when it binds the connection, and `list` rows carry `build`. `respawn` clears it,
+  so a restarted row never shows the old process's build. A session that is not running has none.
 - Clients compare against `buildOnDisk()`, never against their own `ROOST_BUILD`: a hub that has been open for hours is
   itself old.
 
@@ -51,18 +57,36 @@ restarting subagents on their own, hot-swapping code inside a running process.
   `xpi roost restart`. `xpi roost ls` adds one line on stderr when running sessions are stale (`2 sessions run an older
   build: xpi roost restart`).
 - `xpi roost daemon status` prints `build` and marks a stale one.
-- Hub: a notice in its status line while the daemon, a running session or the hub itself is stale, naming `/restart`.
-- `/reload` (any session, roost or not): after it reloads, if this process is stale it adds a notice: xpi's own code
-  changed and `/reload` does not load it. In a roost session the notice names `/restart`; in a foreground session it
-  says to quit and start xpi again (`xpi --continue`). `/reload` itself does not change.
+- Hub: a line that stays (in the header's status text, not a message that fades) while the daemon, a running session
+  or the hub itself is stale, naming `/restart`. The hub inside a session (`/agents`) leaves out "the hub itself": it
+  restarts with its session.
+- `/reload` (any session, roost or not): builtin:roost, which loads in every session, handles `session_start` with
+  reason `reload`; if this process is stale it shows a notice: xpi's own code changed and `/reload` does not load it.
+  In a roost session (`ROOST_JOB_ID` is set) the notice names `/restart`; in a foreground session it gives the command
+  to start this session again (`formatResumeCommand`, not a fixed string). Core and `/reload` itself do not change.
 
 ### 4. `xpi roost restart` (decision 4)
 
-- `xpi roost restart` (no argument): stops the daemon keeping its sessions, waits for it to be gone, starts the
-  installed daemon, then restarts every running xpi session. Sessions that are not running are left alone; they load
-  the installed code when they next start. Shell sessions are never restarted (as `respawn --all` today).
-- `xpi roost restart <id|name>`: restarts that session only (the same as `respawn` of a running session). It says so
-  when the daemon is stale and was not restarted.
+- `xpi roost restart` (no argument):
+  1. reads `status` (the old pid) and the list of running xpi sessions;
+  2. sends `shutdown {keepWorkers: true}` and polls until that pid is gone (10 s, then it fails and says so;
+     `daemon stop` does not wait today);
+  3. connects with `connectOrStart`. Another client may have started the daemon in between (the hub reconnects by
+     itself after 500 ms): that is fine, it is the installed code either way. `restart` then checks that `status.pid`
+     is not the old one and that `status.build` is not stale, and fails if either is wrong. The new daemon's
+     environment is its starter's, as for any daemon started on demand today; sessions keep the environment stored in
+     their records;
+  4. waits until the new daemon has adopted the running hosts (the sessions of step 1 are in its roster, 10 s), then
+     sends one `respawn` request for them.
+  Sessions that are not running are left alone; they load the installed code when they next start. Shell sessions are
+  never restarted (as `respawn --all` today).
+- `xpi roost restart <id|name>`: restarts that session only, without touching the daemon. It says so when the daemon
+  is stale and was not restarted. A session that is not running is not started: it says `not running` and exits 1
+  (`respawn` is the command that starts one).
+- The `respawn` op gains two optional arguments: `ids: string[]` (restart exactly these running sessions, in this
+  order; with it `all` and `id` are not allowed) and `last: {id: string, prompt?: string}` (this session, which must
+  be in `ids`, is restarted after the others, with this prompt in place of the continue prompt). The CLI builds
+  `ids`: all running xpi sessions, or with `--if-stale` only the stale ones.
 - A session that was working carries on in its new process (today's behaviour: the `Continue where you left off.`
   prompt). One that was idle comes back showing where it left off.
 - `--if-stale`: do only what is stale (the daemon only if its build is stale, each session only if its build is
@@ -75,24 +99,35 @@ restarting subagents on their own, hot-swapping code inside a running process.
 
 ### 5. Restarting from inside a session (decisions 5, 6)
 
-- `/restart` in a roost session asks the daemon to restart this session. The person may type it; it is also in the
-  hub's command table for a peek (class `reply` is wrong for it: the hub restarts the session itself, class `hub`).
-- In a foreground session `/restart` only prints how to do it by hand (quit, `xpi --continue`).
+- `/restart` in a roost session asks the daemon to restart this session. builtin:roost registers it in every session.
+- In a peek, `/restart` restarts the peeked session: a new entry in the hub's `PEEK_COMMANDS` with its own case that
+  sends `respawn {ids: [id]}` (the existing peek `/respawn` starts an ended session and does not restart a running
+  one). Its row in builtin:roost's command table has class `hub`, so the peek's menu does not list it twice. In the
+  hub's main input `/restart` restarts everything (section 6).
+- In a foreground session `/restart` only prints how to do it by hand (quit, then the `formatResumeCommand` line).
 - The agent may run `xpi roost restart` and `xpi roost restart <its own id|name>` from its shell tool. Nothing refuses
   it (unlike schedules: the owner decided the agent may restart).
-- When the caller is itself a session (`ROOST_JOB_ID` is set) and its own session is among those to restart:
-  - the whole restart is one request to the (new) daemon, so it completes after the caller's process is gone;
+- The daemon cannot tell that a caller is a session: `respawn` and `shutdown` are refused on a worker's own connection
+  and allowed on a fresh one. So the CLI and `/restart` always open a new `DaemonClient` connection, and when
+  `ROOST_JOB_ID` is set and that session is among those to restart they name it as `last`:
+  - the restart of the sessions is one request, which the daemon finishes after the caller's process is gone;
   - the caller's session is restarted last;
-  - its new process gets a prompt that says what happened instead of the bare continue prompt: `xpi was restarted on
-    the installed build, as this session asked. Carry on from where you were.`
-  The tool call that ran the command is cut short by design; the prompt is how the model learns the outcome.
+  - when the caller's state is `working` (the agent ran the command in a tool call), `last.prompt` is: `xpi was
+    restarted on the installed build, as this session asked with "xpi roost restart". The command that asked for it
+    was cut short and shows no result: do not run it again. Carry on from where you were.` The cut-off tool call
+    resumes with the synthetic "No result provided" error result, which is why the prompt says not to retry.
+  - when the caller's state is not `working` (a person typed `/restart` in an idle session), no prompt is sent: the
+    session comes back showing where it left off, as any restart of an idle session.
 - `/restart all` in a roost session and `/restart` in the hub run the full `xpi roost restart`.
 
 ### 6. Attached terminals and the hub (decision 7)
 
-- A terminal attached to a session when it restarts (by any of the above) attaches to its new process by itself: it
-  shows `restarting…`, waits for the new host up to 30 s, then continues. If the session does not come back it ends
-  with the reason.
+- A terminal attached to a session when it restarts (by any of the above) attaches to its new process by itself.
+  Today both attach paths (`xpi roost attach` and the hub's) see the host exit, and a restart looks like an end. The
+  daemon marks the session's state `restarting: true` before it ends the host for a restart and clears it when the new
+  host is up or the start failed; the host's exit message to attached clients carries the reason `restart`. Both
+  attach paths then show `restarting…`, wait for the new host's socket up to 30 s, and attach again. If the session
+  does not come back they end with the reason.
 - The standalone hub (`xpi roost hub`) reconnects to the new daemon as it does after any daemon stop. It cannot
   replace its own code: after `/restart` it says that the hub itself still runs the old build until it is started
   again, and its notice stays. The hub inside a session (`/agents`) restarts with that session.
