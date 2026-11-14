@@ -162,16 +162,26 @@ host's state plus the local-only paths".
 
 1. Require a clean work tree (no changes and no untracked files that are not ignored). Take the lock.
 2. `git switch host`. The workspace returns to the host state (local-only paths that were exported stay).
-3. Run the adapter's `update` with `XPI_SG_LOCAL_ONLY` set to the local-only globs, which it must leave alone. It
-   prints a one-line label.
+3. Write `<name>.git/SG_IMPORT` (the old `host` sha), then run the adapter's `update` with `XPI_SG_LOCAL_ONLY` set to the local-only globs, which it must leave alone. It
+   prints a one-line label, which is added to `SG_IMPORT`.
 4. Put the local-only paths back as they are on `host`: restore tracked ones the update changed or deleted. If the
    update created a file at a local-only path that `host` does not track, stop (exit 1) on `host` and list those
    paths: a host file collides with a local-only path, and the user renames one of them or changes
-   `shadow.localOnly`. Run again, `import` continues from this step when it finds itself on `host` with the update
-   done. Then commit any change on `host` as `sg: import <label>` (`git add -A -- <scope>` with a
+   `shadow.localOnly`. Then commit any change on `host` as `sg: import <label>` (`git add -A -- <scope>` with a
    `:(exclude,glob)<glob>` pathspec per local-only glob).
 5. `git switch main`. Print the files changed both in the new import and in `old host..main`.
 6. `git merge host`. A conflict stops the command (exit 1) with git's own message. The user resolves it with plain git.
+7. Remove `SG_IMPORT` and release the lock.
+
+**A stopped import.** If import stops after step 3 (a collision in step 4, a failed commit, a crash), `SG_IMPORT`
+stays, like git's own `MERGE_HEAD`, and the lock is released; the record is the guard.
+
+- `xpi sg import` with the record present resumes. With a label it skips steps 1–3 and continues at step 4. Without
+  one (`update` did not finish) it runs `update` again.
+- `xpi sg import --abort` runs `git checkout -f host`, removes files `host` does not track within the scope, and
+  removes the record. The workspace is then at the last imported host state.
+- While the record exists, `export`, `merge`, `sbx create` and new top-level sessions in the workspace refuse
+  (exit 2), and `xpi sg status` shows it.
 
 `git switch` rewrites the modification times of changed files. Build tools that use them rebuild those files. The docs
 say this.
@@ -197,7 +207,7 @@ Every subcommand that `xpi sg` does not own goes to git with the repo's `GIT_DIR
 | Command | Effect |
 | --- | --- |
 | `xpi sg init <name> --adapter <a> [--scope <paths>] [--local-only <glob>...]` | Register the cwd and run init. |
-| `xpi sg import` | Run import. |
+| `xpi sg import [--abort]` | Run import, resume a stopped one, or abort it. |
 | `xpi sg export` | Print the export plan. Read-only. |
 | `xpi sg export --apply` | Print the plan, check it in through the adapter, and advance `host`. |
 | `xpi sg status` | git status, commits ahead of `host`, the adapter's `status`, and the sandboxes. |
@@ -438,7 +448,9 @@ Before each PR, a word list kept outside the repository is grepped over the diff
   - **Sync.**
     - import with no local work, with local work, and with a conflict (stops; the both-changed list is printed);
     - import after an export keeps the local-only paths, even when the adapter deletes them;
-    - a host file colliding with an unexported local-only path stops import on `host`, and a second run continues;
+    - a host file colliding with an unexported local-only path stops import on `host` with `SG_IMPORT` left; a rerun
+      resumes at step 4; `--abort` returns to the last host state; `export`, `merge`, `sbx create` and a new session
+      refuse while the record exists; a crash during `update` reruns it;
     - CLI import refused while a primary session is live (a sandboxed one does not count; a dead pid is dropped);
       `/sg import` refused while one of its agents works in the primary;
     - local-only paths kept out of the plan;
