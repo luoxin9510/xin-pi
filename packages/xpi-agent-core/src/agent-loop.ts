@@ -269,6 +269,8 @@ async function runLoop(
 			const toolCalls = message.content.filter((c) => c.type === "toolCall");
 
 			const toolResults: ToolResultMessage[] = [];
+			// Set only when a tool batch ran and every result asked to end the run.
+			let terminated = false;
 			hasMoreToolCalls = false;
 			if (toolCalls.length > 0) {
 				// A "length" stop means the output was cut off by the token limit, so
@@ -279,7 +281,8 @@ async function runLoop(
 						? await failToolCallsFromTruncatedMessage(toolCalls, emit)
 						: await executeToolCalls(currentContext, message, config, signal, emit);
 				toolResults.push(...executedToolBatch.messages);
-				hasMoreToolCalls = !executedToolBatch.terminate;
+				terminated = executedToolBatch.terminate;
+				hasMoreToolCalls = !terminated;
 
 				for (const result of toolResults) {
 					currentContext.messages.push(result);
@@ -290,6 +293,7 @@ async function runLoop(
 			lastCompletedTurn = {
 				message,
 				toolResults,
+				terminated,
 				context: currentContext,
 				newMessages,
 			};

@@ -1124,6 +1124,11 @@ export interface TurnEndEvent extends BoundaryState {
 	toolResults: ToolResultMessage[];
 	messageEntryId: string;
 	toolResultEntryIds: string[];
+	/**
+	 * The turn's tool batch ended the run (every result asked to terminate), so no request follows this turn_end
+	 * and a message added here would reach no model. False otherwise.
+	 */
+	terminated: boolean;
 }
 
 /** Fired when a message starts (user, assistant, or toolResult) */

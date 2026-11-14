@@ -1159,6 +1159,56 @@ describe("agentLoop with AgentMessage", () => {
 		expect(ordering.slice(-3)).toEqual(["message_end:toolResult", "finishTurn", "turn_end"]);
 	});
 
+	it.each([
+		{ name: "every result terminates", terminate: true, expected: true },
+		{ name: "a normal batch", terminate: false, expected: false },
+	])("passes terminated to finishTurn when $name", async ({ terminate, expected }) => {
+		const toolSchema = obj({ value: str() });
+		const tool: AgentTool<typeof toolSchema, { value: string }> = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo tool",
+			parameters: toolSchema,
+			async execute(_toolCallId, params) {
+				return { content: [{ type: "text", text: params.value }], details: { value: params.value }, terminate };
+			},
+		};
+		const seen: (boolean | undefined)[] = [];
+		let calls = 0;
+		await runAgentLoop(
+			[createUserMessage("echo")],
+			{ messages: [], tools: [tool] },
+			{
+				model: createModel(),
+				convertToLlm: identityConverter,
+				finishTurn: ({ terminated }) => {
+					seen.push(terminated);
+				},
+			},
+			() => {},
+			undefined,
+			() => {
+				const stream = createAssistantMessageEventStream();
+				const first = calls++ === 0;
+				queueMicrotask(() => {
+					stream.push({
+						type: "done",
+						reason: first ? "toolUse" : "stop",
+						message: first
+							? createAssistantMessage(
+									[{ type: "toolCall", id: "tool-1", name: "echo", arguments: { value: "hello" } }],
+									"toolUse",
+								)
+							: createAssistantMessage([{ type: "text", text: "done" }]),
+					});
+				});
+				return stream;
+			},
+		);
+		// A terminating batch ends the run after one turn; a normal one gets a second turn without tool calls.
+		expect(seen).toEqual(expected ? [true] : [false, false]);
+	});
+
 	it.each(["error", "aborted"] as const)(
 		"runs finishTurn for a %s assistant before turn_end without changing the hard exit",
 		async (reason) => {

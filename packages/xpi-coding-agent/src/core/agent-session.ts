@@ -967,6 +967,7 @@ export class AgentSession {
 	private async _dispatchTurnEndBoundary(
 		message: AssistantMessage,
 		toolResults: ToolResultMessage[],
+		terminated: boolean,
 	): Promise<boolean> {
 		this._lastActivityOutcome =
 			message.stopReason === "aborted" ? "aborted" : message.stopReason === "error" ? "error" : "completed";
@@ -993,6 +994,7 @@ export class AgentSession {
 				messageEntryId,
 				toolResultEntryIds,
 				outcome: this._lastActivityOutcome,
+				terminated,
 			},
 			(entries) => this._buildBoundaryContext(entries, "turn_end"),
 		);
@@ -1008,7 +1010,11 @@ export class AgentSession {
 		const previousFinishTurn = this.agent.finishTurn;
 		this.agent.finishTurn = async (turn, signal) => {
 			this._boundaryDispatchedMessages.add(turn.message);
-			const extensionContinue = await this._dispatchTurnEndBoundary(turn.message, turn.toolResults);
+			const extensionContinue = await this._dispatchTurnEndBoundary(
+				turn.message,
+				turn.toolResults,
+				turn.terminated ?? false,
+			);
 			const previousDecision = await previousFinishTurn?.(turn, signal);
 			if (previousDecision?.action === "end") return previousDecision;
 			if (extensionContinue || previousDecision?.action === "continue") return { action: "continue" };
@@ -1463,7 +1469,7 @@ export class AgentSession {
 			await this._extensionRunner.emit(extensionEvent);
 		} else if (event.type === "turn_end") {
 			if (event.message.role === "assistant" && !this._boundaryDispatchedMessages.delete(event.message)) {
-				await this._dispatchTurnEndBoundary(event.message, event.toolResults);
+				await this._dispatchTurnEndBoundary(event.message, event.toolResults, false);
 			}
 			this._turnIndex++;
 		} else if (event.type === "message_start") {
