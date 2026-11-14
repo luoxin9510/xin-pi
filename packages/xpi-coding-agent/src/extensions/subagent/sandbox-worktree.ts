@@ -67,9 +67,10 @@ export function planSandbox(repo: Repo, id: string): WorktreeRef {
 
 /** Whether the parent's cwd is in the commit the sandbox starts from; else the child starts at the root, with a warning. */
 export function sandboxSubdir(ref: WorktreeRef, cwd: string): { subdir: string; warning?: string } {
-	const sub = relative(ref.root, realpathSync(cwd));
-	if (sub === "" || sub.startsWith("..")) return { subdir: "" };
-	const found = git(repoOf(ref), ["cat-file", "-e", `${ref.base}:${sub.split(sep).join("/")}`], { allowFail: true });
+	const rel = relative(ref.root, realpathSync(cwd));
+	if (rel === "" || rel.startsWith("..")) return { subdir: "" };
+	const sub = rel.split(sep).join("/"); // the sandbox wrapper and git take `/`
+	const found = git(repoOf(ref), ["cat-file", "-e", `${ref.base}:${sub}`], { allowFail: true });
 	if (found.status === 0) return { subdir: sub };
 	return {
 		subdir: "",
@@ -179,6 +180,7 @@ export function listSandboxWorktrees(repo: Repo): WorktreeInfo[] {
  */
 export async function sandboxLauncher(ref: WorktreeRef) {
 	const launch = await prepareLaunch(repoOf(ref), ref.sandbox!, false);
+	ref.backend = launch.backend; // the cwd of the child (`worktreeCwd`) follows the backend that is used now
 	return (command: string, args: string[], env: NodeJS.ProcessEnv) => {
 		const wrapped = launch.wrap([command, ...args], { env, subdir: ref.subdir });
 		return { command: wrapped.file, args: wrapped.args, cwd: wrapped.cwd, env: wrapped.env };

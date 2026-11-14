@@ -4,6 +4,6 @@ import { createShadowGitExtension } from "../../../src/extensions/shadow-git/ind
 import { fakeApi, fakeCtx } from "./lab.ts";
 
 const api = fakeApi();
-createShadowGitExtension({ cwd: process.argv[2] })(api.pi);
+createShadowGitExtension()(api.pi);
 await api.emit("session_start", { type: "session_start", reason: "startup" }, fakeCtx(process.argv[2]).ctx);
 console.log(process.pid);

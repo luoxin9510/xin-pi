@@ -3,9 +3,11 @@
 // resume, `/subagents worktrees`, and nesting refused. Real stores and sandboxes (policy backend) in tmpdir; no model.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
+import { findWorkspace } from "../../../src/extensions/shadow-git/workspace.ts";
+import { sandboxLauncher } from "../../../src/extensions/subagent/sandbox-worktree.ts";
 import { subagentsCommand } from "../../../src/extensions/subagent/subagents-command.ts";
 import {
 	ensureWorktree,
@@ -13,6 +15,7 @@ import {
 	planWorktree,
 	removeWorktree,
 	settleWorktree,
+	worktreeCwd,
 	worktreeSubdir,
 } from "../../../src/extensions/subagent/worktree.ts";
 import { agentFile, happyLines, loadTool, sandbox } from "../helpers.ts";
@@ -313,6 +316,34 @@ test("inside a sandbox, isolation worktree is refused with the reason, before an
 		await assert.rejects(t.run({ subagent_type: "x", isolation: "worktree" }), /sandboxes do not nest/);
 		assert.equal(existsSync(join(s.root, "record.json")), false, "no child was started");
 		assert.equal(branchList(l), "sbx/w1");
+	} finally {
+		l.restore();
+	}
+});
+
+test("a registry that cannot be read means not a workspace: plain worktrees are used and nothing throws", async () => {
+	const { l } = await setup();
+	try {
+		rmSync(join(l.store, "registry"));
+		mkdirSync(join(l.store, "registry")); // reading it fails with EISDIR, not with a core error
+		assert.equal(findWorkspace(l.ws), undefined);
+		await assert.rejects(planWorktree(l.ws, "x1", undefined), /needs a git repository/);
+	} finally {
+		l.restore();
+	}
+});
+
+test("the launcher follows the backend that is used now: the ref's recorded backend and so the child's cwd", async () => {
+	const { l } = await setup();
+	try {
+		const ref = await planWorktree(l.ws, "bk", undefined);
+		await ensureWorktree(ref);
+		ref.backend = "namespace"; // recorded when it was planned; this machine has no namespace backend now
+		assert.equal(worktreeCwd(ref), l.ws);
+		await sandboxLauncher(ref);
+		assert.equal(ref.backend, "policy");
+		assert.equal(worktreeCwd(ref), ref.path);
+		await settleWorktree(ref);
 	} finally {
 		l.restore();
 	}

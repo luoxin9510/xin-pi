@@ -70,9 +70,10 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
     namespace `relay.*`. It uses the extension API only (a virtual model, the `agent_before_settle` boundary with a
     compaction draft); no core change. User docs: [relay.md](../packages/xpi-coding-agent/docs/relay.md).
   - `upstream` (`src/extensions/upstream/`, off with `-builtin:upstream`): `/upstream`, see below.
-  - `shadow-git` (`src/extensions/shadow-git/`, off with `-builtin:shadow-git`): registers nothing unless the cwd is in a
-    registered shadow-git workspace (the primary) or `XPI_SG_SANDBOX` is set (a sandbox). Primary: sets `GIT_DIR` and
-    `GIT_WORK_TREE` in `process.env`, writes the live-session entry (`<name>.sessions/<pid>`, removed at shutdown and exit),
+  - `shadow-git` (`src/extensions/shadow-git/`, off with `-builtin:shadow-git`): acts only when the session's cwd (read at each
+    `session_start`, so `/resume` into or out of a workspace works) is in a registered shadow-git workspace (the primary),
+    or `XPI_SG_SANDBOX` is set (a sandbox). Primary: sets `GIT_DIR` and
+    `GIT_WORK_TREE` in `process.env` (restored when the session leaves), writes the live-session entry (`<name>.sessions/<pid>`, removed at shutdown and exit),
     blocks every tool call while an import is stopped, `/sg import|export|merge|status|sbx ls` (the core in process,
     `runSg`), the `bash` block list (`guard.ts`) and the prompt section. Sandbox: the path check of `read`, `write`, `edit`,
     `grep`, `find` and `ls` by `sandboxPolicy()` (`policy-check.ts`), the same block list, a prompt section. The subagent
@@ -492,7 +493,7 @@ files, the child's session file), never on model wording, and never start a test
 | script | what | needs |
 |---|---|---|
 | `npm test` | `test:subagent`, `test:upstream`, then the vitest suite. Root `npm test` and `./test.sh` run it | the vitest part skips what needs keys |
-| `npm run test:subagent` | offline `node:test`: `faults` (scripted fake child), `panel`, `worktree`, `memory`, `teams` (agent teams), `shadow-git` (the extension, sandboxed sessions, isolation and teammates in sandboxes) | nothing: no auth, no network, git identity set inside the tests |
+| `npm run test:subagent` | offline `node:test`: `faults` (scripted fake child), `panel`, `worktree`, `memory`, `teams` (agent teams), `shadow-git` (the extension, sandboxed sessions, isolation and teammates in sandboxes) | `npm ci` and `npm run build` once (the `node:test` suites import the workspace packages, `xpi-shadow-git` included, from `dist/`, as CI does); no auth, no network, git identity set inside the tests |
 | `npm run test:upstream` | offline `node:test` for `/upstream`: temp git repos with a fake `upstream` remote, a stubbed fetch, a fake pi API, a temp agent dir | nothing |
 | `npm run test:subagent:real` | `real/*`: the extension in-process, children are the built xpi on real haiku | `npm run build`, auth |
 | `npm run test:subagent:parent` | `parent/*`: a real `xpi --mode rpc` parent, background scripts, `/subagents stop` | `npm run build`, auth |

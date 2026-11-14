@@ -643,3 +643,21 @@ PR 3 (xpi integration) differs from the text above in these places.
   set, with "sandboxes do not nest", before anything is made.
 - **Tests** are `test/subagent/shadow-git/*.test.ts` (node:test, in `npm run test:subagent`) with the `policy` backend
   forced; the namespace wrapper with a subdirectory is in `packages/xpi-shadow-git/test/namespace.test.ts`.
+
+After review of PR 3:
+
+- **The session's cwd decides, at each `session_start`.** The extension registers its handlers (not `/sg` with an effect) in
+  every non-sandbox session, and they act only while the session's `ctx.cwd` is in a registered workspace. This replaces
+  "registers nothing unless ..." and the cwd of the process: a session resumed from another directory has that
+  directory's cwd with no `chdir`. Entering sets `GIT_DIR`/`GIT_WORK_TREE` and writes the live entry; leaving (or a
+  shutdown) restores the values from before the extension set them and removes the entry.
+- **Always writable is narrower.** Not the agent directory: the session directory, `os.tmpdir()`, `~/.claude/agent-memory`,
+  and the sandbox's `scratch` and `tree`. The store and the primary stay refused inside them.
+- **Scheme paths** (`^@?[a-z][a-z0-9+.-]*://`) are refused by the sandbox's file tools (they cannot be judged); other
+  paths containing `://` are checked as paths.
+- **The block list** applies to every tool whose input has a string `command`, and scans overlapping matches, so the inner
+  `sg merge` of `xpi sg sbx run s -- xpi sg merge b` is seen.
+- **`/sg`'s busy check** also counts running background codemode scripts and queued teammates; a background `bash` job
+  cannot be tracked (documented).
+- **Smaller:** `findWorkspace` returns `undefined` on any error; a sandbox child's `ref.backend` and cwd follow the backend
+  used at launch; the subdirectory is `/`-separated.

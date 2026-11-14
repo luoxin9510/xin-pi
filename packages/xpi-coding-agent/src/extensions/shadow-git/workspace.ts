@@ -1,7 +1,7 @@
 /** Finding the shadow-git repo for a directory, and the context the core runs with inside xpi. */
 
 import { join } from "node:path";
-import { createContext, type Repo, resolveRepo, type SgContext, SgError, type SgOptions } from "xpi-shadow-git";
+import { createContext, type Repo, resolveRepo, type SgContext, type SgOptions } from "xpi-shadow-git";
 import { getAgentDir, getShadowGitAdaptersDir } from "../../config.ts";
 
 /** The core's options for xpi: the store inside the agent directory, the adapters shipped with xpi, this process as the session. */
@@ -26,9 +26,10 @@ export const quietContext = (cwd: string): SgContext =>
 export function findWorkspace(cwd: string): Repo | undefined {
 	try {
 		return resolveRepo(shadowGitContext(cwd), undefined);
-	} catch (error) {
-		if (error instanceof SgError) return undefined;
-		throw error;
+	} catch {
+		// Any failure (a registry that cannot be read, a store that is gone) means "not a workspace": xpi behaves as without
+		// shadow-git, so plain worktrees and teams never break on it.
+		return undefined;
 	}
 }
 

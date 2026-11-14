@@ -6,7 +6,7 @@
 const ADAPTER = /sg-adapter-[\w.-]*/;
 // `sg` as a word of its own (`xpi sg import`, a bare `sg import` through an alias), with what follows it up to the
 // next separator.
-const SG = /(?<![\w./-])sg\s+([^;&|\n()`]*)/g;
+const SG_SOURCE = /(?<![\w./-])sg\s+([^;&|\n()`]*)/.source;
 
 const stripQuotes = (token: string): string => token.replace(/^["'$]+|["']+$/g, "");
 
@@ -23,7 +23,10 @@ function sgReason(args: string): string | undefined {
 
 /** A one-line reason when `command` is blocked, else undefined. `patterns` are the repo's `shadow.blockCommand` regexes. */
 export function blockReason(command: string, patterns: RegExp[]): string | undefined {
-	for (const match of command.matchAll(SG)) {
+	// Matches overlap on purpose: in `xpi sg sbx run s -- xpi sg merge x` the inner `sg merge` is a command of its own.
+	const sg = new RegExp(SG_SOURCE, "g");
+	for (let match = sg.exec(command); match; match = sg.exec(command)) {
+		sg.lastIndex = match.index + 1;
 		const what = sgReason(match[1] ?? "");
 		if (what) {
 			return `shadow-git: agents do not run "${what}"; it changes the workspace or the host, so ask the user to run it`;

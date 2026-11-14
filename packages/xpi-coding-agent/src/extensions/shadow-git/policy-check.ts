@@ -4,7 +4,8 @@
  */
 
 import { realpathSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
 import { type Backend, type Sandbox, sandboxPolicy } from "xpi-shadow-git";
 import { resolveToCwd } from "../../core/tools/path-utils.ts";
 
@@ -19,20 +20,26 @@ const realOrSelf = (path: string): string => {
 const within = (path: string, root: string): boolean =>
 	path === root || path.startsWith(root.endsWith("/") ? root : `${root}/`);
 
-/** Where a sandboxed session may always write, besides its own tree and scratch area. */
+/**
+ * Where a sandboxed session may always write, besides its own tree and scratch area: what a child needs to run and no
+ * more. Not xpi's agent directory as a whole: `settings.json`, `auth.json` and `extensions/` there are read by the next
+ * session that is not sandboxed.
+ */
 export interface WritableDirs {
-	/** xpi's agent directory, the session directory and the temp directory (real paths). */
+	/** The session directory (a subagent's session is below its parent's), the temp directory and the user's agent memory (real paths). */
 	dirs: string[];
-	/** The shadow-git store (real path): inside the agent directory by default, and never writable from a sandbox. */
+	/** The shadow-git store (real path): never writable from a sandbox, wherever it is. */
 	store: string;
 }
 
-export function writableDirs(agentDir: string, sessionDir: string | undefined, store: string): WritableDirs {
+export function writableDirs(sessionDir: string | undefined, store: string): WritableDirs {
 	return {
-		dirs: [agentDir, ...(sessionDir ? [sessionDir] : []), tmpdir()].map(realOrSelf),
+		dirs: [...(sessionDir ? [sessionDir] : []), tmpdir(), join(homedir(), ".claude", "agent-memory")].map(realOrSelf),
 		store: realOrSelf(store),
 	};
 }
+
+const SCHEME = /^@?[a-z][a-z0-9+.-]*:\/\//i;
 
 export type Access = "read" | "write";
 
@@ -45,19 +52,21 @@ export function pathDenied(
 	path: string,
 	access: Access,
 ): string | undefined {
-	if (path.includes("://")) return undefined;
+	const where = `shadow-git sandbox ${sandbox.repo.name}/${sandbox.id}`;
+	// `name://...` paths are resolved by the host's schemes, which may locate a file anywhere: not checked, so not allowed.
+	// (A path that merely contains "://" after a directory, such as `/ws/x://y`, is an ordinary path and is checked.)
+	if (SCHEME.test(path)) return `${where}: ${path} is a scheme path, which a sandbox cannot check; use a file path`;
 	const abs = resolveToCwd(path, cwd);
 	const result = sandboxPolicy(sandbox, abs, backend);
-	const where = `shadow-git sandbox ${sandbox.repo.name}/${sandbox.id}`;
 	if (access === "read") {
 		return result.read ? undefined : `${where}: ${abs} is hidden (${result.reason})`;
 	}
 	if (result.write) return undefined;
-	// xpi's own directories and the temp directory are writable. The store inside them is not (it holds the shadow repo
+	// The session directory and the temp directory are writable. The store is not (it holds the shadow repo
 	// and every other sandbox), and neither is the primary workspace, which may itself sit under the temp directory.
 	const kept = [writable.store, sandbox.workspace, sandbox.primary];
 	if (result.mode === "shared-ro" && !kept.some((root) => within(result.real, root))) {
 		if (writable.dirs.some((dir) => within(result.real, dir))) return undefined;
 	}
-	return `${where}: ${abs} is read-only (${result.reason}); writable: the sandbox tree ${sandbox.tree}, its scratch area ${sandbox.scratch}, xpi's own directories and temp directories`;
+	return `${where}: ${abs} is read-only (${result.reason}); writable: the sandbox tree ${sandbox.tree}, its scratch area ${sandbox.scratch}, the session directory and temp directories`;
 }

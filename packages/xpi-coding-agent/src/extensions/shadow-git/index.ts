@@ -8,18 +8,14 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Backend, configAll, type Repo, runSg, type Sandbox, sandboxFromEnv, sessionsDir } from "xpi-shadow-git";
-import { getAgentDir } from "../../config.ts";
 import type { ExtensionAPI, ExtensionContext, ToolCallEvent } from "../../core/extensions/types.ts";
+import { scriptRunning, scripts } from "../subagent/background.ts";
 import { registry } from "../subagent/registry.ts";
+import { teams } from "../subagent/team.ts";
 import { blockReason, compilePatterns } from "./guard.ts";
 import { pathDenied, writableDirs } from "./policy-check.ts";
 import { PRIMARY_PROMPT, SANDBOX_PROMPT } from "./prompt.ts";
 import { findWorkspace, shadowGitContext, shadowGitOptions } from "./workspace.ts";
-
-export interface ShadowGitHooks {
-	/** The directory that decides whether this is a workspace. Default: the process's cwd. */
-	cwd?: string;
-}
 
 const SECTION = "shadow-git";
 const USAGE =
@@ -82,6 +78,13 @@ function busyReason(ctx: ExtensionContext): string | undefined {
 	const working = registry
 		.list(ctx.sessionManager.getSessionId())
 		.filter((record) => record.status === "running" && record.worktree?.kind !== "shadow-git");
+	const scriptsRunning = scripts.list(ctx.sessionManager.getSessionId()).filter(scriptRunning).length;
+	const queued = (teams.current()?.live() ?? []).filter((member) => member.status === "queued");
+	if (scriptsRunning > 0) {
+		return `${scriptsRunning} background script(s) of this session are running (their agents may write the workspace); stop them (/subagents stop) or wait`;
+	}
+	if (queued.length > 0)
+		return `teammate(s) ${queued.map((member) => member.name).join(", ")} are queued to start in the workspace`;
 	if (working.length > 0) {
 		return `${working.length} agent(s) of this session are working in the workspace without a sandbox (${working.map((record) => record.name ?? record.id).join(", ")}); stop them (/subagents stop) or wait`;
 	}
@@ -114,42 +117,78 @@ export function parseSgArgs(text: string): SgCommand | string {
 	}
 }
 
-function registerPrimary(pi: ExtensionAPI, repo: Repo): void {
-	// Every child inherits these: bash, `!` commands, MCP servers and subagents. A sandboxed child replaces them.
+// The environment variables xpi sets for the workspace its session is in, and what they were before. One owner at a time:
+// a session switched to another directory (/resume, --session) rebuilds the runtime, and the new one takes over.
+interface Held {
+	owner: symbol;
+	prior: { GIT_DIR: string | undefined; GIT_WORK_TREE: string | undefined };
+}
+let held: Held | undefined;
+
+function holdEnv(owner: symbol, repo: Repo): void {
+	held = { owner, prior: held?.prior ?? { GIT_DIR: process.env.GIT_DIR, GIT_WORK_TREE: process.env.GIT_WORK_TREE } };
 	process.env.GIT_DIR = repo.gitDir;
 	process.env.GIT_WORK_TREE = repo.workspace;
+}
 
+function releaseEnv(owner: symbol): void {
+	if (held?.owner !== owner) return;
+	for (const [name, value] of Object.entries(held.prior)) {
+		if (value === undefined) delete process.env[name];
+		else process.env[name] = value;
+	}
+	held = undefined;
+}
+
+function registerPrimary(pi: ExtensionAPI): void {
+	const owner = Symbol("shadow-git");
 	const topLevel = !process.env.XPI_SUBAGENT_DEPTH;
-	const entry = join(sessionsDir(repo), String(process.pid));
+	// The workspace the session's cwd is in, decided at session_start with the session's own cwd (a session resumed from
+	// another directory has that directory's cwd, with no chdir). Undefined: this session is not in one, and nothing here acts.
+	let repo: Repo | undefined;
+	let blocks: ReturnType<typeof blockList> | undefined;
+	const entryOf = (r: Repo) => join(sessionsDir(r), String(process.pid));
+
 	const ensureEntry = () => {
-		if (!topLevel || importStopped(repo) || existsSync(entry)) return;
+		if (!repo || !topLevel || importStopped(repo)) return;
+		const entry = entryOf(repo);
+		if (existsSync(entry)) return;
 		mkdirSync(sessionsDir(repo), { recursive: true });
 		writeFileSync(entry, `${Date.now()}\n`);
 		trackEntry(entry);
 	};
-	const blocks = blockList(repo, (message) => console.error(message));
+	const leave = () => {
+		if (repo && topLevel) dropEntry(entryOf(repo));
+		releaseEnv(owner);
+		repo = undefined;
+		blocks = undefined;
+	};
 
 	pi.on("session_start", (_event, ctx) => {
-		blocks.reset();
+		leave();
+		repo = findWorkspace(ctx.cwd);
+		if (!repo) return;
+		holdEnv(owner, repo);
+		blocks = blockList(repo, (message) => console.error(message));
 		if (importStopped(repo)) say(ctx, STOPPED_IMPORT, "error");
 		else ensureEntry();
 	});
-	pi.on("session_shutdown", () => {
-		if (topLevel) dropEntry(entry);
-	});
+	pi.on("session_shutdown", leave);
 
 	pi.on("before_agent_start", (event) => {
+		if (!repo) return undefined;
 		ensureEntry();
 		event.systemPromptOptions.sections[SECTION] = PRIMARY_PROMPT(repo.workspace);
 		return undefined;
 	});
 
 	pi.on("tool_call", (event) => {
+		if (!repo) return undefined;
 		// A stopped import leaves the workspace at the host's state, half done: nothing may run on it until it is settled.
 		if (importStopped(repo)) return { block: true, reason: STOPPED_IMPORT };
 		ensureEntry();
-		if (event.toolName !== "bash") return undefined;
-		const reason = blockReason((event.input as { command?: string }).command ?? "", blocks.patterns());
+		const command = commandOf(event);
+		const reason = command === undefined ? undefined : blockReason(command, blocks!.patterns());
 		return reason ? { block: true, reason } : undefined;
 	});
 
@@ -157,6 +196,7 @@ function registerPrimary(pi: ExtensionAPI, repo: Repo): void {
 	pi.registerCommand("sg", {
 		description: "shadow-git: import, export, merge, status, sbx ls",
 		handler: async (args, ctx) => {
+			if (!repo) return say(ctx, "sg: this session is not in a registered shadow-git workspace", "warning");
 			const parsed = parseSgArgs(args);
 			if (typeof parsed === "string") return say(ctx, `usage: ${parsed}`, "warning");
 			if (parsed.writes) {
@@ -174,6 +214,12 @@ function registerPrimary(pi: ExtensionAPI, repo: Repo): void {
 			say(ctx, text.trimEnd() || `sg ${parsed.args.join(" ")}: done`, code === 0 ? "info" : "error");
 		},
 	});
+}
+
+/** The shell command of a tool call: any tool whose input has a string `command` (bash, powershell, a custom one). */
+function commandOf(event: ToolCallEvent): string | undefined {
+	const command = (event.input as { command?: unknown }).command;
+	return typeof command === "string" ? command : undefined;
 }
 
 function toolPaths(event: ToolCallEvent): { path: string; access: "read" | "write" }[] {
@@ -219,13 +265,14 @@ function registerSandbox(pi: ExtensionAPI): void {
 		return undefined;
 	});
 	pi.on("tool_call", (event, extension) => {
-		if (event.toolName === "bash") {
-			const reason = blockReason((event.input as { command?: string }).command ?? "", blocks.patterns());
+		const command = commandOf(event);
+		if (command !== undefined) {
+			const reason = blockReason(command, blocks.patterns());
 			return reason ? { block: true, reason } : undefined;
 		}
 		const paths = toolPaths(event);
 		if (paths.length === 0) return undefined;
-		writable ??= writableDirs(getAgentDir(), extension.sessionManager.getSessionDir(), sandbox.repo.ctx.store);
+		writable ??= writableDirs(extension.sessionManager.getSessionDir(), sandbox.repo.ctx.store);
 		for (const { path, access } of paths) {
 			const reason = pathDenied(sandbox, backend, writable, extension.cwd, path, access);
 			if (reason) return { block: true, reason };
@@ -234,14 +281,13 @@ function registerSandbox(pi: ExtensionAPI): void {
 	});
 }
 
-export function createShadowGitExtension(hooks: ShadowGitHooks = {}) {
+export function createShadowGitExtension() {
 	return function shadowGit(pi: ExtensionAPI): void {
 		if (process.env.XPI_SG_SANDBOX) {
 			registerSandbox(pi);
 			return;
 		}
-		const repo = findWorkspace(hooks.cwd ?? process.cwd());
-		if (repo) registerPrimary(pi, repo);
+		registerPrimary(pi);
 	};
 }
 

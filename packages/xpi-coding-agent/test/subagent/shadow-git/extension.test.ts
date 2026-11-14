@@ -7,35 +7,86 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { beginCodemodeScript } from "../../../src/extensions/codemode/scripts.ts";
 import { blockReason, compilePatterns } from "../../../src/extensions/shadow-git/guard.ts";
 import { createShadowGitExtension, parseSgArgs } from "../../../src/extensions/shadow-git/index.ts";
+import { scripts } from "../../../src/extensions/subagent/background.ts";
 import { registry } from "../../../src/extensions/subagent/registry.ts";
 import { fakeApi, fakeCtx, type Lab, lab, write } from "./lab.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
-async function started(l: Lab) {
+async function started(l: Lab, cwd = l.ws) {
 	const api = fakeApi();
-	createShadowGitExtension({ cwd: l.ws })(api.pi);
-	const c = fakeCtx(l.ws);
+	createShadowGitExtension()(api.pi);
+	const c = fakeCtx(cwd);
 	await api.emit("session_start", { type: "session_start", reason: "startup" }, c.ctx);
 	const bash = (command: string) =>
 		api.emit("tool_call", { type: "tool_call", toolName: "bash", input: { command } }, c.ctx);
 	return { api, c, bash, sessions: join(l.store, "demo.sessions") };
 }
 
-test("outside a workspace and outside a sandbox it registers nothing and changes no environment", async () => {
+test("outside a workspace the handlers are inert: no environment, no entry, no block, and /sg says so", async () => {
 	const l = await lab();
 	try {
 		delete process.env.GIT_DIR;
 		delete process.env.GIT_WORK_TREE;
-		const api = fakeApi();
-		createShadowGitExtension({ cwd: l.root })(api.pi);
-		assert.deepEqual(api.handlers, {});
-		assert.deepEqual(api.commands, {});
-		assert.deepEqual(api.others, []);
+		const { api, c, bash } = await started(l, l.root);
 		assert.equal(process.env.GIT_DIR, undefined);
 		assert.equal(process.env.GIT_WORK_TREE, undefined);
+		assert.equal(existsSync(join(l.store, "demo.sessions")), false);
+		assert.equal(await bash("xpi sg import"), undefined);
+		const event = { systemPromptOptions: { sections: {} as Record<string, string> } };
+		await api.emit("before_agent_start", event, c.ctx);
+		assert.deepEqual(event.systemPromptOptions.sections, {});
+		await api.commands.sg.handler("status", c.ctx);
+		assert.match(c.notes.at(-1)!.message, /not in a registered shadow-git workspace/);
+	} finally {
+		l.restore();
+	}
+});
+
+test("the session's cwd decides, at each session start: leaving a workspace restores the environment, entering one sets it", async () => {
+	const l = await lab();
+	try {
+		process.env.GIT_DIR = "/prior/dir.git";
+		process.env.GIT_WORK_TREE = "/prior/tree";
+		const entry = join(l.store, "demo.sessions", String(process.pid));
+		// started in the workspace
+		const first = await started(l);
+		assert.equal(process.env.GIT_DIR, join(l.store, "demo.git"));
+		assert.ok(existsSync(entry));
+		assert.equal((await first.bash("xpi sg import")).block, true);
+		// /resume of a session from another directory: the old runtime shuts down, a new one starts with that cwd
+		await first.api.emit("session_shutdown", { type: "session_shutdown", reason: "resume" }, first.c.ctx);
+		const away = await started(l, l.root);
+		assert.equal(process.env.GIT_DIR, "/prior/dir.git", "git elsewhere no longer reaches the shadow repo");
+		assert.equal(process.env.GIT_WORK_TREE, "/prior/tree");
+		assert.equal(existsSync(entry), false, "the live entry moved away with the session");
+		assert.equal(await away.bash("xpi sg import"), undefined, "no blocks outside a workspace");
+		// and back into a workspace, from a runtime that started elsewhere
+		await away.api.emit("session_start", { type: "session_start", reason: "resume" }, fakeCtx(l.ws).ctx);
+		assert.equal(process.env.GIT_DIR, join(l.store, "demo.git"));
+		assert.equal(process.env.GIT_WORK_TREE, l.ws);
+		assert.ok(existsSync(entry), "the entry is written on entering");
+		assert.equal((await away.bash("xpi sg import")).block, true, "the blocks apply");
+		await away.api.emit("session_shutdown", { type: "session_shutdown", reason: "quit" }, away.c.ctx);
+		assert.equal(process.env.GIT_DIR, "/prior/dir.git");
+		assert.equal(existsSync(entry), false);
+	} finally {
+		l.restore();
+	}
+});
+
+test("a session that starts elsewhere and is resumed into a workspace gets the environment, the entry and the blocks (reloaded runtime)", async () => {
+	const l = await lab();
+	try {
+		await started(l, l.root);
+		assert.equal(process.env.GIT_DIR, undefined);
+		const next = await started(l); // the runtime rebuilt for the resumed session
+		assert.equal(process.env.GIT_DIR, join(l.store, "demo.git"));
+		assert.ok(existsSync(join(l.store, "demo.sessions", String(process.pid))));
+		assert.equal((await next.bash("xpi sg merge x")).block, true);
 	} finally {
 		l.restore();
 	}
@@ -148,7 +199,7 @@ test("bash: import, merge, export --apply, sbx create|rm, adapters and shadow.bl
 	try {
 		l.git("config", "--add", "shadow.blockCommand", "\\bhostvcs (submit|sync)\\b");
 		l.git("config", "--add", "shadow.blockCommand", "(");
-		const { bash } = await started(l);
+		const { bash, api, c } = await started(l);
 		const blocked = [
 			"xpi sg import",
 			"xpi sg import --abort",
@@ -179,6 +230,20 @@ test("bash: import, merge, export --apply, sbx create|rm, adapters and shadow.bl
 			"echo sgx import",
 		];
 		for (const command of passed) assert.equal(await bash(command), undefined, command);
+		// a command that runs another xpi sg: the inner one is seen too
+		for (const command of [
+			"xpi sg sbx run s -- xpi sg merge sbx/s",
+			"xpi sg --repo demo sbx run s -- sh -c 'sg import'",
+		]) {
+			assert.equal((await bash(command))?.block, true, command);
+		}
+		// any tool with a shell command is held, not only bash
+		const power = await api.emit(
+			"tool_call",
+			{ type: "tool_call", toolName: "powershell", input: { command: "xpi sg import" } },
+			c.ctx,
+		);
+		assert.equal(power?.block, true);
 	} finally {
 		l.restore();
 	}
@@ -301,6 +366,17 @@ test("/sg import, export --apply and merge are refused while the main agent work
 			/^error: .*1 agent\(s\) of this session are working in the workspace without a sandbox \(worker\)/,
 		);
 		registry.finish("agent-a", "completed");
+		// a background codemode script of the session may run agents that write the primary
+		const off = scripts.connect({
+			sessionId: () => "s1",
+			enabled: () => true,
+			deliver: () => {},
+			parent: () => ({ sessionFile: undefined, sessionId: "s1" }),
+		});
+		const script = beginCodemodeScript("cm-busy", "s1", undefined);
+		assert.match(await sg("import"), /^error: .*1 background script\(s\) of this session are running/);
+		script.end({ result: { content: [{ type: "text", text: "x" }], details: undefined } });
+		off();
 		// a sandboxed agent does not write the primary
 		registry.begin(parent as any, {
 			...start,

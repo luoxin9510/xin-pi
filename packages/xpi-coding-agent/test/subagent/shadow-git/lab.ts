@@ -24,6 +24,7 @@ const TOUCHED = [
 	"GIT_COMMITTER_NAME",
 	"GIT_COMMITTER_EMAIL",
 	"HOME",
+	"TMPDIR",
 ];
 
 export interface Lab {

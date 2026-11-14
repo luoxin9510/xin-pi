@@ -13,7 +13,7 @@ import { sandboxLauncher } from "./sandbox-worktree.ts";
 import { subagentSessionDir } from "./sessions.ts";
 import { responded, stagger } from "./stagger.ts";
 import { teams } from "./team.ts";
-import { ensureWorktree, settleWorktree, type WorktreeOutcome } from "./worktree.ts";
+import { ensureWorktree, settleWorktree, type WorktreeOutcome, worktreeCwd } from "./worktree.ts";
 
 // Process-wide: every session in this pi process shares the limit, which the first session's config fixes.
 class Semaphore {
@@ -203,7 +203,10 @@ function runExchange(
 			const restarted: RunResult[] = []; // the runs a restart ended, oldest first
 			try {
 				// A shadow-git sandbox: the child starts through the sandbox's backend, as `xpi sg sbx run` would start it.
-				if (spec.worktree?.kind === "shadow-git") spec.launch = await sandboxLauncher(spec.worktree);
+				if (spec.worktree?.kind === "shadow-git") {
+					spec.launch = await sandboxLauncher(spec.worktree);
+					spec.cwd = worktreeCwd(spec.worktree);
+				}
 				for (;;) {
 					const turnsBefore = restarted.reduce((sum, r) => sum + r.turns, 0);
 					run = await runChild(

@@ -1,7 +1,7 @@
 // builtin:shadow-git inside a sandbox (XPI_SG_SANDBOX): the path check of the file tools by real path, the paths that are
 // always writable, the bash block list and the prompt. Real sandboxes with the policy backend; no model.
 import assert from "node:assert/strict";
-import { mkdirSync, rmSync, symlinkSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -86,28 +86,33 @@ test("a hidden path (the adapter's metadata) cannot be read; grep, find and ls a
 		}
 		assert.equal(await call("ls", {}), undefined, "no path: the working directory");
 		assert.equal(await call("grep", { pattern: "a", path: "src" }), undefined);
-		assert.equal(await call("read", { path: "name://scheme/path" }), undefined, "other schemes are not files");
 	} finally {
 		l.restore();
 	}
 });
 
-test("always writable: xpi's agent directory, the session directory, the temp directory, scratch and the tree; never the store, the workspace or other places", async () => {
+test("always writable: the session directory, the temp directory, scratch and the tree; never the agent directory, the store, the workspace or other places", async () => {
 	const l = await lab();
 	try {
+		// the temp directory is its own, so the lab (the agent directory, the workspace) is not inside it
+		const ownTmp = mkdtempSync(join(tmpdir(), "xpi-sg-tmp-"));
+		process.env.TMPDIR = ownTmp;
 		const { call, sessionDir } = await inSandbox(l);
 		write(l.ws, "x", "");
 		await l.sg(["sbx", "create", "w2"]);
 		const scratch = join(l.store, "demo.sbx", "w1", "scratch");
 		for (const path of [
-			join(l.agentDir, "sessions", "s.jsonl"),
 			join(sessionDir, "s.jsonl"),
 			join(tmpdir(), "xpi-sg-int-scratch-file"),
 			join(scratch, "out.o"),
 		]) {
 			assert.equal(await call("write", { path, content: "x" }), undefined, path);
 		}
-		// the store is inside the agent directory? Here it is not, and it is refused either way; so is the other sandbox
+		// the agent directory is not on the list: the next unsandboxed session reads its settings, credentials and extensions
+		for (const name of ["settings.json", "auth.json", "extensions/evil.ts", "sessions/other.jsonl"]) {
+			assert.equal((await call("write", { path: join(l.agentDir, name), content: "x" })).block, true, name);
+		}
+		// the store is refused too, and so is the other sandbox
 		for (const path of [
 			join(l.store, "registry"),
 			join(l.store, "demo.sbx", "w2", "tree", "a.txt"),
@@ -123,6 +128,7 @@ test("always writable: xpi's agent directory, the session directory, the temp di
 			assert.equal((await call("write", { path: join(link, "a.txt"), content: "x" })).block, true);
 		} finally {
 			rmSync(link, { force: true });
+			rmSync(ownTmp, { recursive: true, force: true });
 		}
 	} finally {
 		l.restore();
@@ -134,8 +140,6 @@ test("the store is never writable, also when it is inside the agent directory (t
 	try {
 		const { call } = await inSandbox(l);
 		await l.sg(["sbx", "create", "w2"]);
-		assert.equal(await call("write", { path: join(l.agentDir, "sessions", "s.jsonl"), content: "x" }), undefined);
-		assert.equal(await call("write", { path: join(l.agentDir, "settings.json"), content: "{}" }), undefined);
 		for (const path of [
 			join(l.store, "registry"),
 			join(l.store, "demo.git", "hooks", "pre-commit"),
@@ -154,12 +158,35 @@ test("the store is never writable, also when it is inside the agent directory (t
 	}
 });
 
+test("a scheme path is not checkable and is refused; a path with :// inside is an ordinary path and is checked", async () => {
+	const l = await lab();
+	try {
+		const { call, tree } = await inSandbox(l);
+		for (const path of ["skill://x/y", "@file://a/b", "name://scheme/path"]) {
+			for (const tool of ["read", "write", "edit"]) {
+				const result = await call(tool, { path, content: "x", edits: [] });
+				assert.equal(result?.block, true, `${tool} ${path}`);
+				assert.match(result.reason, /scheme path/);
+			}
+		}
+		// the primary file is not reached by a name that merely contains ://
+		const sneaky = await call("write", { path: join(l.ws, "x://y"), content: "x" });
+		assert.equal(sneaky.block, true);
+		assert.match(sneaky.reason, /is read-only/);
+		assert.equal(await call("write", { path: join(tree, "x://y"), content: "x" }), undefined);
+	} finally {
+		l.restore();
+	}
+});
+
 test("bash in a sandbox: the same block list; the paragraph says whose sandbox it is and that the primary is read-only", async () => {
 	const l = await lab();
 	try {
 		const { api, c, call } = await inSandbox(l);
 		assert.equal((await call("bash", { command: "xpi sg import" })).block, true);
 		assert.equal((await call("bash", { command: "sg-adapter-plain update" })).block, true);
+		assert.equal((await call("powershell", { command: "xpi sg import" })).block, true, "any shell tool");
+		assert.equal((await call("bash", { command: "xpi sg sbx run x -- xpi sg merge b" })).block, true);
 		assert.equal(await call("bash", { command: "xpi sg status" }), undefined);
 		assert.equal(await call("bash", { command: "git commit -am work" }), undefined);
 		const event = { systemPromptOptions: { sections: {} as Record<string, string> } };

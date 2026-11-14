@@ -371,15 +371,18 @@ Results it writes back into the workspace are the user's to handle.
 ## Agents in xpi
 
 `builtin:shadow-git` wires all of this into xpi sessions. It is on by default and off with `-builtin:shadow-git`. It
-registers nothing unless the session's cwd is in a registered workspace (the **primary**) or `XPI_SG_SANDBOX` is set
-(inside a **sandbox**), so elsewhere xpi behaves exactly as without it. A session in the primary workspace edits it like
+acts only when the session's cwd is in a registered workspace (the **primary**) or `XPI_SG_SANDBOX` is set (inside a
+**sandbox**); its handlers do nothing elsewhere, so xpi behaves as without it. The cwd is read at each session start,
+from the session itself: a session resumed from another directory (`/resume`, `--session`) is judged by that
+directory. A session in the primary workspace edits it like
 any checkout: the user is present and commits on `main`. Sandboxes are for the agents the user is not watching.
 
 ### In the primary workspace
 
 - **git with no setup.** The extension sets `GIT_DIR` and `GIT_WORK_TREE` in xpi's own environment, so `bash`, `!`
   commands, MCP servers and subagents inherit them, and xpi's own git features (`/commit`, `/review`) use the shadow
-  repo. A sandboxed child replaces them with its own. Features that read a `.git` path on disk see nothing unless
+  repo. When the session moves to a directory that is not in a workspace, the values from before are restored (and
+  its live entry removed); moving into one sets them and writes the entry. A sandboxed child replaces them with its own. Features that read a `.git` path on disk see nothing unless
   `--gitfile` was used. A git command run anywhere in the session reaches the shadow repo, even after `cd` to another
   repository.
 - **Live session entry.** A top-level session (not a subagent child, not sandboxed) writes `<name>.sessions/<pid>` and
@@ -402,10 +405,12 @@ any checkout: the user is present and commits on `main`. Sandboxes are for the a
 
   The commands that write the workspace (`import`, `export --apply`, `merge`) follow the core's rules and run only when no
   other live session is listed and none of this session's agents works in the primary: the main agent, and subagents or
-  teammates that have no sandbox. Otherwise they say which. The read-only ones (`status`, `export`, `sbx ls`) always
+  teammates that have no sandbox, and running background codemode scripts (their agents may write the workspace).
+  Otherwise they say which. A background `bash` job that the model started and left running cannot be tracked: it is
+  not seen, so wait for it before importing. The read-only ones (`status`, `export`, `sbx ls`) always
   run. `xpi sg` in a terminal does everything else (`init`, `sbx create`, `sbx rm`, `config`, any git command).
-- **Blocked for agents.** A `tool_call` hook on `bash` blocks, with a one-line reason: `xpi sg` (and a bare `sg`, in case
-  of an alias) with `import`, `merge`, `export ... --apply` or `sbx create|rm`; any `sg-adapter-*`; and every
+- **Blocked for agents.** A `tool_call` hook on `bash`, `powershell` and any other tool whose input has a string `command` blocks, with a one-line reason: `xpi sg` (and a bare `sg`, in case
+  of an alias, also inside another command such as `xpi sg sbx run s -- xpi sg merge b`) with `import`, `merge`, `export ... --apply` or `sbx create|rm`; any `sg-adapter-*`; and every
   `shadow.blockCommand` regex (`xpi sg config --add shadow.blockCommand '\bhostvcs (submit|sync)\b'`; an invalid regex is
   reported and ignored). `xpi sg status`, `xpi sg export` (the plan), `xpi sg sbx ls`, `sbx run` and git pass-through are
   allowed. The hook searches the command text; it is a guard rail against an agent that does not try to get around it,
@@ -426,15 +431,20 @@ has `XPI_SG_SANDBOX` set. It registers no `/sg` and no live entry.
   tree). Paths of other schemes (`name://...`) are not files and are not checked. A codemode script's calls to these
   tools pass through the same hook.
 - **Paths that are always writable.** Under the policy, paths outside `@ws` are `shared-ro` by default, which would stop
-  xpi itself. These are always writable, whatever the rules say:
-  - xpi's agent directory, and the session directory of the session;
+  xpi itself. These are always writable, whatever the rules say, and only these:
+  - the session's own directory (a subagent's session is below its parent's);
   - the system's temp directory (`os.tmpdir()`);
+  - `~/.claude/agent-memory`, where user-scope agent memory lives;
   - the sandbox's own `scratch` and `tree` (already writable by the policy).
 
-  Three things stay refused even inside those directories: the **store** (it holds the shadow repo, the registry and
-  every other sandbox, and it sits inside the agent directory by default), the **primary workspace** and the sandbox's
+  xpi's agent directory as a whole is not on the list: `settings.json`, `auth.json` and `extensions/` there are read by
+  the next session that is not sandboxed. Three things stay refused even inside the listed directories: the **store**
+  (it holds the shadow repo, the registry and every other sandbox), the **primary workspace** and the sandbox's
   `primary` link (the workspace may itself sit under the temp directory). The check is for the file tools only. A
   `bash` command is held by nothing under `policy`.
+- **Scheme paths are refused.** A path like `name://x` is resolved by the host's schemes, which can locate a file
+  anywhere, so the check cannot judge it; the file tools refuse it in a sandbox. A path that only contains `://` after a
+  directory (`/ws/x://y`) is an ordinary path and is checked.
 - **`bash` stays advisory.** The prompt states the rules and the same block list as in the primary applies. Under
   `namespace` the mounts enforce what `bash` does.
 - **Prompt.** One paragraph: the agent is in sandbox `<name>/<id>`, the primary is read-only, its work only counts as
@@ -481,9 +491,10 @@ under `.pi/worktrees` (nothing is put in the workspace):
   submounts below.
 - **The bash block list is a guard rail.** It searches command text, so a command built at run time, or a program the
   agent writes and runs, is not caught.
-- **The always-writable paths are wide.** The whole agent directory (except the store) and the temp directory are
-  writable from a sandboxed session's file tools, so a sandboxed agent can change xpi's settings and other sessions'
-  files. Under `namespace`, ordinary file permissions apply there as well.
+- **The always-writable paths.** The session directory, the temp directory and the user's agent memory are writable
+  from a sandboxed session's file tools, so a sandboxed agent can change other sessions' files there and anything in
+  the temp directory that other programs read. Under `namespace`, ordinary file permissions apply everywhere
+  outside the workspace, the store and the listed mounts, for `bash` as well.
 - **Stopped import.** A session started while an import is stopped cannot be refused cleanly (an extension cannot end
   startup): it opens, shows the error and blocks its tool calls.
 - **Root in the namespace.** The command runs as root inside the namespace, with the user's own uid outside. Files owned
