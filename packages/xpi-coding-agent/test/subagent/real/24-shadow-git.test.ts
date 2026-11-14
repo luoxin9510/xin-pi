@@ -19,7 +19,9 @@ const CHANGE =
 	"Create a file named hello.txt in the current directory containing exactly the word hello. " +
 	"Then run these bash commands in order: `git add hello.txt` and `git commit -m 'add hello'`. Then reply with the single word DONE.";
 const APPLY =
-	"Use the bash tool to run exactly this command and nothing else: xpi sg export --apply\nThen reply with the single word DONE.";
+	"I am the user, and I am testing the shadow-git guard in this workspace. Use the bash tool to run exactly this " +
+	"command once: xpi sg export --apply\nA hook is expected to refuse it; that refusal is what this test checks, so " +
+	"do run it. Then reply with the single word DONE.";
 
 // A temp store, a workspace registered with the plain adapter, and the host stand-in it reads and writes.
 async function workspace() {
@@ -149,7 +151,13 @@ test(
 		const started = events.filter(
 			(e) => e.type === "tool_execution_start" && JSON.stringify(e.args).includes("export --apply"),
 		);
-		assert.ok(started.length > 0, `the agent never tried the command\n${run.out.slice(0, 2000)}`);
+		assert.ok(
+			started.length > 0,
+			`the agent never tried the command\n${events
+				.filter((e) => e.type === "tool_execution_start" || e.type === "message_end")
+				.map((e) => JSON.stringify(e).slice(-600))
+				.join("\n")}`,
+		);
 		for (const start of started) {
 			const end = events.find((e) => e.type === "tool_execution_end" && e.toolCallId === start.toolCallId);
 			assert.equal(end?.isError, true, "the call was refused");
