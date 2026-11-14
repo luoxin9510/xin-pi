@@ -85,7 +85,10 @@ describe("protect extension", () => {
 		const { harness, call, resultText } = await setup();
 		call("grep", { pattern: "TOKEN", path: "." });
 		await harness.session.prompt("go");
-		expect(resultText("grep")).not.toContain("is protected");
+		const text = resultText("grep");
+		expect(text).not.toContain("is protected");
+		// The search ran and printed the secret: the documented gap outside a git repository.
+		expect(text).toContain("hunter2");
 	});
 
 	it("blocks a grep named at .env", async () => {

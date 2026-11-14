@@ -1,7 +1,9 @@
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { fileURLToPath } from "node:url";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { SETTINGS_DEFAULTS } from "../src/core/settings-defaults.ts";
 import protect from "../src/extensions/protect/index.ts";
 import { type ProtectRules, protectLevel, relativeForMatch, validEntries } from "../src/extensions/protect/match.ts";
@@ -139,24 +141,22 @@ describe("protect path forms on Windows", () => {
 		expect(relativeForMatch("C:\\work\\project-two\\a", root, "win32")).toBe("C/work/project-two/a");
 	});
 
-	it("gives ignore a path it accepts, with ignore loaded while the platform is win32", async () => {
-		const original = Object.getOwnPropertyDescriptor(process, "platform");
-		vi.resetModules();
-		Object.defineProperty(process, "platform", { value: "win32" });
-		try {
-			const mod = await import("../src/extensions/protect/match.ts");
-			const ignore = (await import("ignore")).default;
-			const relative = mod.relativeForMatch("C:\\Users\\x\\.ssh\\id_rsa", "C:\\work", "win32");
-			expect(relative).toBe("C/Users/x/.ssh/id_rsa");
-			expect(
-				ignore({ ignorecase: true })
-					.add("id_rsa*")
-					.ignores(relative as string),
-			).toBe(true);
-		} finally {
-			if (original) Object.defineProperty(process, "platform", original);
-			vi.resetModules();
-		}
+	it("gives ignore a path it accepts, with ignore loaded while the platform is win32", () => {
+		// `ignore` is CommonJS and decides its Windows mode when it loads, so this runs in a child process.
+		const script = `
+			Object.defineProperty(process, "platform", { value: "win32" });
+			const ig = require("ignore");
+			let threw = false;
+			try { ig().add("x").ignores("C:/x"); } catch { threw = true; }
+			const matched = ig({ ignorecase: true }).add("id_rsa*").ignores("C/Users/x/.ssh/id_rsa");
+			process.stdout.write(JSON.stringify({ threw, matched }));
+		`;
+		const out = execFileSync(process.execPath, ["-e", script], {
+			cwd: fileURLToPath(new URL("..", import.meta.url)),
+			encoding: "utf8",
+		});
+		expect(JSON.parse(out)).toEqual({ threw: true, matched: true });
+		expect(relativeForMatch("C:\\Users\\x\\.ssh\\id_rsa", "C:\\work", "win32")).toBe("C/Users/x/.ssh/id_rsa");
 	});
 });
 
@@ -192,5 +192,11 @@ describe("protect handler", () => {
 		expect(call({ path: "a.txt" })).toMatchObject({ block: true });
 		expect(call({ path: "a.txt" })).toMatchObject({ block: true });
 		expect(notifications.filter((text) => text.includes("not strings"))).toHaveLength(1);
+	});
+
+	it("reports a list that is not an array", () => {
+		const { call, notifications } = install({ protect: { secret: "oops" } });
+		expect(call({ path: ".env" })).toMatchObject({ block: true });
+		expect(notifications.filter((text) => text.includes("not an array"))).toHaveLength(1);
 	});
 });

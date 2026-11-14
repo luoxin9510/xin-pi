@@ -72,7 +72,8 @@ defaults still apply.
   worktree, and `vendor/` blocks a file named `vendor`.
 - Case does not matter on macOS and Windows, and does on Linux.
 - On Windows the drive's colon is dropped (`C:\Users\x\.ssh\id_rsa` is matched as `C/Users/x/.ssh/id_rsa`), UNC paths
-  drop their leading `\\`, and separators are `/`.
+  drop their leading `\\`, a `\\?\` path drops its prefix and then its drive colon (`\\?\C:\x` is matched as
+  `C/x`), and separators are `/`.
 - Gitignore rules hold, including their limit: a file under an excluded directory cannot be re-included, so
   `!node_modules/keep.js` has no effect after `node_modules/`.
 - A path with a scheme (`name://...`) is skipped: the scheme's extension owns it.
@@ -93,8 +94,8 @@ defaults still apply.
 ## /protect
 
 - `/protect` shows whether protection is on for this session and the effective lists of both levels.
-- `/protect off` and `/protect on` switch it for this session only, in memory. A new or resumed session starts with
-  protection on. Subagents and other sessions are not affected; each has its own switch.
+- `/protect off` and `/protect on` switch it for this session only, in memory. A new or resumed session, a `/reload` and a fork start with
+  protection on again. Subagents and other sessions are not affected; each has its own switch.
 
 Only you can run a command, so the model cannot turn protection off. Turn the extension off for good with
 `-builtin:protect` in `extensions`.

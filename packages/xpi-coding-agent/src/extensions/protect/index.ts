@@ -48,12 +48,16 @@ export default function protect(pi: ExtensionAPI) {
 		if (typeof path !== "string" || path === "" || SCHEME.test(path)) return undefined;
 		const rules = readRules(pi);
 		if (!warnedBadEntries) {
-			const skipped = validEntries(rules.secret).skipped + validEntries(rules.readOnly).skipped;
+			const lists = pi.getSettings().protect;
+			const notLists = [lists?.secret, lists?.readOnly].filter(
+				(value) => value !== undefined && !Array.isArray(value),
+			).length;
+			const skipped = validEntries(rules.secret).skipped + validEntries(rules.readOnly).skipped + notLists;
 			if (skipped > 0) {
 				warnedBadEntries = true;
 				say(
 					ctx,
-					`${skipped} entr${skipped === 1 ? "y" : "ies"} in the protect settings are not strings and are skipped`,
+					`${skipped} entr${skipped === 1 ? "y" : "ies"} in the protect settings are not strings (or a list is not an array) and are skipped`,
 					"warning",
 				);
 			}
