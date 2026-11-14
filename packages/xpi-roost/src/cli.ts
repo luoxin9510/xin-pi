@@ -4,7 +4,7 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, resolve as resolvePath } from "node:path";
 import { readJson } from "./lib/atomic.ts";
-import { attachToHost, type DetachKeyMatcher } from "./lib/attach.ts";
+import { attachFollowingRestart, attachToHost, type DetachKeyMatcher } from "./lib/attach.ts";
 import { DaemonClient, DaemonError, type DaemonStart, daemonElsewhere, daemonEnv, requestOnce } from "./lib/client.ts";
 import { eventAgo, eventLine, type RoostEvent } from "./lib/events.ts";
 import { hostControl } from "./lib/hostclient.ts";
@@ -20,6 +20,7 @@ import {
 	runtimeDir,
 } from "./lib/paths.ts";
 import type { DispatchArgs, JobRow, ScheduleRow } from "./lib/protocol.ts";
+import { restartRoost } from "./lib/restart.ts";
 import { ensureLive } from "./lib/resume.ts";
 import {
 	checkTask,
@@ -102,6 +103,11 @@ usage:
   xpi roost rm <id|name>           stop it and delete its record
   xpi roost respawn <id|name>      start an ended session again (or restart a live one)
   xpi roost respawn --all          restart running xpi sessions (after an upgrade)
+  xpi roost restart [<id|name>] [--if-stale]
+                                   the daemon and every running xpi session onto the installed
+                                   build (after an upgrade or a rebuild); or one session only.
+                                   --if-stale: only what runs an older build. Inside a session
+                                   it restarts that session last; also: /restart in a session
   xpi roost schedule list [--json]
                                    schedules: rule, next run, last run or skip (works
                                    without the background service running)
@@ -139,8 +145,8 @@ export async function runRoostCli(argv: string[], opts: RoostCliOptions): Promis
 	for (const name of ROOST_LOCATION_ENV) process.env[name] = location[name];
 
 	let warned = false;
-	/** Until `xpi roost restart` exists (spec 03, PR 2) this is the recipe that moves everything to the installed code. */
-	const RESTART_RECIPE = "xpi roost daemon stop --keep-workers, then xpi roost respawn --all";
+	/** What moves the daemon and the sessions onto the installed code (spec 03). */
+	const RESTART_RECIPE = "xpi roost restart";
 	/** Refuses what would start a PTY host when node-pty is not installed here. */
 	const needPty = (what: string) => {
 		if (opts.ptyInstalled === false)
@@ -195,13 +201,27 @@ export async function runRoostCli(argv: string[], opts: RoostCliOptions): Promis
 			await ensureLive(c, r, process.stdout);
 			return r;
 		});
-		const reason = await attachToHost(
-			hostSocketPath(row.id),
-			{ stdin: process.stdin, stdout: process.stdout },
-			{ isDetachKey: opts.isDetachKey },
+		// spec 03: a restart of the session (by anyone) is not an end: attach to its new process
+		const reason = await attachFollowingRestart(
+			(onAttached) =>
+				attachToHost(
+					hostSocketPath(row.id),
+					{ stdin: process.stdin, stdout: process.stdout },
+					{ isDetachKey: opts.isDetachKey, onAttached },
+				),
+			{
+				restarting: async () => {
+					try {
+						return (await withDaemon((c) => findRow(c, row.id))).restarting === true;
+					} catch {
+						return false;
+					}
+				},
+				say: (text) => process.stdout.write(`\x1b[${process.stdout.rows || 24};1H\r\n${text}\r\n`),
+			},
 		);
 		const note =
-			reason === "exit"
+			reason === "exit" || reason === "restart"
 				? "session ended"
 				: reason === "takeover"
 					? "attached elsewhere"
@@ -287,6 +307,18 @@ export async function runRoostCli(argv: string[], opts: RoostCliOptions): Promis
 			if (all && results.length === 0) stdout.write("nothing to respawn\n");
 			return code;
 		});
+	}
+
+	/** Spec 03: the daemon and every running xpi session onto the installed code; `<id|name>`: that session only. */
+	async function cmdRestart(args: string[]): Promise<number> {
+		const names = args.filter((a) => a !== "--if-stale");
+		if (names.length > 1) throw new UsageError("restart [<id|name>] [--if-stale]");
+		for (const a of names) if (a.startsWith("--")) throw new UsageError(`restart: unknown option ${a}`);
+		needPty("restart");
+		return restartRoost(
+			{ query: names[0], ifStale: args.includes("--if-stale"), self: readJobEnv(process.env, "id") },
+			{ connect, buildOnDisk, say: (line) => stdout.write(`${line}\n`) },
+		);
 	}
 
 	/** M43: the event feed, oldest first; --follow polls for more (Ctrl+C ends it). */
@@ -628,6 +660,8 @@ export async function runRoostCli(argv: string[], opts: RoostCliOptions): Promis
 				return 0;
 			case "respawn":
 				return await cmdRespawn(rest);
+			case "restart":
+				return await cmdRestart(rest);
 			case "ls":
 			case "list":
 				await cmdList(rest);

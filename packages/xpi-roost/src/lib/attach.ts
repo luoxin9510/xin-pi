@@ -2,7 +2,7 @@ import { connect, type Socket } from "node:net";
 import { encodeFrame, encodeJsonFrame, type Frame, FrameDecoder, FrameType, parseJsonPayload } from "./framing.ts";
 import { checkLevels, socketDirLevels } from "./paths.ts";
 
-export type DetachReason = "local" | "takeover" | "exit" | "request" | "closed" | "error";
+export type DetachReason = "local" | "takeover" | "exit" | "request" | "restart" | "closed" | "error";
 
 export interface AttachIO {
 	stdin: NodeJS.ReadStream;
@@ -193,7 +193,7 @@ export class DetachScanner {
 export function attachToHost(
 	socketPath: string,
 	io: AttachIO,
-	opts: { isDetachKey: DetachKeyMatcher },
+	opts: { isDetachKey: DetachKeyMatcher; onAttached?: () => void },
 ): Promise<DetachReason> {
 	// the host's socket is in the runtime directory: its levels are checked before it is used
 	try {
@@ -258,9 +258,12 @@ export function attachToHost(
 				return finish("error");
 			}
 			for (const frame of frames) {
-				if (frame.type === FrameType.HELLO) greeted = true;
-				else if (frame.type === FrameType.DATA) {
+				if (frame.type === FrameType.HELLO) {
+					greeted = true;
+					opts.onAttached?.();
+				} else if (frame.type === FrameType.DATA) {
 					if (greeted === undefined) {
+						opts.onAttached?.();
 						greeted = false;
 						stdout.write("\x1b[2J\x1b[H");
 					}
@@ -275,4 +278,39 @@ export function attachToHost(
 		sock.on("error", () => finish("error"));
 		sock.on("close", () => finish("closed"));
 	});
+}
+
+/**
+ * Spec 03: an attached terminal follows its session through a restart. When the host ends with the reason `restart`
+ * (or the session is marked restarting), it says so and attaches again to the new host, trying for `waitMs` (the new
+ * host's socket appears a moment after the old one goes). A session that does not come back ends with the reason of
+ * the last try. An attach that was open and ended otherwise (detached, taken over, the session ended) is not followed.
+ * `attachOnce` is one attach, calling `onAttached` once the host has greeted.
+ */
+export async function attachFollowingRestart(
+	attachOnce: (onAttached: () => void) => Promise<DetachReason>,
+	d: {
+		/** Whether the session's row says it is restarting (a host that was killed gives no reason). */
+		restarting?: () => boolean | Promise<boolean>;
+		say: (text: string) => void;
+		waitMs?: number;
+		retryMs?: number;
+	},
+): Promise<DetachReason> {
+	const waitMs = d.waitMs ?? 30_000;
+	let deadline: number | undefined;
+	for (;;) {
+		let attached = false;
+		const reason = await attachOnce(() => {
+			attached = true;
+		});
+		if (reason === "local" || reason === "takeover" || reason === "request") return reason;
+		if (attached || deadline === undefined) {
+			// a session that was open (or the first try): is it going away for a restart?
+			if (reason !== "restart" && !(await d.restarting?.())) return reason;
+			d.say("restarting…");
+			deadline = Date.now() + waitMs;
+		} else if (Date.now() > deadline) return reason;
+		await new Promise((r) => setTimeout(r, d.retryMs ?? 200));
+	}
 }
