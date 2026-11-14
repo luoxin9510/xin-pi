@@ -57,6 +57,7 @@ import {
 	resetApiProviders,
 	streamSimple,
 } from "xpi-ai/compat";
+import { toCodemodeIdentifier } from "xpi-codemode";
 import { getThemeByName, theme } from "../modes/interactive/theme/theme.ts";
 import { stripFrontmatter } from "../utils/frontmatter.ts";
 import { processImage } from "../utils/image-process.ts";
@@ -750,9 +751,11 @@ export class AgentSession {
 			const exposure = this._getToolExposure(name);
 			const tool = this._toolRegistry.get(name);
 			if (!tool || (exposure !== "codemode" && exposure !== "deferred")) return undefined;
+			// Only while scripts can be run: with codemode off there is nothing to call it from.
+			if (!this.agent.state.tools.some((active) => active.name === "codemode")) return undefined;
 			return {
 				tool,
-				note: `(Call ${name} from codemode next time: await tools.${name.replace(/[^A-Za-z0-9_$]/g, "_").replace(/^[0-9]/, "_")}(...).)`,
+				note: `(Call ${name} from codemode next time: await tools.${toCodemodeIdentifier(name)}(...).)`,
 			};
 		};
 	}

@@ -291,7 +291,7 @@ The options below come with the unit. Each says how to turn it off.
     the `unlisted` flag of `CodemodeTool` in `packages/xpi-codemode`, which keeps a tool out of `ALL_TOOLS`) and by
     `tool_search`;
   - *a nested `terminate`* ends the codemode script and the codemode result asks to terminate, with the terminating
-    call's text last (`extensions/codemode/execute.ts`);
+    call's text last (`extensions/codemode/execute.ts`), through `CodemodeExit` in `packages/xpi-codemode` (a tool's `execute` returns it and the VM ends the script like `exit()`, keeping `store()` writes);
   - *direct-call repair*: `AgentLoopConfig.resolveUndeclaredTool` and the note on the result
     (`packages/xpi-agent-core/src/agent-loop.ts`, `agent.ts`), set by `AgentSession` for `codemode` and `deferred` tools.
 - **Copy (one unit)**: `coding-agent/src/extensions/relay/` (nine files: `index.ts`, `machine.ts`, `view.ts`,

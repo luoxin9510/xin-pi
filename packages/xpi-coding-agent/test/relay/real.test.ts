@@ -20,7 +20,7 @@ assert.throws(() => calc.div(1, 0), /division by zero/);
 console.log("all passed");
 `;
 
-const PROMPT = `calc.js needs sub, mul and div (div throws an Error with the message "division by zero" when the divisor is 0) so that \`node test.js\` passes. Read calc.js and test.js, then give the work to the worker with the handover tool, with \`node test.js\` as the acceptance command. Do not edit calc.js yourself. After the hand back, tell me in one sentence whether it is done.`;
+const PROMPT = `calc.js needs sub, mul and div (div throws an Error with the message "division by zero" when the divisor is 0) so that \`node test.js\` passes. Read calc.js and test.js, then give the work to the worker by calling \`tools.handover({...})\` from a codemode script, with \`node test.js\` as the acceptance command. Do not edit calc.js yourself. After the hand back, tell me in one sentence whether it is done.`;
 
 interface Entry {
 	type: string;

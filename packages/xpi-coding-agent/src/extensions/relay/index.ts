@@ -35,6 +35,7 @@ import {
 	HANDBACK_ENTRY,
 	HANDOVER_ENTRY,
 	type Handback,
+	handoverLanded,
 	RELAY_MODEL,
 	RELAY_PROVIDER,
 	ROUND_ENTRY,
@@ -106,12 +107,12 @@ export default function relay(pi: ExtensionAPI) {
 			}
 			const before = request.state ?? { phase: "lead", round: 0 };
 			const state = nextState(request.state, request.messages);
-			// Only a handover takes effect here; the hand back is written where the record is made.
-			if (state.phase === "worker" && before.phase === "lead") {
-				recordTransition(ctx, "lead", "worker", "handover", state.round);
-			}
 			if (state.phase === "worker") {
-				return { model: physical(ctx, cfg.worker, "worker"), thinkingLevel: cfg.workerThinking, state };
+				// The model first: a router that fails writes nothing, so a retry cannot write a second transition.
+				const model = physical(ctx, cfg.worker, "worker");
+				// Only a handover takes effect here; the hand back is written where the record is made.
+				if (before.phase === "lead") recordTransition(ctx, "lead", "worker", "handover", state.round);
+				return { model, thinkingLevel: cfg.workerThinking, state };
 			}
 			return {
 				model: physical(ctx, cfg.lead, "lead"),
@@ -179,7 +180,7 @@ export default function relay(pi: ExtensionAPI) {
 				findings: Type.Optional(Type.String({ description: HANDOVER_FIELDS.findings })),
 				stopWhen: Type.Optional(Type.String({ description: HANDOVER_FIELDS.stopWhen })),
 			}),
-			async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 				if (!isRelay(ctx.model))
 					throw new Error(`${HANDOVER_TOOL} works only with the ${RELAY_PROVIDER}/${RELAY_MODEL} model`);
 				// The snapshot takes time: it is made before the view is read, so that reading the view, deciding and
@@ -187,6 +188,9 @@ export default function relay(pi: ExtensionAPI) {
 				let base: string | undefined;
 				const early = viewOf(ctx);
 				if (!early.pending && early.phase === "lead" && params.plan.trim()) base = await snapshot(ctx.cwd);
+				// A call cut off while the snapshot was made (its script ended, or Esc) must write nothing: its result
+				// never reached the model, so the handover did not happen.
+				if (signal?.aborted) throw new Error("Operation aborted");
 				const view = viewOf(ctx);
 				const event: RelayEvent =
 					!view.pending && view.phase === "worker"
@@ -271,9 +275,9 @@ export default function relay(pi: ExtensionAPI) {
 	pi.on("tool_call", async (event, ctx) => {
 		if (registeredDirect || event.parentToolCallId !== undefined) return;
 		if (event.toolName !== HANDOVER_TOOL && event.toolName !== HANDBACK_TOOL) return;
-		const role = event.toolName === HANDOVER_TOOL ? "lead" : "worker";
+		const role = storedState(ctx.sessionManager.getBranch()).phase;
 		pi.appendEntry(DIRECT_ENTRY, { tool: event.toolName, role, at: Date.now() });
-		show(ctx, `relay: direct ${event.toolName}(...) run through codemode`, "warning");
+		show(ctx, `relay: direct ${event.toolName}(...) run as a codemode call`, "warning");
 		return undefined;
 	});
 
@@ -359,7 +363,15 @@ export default function relay(pi: ExtensionAPI) {
 		let attemptMs = 0;
 
 		const pending: Effect[] = [
-			...transition(view, { type: "run_end", afterRelayError: endedAfterRelayError(branch) }, machine).effects,
+			...transition(
+				view,
+				{
+					type: "run_end",
+					afterRelayError: endedAfterRelayError(branch),
+					handoverLanded: view.pending !== "handover" || handoverLanded(branch, view.round + 1),
+				},
+				machine,
+			).effects,
 		];
 		while (pending.length > 0) {
 			const effect = pending.shift() as Effect;

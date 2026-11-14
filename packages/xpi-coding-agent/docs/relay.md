@@ -108,7 +108,8 @@ with the text of the call that ended the script, the marker is the last line of 
 handover only from the last line of a `handover` or `codemode` result that names the next round (a file the worker
 reads that contains the string does not count).
 
-**With codemode off** (`-codemode`, or the tool not active) the two tools are registered as `direct` tools and the
+**With codemode off** (`-codemode`, or the tool not active) both roles see both tools, because they are ordinary
+direct tools (the one-tool-per-role rule needs codemode); they are registered as `direct` tools and the
 prompt says `call handover({...})`. Exposure is fixed at registration, so relay checks at `session_start`,
 `model_select` and `before_agent_start` and registers the tools again only when codemode's state changed. `/relay` says
 `codemode is off: the hand tools are direct tools`.
@@ -185,7 +186,8 @@ Notes: a handover resets mixups and stalls. Whether a run "ends after a relay er
 entry (inside a script the error is a nested result): only a wrong-role call counts, so a lead that stops after another
 relay error, such as an empty plan, is not continued: that is its call. One row is not in the lead's request path:
 after a `handover` ends the lead's turn, the run ends with a pending handover and relay continues it, so the worker
-answers next. `/handback` sets a flag and asks the worker to report; the worker's own `handback` in the same phase
+answers next. Relay continues it only when a tool result really ends with the marker of the next round; a handover whose call
+was cut off (an unawaited call, Esc) is voided with a `relay.void` entry and a line, and the lead goes on. `/handback` sets a flag and asks the worker to report; the worker's own `handback` in the same phase
 supplies the report, and the flag skips the acceptance commands, so racing the two is one hand back.
 
 ## Repairs and what you see
@@ -197,9 +199,9 @@ lines go to stderr with `--verbose`.
 
 - **A phase change**: a `relay.transition` entry (`from`, `to`, `event`, `round`, `at`) and one line, for example
   `relay: lead → worker (round 2)`.
-- **A direct call** of `handover` or `handback` while codemode is on is run through codemode by the agent loop, with a
+- **A direct call** of `handover` or `handback` while codemode is on is run as a codemode call by the agent loop, with a
   note on the first line of its result (see [Codemode](codemode.md#a-direct-call-of-a-tool-only-scripts-can-reach)): a
-  `relay.direct` entry and `relay: direct handover(...) run through codemode`. The result still ends with the marker,
+  `relay.direct` entry and `relay: direct handover(...) run as a codemode call`. The result still ends with the marker,
   so the handover counts.
 - **A wrong-role call** (the worker calls `handover`, the lead calls `handback`): a `relay.mixup` entry and
   `relay: worker called handover, corrected (1 of 2)`. The error names the caller's own tool. The worker's second one

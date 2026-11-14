@@ -40,9 +40,9 @@ the docs, the real Haiku runs before merge.
 - Added effects and entries: `continue_with` kind `worker_starts`, an effect `steer` for `/handback`, `notify` lines,
   and a `relay.direct` entry for a repaired direct call (the record and `/relay` need to list it). The `/handback` flag
   stays in memory, as before.
-- Seam B stops the sandbox with an abort signal of its own, so the script's `store()` writes are not kept and calls still
-  running are cancelled whether or not an add-on lets them outlive the script (`exit()` keeps both). Documented in
-  codemode.md.
+- Seam B: a tool's `execute` returns `CodemodeExit` (xpi-codemode) and the VM ends the script like `exit()` right after
+  the call, so output and `store()` writes are kept (review round 1). Calls the script started and did not await are
+  cancelled, unless an add-on lets them outlive the script, as at `exit()`.
 - `relay.transition` for lead -> worker is written in `route()` at the request where the stored state changes, not at
   the handover call: an entry at the call would clear the pending hand-off the second call must see. Hand backs write it
   where the record is made.
@@ -61,3 +61,17 @@ the docs, the real Haiku runs before merge.
   `leadFacts()` lost its first sentence ("Relay mode. You are the lead model (...)"): the section's own line says it.
 - Not run (as told): `npm test`, `test:relay:real`, `eval:delegation`. The real-model prompt of
   `test/relay/real.test.ts` still says "with the handover tool"; the lead's section names `tools.handover`.
+
+## Review round 1
+
+- An unawaited or cut-off `tools.handover` no longer leaves the lead in a continue loop: `execute` checks the call's
+  signal after the snapshot and writes nothing when it was aborted; at the end of a lead run the worker starts only if a
+  tool result really ends with the marker of the next round (`handoverLanded`), otherwise a `relay.void` entry clears
+  the pending hand-off and a line says so. This adds an entry kind and a `handoverLanded` field on `run_end`.
+- "Already handed over/back." is worded from what is pending (`view.pending`), not from the event.
+- Seam C resolves tools only while `codemode` is an active tool; with codemode off a direct call is "not found".
+- `relay.direct` labels the role with the stored phase. The notify line says "run as a codemode call".
+- `route()` resolves the worker model before it records the lead -> worker transition.
+- The blocked flag comes from the latest `relay.handback` entry even after a user message cleared the pending state.
+- `endedAfterRelayError` ignores custom entries (such as `codemode-store`) between the mixup and the end of the turn.
+- `agent-session.ts` imports `toCodemodeIdentifier`. The real-model prompt names `tools.handover`; it was not run.

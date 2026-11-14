@@ -50,8 +50,11 @@ export type RelayEvent =
 	| { type: "handover"; byUser: boolean }
 	/** The `handback` tool, or `/handback`. */
 	| { type: "handback"; status: "done" | "blocked"; byUser: boolean }
-	/** A run settles. `afterRelayError`: its last turn ended right after a `relay.mixup`. */
-	| { type: "run_end"; afterRelayError: boolean }
+	/**
+	 * A run settles. `afterRelayError`: its last turn ended right after a `relay.mixup`. `handoverLanded` (default true):
+	 * the handover's marker really ended a tool result; false when the call was cut off after its entry was written.
+	 */
+	| { type: "run_end"; afterRelayError: boolean; handoverLanded?: boolean }
 	/** The acceptance commands ran. `attempt`: how many times they failed before this run. */
 	| { type: "acceptance"; passed: boolean; attempt: number }
 	| { type: "model_away" }
@@ -67,7 +70,9 @@ export type EntryKind =
 	| "relay.pause"
 	| "relay.resume"
 	| "relay.transition"
-	| "relay.verify";
+	| "relay.verify"
+	/** A pending hand-off that never took effect is voided. */
+	| "relay.void";
 
 export type Effect =
 	/** The tool call's result. `terminate` ends the script and the turn. */
@@ -101,7 +106,9 @@ function refuse(view: RelayView, text: string): Transition {
 	return { next: view, effects: [{ type: "result", text, isError: true }] };
 }
 
-function already(view: RelayView, what: "over" | "back"): Transition {
+/** What is pending says which hand-off it is, whichever tool was called. */
+function already(view: RelayView): Transition {
+	const what = view.pending === "handback" ? "back" : "over";
 	return { next: view, effects: [{ type: "result", text: `Already handed ${what}.` }] };
 }
 
@@ -142,7 +149,7 @@ export function transition(view: RelayView, event: RelayEvent, config: MachineCo
 		case "handover":
 		case "handback": {
 			// A second call in the same response, including a parallel codemode call: one hand-off.
-			if (view.pending) return already(view, event.type === "handover" ? "over" : "back");
+			if (view.pending) return already(view);
 			if (view.paused) return refuse(view, "The relay is paused: select relay/auto again.");
 			if (event.type === "handover") {
 				if (view.phase !== "lead") return refuse(view, "The worker already has the work.");
@@ -232,6 +239,19 @@ export function transition(view: RelayView, event: RelayEvent, config: MachineCo
 			if (view.phase === "lead") {
 				// A handover ends the lead's turn (terminate); the worker answers the next request.
 				if (view.pending === "handover") {
+					if (event.handoverLanded === false) {
+						return {
+							next: { ...view, pending: undefined },
+							effects: [
+								{ type: "append_entry", entry: "relay.void", data: { what: "handover" } },
+								{
+									type: "notify",
+									text: "relay: a handover did not take effect (its call was cut off), voided",
+									level: "warning",
+								},
+							],
+						};
+					}
 					return { next: view, effects: [{ type: "continue_with", kind: "worker_starts" }] };
 				}
 				if (event.afterRelayError && view.stalls < MAX_REPAIRS) {

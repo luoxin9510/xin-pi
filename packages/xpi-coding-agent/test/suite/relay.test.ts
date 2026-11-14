@@ -369,7 +369,11 @@ describe("relay", () => {
 
 	it("runs a direct handover(...) through codemode: the same result, a note, a line and an entry (seam C)", async () => {
 		const { harness, seen, notes, entries, call, say } = await createRelayHarness({ codemode: true });
-		harness.setResponses([call("handover", { plan: "DIRECT-PLAN" }), say("worker done"), say("lead review")]);
+		harness.setResponses([
+			call("handover", { plan: "DIRECT-PLAN" }),
+			call("handback", { status: "done", report: "DIRECT-REPORT" }),
+			say("lead review"),
+		]);
 
 		await harness.session.prompt("go");
 
@@ -378,9 +382,50 @@ describe("relay", () => {
 		expect(seen[1].text).toContain(
 			`(Call handover from codemode next time: await tools.handover(...).)\n${handoverMarker(1)}`,
 		);
-		expect(entries("relay.direct")).toMatchObject([{ tool: "handover" }]);
-		expect(notes).toContain("relay: direct handover(...) run through codemode");
+		// The role is the stored phase: a hand tool called by the worker is labelled the worker's.
+		expect(entries("relay.direct")).toMatchObject([
+			{ tool: "handover", role: "lead" },
+			{ tool: "handback", role: "worker" },
+		]);
+		expect(notes).toContain("relay: direct handover(...) run as a codemode call");
 		expect(seen[2].text).toContain("The lead called handover directly; it was run through codemode.");
+		expect(seen[2].text).toContain("The worker called handback directly; it was run through codemode.");
+	});
+
+	it("does not start the worker after an unawaited handover whose script ended first", async () => {
+		const { harness, seen, entries, script, say } = await createRelayHarness({ codemode: true });
+		harness.setResponses([
+			script(`tools.handover({ plan: "UNAWAITED" }); text("script ended");`),
+			say("the lead goes on"),
+			// A later, real handover works: the voided one did not leave "already handed over" behind.
+			script(`await tools.handover({ plan: "REAL" });`),
+			say("worker done"),
+			say("review"),
+		]);
+		await harness.session.prompt("go");
+		expect(seen.map((request) => request.model)).toEqual(["large", "large"]);
+		expect(entries("relay.transition")).toHaveLength(0);
+		await harness.session.prompt("again");
+		expect(seen.slice(2).map((request) => request.model)).toEqual(["large", "small", "large"]);
+		expect(entries("relay.transition")).toMatchObject([{ to: "worker" }, { to: "lead" }]);
+	});
+
+	it("writes no handover when its script ends (exit) while the call is still being made", async () => {
+		const { harness, seen, entries, script, say } = await createRelayHarness({ codemode: true });
+		harness.setResponses([script(`tools.handover({ plan: "CUT" }); exit();`), say("the lead goes on")]);
+		await harness.session.prompt("go");
+		expect(entries("relay.handover")).toHaveLength(0);
+		expect(seen.map((request) => request.model)).toEqual(["large", "large"]);
+	});
+
+	it("writes no transition when the worker model cannot be resolved", async () => {
+		const { harness, entries, script } = await createRelayHarness({
+			codemode: true,
+			relay: { worker: "faux/missing" },
+		});
+		harness.setResponses([script(`await tools.handover({ plan: "P" });`)]);
+		await harness.session.prompt("go").catch(() => undefined);
+		expect(entries("relay.transition")).toHaveLength(0);
 	});
 
 	it("ends the script at the first handover: the second call never runs", async () => {

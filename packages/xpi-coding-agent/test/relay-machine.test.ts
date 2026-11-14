@@ -120,6 +120,19 @@ describe("relay machine", () => {
 			}
 		});
 
+		it("words 'already' from what is pending, whichever tool is called, in every role", () => {
+			const cases = [
+				[VIEWS["lead, pending handover"], "Already handed over."],
+				[VIEWS["worker, pending handback"], "Already handed back."],
+				[VIEWS["worker, pending blocked handback"], "Already handed back."],
+			] as const;
+			for (const [view, text] of cases) {
+				for (const name of ["handover (tool)", "handback done (tool)", "handover (user)", "handback (user)"]) {
+					expect(result(transition(view, EVENTS[name], config).effects)).toMatchObject({ text });
+				}
+			}
+		});
+
 		it("refuses a handover in the worker's phase and a hand back in the lead's, and in a pause", () => {
 			expect(result(transition(worker(), EVENTS["handover (user)"], config).effects)).toMatchObject({
 				isError: true,
@@ -262,6 +275,22 @@ describe("relay machine", () => {
 				expect(next).toEqual(VIEWS["lead, pending handover"]);
 				expect(effects).toEqual([{ type: "continue_with", kind: "worker_starts" }]);
 			}
+		});
+
+		it("lead | run_end with a pending handover whose call was cut off: voided, the worker does not start", () => {
+			const view = VIEWS["lead, pending handover"];
+			const { next, effects } = transition(
+				view,
+				{ type: "run_end", afterRelayError: false, handoverLanded: false },
+				config,
+			);
+			expect(next.pending).toBeUndefined();
+			expect(kinds(effects)).toEqual(["entry:relay.void", "notify"]);
+		});
+
+		it("worker | run_end with a blocked hand back whose pending state is gone: still no acceptance", () => {
+			const { effects } = transition(worker({ blocked: true }), EVENTS.run_end, config);
+			expect(kinds(effects)).toEqual(["compact_record", "entry:relay.transition"]);
 		});
 
 		it("paused | run_end: nothing", () => {

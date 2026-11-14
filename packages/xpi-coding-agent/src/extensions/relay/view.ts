@@ -6,7 +6,7 @@ import type { SessionEntry } from "../../core/session-manager.ts";
 import { getVirtualModelState, VIRTUAL_MODEL_STATE_ENTRY } from "../../core/virtual-models.ts";
 import { initialView, type RelayView } from "./machine.ts";
 import type { Handover, Spoken } from "./record.ts";
-import type { RelayState } from "./router.ts";
+import { lastLineHandoverRound, type RelayState } from "./router.ts";
 
 export const RELAY_PROVIDER = "relay";
 export const RELAY_MODEL = "auto";
@@ -23,6 +23,8 @@ export const RESUME_ENTRY = "relay.resume";
 export const TRANSITION_ENTRY = "relay.transition";
 /** A direct call of a hand tool that xpi ran as a call from codemode. */
 export const DIRECT_ENTRY = "relay.direct";
+/** A pending hand-off that never took effect. */
+export const VOID_ENTRY = "relay.void";
 
 export interface Handback {
 	status: "done" | "blocked";
@@ -154,22 +156,26 @@ export function readView(branch: readonly SessionEntry[], userAsked = false): Re
 				// The state of another virtual model leaves this view alone.
 				if ((entry.data as { provider?: string } | undefined)?.provider !== RELAY_PROVIDER) break;
 				pendingKind = undefined;
+				blocked = false;
 				view.mixups = 0;
 				view.stalls = 0;
 				view.paused = false;
 				break;
 			case TRANSITION_ENTRY:
 				pendingKind = undefined;
+				blocked = false;
 				view.mixups = 0;
 				view.stalls = 0;
 				view.paused = false;
 				break;
 			case VERIFY_ENTRY:
+			case VOID_ENTRY:
 				pendingKind = undefined;
 				blocked = false;
 				break;
 			case HANDOVER_ENTRY:
 				pendingKind = "handover";
+				blocked = false;
 				view.mixups = 0;
 				view.stalls = 0;
 				view.paused = false;
@@ -193,7 +199,8 @@ export function readView(branch: readonly SessionEntry[], userAsked = false): Re
 		}
 	}
 	view.pending = pendingKind;
-	view.blocked = pendingKind === "handback" && blocked;
+	// A blocked hand back stays blocked when a user message cleared its pending state before the run ended.
+	view.blocked = blocked;
 	view.userAsked = userAsked;
 	return view;
 }
@@ -206,7 +213,8 @@ export function readView(branch: readonly SessionEntry[], userAsked = false): Re
 export function endedAfterRelayError(branch: readonly SessionEntry[]): boolean {
 	const index = branch.findLastIndex((entry) => entry.type === "custom" && entry.customType === MIXUP_ENTRY);
 	if (index < 0) return false;
-	const after = branch.slice(index + 1);
+	// Entries that are no part of the conversation (a `codemode-store` entry, say) do not count.
+	const after = branch.slice(index + 1).filter((entry) => entry.type === "message" || entry.type !== "custom");
 	const last = after.at(-1);
 	if (!last || last.type !== "message" || last.message.role !== "assistant") return false;
 	if (last.message.content.some((block) => block.type === "toolCall")) return false;
@@ -254,4 +262,18 @@ export function describeHistory(branch: readonly SessionEntry[], now = Date.now(
 		}
 	}
 	return lines;
+}
+
+/** Whether the latest tool results end with the marker of the handover that made round `round`. */
+export function handoverLanded(branch: readonly SessionEntry[], round: number): boolean {
+	const lastAssistant = branch.findLastIndex(
+		(entry) => entry.type === "message" && entry.message.role === "assistant",
+	);
+	return branch.slice(lastAssistant + 1).some((entry) => {
+		if (entry.type !== "message" || entry.message.role !== "toolResult") return false;
+		const message = entry.message;
+		if (message.isError || (message.toolName !== "handover" && message.toolName !== "codemode")) return false;
+		const text = message.content.map((block) => (block.type === "text" ? block.text : "")).join("\n");
+		return lastLineHandoverRound(text) === round;
+	});
 }
