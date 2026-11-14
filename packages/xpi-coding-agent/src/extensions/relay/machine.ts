@@ -122,12 +122,12 @@ function handBackBlocked(view: RelayView, report: string): Transition {
 }
 
 /** The worker's run ended: verify (or skip it) and hand back. */
-function endWorkerRun(view: RelayView, event: RelayEvent): Transition {
+function endWorkerRun(view: RelayView): Transition {
 	const skip = view.blocked || view.userAsked;
 	if (skip) {
 		return {
 			next: leadAgain(view),
-			effects: [{ type: "compact_record" }, transitionEntry("worker", "lead", event.type, view.round)],
+			effects: [{ type: "compact_record" }, transitionEntry("worker", "lead", "handback", view.round)],
 		};
 	}
 	return { next: view, effects: [{ type: "run_acceptance" }] };
@@ -240,11 +240,11 @@ export function transition(view: RelayView, event: RelayEvent, config: MachineCo
 				return { next: view, effects: [] };
 			}
 			// The worker's run.
-			if (view.pending === "handback") return endWorkerRun(view, event);
+			if (view.pending === "handback") return endWorkerRun(view);
 			if (event.afterRelayError) {
 				if (view.stalls < MAX_REPAIRS) return stall(view, "worker");
 				const blocked = handBackBlocked(view, BLOCKED_BY_STALL);
-				const ended = endWorkerRun(blocked.next, event);
+				const ended = endWorkerRun(blocked.next);
 				return {
 					next: ended.next,
 					effects: [
@@ -258,7 +258,7 @@ export function transition(view: RelayView, event: RelayEvent, config: MachineCo
 					],
 				};
 			}
-			return endWorkerRun(view, event);
+			return endWorkerRun(view);
 		}
 
 		case "acceptance": {

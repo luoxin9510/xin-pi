@@ -45,6 +45,8 @@ export interface RecordInput {
 	acceptance: AcceptanceResult[];
 	/** Times the acceptance commands failed and the work went back to the worker. */
 	failedRounds: number;
+	/** One line per repair of this round (a corrected call, a continuation), so the lead knows when the worker needed help. */
+	repairs?: readonly string[];
 }
 
 const USER_CHARS = 12_000;
@@ -135,6 +137,9 @@ export function buildRecord(input: RecordInput): string {
 		);
 	} else if (handover.acceptance.length > 0) {
 		lines.push("## Acceptance", "Not run: the worker handed back before it was done.", "");
+	}
+	if (input.repairs && input.repairs.length > 0) {
+		lines.push("## Repairs in this round", ...input.repairs.map((line) => `- ${line}`), "");
 	}
 	lines.push("</relay-hand-back>");
 	return lines.join("\n");
