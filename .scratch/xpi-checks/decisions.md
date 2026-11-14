@@ -13,3 +13,9 @@
 
 Naming (author): the feature is `checks` (setting `checks`, `builtin:checks`), because `settings-diagnostics.ts`
 already means problems with settings files.
+
+After the spec's first review (author's corrections, no decision changed): effects come from `tool_call` (by id),
+not from the turn's results; no check when every result of the turn terminates the run (no next request); abort also
+by `ctx.signal`; the wait for the baseline is bounded and a command without one reports nothing once; the message is a
+`display: true` entry returned with the earlier entries; a status line while checks run; `docs/xin-pi.md` and the
+READMEs in the docs list.
