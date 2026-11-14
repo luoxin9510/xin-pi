@@ -24,8 +24,9 @@ to npm), environment variables are `XPI_*`, and these built-in extensions are ad
   default `haiku`), opens it in an editor, and commits; hooks run and nothing is pushed or amended.
 
 - `xpi sg`: a private git history over a workspace that another version control system owns, with `import` and `export`
-  as the sync point and a small adapter script for the host VCS. See
-  [docs/shadow-git.md](packages/xpi-coding-agent/docs/shadow-git.md).
+  as the sync point and a small adapter script for the host VCS. The built-in `shadow-git` extension gives sessions in
+  such a workspace git with no setup, `/sg`, guards for agents, and sandboxes for subagents and teammates
+  (`isolation: "worktree"`). See [docs/shadow-git.md](packages/xpi-coding-agent/docs/shadow-git.md).
 
 xin-pi does not merge upstream; changes are ported by hand. The full list is in [docs/xin-pi.md](docs/xin-pi.md).
 

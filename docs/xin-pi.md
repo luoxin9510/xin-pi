@@ -48,15 +48,15 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
   `xpi sg <subcommand>` is dispatched in `coding-agent/src/main.ts` next to `xpi roost`, through
   `src/extensions/shadow-git/cli.lazy.ts`. The package has no npm dependencies; its two shell adapters
   (`adapters/`) are copied to `dist/shadow-git-adapters/` by `copy-assets` (`getShadowGitAdaptersDir` in `config.ts`).
-  Sandboxes (`xpi sg sbx`, the path policy, the `namespace` and `policy` backends) are built; not yet:
-  `builtin:shadow-git`, `/sg`, the policy check in xpi's tools.
+  Sandboxes (`xpi sg sbx`, the path policy, the `namespace` and `policy` backends) and the xpi integration
+  (`builtin:shadow-git`, below) are built.
 - App-config environment variables carry the prefix `XPI_` instead of `PI_` (`XPI_OFFLINE`, `XPI_TELEMETRY`,
   `XPI_PACKAGE_DIR`, `XPI_SKIP_VERSION_CHECK`, ...). The list of renamed names is `ENV_VARS` in `scripts/xpi-rename.mjs`.
   CI secrets, build constants and release tooling variables keep their names.
 - Removed from the monorepo: `packages/chord`, `packages/durable`, `packages/env`, `apps/p2`, `apps/p3` (coding-agent, ai,
   agent-core and tui did not depend on them), together with their build, workspace, tsconfig and CI wiring. The
   version check is skipped by default (`XPI_SKIP_VERSION_CHECK ??= "1"` in `coding-agent/src/cli/setup.ts`).
-- Five built-in extensions, registered in `coding-agent/src/extensions/index.ts` and not replaceable:
+- Six built-in extensions, registered in `coding-agent/src/extensions/index.ts` and not replaceable:
   - `subagent` (`src/extensions/subagent/`, off with `-builtin:subagent`): the `Agent`, `SendMessage` and `Workflow` tools
     for codemode scripts, the script helpers (`agent`, `parallel`, `pipeline`, `phase`, `log`), saved workflows
     (`/<name>`, `/workflows`), built-in workflows (`builtin/workflows/*.js`, found last by `discoverWorkflows`, runnable
@@ -70,6 +70,18 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
     namespace `relay.*`. It uses the extension API only (a virtual model, the `agent_before_settle` boundary with a
     compaction draft); no core change. User docs: [relay.md](../packages/xpi-coding-agent/docs/relay.md).
   - `upstream` (`src/extensions/upstream/`, off with `-builtin:upstream`): `/upstream`, see below.
+  - `shadow-git` (`src/extensions/shadow-git/`, off with `-builtin:shadow-git`): registers nothing unless the cwd is in a
+    registered shadow-git workspace (the primary) or `XPI_SG_SANDBOX` is set (a sandbox). Primary: sets `GIT_DIR` and
+    `GIT_WORK_TREE` in `process.env`, writes the live-session entry (`<name>.sessions/<pid>`, removed at shutdown and exit),
+    blocks every tool call while an import is stopped, `/sg import|export|merge|status|sbx ls` (the core in process,
+    `runSg`), the `bash` block list (`guard.ts`) and the prompt section. Sandbox: the path check of `read`, `write`, `edit`,
+    `grep`, `find` and `ls` by `sandboxPolicy()` (`policy-check.ts`), the same block list, a prompt section. The subagent
+    code reaches it through `worktree.ts`: `WorktreeRef.kind: "shadow-git"` (`subagent/sandbox-worktree.ts`) is the
+    sandbox `sub-<agentId>` (`team-<name>` for a teammate) in place of a git worktree; the exchange sets `spec.launch`,
+    which `runner.ts` calls to start the child through the backend (`prepareLaunch` in xpi-shadow-git); no core change.
+    User docs: [shadow-git.md](../packages/xpi-coding-agent/docs/shadow-git.md#agents-in-xpi),
+    [subagent.md](../packages/xpi-coding-agent/docs/subagent.md#in-a-shadow-git-workspace). Tests:
+    `test/subagent/shadow-git/*.test.ts` (offline, in `npm run test:subagent`).
   - `commit` (`src/extensions/commit/`, off with `-builtin:commit`): `/commit [hint] [--yes]`. It builds a prompt from
     the staged diff (`context.ts`: lockfiles stat-only, diff capped at 60k characters, the commit section of
     `AGENTS.md`/`CLAUDE.md`, the last 20 subjects), asks `ctx.complete` for `{ type, scope?, summary, body? }` with the
@@ -480,7 +492,7 @@ files, the child's session file), never on model wording, and never start a test
 | script | what | needs |
 |---|---|---|
 | `npm test` | `test:subagent`, `test:upstream`, then the vitest suite. Root `npm test` and `./test.sh` run it | the vitest part skips what needs keys |
-| `npm run test:subagent` | offline `node:test`: `faults` (scripted fake child), `panel`, `worktree`, `memory`, `teams` (agent teams) | nothing: no auth, no network, git identity set inside the tests |
+| `npm run test:subagent` | offline `node:test`: `faults` (scripted fake child), `panel`, `worktree`, `memory`, `teams` (agent teams), `shadow-git` (the extension, sandboxed sessions, isolation and teammates in sandboxes) | nothing: no auth, no network, git identity set inside the tests |
 | `npm run test:upstream` | offline `node:test` for `/upstream`: temp git repos with a fake `upstream` remote, a stubbed fetch, a fake pi API, a temp agent dir | nothing |
 | `npm run test:subagent:real` | `real/*`: the extension in-process, children are the built xpi on real haiku | `npm run build`, auth |
 | `npm run test:subagent:parent` | `parent/*`: a real `xpi --mode rpc` parent, background scripts, `/subagents stop` | `npm run build`, auth |

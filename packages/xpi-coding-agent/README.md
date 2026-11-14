@@ -27,6 +27,7 @@ What xin-pi adds to pi:
   cheap worker builds. The lead hands over with a plan and acceptance commands, and reads a record of the result, not
   the worker's transcript.
 - **`/upstream`**: compares upstream pi with xin-pi and asks the model what is worth porting.
+- **shadow-git**: in a workspace owned by another version control system and registered with `xpi sg init`, git works with no setup, `/sg` imports, exports and merges, and subagents and teammates work in sandboxes ([docs/shadow-git.md](https://github.com/luoxin9510/xin-pi/blob/main/packages/xpi-coding-agent/docs/shadow-git.md)).
 - **Background sessions** (macOS and Linux): `xpi --bg "<task>"` or `/bg` hands a session to a daemon that keeps it
   running; `/agents` or `xpi roost hub` lists them to peek, reply, attach and start more. Schedules
   (`xpi roost schedule add`, or `/schedule` in the hub) start a task as a new session on a time rule;

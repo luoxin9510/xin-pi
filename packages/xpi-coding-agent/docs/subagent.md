@@ -389,6 +389,8 @@ never waits for the teammate's work.
 
 - A call with `subagent_type: "fork"` or `isolation` is an ordinary subagent. A name another (non-teammate) subagent has
   still throws.
+- In a [shadow-git workspace](shadow-git.md) each teammate runs in its own sandbox `team-<name>` (see
+  [In a shadow-git workspace](#in-a-shadow-git-workspace)). Elsewhere teammates are never isolated.
 - Refused, with the reason in the error: `schema`, `run_in_background: false`, and a call from a workflow or a workflow's
   script (a teammate outlives the script and reports to the lead, so the script could not use its result).
 - At most `maxTeammates` members that are not stopped (running, queued or idle). A call over the cap throws, naming them.
@@ -647,6 +649,34 @@ on its own branch, so it can edit freely without touching your checkout or other
   path) and removes the ones you pick. Before removing it asks to confirm and names what would be lost (the changed files
   and the commits on the branch). Removal deletes the worktree and its branch. It only looks at the checkout of the current
   directory, not at other repositories.
+
+### In a shadow-git workspace
+
+When the session's cwd is in a registered [shadow-git](shadow-git.md) workspace (a workspace owned by another version
+control system, with a private git repo over it), `isolation: "worktree"` makes a shadow-git sandbox instead of a git
+worktree, and nothing is placed in the workspace. Everything above holds, with these differences.
+
+- The sandbox is `sub-<agentId>` on branch `sbx/sub-<agentId>`, in the shadow-git store (`<agent dir>/shadow-git/<name>.sbx/`),
+  made from the primary workspace's current branch. Its tree holds the tracked files; untracked paths of the workspace
+  are read from the primary, which stays read-only to the agent.
+- The child runs in the sandbox through the backend `auto` chooses (`namespace` where it works, else `policy`), the same
+  way `xpi sg sbx run` runs a command. Under `policy` the agent's file tools are checked against the path policy and
+  `bash` is advisory; see [Agents in xpi](shadow-git.md#agents-in-xpi). Its cwd, and the `Working directory:` line, is
+  the sandbox's tree (under `namespace`, the workspace's own path) plus the directory the session was in, when the
+  starting commit has it.
+- Settling follows the same rule: no commits and no changes, and the sandbox and its branch are removed. Otherwise both
+  are kept, and the result's `worktree` gives `path` (the tree), `branch` (`sbx/sub-<agentId>`), `files`, `commits`
+  and a `note` that says to run `/sg merge sbx/sub-<agentId>`. Ignored files do not count. The meta file records
+  `kind: "shadow-git"`.
+- Resuming, `run_in_background`, and `/subagents worktrees` work as for worktrees. `/subagents worktrees` lists the
+  `sub-*` and `team-*` sandboxes of the workspace and removes the ones you pick together with their branch; sandboxes
+  you made yourself are not listed.
+- **Teammates.** With agent teams on, each teammate gets the sandbox `team-<name>` the same way. Running several
+  agents on one workspace is the point of a sandbox: without one, teammates would write the same files. A teammate's
+  sandbox is settled after each of its exchanges, so an idle teammate that has done nothing holds none. A sandbox that
+  holds work is kept after the teammate stops. A new teammate named like a kept sandbox is refused with a message.
+- **No nesting.** Inside a sandbox, `isolation: "worktree"` and starting a teammate are refused ("sandboxes do not
+  nest").
 
 ## Agent memory
 
@@ -1169,7 +1199,7 @@ Run from `packages/xpi-coding-agent/`. Tests assert on structure and side effect
 start a test runner from inside a test.
 
 ```bash
-npm run test:subagent         # offline: faults (scripted fake child), panel, worktree, memory. No model, no auth, free
+npm run test:subagent         # offline: faults (scripted fake child), panel, worktree, memory, teams, shadow-git. No model, no auth, free
 npm run test:subagent:real    # in-process tool, real children (built xpi) on real haiku
 npm run test:subagent:parent  # a real `xpi --mode rpc` parent: background scripts, /subagents stop
 npm run test:subagent:tui     # interactive xpi in a pty (node-pty + headless xterm)

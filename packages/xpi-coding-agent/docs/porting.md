@@ -6,7 +6,7 @@ components you want, follow each one's dependencies, and port only that set. Two
 - A **unit** is what you copy. Its files import each other, so a unit comes whole: you cannot copy half of it and build.
   There are six: [codemode](#codemode), [subagents](#subagents) (which needs codemode), [relay](#relay),
   [roost](#roost) (the `xpi-roost` package), the [roost adapter](#roost-adapter) (which needs roost) and
-  [shadow-git](#shadow-git) (the `xpi-shadow-git` package).
+  [shadow-git](#shadow-git) (the `xpi-shadow-git` package; its isolation option needs subagents).
 - An **option** is a feature inside a unit. It comes with the unit's files; you turn it off by a setting, or by removing
   the line that wires it in (named in each option), not by leaving files out.
 
@@ -42,9 +42,10 @@ graph TD
   shadowgit[unit: shadow-git]
   subagents --> codemode
   adapter --> roost
+  shadowgit -. isolation option .-> subagents
   subagents -. options .- o1[Agent tool, names and SendMessage, background, panel and screens, workflows, fork]
   roost -. options .- o2[schedules, login service, hub]
-  shadowgit -. options .- o4[local-only paths, scope, --gitfile]
+  shadowgit -. options .- o4[local-only paths, scope, --gitfile, xpi integration, isolation]
   adapter -. options .- o3[--bg, /bg, /agents, hub wiring, scheduleLaunch]
 ```
 
@@ -55,7 +56,7 @@ graph TD
 | [names and SendMessage](#subagents-names-and-sendmessage), [background](#subagents-background), [panel and screens](#subagents-panel-and-screens), [workflows](#workflows) | codemode, subagents | as the Agent tool, plus what each option lists | the options you do not want |
 | [relay](#relay) | relay | virtual models (`core/virtual-models.ts`), the `agent_before_settle` boundary with compaction drafts | nothing to turn off |
 | [roost core](#roost-core) | roost | node-pty, unix sockets, detached child processes, a CLI that starts a session from argv with a session file | [schedules](#schedules) (no `scheduleLaunch`), [login service](#login-service) (remove its `cmdDaemon` branch); the hub is a separate entry point, unused unless wired |
-| [shadow-git](#shadow-git) | shadow-git | Node and git 2.20 or newer; a `sh` for the shipped adapters | `--gitfile`, local-only paths and the scope are settings; nothing else to turn off |
+| [shadow-git](#shadow-git) | shadow-git | Node and git 2.20 or newer; a `sh` for the shipped adapters | `--gitfile`, local-only paths and the scope are settings; the xpi integration (the extension, [isolation](#shadow-git-isolation)) by leaving its wiring out |
 | [roost session side](#roost-session-side), [hub](#roost-hub) | roost, roost adapter | extension events, flags and commands; a TUI library like `xpi-tui` for the hub | `/agents` and the hub, by removing their registrations |
 
 A pick never needs a unit outside its row: the import graphs of `extensions/relay/index.ts`,
@@ -393,35 +394,59 @@ command line (`src/cli.ts`) and their library (`src/lib/`), plus the hub (`src/h
 ## shadow-git
 
 The `packages/xpi-shadow-git` package, one unit: the library and command line (`src/`) and the two adapters
-(`adapters/`). It imports nothing of xpi and has no npm dependencies. What exists today is the core: init, import
-(with resume and abort), export, status, env, list, merge, the lock, the live-session check and git pass-through, and
-sandboxes: `sbx create|run|ls|rm`, the path policy and the `namespace` and `policy` backends. The xpi integration
-(`/sg`, hooks, the policy check in tools, isolation) comes later and gets its entry when it lands.
+(`adapters/`). It imports nothing of xpi and has no npm dependencies. It has the core (init, import with resume and
+abort, export, status, env, list, merge, the lock, the live-session check and git pass-through), sandboxes (`sbx
+create|run|ls|rm`, the path policy, the `namespace` and `policy` backends) and `prepareLaunch`, which gives a caller the
+command that starts a program in a sandbox. The xpi integration is the extension `builtin:shadow-git` plus a second kind
+of worktree in the subagent extension; both are options of the unit.
 
 - **Gives**: a private git history over a workspace that another version control system owns, with `import` and
-  `export` as the sync point and an adapter for the host VCS. See [shadow-git](shadow-git.md).
-- **Depends on**: no other unit and nothing of the host agent. Host capabilities: Node, spawning `git` (2.20 or newer)
-  and a POSIX `sh` for the adapters. For the `namespace` sandbox backend: Linux, `unshare`, `mount`, `findmnt`
-  (util-linux) and unprivileged user namespaces; without them the `policy` backend is used. A caller supplies the working directory, the store and where the shipped adapters
-  are (`runSg` options `defaultStore` and `builtinAdaptersDir`).
+  `export` as the sync point and an adapter for the host VCS; in xpi, git in that workspace with no setup, `/sg`, guards
+  for agents, and agents (subagents and teammates) that work in sandboxes. See [shadow-git](shadow-git.md).
+- **Depends on**: no other unit and nothing of the host agent for the core. Host capabilities: Node, spawning `git`
+  (2.20 or newer) and a POSIX `sh` for the adapters. For the `namespace` sandbox backend: Linux, `unshare`, `mount`,
+  `findmnt` (util-linux) and unprivileged user namespaces; without them the `policy` backend is used. A caller
+  supplies the working directory, the store and where the shipped adapters are (`runSg` options `defaultStore` and
+  `builtinAdaptersDir`). The extension needs the host's extension API (`tool_call` and `before_agent_start` hooks, slash
+  commands, `session_start` and `session_shutdown`). [Isolation](#shadow-git-isolation) also needs the
+  [subagents](#subagents) unit.
 - **Copy (one unit)**: `packages/xpi-shadow-git/` (`src/`, `adapters/`). The coding agent wires it in with
   `src/extensions/shadow-git/cli.lazy.ts` and `cli.ts` (the `xpi sg` dispatch in `src/main.ts`), and `getShadowGitAdaptersDir`
   in `src/config.ts` plus the `copy-assets` lines of its `package.json` that copy the adapters next to the build.
+  The extension (option) is `src/extensions/shadow-git/` (`index.ts`, `guard.ts`, `policy-check.ts`, `prompt.ts`,
+  `workspace.ts`), registered in `src/extensions/index.ts` as `builtin:shadow-git`. It imports `subagent/registry.ts` to
+  see which agents are running (for `/sg`).
 - **Rewrite**: the command name in the messages (`xpi sg`), the environment variables `XPI_SG_*`, the default store
-  (`<agent dir>/shadow-git`) and the agent directory source.
+  (`<agent dir>/shadow-git`) and the agent directory source. In the extension: the names of the file tools whose paths
+  are checked (`read`, `write`, `edit`, `grep`, `find`, `ls`), the section name in the prompt (`shadow-git`) and the path
+  resolution of the host's tools (`resolveToCwd`).
 - **Verify**: `node ../../node_modules/vitest/dist/cli.js --run` in `packages/xpi-shadow-git` (temp directories, real
   git and the plain adapter; no model, no network). `test/namespace.test.ts` runs the `namespace` backend and skips where
-  it is unavailable.
+  it is unavailable. The extension and isolation: `test/subagent/shadow-git/*.test.ts` in coding-agent (part of
+  `npm run test:subagent`; a fake child process, temp store and workspace, the `policy` backend forced by
+  `XPI_SG_UNSHARE`).
 - **Linux**: the reference platform, and the only one with the `namespace` sandbox backend. It needs
   `unshare --user --map-root-user --mount --pid --fork --mount-proc` to work: some systems turn unprivileged user namespaces off with a sysctl or a
   security module, and some restrict them by default (check CI runners). The namespace tests skip, with the probe's
   message, where it does not; a container needs seccomp and AppArmor unconfined and the masked `/proc` paths unconfined
   (a fresh `/proc` is mounted in the pid namespace). The command runs as root in the namespace (other users' files show as `nobody`,
-  setuid does not work). **macOS**: the same for the core; the system `sh` and `git` work, and `/var` and `/tmp` are
-  links, so the registry stores real paths (`realpath`) and the cwd is resolved the same way. Sandboxes use the `policy`
-  backend only, so `bash` in a sandbox is advisory.
-- **Guide**: this entry and [shadow-git](shadow-git.md) (the adapter contract and the sync model). The detailed porting
-  guide comes with the later pieces.
+  setuid does not work). An agent sandboxed by isolation starts as `unshare ... sh -c <script> xpi-sg-sandbox <command>`
+  with the sandbox's variables, so its cwd is the workspace's own path (the tree is mounted over it). **macOS**: the same
+  for the core; the system `sh` and `git` work, and `/var` and `/tmp` are links, so the registry stores real paths
+  (`realpath`) and the cwd is resolved the same way. Sandboxes use the `policy` backend only: `bash` in a sandbox is
+  advisory, and the file tools' path check and the block list are what hold an agent.
+- **Guide**: this entry; [shadow-git](shadow-git.md) (the adapter contract, the sync model, agents in xpi); and, for
+  the subagent side, [Porting the subagent extension](subagent-porting.md#shadow-git-sandboxes).
+
+### shadow-git isolation
+
+An option of the unit that needs [subagents](#subagents): `isolation: "worktree"` and teammates get a sandbox in a
+registered workspace. It is `src/extensions/subagent/sandbox-worktree.ts` and the lines in `worktree.ts` (the
+`WorktreeRef.kind` field and its dispatch in `planWorktree`, `worktreeSubdir`, `ensureWorktree`, `settleWorktree`,
+`removeWorktree`, `listWorktrees` and `worktreeCwd`), `agent-tool.ts` (the teammate plan), `exchange.ts` (it sets
+`spec.launch`), `runner.ts` (it calls it) and `resolve.ts`/`fork.ts` (`worktreeCwd`). Turn it off by removing the
+`findWorkspace` branch in `planWorktree` and the teammate plan in `agent-tool.ts`: isolation then uses plain git
+worktrees again. Details in the guide.
 
 ## Adding a component
 

@@ -593,3 +593,53 @@ After the second review of PR 2:
   changed` or `broken: config.worktree changed`. Removing a sandbox no longer runs `git worktree remove` on its tree:
   the directories go by hand and `git worktree prune` follows. Under `policy` the attack stays possible for plain git
   started by hand in a tree; this is documented.
+
+PR 3 (xpi integration) differs from the text above in these places.
+
+- **The file-tool check is a `tool_call` hook.** `read`, `write`, `edit`, `grep`, `find` and `ls` are held to the policy by
+  a handler on `tool_call` (it sees codemode's nested calls too), not by wrapping the tools. `grep`, `find` and `ls` get
+  the read check for a `path` they are given; their default, the working directory, is the sandbox's tree. Paths that
+  contain `://` are other schemes, not files, and are not checked.
+- **Always writable, with exceptions.** Besides the agent directory, the session directory, `os.tmpdir()` and the sandbox's
+  `scratch` and `tree`, the check never lets these through even when they sit inside those directories: the **store**
+  (inside the agent directory by default; it holds every other sandbox), the **primary workspace** and the sandbox's
+  `primary` link. The override applies only where the policy says `shared-ro`, so a `hidden` path stays hidden.
+- **A stopped import cannot refuse a session cleanly.** An extension cannot end startup, so the fallback of this spec
+  applies: an error notice at `session_start`, and every tool call blocked with a reason that names `xpi sg import` and
+  `xpi sg import --abort`. The check is made again at each call, so a session works again once the import is settled.
+  A blocked session writes no live-session entry (it would make the resume refuse); the entry is written by the first
+  turn or tool call after the import is settled.
+- **`/sg`.** Also accepts `merge --continue` and `merge --abort`. Only `import`, `export --apply` and `merge` need the
+  workspace to themselves (no other live session, no agent of the session working in the primary, the main agent idle);
+  `status`, `export` (the plan) and `sbx ls` always run. Output goes to a notice (`error` level on a non-zero exit).
+  Only a top-level session registers it.
+- **bash block list.** The hook searches the command text (the shell is not parsed), so it also matches inside quotes. `xpi
+  sg sbx run` is allowed (the sandbox is the agent's own); `sbx create|rm` are blocked. The one-line reason ends with
+  "ask the user to run it". An invalid `shadow.blockCommand` regex is reported on stderr once and ignored.
+- **A child of the primary** (`XPI_SUBAGENT_DEPTH` set) gets the git environment, the block list and the prompt like the
+  main session, but no entry and no `/sg`.
+- **Prompt.** Added as the section `shadow-git` of `systemPromptOptions` in `before_agent_start`, the same text every turn.
+- **A sandbox that cannot be opened** blocks every tool call (fail closed).
+- **Isolation: how the child is started.** `ChildSpec.launch(command, args, env)` is set by the exchange once the sandbox
+  exists and called by `runChild` just before `spawn`, because the runner adds the system-prompt files to the arguments
+  itself. xpi-shadow-git gained `prepareLaunch(repo, id)` (the refresh and backend choice of `sbx run`, returning a
+  `wrap(cmd, { env, subdir })`); `runInSandbox` uses it too. `namespaceScript` and `namespaceCommand` take an optional
+  `subdir` for the final `cd`. `removeSandbox` takes `dropBranch`. The package also exports `sandboxGit`, `changedFiles`,
+  `sandboxesDir`, `git`, `splitZ`, `configAll`, `currentBranch`, `revParse`, `dirtyPaths`, `readImportRecord` and
+  `assertNoImport`.
+- **Where the child starts.** `WorktreeRef.kind: "shadow-git"` with `repo`, `sandbox` and `backend`; `worktreeCwd(ref)` is
+  the tree plus the subdirectory (under `namespace`, the workspace's own path plus it), used by `resolve.ts` and `fork.ts`.
+  The sandbox is made when the exchange gets its slot (`ensureWorktree`), from the primary's current branch, and a
+  dirty primary adds a warning as for worktrees.
+- **Ids.** `sub-<agentId>` for isolation and `team-<name>` for a teammate. A teammate whose sandbox directory or branch
+  still exists from an earlier one is refused at planning (merge and remove it, or choose another name); a resume
+  re-enters its kept sandbox. A sandbox that settles as unchanged is removed with its branch after each exchange, so an
+  idle teammate that did nothing holds none and the next wake makes a new one.
+- **Settling** looks at the sandbox's own `git status` (ignored files do not count) and at HEAD not being on `sbx/<id>`;
+  the result's `note` ends with the `/sg merge` hint. Quiet: nothing is printed by the core there (the TUI owns the terminal).
+- **`/subagents worktrees`** lists only the `sub-*` and `team-*` sandboxes, so a sandbox the user made is never offered for
+  removal, and removing one deletes its branch too.
+- **Nesting.** `isolation: "worktree"`, an agent file's `isolation` and a teammate are refused when `XPI_SG_SANDBOX` is
+  set, with "sandboxes do not nest", before anything is made.
+- **Tests** are `test/subagent/shadow-git/*.test.ts` (node:test, in `npm run test:subagent`) with the `policy` backend
+  forced; the namespace wrapper with a subdirectory is in `packages/xpi-shadow-git/test/namespace.test.ts`.
