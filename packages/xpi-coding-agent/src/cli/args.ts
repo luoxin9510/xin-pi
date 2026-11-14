@@ -188,8 +188,24 @@ export function parseArgs(args: string[]): Args {
 		} else if (arg === "--export" && i + 1 < args.length) {
 			result.export = args[++i];
 		} else if ((arg === "--extension" || arg === "-e") && i + 1 < args.length) {
-			result.extensions = result.extensions ?? [];
-			result.extensions.push(args[++i]);
+			const source = args[++i]!;
+			// `-builtin:<name>` and the other override patterns belong to the `extensions` setting; here they would be
+			// taken for a package source and load nothing, so the built-in the user meant to turn off stays on.
+			if (/^[-!+]/.test(source)) {
+				const builtin = /^[-!+]builtin:(.+)$/.exec(source)?.[1];
+				result.diagnostics.push({
+					type: "error",
+					message:
+						builtin && source.startsWith("+")
+							? `${arg} ${source}: write ${arg} builtin:${builtin} to load a built-in.`
+							: builtin
+								? `${arg} ${source}: ${arg} loads an extension and cannot turn one off. To run without builtin:${builtin}, add "-builtin:${builtin}" to "extensions" in settings, or use --no-extensions with -e for the ones to keep.`
+								: `${arg} ${source}: an extension source cannot start with "${source[0]}" (override patterns go in the "extensions" setting); write a local file as ./${source}.`,
+				});
+			} else {
+				result.extensions = result.extensions ?? [];
+				result.extensions.push(source);
+			}
 		} else if (arg === "--no-extensions" || arg === "-ne") {
 			result.noExtensions = true;
 		} else if (arg === "--strict-extensions") {
