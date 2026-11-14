@@ -113,6 +113,11 @@ export const JobRowSchema = obj({
 	order: nullable(num(), "AV-K13: the user's position within its group, or null when never moved."),
 	orderKey: nullable(str(), "The section the order belongs to (a state group or `dir:<cwd>`); stale elsewhere."),
 	capabilities: opt(arr(str(), "M31: what its agent said it can do in its hello (absent: it never said).")),
+	restarting: opt(
+		bool(
+			"Spec 03: true while the daemon restarts it onto the installed build (from before its process is ended until the new one is up, or the start failed). Absent otherwise.",
+		),
+	),
 	build: opt(
 		str(
 			"Spec 03: the build id of the code its process runs, from its hello (absent: not running, or its agent did not say).",
@@ -304,8 +309,30 @@ export const ArgSchemas = {
 			all: opt(loose(bool())),
 			restart: opt(loose(bool())),
 			prompt: opt(loose(str())),
+			ids: opt(
+				arrS(need("ids must be job ids"), {
+					message: "ids must be job ids",
+					description:
+						"Spec 03: restart exactly these running xpi sessions, in this order (not with `id` or `all`); one not running comes back with an error.",
+				}),
+			),
+			last: opt(
+				objS(
+					{
+						id: need("last.id must be a job id"),
+						prompt: opt(loose(str("Replaces the continue prompt of this session's new process."))),
+					},
+					{
+						description: "Spec 03: this session, which must be in `ids`, is restarted after the others.",
+						message: "last must be {id, prompt?}",
+					},
+				),
+			),
 		},
-		{ description: "Start an ended job again from its session file; `restart` also restarts a live one." },
+		{
+			description:
+				"Start an ended job again from its session file; `restart` also restarts a live one. `ids` (with `last`) restarts live sessions in order and runs to the end even when the caller's connection is gone.",
+		},
 	),
 	pin: obj({ id: need("id required"), pinned: loose(bool()) }),
 	rename: obj({ id: need("id required"), name: filled("empty name", "Spaces folded; cut at 200 characters.") }),
@@ -421,5 +448,14 @@ export function argsProblem(op: string, args: unknown): string | undefined {
 	}
 	const value = Array.isArray(args) ? {} : args;
 	const r = check(schema, value);
-	return r.ok ? undefined : r.message;
+	if (!r.ok) return r.message;
+	return op === "respawn" ? respawnProblem(value as OpArgs["respawn"]) : undefined;
+}
+
+/** Spec 03: what the schema cannot say about `respawn`: `ids` stands alone, and `last` is one of them. */
+function respawnProblem(a: OpArgs["respawn"]): string | undefined {
+	if (a.ids === undefined) return a.last === undefined ? undefined : "last needs ids";
+	if (a.all === true || a.id !== undefined) return "ids is not allowed with all or id";
+	if (a.last && !a.ids.includes(a.last.id)) return "last.id must be one of ids";
+	return undefined;
 }

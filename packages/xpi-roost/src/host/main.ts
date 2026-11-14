@@ -279,7 +279,7 @@ function replay(a: Attach): void {
 	});
 }
 
-function kick(a: Attach, reason: "takeover" | "exit" | "request"): void {
+function kick(a: Attach, reason: "takeover" | "exit" | "request" | "restart"): void {
 	if (attached === a) setAttached(undefined);
 	if (a.sock.destroyed) return;
 	a.sock.end(encodeJsonFrame(FrameType.DETACHED, { reason }));
@@ -315,7 +315,10 @@ function terminateWorker(): void {
 	}, 5000);
 }
 
-function control(sock: Socket, req: { op: string; data?: unknown; text?: unknown }): void {
+/** What an attached terminal is told when this host ends: "restart" when the daemon asked for a restart (spec 03). */
+let endReason: "exit" | "restart" = "exit";
+
+function control(sock: Socket, req: { op: string; data?: unknown; text?: unknown; reason?: unknown }): void {
 	let reply: unknown;
 	const op = req.op;
 	switch (op) {
@@ -354,6 +357,8 @@ function control(sock: Socket, req: { op: string; data?: unknown; text?: unknown
 			break;
 		}
 		case "terminate":
+			// spec 03: the daemon is restarting this session: an attached terminal waits for the new host, not an end
+			if (req.reason === "restart") endReason = "restart";
 			terminateWorker();
 			reply = { ok: true };
 			break;
@@ -396,7 +401,7 @@ const server = createServer((sock) => {
 						role = "attach";
 						// M22: the worker has exited and the host is going: say so
 						if (finishing) {
-							sock.end(encodeJsonFrame(FrameType.DETACHED, { reason: "exit" }));
+							sock.end(encodeJsonFrame(FrameType.DETACHED, { reason: endReason }));
 							return;
 						}
 						if (attached) kick(attached, "takeover");
@@ -450,7 +455,7 @@ function finish(): void {
 	clearInterval(screenTimer);
 	if (killTimer) clearTimeout(killTimer);
 	flushScreen();
-	if (attached) kick(attached, "exit");
+	if (attached) kick(attached, endReason);
 	server.close();
 	try {
 		unlinkSync(sockPath);

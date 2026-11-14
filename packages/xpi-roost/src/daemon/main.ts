@@ -300,6 +300,7 @@ function rowOf(id: string): JobRow | undefined {
 		order: typeof st.order === "number" ? st.order : null,
 		orderKey: typeof st.orderKey === "string" ? st.orderKey : null,
 		...(caps ? { capabilities: caps } : {}),
+		...(st.restarting === true ? { restarting: true } : {}),
 		// spec 03: the build its process runs; a session that is not running has none
 		...(live && agentBuild(st) ? { build: agentBuild(st) } : {}),
 		// M48: the task it was started on, and the user replies waiting for it (the peek shows both)
@@ -634,6 +635,12 @@ function loadJobs(): void {
 				log("error", "state recovery failed", { id, error: String(err) });
 			}
 		}
+		// spec 03: a restart the old daemon did not finish is not going on
+		if (st?.restarting) {
+			try {
+				st = updateState(id, { restarting: undefined });
+			} catch {}
+		}
 		if (st && st.endedAt === undefined && !roster.has(id)) finalize(id, "orphaned", { startup: true });
 		// DM-5: a crash restart that was waiting when the daemon went down
 		else if (st && typeof st.resumeAt === "number" && !roster.has(id)) {
@@ -643,7 +650,7 @@ function loadJobs(): void {
 	persistRoster();
 }
 
-async function terminateHost(id: string): Promise<void> {
+async function terminateHost(id: string, reason?: "restart"): Promise<void> {
 	const ref = roster.get(id);
 	if (!ref) return;
 	reaping.delete(id); // a user's stop wins over an idle reap
@@ -652,7 +659,7 @@ async function terminateHost(id: string): Promise<void> {
 		updateState(id, { stopRequested: true });
 	} catch {}
 	try {
-		await hostControl(id, "terminate");
+		await hostControl(id, "terminate", 3000, reason ? { reason } : {});
 	} catch (err) {
 		log("warn", "host control failed, sending SIGTERM", { id, error: String(err) });
 		try {
@@ -907,6 +914,7 @@ async function respawn(
 	if (!rec) throw new OpError("not_found", `no such job: ${id}`);
 	if (starting.has(id) || respawning.has(id)) return { id, started: false };
 	respawning.add(id);
+	let restarting = false;
 	try {
 		// DM-5: an automatic restart waiting: this start takes its place (once it can start)
 		const pendingResume = typeof readState(id)?.resumeAt === "number";
@@ -920,7 +928,11 @@ async function respawn(
 			if (!opts.restart || shell) return { id, started: false };
 			// a turn cut short by the restart carries on in the new worker
 			if (!prompt && readState(id)?.state === "working") prompt = CONTINUE;
-			await terminateHost(id);
+			// spec 03: attached terminals and the hub see a restart, not an end, until the new host is up (or this fails)
+			restarting = true;
+			updateState(id, { restarting: true });
+			pushJob(id);
+			await terminateHost(id, "restart");
 			if (!(await waitGone([id], WAIT_MS))) throw new OpError("busy", `job ${id} did not stop`);
 		}
 		if (ptyError) throw new OpError("no_pty", `node-pty is unavailable: ${ptyError}`);
@@ -981,7 +993,40 @@ async function respawn(
 		return { id, started: true };
 	} finally {
 		respawning.delete(id);
+		if (restarting) {
+			try {
+				updateState(id, { restarting: undefined });
+			} catch {}
+			pushJob(id);
+		}
 	}
+}
+
+/**
+ * Spec 03: restart these running xpi sessions onto the installed code, one after another in the order given, `last`
+ * at the end with its own prompt. It runs to the end whatever happens to the client's connection: the caller may be
+ * one of the sessions (its process goes when its own turn comes, which is why it is last). A session that cannot be
+ * restarted is reported and the others go on.
+ */
+async function restartSessions(
+	ids: string[],
+	last: { id: string; prompt?: string } | undefined,
+): Promise<{ id: string; started: boolean; error?: string }[]> {
+	const order = [...new Set(ids)].filter((id) => id !== last?.id);
+	if (last) order.push(last.id);
+	const results: { id: string; started: boolean; error?: string }[] = [];
+	for (const id of order) {
+		try {
+			const rec = recs.get(id);
+			if (!rec) throw new OpError("not_found", `no such job: ${id}`);
+			if (!roster.has(id) || rec.kind === "shell") throw new OpError("bad_request", "not running");
+			const prompt = id === last?.id && last.prompt?.trim() ? last.prompt.trim() : undefined;
+			results.push(await respawn(id, { restart: true, prompt }));
+		} catch (err) {
+			results.push({ id, started: false, error: (err as Error).message });
+		}
+	}
+	return results;
 }
 
 /** DI-6: a shell job's row shows its latest output line; ended ones go after a while. */
@@ -1496,6 +1541,7 @@ async function handle(conn: Conn, op: string, args: any): Promise<unknown> {
 		case "rm":
 			return removeRecord(requireJob(args));
 		case "respawn": {
+			if (args.ids) return { results: await restartSessions(args.ids, args.last) };
 			if (args?.all === true) {
 				const results: { id: string; started: boolean; error?: string }[] = [];
 				for (const id of [...recs.keys()]) {

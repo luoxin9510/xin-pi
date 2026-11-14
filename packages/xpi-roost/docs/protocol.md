@@ -122,7 +122,14 @@ daemon restart, and resends the latest report.
 
 `dispatch` starts a job (an xpi session or a shell command); `stop`, `rm`, `respawn`,
 `pin`, `rename`, `reorder` and `reply` act on one; `list`, `resolve` and `status` read;
-`subscribe` turns the connection into a feed of `job` and `removed` events; `events`
+`respawn` with `ids` (and `last`) is a restart onto the installed code: the listed running sessions are restarted one
+after another in the order given, `last` after the others with its `prompt` in place of the continue prompt; `ids` is not
+allowed with `id` or `all`, and `last.id` must be in `ids`. A listed id that is not running, is a shell command or does
+not exist comes back with an `error` and the others go on. The request runs to the end even when the caller's
+connection closes (the caller may be one of the sessions). While a session is being restarted its row has
+`restarting: true`, from before its host is told to end until the new host is up or the start failed; the host
+tells a terminal attached to it that it ended with the reason `restart` (`DETACHED {reason: "restart"}`) and not
+`exit`. `subscribe` turns the connection into a feed of `job` and `removed` events; `events`
 reads the last 1000 things that happened (starts, state changes, replies, restarts,
 removals, schedules' runs and skips); `shutdown` stops the daemon (and its sessions, unless
 `keepWorkers`).
@@ -293,6 +300,7 @@ What a worker reports about itself (full snapshot every time).
 | `order` | `number \| null` | yes |  | AV-K13: the user's position within its group, or null when never moved. |
 | `orderKey` | `string \| null` | yes |  | The section the order belongs to (a state group or `dir:<cwd>`); stale elsewhere. |
 | `capabilities` | `string[]` | no |  | M31: what its agent said it can do in its hello (absent: it never said). |
+| `restarting` | `boolean` | no |  | Spec 03: true while the daemon restarts it onto the installed build (from before its process is ended until the new one is up, or the start failed). Absent otherwise. |
 | `build` | `string` | no |  | Spec 03: the build id of the code its process runs, from its hello (absent: not running, or its agent did not say). |
 | `task` | `string \| null` | no |  | M48: the task it was started on (one line, at most 200 characters). |
 | `queued` | `number` | no |  | M48: user replies waiting for it. |
@@ -553,7 +561,7 @@ No fields.
 
 ### `respawn`
 
-Start an ended job again from its session file; `restart` also restarts a live one.
+Start an ended job again from its session file; `restart` also restarts a live one. `ids` (with `last`) restarts live sessions in order and runs to the end even when the caller's connection is gone.
 
 Callers: Person. Refused: Session (`unsupported`), Unregistered agent (`unsupported`).
 
@@ -565,6 +573,8 @@ Args:
 | `all` | `boolean` | no |  |  |
 | `restart` | `boolean` | no |  |  |
 | `prompt` | `string` | no |  |  |
+| `ids` | `string[]` | no |  | Spec 03: restart exactly these running xpi sessions, in this order (not with `id` or `all`); one not running comes back with an error. |
+| `last` | `{ id: string, prompt?: string }` | no |  | Spec 03: this session, which must be in `ids`, is restarted after the others. |
 
 Result:
 
