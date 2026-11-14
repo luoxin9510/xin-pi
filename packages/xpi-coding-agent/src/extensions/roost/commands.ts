@@ -48,6 +48,7 @@ const CORE: Record<string, How> = {
  * The commands xpi's built-in extensions register, by what each does:
  * - /commit asks to confirm the message, /mcp (bare) and /llama open their managers, /workflows and /subagents (bare)
  *   open a list, /tasks opens the agent team's task overlay, /agents opens the hub inside the session: picker.
+ * - /restart is the hub's own in a peek (it asks the daemon to restart that session): hub.
  * - /relay only says where the work stands (a notice on the session's screen): screen.
  * - /handover, /handback, /subtask, /upstream and the built-in /review workflow start or steer work: reply.
  */
@@ -65,6 +66,11 @@ export const EXTENSION_COMMANDS: Record<string, How & { description: string; arg
 		description: "shadow-git: import, export, merge and status for this workspace",
 	},
 	agents: { how: "picker", description: "The hub, inside the session" },
+	restart: {
+		how: "hub",
+		args: "optional",
+		description: "Restart on the installed build (all: the service and every session)",
+	},
 	relay: { how: "screen", description: "Relay: who has the work, the round and the two models" },
 	handover: { how: "reply", args: "optional", description: "Relay: give the work to the worker model now" },
 	handback: { how: "reply", description: "Relay: wake the lead now" },

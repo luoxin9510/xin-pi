@@ -109,12 +109,10 @@ export async function backgroundAndExit(
 			const status = await client.request("status", {});
 			if (status.version !== ROOST_VERSION)
 				notes.push(
-					`the background service is ${status.version}, this xpi is ${ROOST_VERSION}; restart it with: xpi roost daemon stop --keep-workers, then xpi roost respawn --all`,
+					`the background service is ${status.version}, this xpi is ${ROOST_VERSION}; restart it with: xpi roost restart`,
 				);
 			else if (isStale(status.build, buildOnDisk()))
-				notes.push(
-					"the background service runs an older build of xpi; restart it with: xpi roost daemon stop --keep-workers, then xpi roost respawn --all",
-				);
+				notes.push("the background service runs an older build of xpi; restart it with: xpi roost restart");
 			if (status.ptyError) notes.push(`the background service cannot load node-pty: ${status.ptyError}`);
 		} catch {
 			// the session is started; the notes are a courtesy

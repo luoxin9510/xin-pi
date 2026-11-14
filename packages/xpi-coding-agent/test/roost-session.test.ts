@@ -262,7 +262,13 @@ describe("an ordinary start", () => {
 			await roost(child.pi);
 			expect(loaded).toEqual([]);
 			// it is an ordinary (foreground) session: the write lock, /agents and the foreground role's /bg
-			expect([...child.registered.commands.keys()].sort()).toEqual(["agents", "background", "bg", "bg-fork"]);
+			expect([...child.registered.commands.keys()].sort()).toEqual([
+				"agents",
+				"background",
+				"bg",
+				"bg-fork",
+				"restart",
+			]);
 
 			// the session itself: it has the token; after the worker took it out, a /reload is still the session
 			process.env.ROOST_JOB_TOKEN = "t";

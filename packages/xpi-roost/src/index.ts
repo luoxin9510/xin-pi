@@ -20,6 +20,7 @@ export { hostControl } from "./lib/hostclient.ts";
 export { JOB_ENV, readJobEnv } from "./lib/identity.ts";
 export { type ContextInfo, type DispatchArgs, PROTOCOL_VERSION } from "./lib/protocol.ts";
 export { type AwayLog, awayIsEmpty, emptyAway, recapList } from "./lib/recap.ts";
+export { lastFor, RESTART_PROMPT, type RestartClient, restartRoost } from "./lib/restart.ts";
 export { RUN_SLOT } from "./lib/schedule.ts";
 export { writeCommands } from "./lib/store.ts";
 export { sessionUsage, type UsageInfo } from "./lib/usage.ts";

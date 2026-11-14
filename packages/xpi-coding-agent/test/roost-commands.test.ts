@@ -73,7 +73,7 @@ describe("the hub's table of xpi's slash commands", () => {
 			.filter((r) => r.how === "hub")
 			.map((r) => r.name)
 			.sort();
-		expect(hub).toEqual(["compact", "model", "name", "thinking"]);
+		expect(hub).toEqual(["compact", "model", "name", "restart", "thinking"]);
 		expect(builtinCommands().find((r) => r.name === "quit")!.how).toBe("confirm");
 	});
 });

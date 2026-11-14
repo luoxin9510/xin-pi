@@ -21,7 +21,7 @@ import type { ExtensionAPI, ExtensionContext } from "../../core/extensions/types
 import { registerForeground } from "./foreground.ts";
 import { loadOpenView } from "./hub.lazy.ts";
 import { NO_PTY_MESSAGE, ptyInstalled, roostUnavailable } from "./messages.ts";
-import { reloadNoticeFor } from "./stale.ts";
+import { reloadNoticeFor, restartByHand } from "./stale.ts";
 import { hubContext, setHubApi } from "./view-state.ts";
 
 /**
@@ -94,6 +94,20 @@ export default async function roost(pi: ExtensionAPI): Promise<void> {
 			if (problem) return ctx.ui.notify(problem, "error");
 			const { openAgentView } = await loadOpenView();
 			await openAgentView(ctx, hubContext());
+		},
+	});
+
+	// spec 03: onto the installed build; a background session asks the daemon, any other says how by hand
+	pi.registerCommand("restart", {
+		description: "Restart this session on the installed build of xpi (all: the background service and every session)",
+		handler: async (args, ctx) => {
+			const what = args.trim();
+			if (what !== "" && what !== "all") return ctx.ui.notify("usage: /restart [all]", "warning");
+			if (!isRoostSession()) return ctx.ui.notify(restartByHand(ctx), "info");
+			const problem = roostUnavailable({ platform: process.platform, entries: getRoostEntries() });
+			if (problem) return ctx.ui.notify(problem, "error");
+			const { restartFromSession } = await import("./restart.ts");
+			await restartFromSession(what === "all", (text, kind) => ctx.ui.notify(text, kind));
 		},
 	});
 
