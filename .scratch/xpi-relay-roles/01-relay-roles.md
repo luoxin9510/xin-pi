@@ -70,7 +70,7 @@ has a test too.
 | worker | run_end afterRelayError, stalls = 2 | pending hand back, blocked | as a `blocked` hand back "The worker stopped after relay errors" |
 | lead | run_end afterRelayError, stalls < 2 | stalls+1 | append `relay.stall`; continue with a role reminder |
 | lead | run_end afterRelayError, stalls = 2 | unchanged | settle (the run ends; the user sees it) |
-| worker | run_end (otherwise) | — | acceptance, unless the user asked (`/handback`) |
+| worker | run_end (otherwise) | — | acceptance, unless the user asked (`/handback`); a worker `handback` racing `/handback` is one hand back |
 | worker | acceptance failed, attempt < maxRounds | unchanged | continue with the failure output |
 | worker | acceptance passed / failed at maxRounds / skipped | lead, mixups 0, stalls 0 | compact to the record (its summary starts with `RECORD_MARKER`) |
 | worker | model_away | paused | append `relay.pause`; notify |
@@ -95,8 +95,8 @@ mix-up (an empty plan) is not continued: that is the lead's call.
   machine decides on a `RelayView`: the stored state, plus a pending handover or hand back when a `relay.handover` or
   `relay.handback` entry was appended after the latest of: a router-state entry, a `relay.transition` entry, a
   `relay.verify` entry. Router-state entries are written only when the state changes, so a failed acceptance (the
-  phase stays `worker`) writes `relay.verify` and that clears the pending hand back; every settle writes a
-  `relay.transition`. So a second call in the same
+  phase stays `worker`) writes `relay.verify` and that clears the pending hand back; every settle of a worker run that
+  hands back writes a `relay.transition`. A settle that changes nothing (a lead's normal end) writes nothing. So a second call in the same
   response, including a parallel codemode call, sees the pending hand-off and gets "already".
 - `mixups`, `stalls`, pause and resume live in custom entries (`relay.mixup`, `relay.stall`, `relay.pause`,
   `relay.resume`), counted by `readPhase` since the latest handover or hand back.
