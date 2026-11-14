@@ -14,7 +14,13 @@
  * Nothing in a subagent child. xpi-roost's client and the hub load only when used (`hub.lazy.ts`).
  */
 
-import { acquireWriterLock, isRoostSession, isScratchSession, releaseWriterLock } from "xpi-roost/session";
+import {
+	acquireWriterLock,
+	forgetInheritedJob,
+	isRoostSession,
+	isScratchSession,
+	releaseWriterLock,
+} from "xpi-roost/session";
 import { parseArgs } from "../../cli/args.ts";
 import { getAgentDir, getRoostEntries } from "../../config.ts";
 import type { ExtensionAPI, ExtensionContext } from "../../core/extensions/types.ts";
@@ -115,7 +121,10 @@ export default async function roost(pi: ExtensionAPI): Promise<void> {
 	if (isRoostSession()) {
 		const { registerWorker } = await import("./worker.ts");
 		registerWorker(pi);
-	} else registerForeground(pi);
+	} else {
+		forgetInheritedJob();
+		registerForeground(pi);
+	}
 }
 
 /**

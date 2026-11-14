@@ -27,3 +27,28 @@ describe("a job's identity in the environment", () => {
 		expect(roostEnv("HOME", { ROOST_HOME: "" })).toBeUndefined();
 	});
 });
+
+describe("spec 03: forgetInheritedJob", () => {
+	it("an xpi started from a session's shell drops the job it inherited; a session keeps its own", async () => {
+		const { forgetInheritedJob } = await import("../src/session.ts");
+		// what a worker leaves for what it starts: the id and the socket, not the token
+		const inherited: NodeJS.ProcessEnv = {
+			ROOST_JOB_ID: "j1",
+			ROOST_SOCKET: "/tmp/s",
+			ROOST_JOB_DIR: "/tmp/d",
+			ROOST_RESTORE: "1",
+			ROOST_HOME: "/keep",
+			PATH: "/bin",
+		};
+		forgetInheritedJob(inherited);
+		expect(inherited).toEqual({ ROOST_HOME: "/keep", PATH: "/bin" });
+		// the session itself (its token is there): untouched
+		const session: NodeJS.ProcessEnv = { ROOST_JOB_ID: "j2", ROOST_SOCKET: "/tmp/s", ROOST_JOB_TOKEN: "t" };
+		forgetInheritedJob(session);
+		expect(session).toEqual({ ROOST_JOB_ID: "j2", ROOST_SOCKET: "/tmp/s", ROOST_JOB_TOKEN: "t" });
+		// no job at all: nothing to do
+		const plain: NodeJS.ProcessEnv = { PATH: "/bin" };
+		forgetInheritedJob(plain);
+		expect(plain).toEqual({ PATH: "/bin" });
+	});
+});

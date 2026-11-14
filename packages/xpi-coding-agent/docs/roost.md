@@ -440,6 +440,10 @@ command that asked for it was cut short and shows no result, and not to run it a
 back showing where it left off and no prompt is sent. This prompt is only for the command line: `/restart` and
 the hub's `/restart` never send it.
 
+An xpi started from a session's shell (a foreground xpi run in bash) inherits the session's `ROOST_JOB_ID` and
+`ROOST_SOCKET` but is not that session, so it removes them from its own environment when it starts. What it runs in
+turn, `xpi roost restart` included, does not take the outer session for its caller.
+
 ### Terminals attached to a restarting session
 
 A terminal attached to a session when it restarts (by any of the above) says `restarting…`, waits up to 30 s for
