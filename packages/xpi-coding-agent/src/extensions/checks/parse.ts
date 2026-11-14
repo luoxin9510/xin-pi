@@ -39,50 +39,68 @@ function githubProps(text: string): Map<string, string> {
 	return props;
 }
 
-function parseLine(line: string, cwd: string, command: string): CheckError | undefined {
+// A message that is a warning or a note, not an error: the generic formats carry no severity field.
+const NOT_AN_ERROR = /^(warning|note)\b/i;
+
+interface LineMatch {
+	/** The line is in a known format, even when it is not an error (a warning). */
+	matched: boolean;
+	error?: CheckError;
+}
+
+function parseLine(line: string, cwd: string, command: string): LineMatch {
+	const make = (file: string, row: string, col: string, message: string): LineMatch => {
+		const text = message.trim();
+		if (NOT_AN_ERROR.test(text) || text.includes("[Warning/")) return { matched: true };
+		return {
+			matched: true,
+			error: { command, file: relativeTo(cwd, file), line: Number(row), col: Number(col), message: text },
+		};
+	};
 	let m = TSC.exec(line);
-	if (m) return { command, file: relativeTo(cwd, m[1]), line: Number(m[2]), col: Number(m[3]), message: m[4].trim() };
+	if (m) return make(m[1], m[2], m[3], m[4]);
 	m = GITHUB.exec(line);
 	if (m) {
 		// Only ::error counts; a recognised ::warning is not an error and is not retried as another format.
-		if (m[1] !== "error") return undefined;
+		if (m[1] !== "error") return { matched: true };
 		const props = githubProps(m[2]);
 		return {
-			command,
-			file: relativeTo(cwd, props.get("file") ?? ""),
-			line: Number(props.get("line") ?? 0),
-			col: Number(props.get("col") ?? 0),
-			message: m[3].trim(),
+			matched: true,
+			error: {
+				command,
+				file: relativeTo(cwd, props.get("file") ?? ""),
+				line: Number(props.get("line") ?? 0),
+				col: Number(props.get("col") ?? 0),
+				message: m[3].trim(),
+			},
 		};
 	}
 	m = MYPY.exec(line);
-	if (m) return { command, file: relativeTo(cwd, m[1]), line: Number(m[2]), col: 0, message: m[3].trim() };
+	if (m) return make(m[1], m[2], "0", m[3]);
 	m = COLON.exec(line);
-	if (m) return { command, file: relativeTo(cwd, m[1]), line: Number(m[2]), col: Number(m[3]), message: m[4].trim() };
-	return undefined;
-}
-
-function isRecognised(line: string): boolean {
-	return GITHUB.test(line) || parseLine(line, "", "") !== undefined;
+	if (m) return make(m[1], m[2], m[3], m[4]);
+	return { matched: false };
 }
 
 /**
  * Errors in one command's output. A line that matches no known format is ignored; when no line matched at all but
  * the command failed, the failure is one error holding the output's last lines, with the exit code as its message
- * so the same failure stays the same error between checks.
+ * so the same failure stays the same error between checks. A process killed by a signal we did not send (out of
+ * memory, a crash) has no exit code and counts as a failure the same way, with the message "signal".
  */
 export function parseCheckOutput(result: RunResult, cwd: string): CheckError[] {
 	const lines = result.output.split(/\r?\n/);
 	const errors: CheckError[] = [];
 	let recognised = false;
 	for (const line of lines) {
-		const error = parseLine(line.trimEnd(), cwd, result.command);
-		if (error) errors.push(error);
-		if (error || isRecognised(line.trimEnd())) recognised = true;
+		const match = parseLine(line.trimEnd(), cwd, result.command);
+		if (match.matched) recognised = true;
+		if (match.error) errors.push(match.error);
 	}
-	if (recognised || result.code === 0 || result.code === null) return errors;
+	if (recognised || result.code === 0) return errors;
 	const tail = lines.filter((line) => line.trim() !== "").slice(-UNPARSED_TAIL_LINES);
-	return [{ command: result.command, file: "", line: 0, col: 0, message: `exit ${result.code}\n${tail.join("\n")}` }];
+	const head = result.code === null ? "signal" : `exit ${result.code}`;
+	return [{ command: result.command, file: "", line: 0, col: 0, message: `${head}\n${tail.join("\n")}` }];
 }
 
 /** The identity of an error: its position is left out so an edit above an old error does not make it new. */

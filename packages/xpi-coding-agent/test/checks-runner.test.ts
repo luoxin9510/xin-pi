@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { MAX_OUTPUT_BYTES, runCheckCommand } from "../src/extensions/checks/runner.ts";
+import { EXIT_GRACE_MS, MAX_OUTPUT_BYTES, runCheckCommand } from "../src/extensions/checks/runner.ts";
 
 const dirs: string[] = [];
 function tempDir(): string {
@@ -28,7 +28,17 @@ async function waitDead(pid: number): Promise<boolean> {
 	return false;
 }
 
+// Pids of processes a test started outside the command's group; killed in cleanup.
+const strays: number[] = [];
+
 afterEach(() => {
+	for (const pid of strays.splice(0)) {
+		try {
+			process.kill(pid, "SIGKILL");
+		} catch {
+			// already gone
+		}
+	}
 	for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -80,5 +90,47 @@ describe("runCheckCommand", () => {
 		const result = await runCheckCommand(`"${process.execPath}" big.mjs`, { cwd, timeoutMs: 20_000 });
 		expect(result.code).toBe(0);
 		expect(Buffer.byteLength(result.output)).toBe(MAX_OUTPUT_BYTES);
+	});
+
+	it("finishes on the exit when a child that left the process group holds the pipes (timeout case)", async () => {
+		const cwd = tempDir();
+		// perl setsid()s into its own session and execs sleep; the shell waits for it, so the command times out.
+		const started = Date.now();
+		const result = await runCheckCommand('perl -e \'use POSIX; setsid(); exec "sleep", "8"\' & echo $!; wait', {
+			cwd,
+			timeoutMs: 500,
+		});
+		const pid = Number(result.output.trim().split("\n")[0]);
+		strays.push(pid);
+		expect(result.timedOut).toBe(true);
+		expect(Date.now() - started).toBeLessThan(500 + EXIT_GRACE_MS + 2000);
+		expect(alive(pid)).toBe(true);
+	});
+
+	it("finishes shortly after the shell exits though a detached child holds the pipes", async () => {
+		const cwd = tempDir();
+		const started = Date.now();
+		const result = await runCheckCommand('perl -e \'use POSIX; setsid(); exec "sleep", "8"\' & echo $!', {
+			cwd,
+			timeoutMs: 1000,
+		});
+		strays.push(Number(result.output.trim().split("\n")[0]));
+		expect(result.timedOut).toBe(false);
+		expect(result.code).toBe(0);
+		expect(Date.now() - started).toBeLessThan(EXIT_GRACE_MS + 2000);
+	});
+
+	it("is not a timeout when the shell exits at once and a background child outlives it", async () => {
+		const cwd = tempDir();
+		const result = await runCheckCommand("sleep 8 & echo $!; echo 'a.ts(1,1): error TS1: bad'", {
+			cwd,
+			timeoutMs: 400,
+		});
+		const pid = Number(result.output.trim().split("\n")[0]);
+		expect(result.timedOut).toBe(false);
+		expect(result.code).toBe(0);
+		expect(result.output).toContain("error TS1: bad");
+		// The leftover of its own group is killed once the grace is over.
+		expect(await waitDead(pid)).toBe(true);
 	});
 });

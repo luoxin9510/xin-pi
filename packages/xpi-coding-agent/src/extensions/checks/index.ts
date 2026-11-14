@@ -49,8 +49,7 @@ export function createChecksExtension(runner: CheckRunner) {
 			const controller = new AbortController();
 			baselineAbort = controller;
 			const signal = AbortSignal.any([controller.signal, shutdown.signal]);
-			// Only commands without a baseline: a reload starts the extension again mid-session.
-			for (const command of config.commands.filter((command) => !baseline.has(command))) {
+			for (const command of config.commands) {
 				if (signal.aborted) return;
 				const result = await runner(command, { cwd, timeoutMs: config.timeoutMs, signal });
 				if (result.timedOut || result.aborted) continue;
@@ -118,6 +117,7 @@ export function createChecksExtension(runner: CheckRunner) {
 			const signal = ctx.signal ? AbortSignal.any([ctx.signal, shutdown.signal]) : shutdown.signal;
 			const fresh: CheckError[] = [];
 			const timedOut: string[] = [];
+			const staged = new Map<string, CheckError[]>();
 			try {
 				for (const command of config.commands) {
 					if (signal.aborted) return undefined;
@@ -132,8 +132,11 @@ export function createChecksExtension(runner: CheckRunner) {
 					const before = baseline.get(command);
 					// Without a baseline this result only becomes one.
 					if (before) fresh.push(...newErrors(before, errors));
-					baseline.set(command, errors);
+					staged.set(command, errors);
 				}
+				// Only a check that completed moves the baseline: after an abort in the middle, errors found by the
+				// earlier commands were never reported and must still be new at the next check.
+				for (const [command, errors] of staged) baseline.set(command, errors);
 			} finally {
 				if (ctx.hasUI) ctx.ui.setStatus("checks", undefined);
 			}

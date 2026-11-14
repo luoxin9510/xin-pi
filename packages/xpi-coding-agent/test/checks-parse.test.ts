@@ -4,7 +4,7 @@ import type { RunResult } from "../src/extensions/checks/runner.ts";
 
 const CWD = "/work/proj";
 
-function run(output: string, code = 1, command = "check"): RunResult {
+function run(output: string, code: number | null = 1, command = "check"): RunResult {
 	return { command, output, code, timedOut: false, aborted: false };
 }
 
@@ -68,6 +68,26 @@ describe("parseCheckOutput", () => {
 			"exit 2",
 			...Array.from({ length: 20 }, (_, i) => `line ${i + 11}`),
 		]);
+	});
+
+	it("skips warnings and notes in the generic formats", () => {
+		const output = [
+			"a.py:1:1: warning: unused",
+			"b.c:2:3: Note: declared here",
+			"c.ts:4:5: Unexpected thing [Warning/no-x]",
+			"d.py:6: error: real",
+			"e.py:7: note: see this",
+		].join("\n");
+		const errors = parseCheckOutput(run(output), CWD);
+		expect(errors.map((e) => e.file)).toEqual(["d.py"]);
+		// Recognised lines, so no fallback error either.
+		expect(parseCheckOutput(run("a.py:1:1: warning: unused\n"), CWD)).toEqual([]);
+	});
+
+	it("treats a process killed by an unexpected signal as an unparsable failure", () => {
+		const errors = parseCheckOutput(run("partial\n", null), CWD);
+		expect(errors).toHaveLength(1);
+		expect(errors[0].message.split("\n")[0]).toBe("signal");
 	});
 
 	it("does not invent an error for an unparsable zero exit", () => {

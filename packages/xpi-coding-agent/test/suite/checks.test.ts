@@ -1,7 +1,7 @@
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import { fauxAssistantMessage, fauxToolCall } from "xpi-ai";
-import type { ExtensionAPI } from "../../src/core/extensions/types.ts";
+import type { ExtensionAPI, ExtensionContext, TurnEndEvent } from "../../src/core/extensions/types.ts";
 import { createChecksExtension } from "../../src/extensions/checks/index.ts";
 import type { CheckRunner, RunResult } from "../../src/extensions/checks/runner.ts";
 import { createHarness, getMessageText, type Harness } from "./harness.ts";
@@ -231,5 +231,105 @@ describe("checks extension", () => {
 		expect(message).toContain("f1.ts");
 		expect(message).not.toContain("f2.ts");
 		expect(message).toContain("and 3 more");
+	});
+});
+
+// The extension on a hand-made ExtensionAPI: what a session cannot easily produce (an error outcome, a shutdown).
+describe("checks extension, driven by hand", () => {
+	type Handler = (event: unknown, ctx: unknown) => unknown;
+
+	function drive(runner: CheckRunner, commands: string[] = ["one"]) {
+		const handlers = new Map<string, Handler>();
+		const pi = {
+			on: (name: string, handler: Handler) => handlers.set(name, handler),
+			registerMessageRenderer: () => {},
+			getSettings: () => ({ checks: { commands } }),
+		} as unknown as ExtensionAPI;
+		createChecksExtension(runner)(pi);
+		let controller = new AbortController();
+		const ctx = {
+			cwd: "/work",
+			hasUI: false,
+			get signal() {
+				return controller.signal;
+			},
+		} as unknown as ExtensionContext;
+		const fire = (name: string, event: unknown) => handlers.get(name)?.(event, ctx);
+		const write = async () => {
+			await fire("tool_call", { toolCallId: "t", effect: "write" });
+			await fire("tool_result", { toolCallId: "t" });
+		};
+		const turnEnd = (extra: Partial<TurnEndEvent> = {}) =>
+			fire("turn_end", { entries: [], outcome: "completed", terminated: false, ...extra }) as Promise<
+				{ entries: Array<{ content: string }> } | undefined
+			>;
+		return {
+			fire,
+			write,
+			turnEnd,
+			abort: () => controller.abort(),
+			/** A new run after the user's Escape: a fresh signal. */
+			renew: () => {
+				controller = new AbortController();
+			},
+		};
+	}
+
+	it("starts no check when the turn's outcome is not completed", async () => {
+		const runs: string[] = [];
+		const run = drive(async (command) => {
+			runs.push(command);
+			return result(command, "");
+		});
+		await run.fire("session_start", {});
+		await run.write();
+		expect(await run.turnEnd({ outcome: "error" })).toBeUndefined();
+		expect(runs).toEqual(["one"]);
+	});
+
+	it("kills a running check at session_shutdown and reports nothing", async () => {
+		let seen: AbortSignal | undefined;
+		let calls = 0;
+		const run = drive(async (command, { signal }) => {
+			if (calls++ === 0) return result(command, "");
+			seen = signal;
+			await new Promise<void>((resolve) => signal?.addEventListener("abort", () => resolve(), { once: true }));
+			return result(command, "", { aborted: true });
+		});
+		await run.fire("session_start", {});
+		await run.write();
+		const ending = run.turnEnd();
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(seen?.aborted).toBe(false);
+		await run.fire("session_shutdown", {});
+		expect(seen?.aborted).toBe(true);
+		expect(await ending).toBeUndefined();
+	});
+
+	it("keeps errors found before an abort in the middle of a check as new for the next one", async () => {
+		const found = tscLine("a.ts", "fresh");
+		let phase: "baseline" | "aborted" | "again" = "baseline";
+		const run = drive(
+			async (command) => {
+				if (phase === "baseline") return result(command, "");
+				if (phase === "aborted" && command === "two") {
+					run.abort();
+					return result(command, "", { aborted: true });
+				}
+				return result(command, command === "one" ? found : "");
+			},
+			["one", "two"],
+		);
+		await run.fire("session_start", {});
+		await run.write();
+		// "one" finds an error, then Escape aborts "two": nothing is sent.
+		phase = "aborted";
+		expect(await run.turnEnd()).toBeUndefined();
+		// The next check sees the same error; it was never reported, so it is still new.
+		run.renew();
+		phase = "again";
+		await run.write();
+		const sent = await run.turnEnd();
+		expect(sent?.entries[0].content).toContain("a.ts:1:1 TS1: fresh");
 	});
 });
