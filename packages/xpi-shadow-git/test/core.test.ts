@@ -204,11 +204,12 @@ describe("pass-through and blocked commands", () => {
 		expect(result.err).toContain("local");
 	});
 
-	it("does not offer sandboxes yet", async () => {
+	it("lists no sandboxes in a fresh repo, and rejects an unknown sbx command", async () => {
 		const l = await initialised();
 		const result = await l.sg(["sbx", "ls"]);
-		expect(result.code).toBe(2);
-		expect(result.err).toContain("not available yet");
+		expect(result.code).toBe(0);
+		expect(result.out).toBe("");
+		expect((await l.sg(["sbx", "bogus"])).code).toBe(2);
 	});
 
 	it("prints help, and exit 2 with no command", async () => {

@@ -523,3 +523,73 @@ PR 1 (core) differs from the text above in these places.
 - **`import --abort`** also cleans local-only paths, and removes the record only after `git checkout main` succeeds.
   Resuming an import from a branch other than `host` needs a clean tree.
 - **`merge --continue|--abort`** take the lock and the live-session check.
+
+PR 2 (sandboxes) differs from the text above in these places.
+
+- **Rules are a snapshot.** `sbx create` copies the effective rules (the repo's `sandbox.rule`, or the `--profile`
+  file's, which replaces them) and the adapter's `metadata` paths into `<name>.sbx/<id>/policy`. Later config changes do not reach
+  an existing sandbox.
+- **`metadata` paths are rules of their own length.** The spec makes them hidden "when no rule matches". Here a
+  `metadata` path is hidden unless a rule of the same length or longer says otherwise, so `shared-ro @ws` does not
+  unhide the host VCS's files.
+- **`shared-rw` over tracked files is an error** at `sbx create`, like `scratch` and `hidden`: the tracked files are the
+  sandbox's own copies, so they would silently not be shared. `shared-ro` over tracked files is allowed (the policy
+  refuses writes; the namespace does not mount over them). `scratch` outside `@ws` and `scratch @ws` are errors too.
+- **A directory that would be one link stays real** when the agent made an untracked file in it, or a rule below it
+  is not `shared-ro`; its other entries become links.
+- **Worktree naming.** git names a worktree after its directory, so `git worktree add` runs at `<root>/<id>` and
+  `git worktree move` puts it at `<root>/tree`. That keeps `GIT_DIR=<name>.git/worktrees/<id>`.
+- **`sbx rm` refuses uncommitted work** (exit 2) unless `--force`. The spec has no flag; removing a worktree with
+  unsaved edits loses them.
+- **Extra variables and `XPI_SG_UNSHARE`.** `sbx run` also sets `XPI_SG_BACKEND` (the policy function needs it: under
+  `namespace` the workspace's own path is the tree) and `XPI_SG_STORE`. `XPI_SG_UNSHARE` names the `unshare` program the
+  probe and the backend use; tests set it to a missing file to make the backend unavailable on any platform.
+  `sandboxPolicy(sandbox, path, backend = "policy")` takes the backend as an argument.
+- **Probe.** Besides `unshare ... true` it checks that `mount` and `findmnt` exist. Non-Linux platforms fail the probe
+  without running anything. `sandbox.backend = namespace`, like `sandbox.require = namespace`, is exit 2 when it fails;
+  `require = namespace` with `backend = policy` is exit 2 too.
+- **Setup failures** in the namespace script end with exit 125 and a message, so they are not taken for the command's
+  own exit code.
+- **Inside a sandbox** (`XPI_SG_SANDBOX` set), `xpi sg` finds the repo by that name (the tree is outside any
+  registered workspace), runs git pass-through and `env` on the sandbox's git dir and tree, and refuses `import`,
+  `merge`, `export --apply` and `sbx create|rm|run` (exit 2). Without this, `xpi sg commit` inside a sandbox would commit
+  on `main`.
+- **Remount flags.** util-linux 2.38 repeats the locked flags itself on `remount,bind`, so the explicit repetition in the
+  script cannot be shown to matter there (a raw `mount(2)` remount without them fails with EPERM, which confirms the
+  lock). The script repeats them anyway, for older `mount` programs.
+- **`sbx ls` format.** One line per sandbox: `<id>  sbx/<id>  <n> commit(s) ahead of main  <n> changed file(s)  backend <b>`;
+  `status` prints the same lines under `sandboxes:`, each prefixed with `<name>/`. A sandbox that cannot be opened is
+  listed as `<id>  broken: <reason>`.
+- **Out of the namespace script:** an absolute `shared-rw` rule nested under an absolute `shared-ro` rule is not made
+  writable again, and hidden paths inside a `shared-rw` path are covered in the tree but a hidden rule is not applied to
+  submounts of the workspace.
+
+After review of PR 2:
+
+- **pid namespace.** The namespace backend runs `unshare --user --map-root-user --mount --pid --fork --mount-proc`
+  (the probe too). Without it `/proc/<pid>/root` of a process outside reaches the primary through the host's mount
+  namespace. Container runtimes that mask `/proc` make the probe fail, so `auto` falls back to `policy` there.
+- **Step 6, the git directory.** After the spec's five steps the script binds the shadow repo's `config`,
+  `config.worktree`, `hooks/` and `info/`, and the sandbox's own `config.worktree`, read-only. `sbx` creates `hooks/`
+  if it is missing. The commands `xpi sg` runs itself also pass `-c core.fsmonitor=`. Refs stay shared and writable;
+  `policy` leaves the git directory writable. Both are documented as limits.
+- **Locking and links.** `sbx run` refreshes the links under `<id>/lock`, and leaves a link that is right alone, so a
+  running command never sees one vanish; an `EEXIST` from a concurrent refresh counts as success.
+- **Broken sandboxes** are listed as broken, and `sbx rm --force` removes one. A git config file that cannot be read
+  is an error (exit 1), not an empty rule list.
+- **Inside a sandbox**, `init` and `--repo <other>` are refused too; `XPI_SG_STORE` passed to the command is the
+  store's real path; the final `cd` of the script is a setup step (exit 125); `strictatime` is among the repeated
+  mount flags.
+
+After the second review of PR 2:
+
+- **Steps 6 and 7 of the script.** The git directory's `worktrees/` is read-only, with the sandbox's own
+  `worktrees/<id>` writable except `commondir`, `gitdir` and `config.worktree`; `<name>.sbx` is read-only with this
+  sandbox's `tree` and `scratch` writable. The writable parts are bound first, then the parent is bound with `--rbind`
+  and remounted read-only, since a read-only remount covers the top mount only. The tree is still bound over the
+  workspace's path in step 4, before these, so its view there stays writable.
+- **Checks outside the namespace.** Before any git runs on a sandbox's tree from outside, `commondir` must still be
+  `../..` and `config.worktree` must hold only `core.excludesFile`; otherwise the sandbox is `broken: commondir
+  changed` or `broken: config.worktree changed`. Removing a sandbox no longer runs `git worktree remove` on its tree:
+  the directories go by hand and `git worktree prune` follows. Under `policy` the attack stays possible for plain git
+  started by hand in a tree; this is documented.

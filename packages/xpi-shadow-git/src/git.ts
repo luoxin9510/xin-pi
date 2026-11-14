@@ -58,19 +58,35 @@ export interface GitOptions {
 }
 
 // Internal commits and merges ignore the user's hooks and signing settings.
-const INTERNAL = ["-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "-c", "merge.autoEdit=no"];
+// `core.fsmonitor=` keeps a program named in a sandbox's own config from running when the user's commands read it.
+const INTERNAL = [
+	"-c",
+	"core.hooksPath=/dev/null",
+	"-c",
+	"core.fsmonitor=",
+	"-c",
+	"commit.gpgsign=false",
+	"-c",
+	"merge.autoEdit=no",
+];
 
-/** Run git on the shadow repo from the workspace root. A non-zero exit fails with git's stderr (exit 1). */
-export function git(repo: Repo, args: string[], options: GitOptions = {}): RunResult {
-	const result = run(repo.ctx.git, [...INTERNAL, ...args], {
-		cwd: repo.workspace,
-		env: repoEnv(repo),
-		input: options.input,
-	});
+/** Run git with a chosen working directory and environment. A non-zero exit fails with git's stderr (exit 1). */
+export function gitIn(
+	ctx: SgContext,
+	where: { cwd: string; env: NodeJS.ProcessEnv },
+	args: string[],
+	options: GitOptions = {},
+): RunResult {
+	const result = run(ctx.git, [...INTERNAL, ...args], { cwd: where.cwd, env: where.env, input: options.input });
 	if (result.status !== 0 && !options.allowFail) {
 		throw failure(result.stderr.trim() || result.stdout.trim() || `git ${args[0]} failed (exit ${result.status})`);
 	}
 	return result;
+}
+
+/** Run git on the shadow repo from the workspace root. */
+export function git(repo: Repo, args: string[], options: GitOptions = {}): RunResult {
+	return gitIn(repo.ctx, { cwd: repo.workspace, env: repoEnv(repo) }, args, options);
 }
 
 /** NUL-separated output as a list. */

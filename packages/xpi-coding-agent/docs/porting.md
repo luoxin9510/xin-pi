@@ -394,13 +394,15 @@ command line (`src/cli.ts`) and their library (`src/lib/`), plus the hub (`src/h
 
 The `packages/xpi-shadow-git` package, one unit: the library and command line (`src/`) and the two adapters
 (`adapters/`). It imports nothing of xpi and has no npm dependencies. What exists today is the core: init, import
-(with resume and abort), export, status, env, list, merge, the lock, the live-session check and git pass-through.
-Sandboxes and the xpi integration (`/sg`, hooks, isolation) come later and get their entries when they land.
+(with resume and abort), export, status, env, list, merge, the lock, the live-session check and git pass-through, and
+sandboxes: `sbx create|run|ls|rm`, the path policy and the `namespace` and `policy` backends. The xpi integration
+(`/sg`, hooks, the policy check in tools, isolation) comes later and gets its entry when it lands.
 
 - **Gives**: a private git history over a workspace that another version control system owns, with `import` and
   `export` as the sync point and an adapter for the host VCS. See [shadow-git](shadow-git.md).
 - **Depends on**: no other unit and nothing of the host agent. Host capabilities: Node, spawning `git` (2.20 or newer)
-  and a POSIX `sh` for the adapters. A caller supplies the working directory, the store and where the shipped adapters
+  and a POSIX `sh` for the adapters. For the `namespace` sandbox backend: Linux, `unshare`, `mount`, `findmnt`
+  (util-linux) and unprivileged user namespaces; without them the `policy` backend is used. A caller supplies the working directory, the store and where the shipped adapters
   are (`runSg` options `defaultStore` and `builtinAdaptersDir`).
 - **Copy (one unit)**: `packages/xpi-shadow-git/` (`src/`, `adapters/`). The coding agent wires it in with
   `src/extensions/shadow-git/cli.lazy.ts` and `cli.ts` (the `xpi sg` dispatch in `src/main.ts`), and `getShadowGitAdaptersDir`
@@ -408,9 +410,16 @@ Sandboxes and the xpi integration (`/sg`, hooks, isolation) come later and get t
 - **Rewrite**: the command name in the messages (`xpi sg`), the environment variables `XPI_SG_*`, the default store
   (`<agent dir>/shadow-git`) and the agent directory source.
 - **Verify**: `node ../../node_modules/vitest/dist/cli.js --run` in `packages/xpi-shadow-git` (temp directories, real
-  git and the plain adapter; no model, no network).
-- **Linux**: the reference platform. **macOS**: the same; the system `sh` and `git` work, and `/var` and `/tmp` are links,
-  so the registry stores real paths (`realpath`) and the cwd is resolved the same way.
+  git and the plain adapter; no model, no network). `test/namespace.test.ts` runs the `namespace` backend and skips where
+  it is unavailable.
+- **Linux**: the reference platform, and the only one with the `namespace` sandbox backend. It needs
+  `unshare --user --map-root-user --mount --pid --fork --mount-proc` to work: some systems turn unprivileged user namespaces off with a sysctl or a
+  security module, and some restrict them by default (check CI runners). The namespace tests skip, with the probe's
+  message, where it does not; a container needs seccomp and AppArmor unconfined and the masked `/proc` paths unconfined
+  (a fresh `/proc` is mounted in the pid namespace). The command runs as root in the namespace (other users' files show as `nobody`,
+  setuid does not work). **macOS**: the same for the core; the system `sh` and `git` work, and `/var` and `/tmp` are
+  links, so the registry stores real paths (`realpath`) and the cwd is resolved the same way. Sandboxes use the `policy`
+  backend only, so `bash` in a sandbox is advisory.
 - **Guide**: this entry and [shadow-git](shadow-git.md) (the adapter contract and the sync model). The detailed porting
   guide comes with the later pieces.
 

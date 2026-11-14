@@ -111,6 +111,8 @@ Provider credentials such as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and provider
 | `XPI_SG_STORE` | Override the store (the registry, the shadow repos and the locks) |
 | `XPI_SG_GIT` | The git binary to use; it must be 2.20 or newer |
 | `XPI_SG_ADAPTER_PATH` | Directories searched for `sg-adapter-<name>` before the adapters shipped with xpi and `PATH` (default `<store>/adapters`) |
+| `XPI_SG_UNSHARE` | The `unshare` program the sandbox's `namespace` backend uses and probes (default `unshare`); tests point it at a missing file to make the backend unavailable |
+| `XPI_SG_SANDBOX`, `XPI_SG_BACKEND` | Set by `xpi sg sbx run` in the command's environment: `<name>/<id>` and the backend in use (`namespace` or `policy`). They always replace values passed down |
 
 ## Background Sessions
 
