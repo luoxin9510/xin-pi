@@ -37,8 +37,8 @@ decision facts (only where they are shown changes).
 New `extensions/relay/machine.ts`, a pure module:
 
 ```ts
-type Phase = "lead" | "worker" | "paused";
-interface RelayState { phase: Phase; round: number; mixups: number; stalls: number }
+interface RelayState { phase: "lead" | "worker"; round: number }   // the router state, as today
+// RelayView adds what the extension reads from its entries: mixups, stalls, paused, and a pending hand-off.
 type RelayEvent =
   | { type: "handover"; byUser: boolean }                       // tool call, or /handover
   | { type: "handback"; status: "done" | "blocked"; byUser: boolean }
@@ -65,11 +65,12 @@ has a test too.
 | worker | wrong_role (handover), mixups = 0 | mixups 1 | append `relay.mixup`; error result with the correction |
 | worker | wrong_role (handover), mixups = 1 | pending hand back, blocked | append `relay.mixup` and a `relay.handback` `blocked` "The worker mixed up its role twice"; `terminate` |
 | lead | wrong_role (handback) | mixups+1 | append `relay.mixup`; error result with the correction (no automatic hand back for the lead) |
+| worker | run_end with a pending hand back | — | acceptance, unless blocked or the user asked (`/handback`) |
 | worker | run_end afterRelayError, stalls < 2 | stalls+1 | append `relay.stall`; continue with a role reminder |
 | worker | run_end afterRelayError, stalls = 2 | pending hand back, blocked | as a `blocked` hand back "The worker stopped after relay errors" |
 | lead | run_end afterRelayError, stalls < 2 | stalls+1 | append `relay.stall`; continue with a role reminder |
 | lead | run_end afterRelayError, stalls = 2 | unchanged | settle (the run ends; the user sees it) |
-| worker | run_end (otherwise), or a pending hand back | — | acceptance, unless blocked or the user asked (`/handback`) |
+| worker | run_end (otherwise) | — | acceptance, unless the user asked (`/handback`) |
 | worker | acceptance failed, attempt < maxRounds | unchanged | continue with the failure output |
 | worker | acceptance passed / failed at maxRounds / skipped | lead, mixups 0, stalls 0 | compact to the record (its summary starts with `RECORD_MARKER`) |
 | worker | model_away | paused | append `relay.pause`; notify |
@@ -92,7 +93,10 @@ mix-up (an empty plan) is not continued: that is the lead's call.
   message, as today. The record's `RECORD_MARKER` stays the hand-back signal.
 - **Pending hand-off:** the stored state changes only at the next `route()`, so within one response it is stale. The
   machine decides on a `RelayView`: the stored state, plus a pending handover or hand back when a `relay.handover` or
-  `relay.handback` entry was appended after the latest router-state entry on the branch. So a second call in the same
+  `relay.handback` entry was appended after the latest of: a router-state entry, a `relay.transition` entry, a
+  `relay.verify` entry. Router-state entries are written only when the state changes, so a failed acceptance (the
+  phase stays `worker`) writes `relay.verify` and that clears the pending hand back; every settle writes a
+  `relay.transition`. So a second call in the same
   response, including a parallel codemode call, sees the pending hand-off and gets "already".
 - `mixups`, `stalls`, pause and resume live in custom entries (`relay.mixup`, `relay.stall`, `relay.pause`,
   `relay.resume`), counted by `readPhase` since the latest handover or hand back.
@@ -125,7 +129,8 @@ mix-up (an empty plan) is not continued: that is the lead's call.
   today), so another model neither sees nor uses them (decision 9).
 - **Core seam B (nested terminate):** in `extensions/codemode/execute.ts`, a nested outcome whose result has
   `terminate: true` ends the script like `exit()` (later statements do not run; calls already started settle as
-  today); the codemode result gets `terminate: true` and ends with the terminating call's result text. A test with a
+  today); the codemode result gets `terminate: true` and ends with the terminating call's result text: after any
+  `<console_output>` block, and exempt from the output truncation. A test with a
   stub tool. Docs in `codemode.md`.
 - `handover` and `handback` both return `terminate: true` (decision 10). Other calls of the same response finish, as
   the loop does today.
@@ -138,8 +143,8 @@ mix-up (an empty plan) is not continued: that is the lead's call.
 
 - **Core seam C (direct call of a codemode-only tool):** in the agent loop, a call whose name is not a declared tool
   but is a codemode-callable tool of the session is run through the same pipeline (validation, `tool_call` /
-  `tool_result` hooks, permissions, `terminate`), and its result text gets a last line `(Call <name> from codemode
-  next time: await tools.<name>(...).)`. Unknown names still fail "not found". Hooks see it as a top-level call (no
+  `tool_result` hooks, permissions, `terminate`), and its result text gets a first line `(Call <name> from codemode
+  next time: await tools.<name>(...).)` before the tool's own text, so a tool's last line stays its own. Unknown names still fail "not found". Hooks see it as a top-level call (no
   `parentToolCallId`); a `write` tool in a parallel batch keeps the loop's ordering rules. The implementer picks the
   seam (`AgentLoopConfig` option or a `prepareToolCall` fallback) and documents it in `docs/extensions.md` and
   `codemode.md`. Tests in `agent-loop.test.ts` and a suite test. For relay, the result of a repaired `handover` then
@@ -154,6 +159,9 @@ mix-up (an empty plan) is not continued: that is the lead's call.
 
 Nothing a hook repairs or decides is silent:
 
+- None of this enters the model's context: transitions and repairs are `custom` entries (not messages) plus
+  `ui.notify` lines, so they cost no tokens and do not touch the cached prefix. Only the round's repair list in the
+  hand-back record reaches the lead, once.
 - Every transition the machine makes is written as one custom entry `relay.transition` on the branch
   (`{ from, to, event, round, at }`), and shown in the TUI as one dim line (`relay: lead → worker (round 2)`).
 - Every repair is shown the same way and names what it did: `relay: direct handover(...) run through codemode`,
