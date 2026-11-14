@@ -58,6 +58,7 @@ local_only_matches() {
 	[ -n "$LOCAL_ONLY" ] || return 0
 	empty=e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
 	while IFS= read -r f; do
+		case "$f" in \"*) die "refusing the path $f" ;; esac
 		printf '100644 %s 0\t%s\n' "$empty" "$f"
 	done <"$1" >"$work/index-info"
 	rm -f "$work/index"
@@ -67,7 +68,7 @@ local_only_matches() {
 		case "$g" in */) g="$g**" ;; esac
 		set -- "$@" ":(glob)$g"
 	done
-	GIT_INDEX_FILE="$work/index" "$GIT" --git-dir="$XPI_SG_GIT_DIR" --work-tree="$XPI_SG_WORKSPACE" ls-files -- "$@" >"$out" || die "git could not match the local-only globs"
+	GIT_INDEX_FILE="$work/index" "$GIT" -c core.quotepath=false --git-dir="$XPI_SG_GIT_DIR" --work-tree="$XPI_SG_WORKSPACE" ls-files -- "$@" >"$out" || die "git could not match the local-only globs"
 }
 
 safe_path() {

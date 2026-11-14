@@ -111,6 +111,15 @@ describe("plain adapter local-only globs", () => {
 		expect(existsSync(join(l.ws, "LOCAL.md"))).toBe(false);
 		expect(existsSync(join(l.ws, "deep/LOCAL.md"))).toBe(false);
 	});
+
+	it("match non-ASCII local-only paths (git must not quote them)", async () => {
+		const l = await initialised({ "a.txt": "a\n" }, ["--local-only", "notes/"]);
+		l.hostCommit({ "notes/é.md": "host\n" });
+		const result = await l.sg(["import"]);
+		expect(result.err).toBe("");
+		expect(result.code).toBe(0);
+		expect(existsSync(join(l.ws, "notes/é.md"))).toBe(false);
+	});
 });
 
 describe("plain adapter robustness", () => {
