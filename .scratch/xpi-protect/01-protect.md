@@ -31,14 +31,17 @@ network or process restrictions.
 
 - Both are lists of gitignore patterns (the `ignore` package). The effective list of a level is: its defaults, then
   the user's entries, then the project's entries, read in order; the last match wins and `!pattern` negates, so an
-  entry can undo a default.
+  entry can undo a default (within gitignore's limit, see 3).
+- The defaults are not a settings layer: `pi.getSettings()` returns the user and project lists, and the extension puts
+  its defaults in front of them. `settings-defaults.ts` documents them but the accessor does not merge them in.
 - Defaults:
   - `secret`: `.env`, `.env.*`, `!.env.example`, `!.env.sample`, `*.pem`, `*.key`, `id_rsa*`, `id_ed25519*`,
     `!*.pub`.
   - `readOnly`: `.git/`, `node_modules/`.
 - **Core change, `settings-manager.ts`:** `protect.secret` and `protect.readOnly` of the two layers are concatenated
   (user first), the way `mergeDefaultTools` treats `defaultTools`, instead of the project replacing the user's list.
-  A malformed value (not an array of strings) replaces, as there.
+  A malformed value (not an array of strings) replaces, as there. The same merge applies wherever
+  `deepMergeSettings` combines layers, including runtime overrides.
 - Trust: an untrusted project's settings are not loaded (today's behaviour), so it adds and removes nothing; a test
   pins this. A trusted project can add and remove.
 - Schema next to `ChecksSettingsSchema` in `core/settings-schema.ts`; defaults in `core/settings-defaults.ts`;
@@ -51,9 +54,12 @@ At the `tool_call` event (codemode's nested calls emit it too, so a script is co
 
 - `effect` `read` or `write`, and the input has a string `path` (`read`, `write`, `edit`, `grep`, `find`, `ls`, and
   any extension or MCP tool that names its target `path`). `exec` tools and tools without a `path` are not checked.
-- A `path` with a scheme (`name://...`) is skipped: the scheme's extension owns it.
+- A `path` with a scheme (`name://...`) is skipped: the scheme's extension owns it. A scheme can resolve to a local
+  file (`scheme-resolver.ts`), so a file-backed scheme is a known gap, documented next to the bash caveat.
 - `grep` and `find` are checked on their `path` like any read: `grep` with `path: ".env"` is blocked; `grep` over a
-  directory is not, even if the directory contains a secret (decision 3).
+  directory is not, even if the directory contains a secret (decision 3). The tool runs ripgrep with `--hidden`, and
+  ripgrep applies `.gitignore` only inside a git repository: in a folder that is not a repository, or where `.env` is
+  not ignored, a search over the project prints `.env` lines. `docs/protect.md` says so.
 - Levels: a `secret` match blocks `read` and `write`; a `readOnly` match blocks `write`. A path matching both is a
   secret.
 
@@ -62,13 +68,23 @@ At the `tool_call` event (codemode's nested calls emit it too, so a script is co
 - Resolve with `resolveToCwd(path, ctx.cwd)` (the tools' own resolver: `~`, `@`, relative paths).
 - Candidates: the resolved path, and its real path (`realpath` of the path, or of its nearest existing ancestor
   joined with the rest, for a file that does not exist yet). A call is blocked if any candidate matches.
-- A candidate inside `ctx.cwd` is matched as its path relative to `ctx.cwd`; a candidate outside is matched as its
-  absolute path without the leading `/` (a pattern without a slash, such as `id_rsa*`, matches at any depth, so
-  `~/.ssh/id_rsa` matches; an anchored pattern such as `config/x` only matches inside the project).
-- A directory pattern (`.git/`) matches the directory and everything under it.
-- Case: case-insensitive on macOS and Windows, case-sensitive elsewhere (`ignore`'s `ignorecase`).
-- A pattern list the `ignore` package rejects is reported once per session as a warning notification and that entry is
-  skipped; the defaults still apply.
+- Each candidate is made relative to a project root: the resolved path to `ctx.cwd`, the real path to
+  `realpath(ctx.cwd)` (on macOS `/tmp` is `/private/tmp`; without this an anchored pattern misses a symlinked file).
+  Inside the root, the relative path is matched; outside, the absolute path without its leading `/` (on Windows the
+  drive form `C:/Users/x/.ssh/id_rsa`). Separators are always `/`. A pattern without a slash, such as `id_rsa*`,
+  matches at any depth, so `~/.ssh/id_rsa` matches; an anchored pattern such as `config/x` only matches inside the
+  project.
+- The root itself never matches: `ignore` throws on an empty path, so a candidate equal to its root (`ls .`, `grep`
+  with `path: "."` or none) is not tested. `ignores()` is only called with a non-empty, `/`-separated relative path.
+- Each candidate is tested as `p` and as `p + "/"`: `.git/` does not match `.git` by itself, and in a git worktree
+  `.git` is a file.
+- Case: case-insensitive on macOS and Windows, case-sensitive elsewhere. `ignore` defaults to case-insensitive, so
+  `ignorecase` is passed explicitly either way.
+- `ignore` silently drops patterns it cannot parse and throws only on non-strings, so entries are validated here: a
+  non-string entry is skipped and reported once per session as a warning notification; the rest of the list and the
+  defaults still apply.
+- Gitignore semantics hold, including their limit: a file under an excluded directory cannot be re-included
+  (`!node_modules/keep.js` has no effect after `node_modules/`). The docs say so.
 
 ### 4. A blocked call (decisions 5, 11)
 
@@ -88,6 +104,9 @@ At the `tool_call` event (codemode's nested calls emit it too, so a script is co
 
 - `builtin:protect`, registered with the other built-ins, loaded by default; `"-builtin:protect"` turns it off.
 - Subagents, workflow agents and roost sessions load built-ins and get the same rules.
+- `--no-extensions` drops every built-in, protect included; the docs say so.
+- Built-ins load before user extensions, so a user extension's `tool_call` handler that rewrites `input.path` after
+  protect has run gets past it. The docs say so; the feature is a backstop against mistakes, not a sandbox.
 
 ### 7. The example
 
@@ -97,9 +116,11 @@ At the `tool_call` event (codemode's nested calls emit it too, so a script is co
 ## Tests
 
 - Unit (`test/protect-match.test.ts`): the default lists (`.env` blocked, `.env.example` not, `foo.environment` not,
-  `id_rsa.pub` not, `.git/config` write blocked and read allowed); user and project entries in order, `!` undoing a
-  default; a path outside the project (`~/.ssh/id_rsa`); a symlink to `.env` under another name; a new file under
-  `.git/`; case on darwin; a scheme path skipped; a bad pattern skipped.
+  `id_rsa.pub` not, `.git/config` write blocked and read allowed, `.git` itself as a file); user and project entries
+  in order, `!` undoing a default; `.` and `""` (the root, never matched, no throw); a path outside the project
+  (`~/.ssh/id_rsa`); a symlink to `.env` under another name, also with the project under a symlinked directory; a new
+  file under `.git/`; case on darwin and not on linux; Windows separators and drive paths (pure path functions); a
+  scheme path skipped; a non-string entry skipped with one warning.
 - Settings (`test/settings-manager.test.ts`): the two lists concatenate across layers; an untrusted project's list is
   ignored.
 - Suite (`test/suite/protect.test.ts`, faux provider): a direct `read` of `.env` is blocked with the reason; a nested
