@@ -95,6 +95,17 @@ export async function initRepo(ctx: SgContext, options: InitOptions): Promise<Re
 					rmSync(agentsMd, { force: true });
 				}
 			});
+			// likewise validate() refused an existing .git, so one pointing at this repo is this run's own
+			const gitfile = join(workspace, ".git");
+			undo(() => {
+				if (
+					options.gitfile &&
+					existsSync(gitfile) &&
+					readFileSync(gitfile, "utf8") === `gitdir: ${repo.gitDir}\n`
+				) {
+					rmSync(gitfile, { force: true });
+				}
+			});
 			undo(() => rmSync(repo.gitDir, { recursive: true, force: true }));
 			undo(() => removeRegistry(ctx, repo.name));
 			throw error;

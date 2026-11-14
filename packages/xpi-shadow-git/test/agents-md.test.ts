@@ -39,7 +39,7 @@ describe("AGENTS.md template", () => {
 		expect(plan.out).not.toContain("my notes");
 	});
 
-	it("init --agents-md works when AGENTS.md is ignored, and a failed init leaves no AGENTS.md behind", async () => {
+	it("init --agents-md works when AGENTS.md is ignored", async () => {
 		const l = lab();
 		write(l.ws, ".gitignore", "AGENTS.md\n");
 		write(l.ws, ".plainvcs/version", "1\n");
@@ -49,8 +49,13 @@ describe("AGENTS.md template", () => {
 		expect(ok.err).toBe("");
 		expect(ok.code).toBe(0);
 		expect(l.git("ls-tree", "--name-only", "main").split("\n")).toContain("AGENTS.md");
+	});
 
-		// a failure after the file is written (the registry cannot be appended to) rolls it back
+	// root writes a read-only file anyway, so the forced failure needs an ordinary user
+	const asRoot = process.getuid?.() === 0;
+
+	it.skipIf(asRoot)("a failed init leaves no AGENTS.md or .git file behind", async () => {
+		// a failure after the files are written (the registry cannot be appended to) rolls them back
 		const m = lab("other");
 		write(m.ws, ".plainvcs/version", "1\n");
 		write(m.store, "registry", "");
@@ -63,10 +68,12 @@ describe("AGENTS.md template", () => {
 			"--config",
 			`shadow.plain.upstream=${m.upstream}`,
 			"--agents-md",
+			"--gitfile",
 		];
 		// the store's own I/O error surfaces as a thrown error, not an exit code
 		await expect(m.sg(args)).rejects.toThrow(/EACCES/);
 		expect(existsSync(join(m.ws, "AGENTS.md"))).toBe(false);
+		expect(existsSync(join(m.ws, ".git"))).toBe(false);
 		expect(existsSync(join(m.store, "other.git"))).toBe(false);
 		// and a second try is not refused for an AGENTS.md left over
 		chmodSync(join(m.store, "registry"), 0o644);
@@ -88,6 +95,28 @@ describe("AGENTS.md template", () => {
 		expect(plan.out).toContain("Fix the greeting");
 		expect(plan.out).not.toContain("Side notes");
 		expect(plan.out).not.toContain("Merge side");
+	});
+
+	it("when no commit in host..main touches an exported path, the check-in message falls back to all subjects", async () => {
+		const l = await initialised(undefined, ["--local-only", "notes/"]);
+		// a branch from the first host state that only changes local-only paths
+		l.git("branch", "side");
+		await l.sg(["checkout", "-q", "side"]);
+		write(l.ws, "notes/side.md", "n\n");
+		await l.sg(["add", "-A"]);
+		await l.sg(["commit", "-q", "-m", "Side notes"]);
+		await l.sg(["checkout", "-q", "main"]);
+		// the host moves on, then the merge takes side's (the old) a.txt: only the merge changes it, and it is
+		// TREESAME to side, so `git log -- <paths>` follows side alone and finds no commit
+		l.hostCommit({ "a.txt": "new\n" });
+		expect((await l.sg(["import"])).code).toBe(0);
+		l.git("merge", "-q", "--no-ff", "--no-commit", "side");
+		l.git("checkout", "side", "--", "a.txt");
+		l.git("commit", "-q", "-m", "Merge side, keep the old greeting");
+		const plan = await l.sg(["export"]);
+		expect(plan.code).toBe(0);
+		expect(plan.out).toContain("M\ta.txt");
+		expect(plan.out).toContain("Merge side, keep the old greeting");
 	});
 
 	it("does not add AGENTS.md to local-only twice", async () => {
