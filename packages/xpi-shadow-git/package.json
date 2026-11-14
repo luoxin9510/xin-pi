@@ -1,6 +1,7 @@
 {
 	"name": "xpi-shadow-git",
 	"version": "1.11.1",
+	"private": true,
 	"description": "A private git history over a workspace owned by another version control system, with an import and export sync point",
 	"type": "module",
 	"main": "./dist/index.js",
