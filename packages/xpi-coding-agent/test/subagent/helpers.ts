@@ -57,6 +57,7 @@ export interface Scenario {
 	sessionFile?: string;
 	promptError?: string; // answer the prompt command with success: false
 	abortSettles?: boolean; // answer an rpc abort with agent_settled aborted: true
+	tryPrimaryWrite?: string; // write this file under the sandbox's primary at start (read-only under the namespace backend)
 	writeFile?: string; // create this file in the child's cwd when the prompt arrives
 	logFile?: string; // append "start" at process start and "line <n>" before each line
 	hold?: { line: number; starts: number }; // before that line, wait (at most 4 s) until the log has that many "start"
@@ -93,6 +94,7 @@ export function sandbox() {
 			depth?: string;
 			team?: Record<string, string | undefined>; // the XPI_TEAM* variables the child was started with
 			commands: { type: string; message?: string }[];
+			writes?: Record<string, string>; // tryPrimaryWrite: "ok" or the error code
 			env?: Record<string, string | undefined>; // the shadow-git variables the child was started with
 			cwd: string;
 			systemPrompt?: string;

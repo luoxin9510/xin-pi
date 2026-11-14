@@ -1,6 +1,6 @@
 // A temp shadow-git workspace for the xpi integration tests: a store, a workspace with the plain adapter, an agent dir and
 // a HOME, all under one temp directory. The process environment is changed (the extension and the subagent code read
-// it) and `restore()` puts it back. The namespace backend is made unavailable, so every sandbox uses `policy`.
+// it) and `restore()` puts it back. The namespace backend is made unavailable (so every sandbox uses `policy`) unless `namespace` is asked for.
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -52,7 +52,10 @@ export function write(root: string, path: string, text: string): void {
 }
 
 /** `storeInAgentDir`: the store is where xpi puts it by default, `<agent dir>/shadow-git`. */
-export async function lab(name = "demo", options: { storeInAgentDir?: boolean } = {}): Promise<Lab> {
+export async function lab(
+	name = "demo",
+	options: { storeInAgentDir?: boolean; namespace?: boolean } = {},
+): Promise<Lab> {
 	const root = realpathSync(mkdtempSync(join(tmpdir(), "xpi-sg-int-")));
 	const saved = Object.fromEntries(TOUCHED.map((key) => [key, process.env[key]]));
 	const ws = join(root, "ws");
@@ -65,7 +68,7 @@ export async function lab(name = "demo", options: { storeInAgentDir?: boolean } 
 	for (const key of TOUCHED) delete process.env[key];
 	Object.assign(process.env, {
 		XPI_SG_STORE: store,
-		XPI_SG_UNSHARE: join(root, "no-unshare"),
+		...(options.namespace ? {} : { XPI_SG_UNSHARE: join(root, "no-unshare") }),
 		XPI_CODING_AGENT_DIR: agentDir,
 		GIT_CONFIG_GLOBAL: join(root, "gitconfig"),
 		GIT_CONFIG_NOSYSTEM: "1",
