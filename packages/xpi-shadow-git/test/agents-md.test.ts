@@ -117,6 +117,8 @@ describe("AGENTS.md template", () => {
 		expect(plan.code).toBe(0);
 		expect(plan.out).toContain("M\ta.txt");
 		expect(plan.out).toContain("Merge side, keep the old greeting");
+		// only the fallback (all subjects) brings in the local-only commit
+		expect(plan.out).toContain("Side notes");
 	});
 
 	it("does not add AGENTS.md to local-only twice", async () => {
