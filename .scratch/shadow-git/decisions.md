@@ -71,3 +71,10 @@ not manage what they change ("…沙盒不要去管，不要复杂化").
     say this in one paragraph and name no scheduler.
 17. **git version.** At least 2.20, checked when a command starts. Too old is an error that suggests `XPI_SG_GIT`.
     Environment variables are `XPI_SG_*`.
+
+## Approval (2026-11-14)
+
+The owner approved the spec after four review rounds ("是"), with both owner questions as recommended.
+
+18. **The main session** edits the primary workspace like any checkout. Sandboxes are for subagents and teammates.
+19. **Teammates** each get a sandbox in a shadow-git workspace. Elsewhere teams are unchanged.

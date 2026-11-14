@@ -1,6 +1,9 @@
 # 01: shadow-git
 
-Status: draft. Not approved.
+Status: approved; not built yet.
+
+Approval: approved by the owner on 2026-11-14 ("是"), with both owner questions as recommended (decisions 18 and
+19). It had four rounds of independent review; the last found nothing blocking or should-fix.
 
 ## Problem
 
@@ -400,7 +403,7 @@ When the session's cwd is in a registered workspace, `builtin:shadow-git` does t
 - Settling follows today's rule. With no commits and no changes, the sandbox and its branch are removed. Otherwise
   both are kept, and the result names `sbx/sub-<agentId>` and says to run `/sg merge`.
 - `/subagents worktrees` lists and removes these sandboxes too.
-- **Teammates** (owner question 2). In a shadow-git workspace each teammate gets a sandbox `team-<name>`. Running
+- **Teammates** (decision 19). In a shadow-git workspace each teammate gets a sandbox `team-<name>`. Running
   several agents on one workspace is the point of the sandbox. Without one, teammates would write the same files.
   Elsewhere teams are unchanged.
 
@@ -432,7 +435,7 @@ Before each PR, a word list kept outside the repository is grepped over the diff
 - Agents checking in or importing.
 - Making a whole system read-only in the namespace backend.
 
-## Questions for the owner
+## Questions for the owner (answered: decisions 18, 19)
 
 1. **The main session edits the primary workspace.** The draft lets the interactive session edit the workspace like
    any checkout, and keeps sandboxes for subagents and teammates. The other choice puts every agent, the main one too,
