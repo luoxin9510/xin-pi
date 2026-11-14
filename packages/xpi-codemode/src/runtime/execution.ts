@@ -40,6 +40,7 @@ import type {
 	CodemodeTool,
 } from "../types.ts";
 import {
+	CodemodeExit,
 	type HostToWorkerMessage,
 	isWorkerToHostMessage,
 	type VmStartData,
@@ -415,7 +416,10 @@ class Execution {
 			if (!tool) throw new Error(`Unknown ${isTool ? "tool" : "global"} "${name}"`);
 			const args: unknown = message.args === undefined ? undefined : JSON.parse(message.args);
 			const value = await tool.execute(args, { signal: pending.controller.signal });
-			reply = { type: "result", id, ok: true, payload: value === undefined ? undefined : JSON.stringify(value) };
+			reply =
+				value instanceof CodemodeExit
+					? { type: "result", id, ok: true, payload: undefined, exit: true }
+					: { type: "result", id, ok: true, payload: value === undefined ? undefined : JSON.stringify(value) };
 			status = "ok";
 		} catch (error) {
 			reply = { type: "result", id, ok: false, payload: errorMessage(error) };

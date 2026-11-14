@@ -8,6 +8,12 @@ import type { CodemodeWasmModule } from "../wasm.ts";
  */
 
 /**
+ * Returned by a tool's `execute` to end the script like `exit()` right after the call: the script keeps its output and
+ * its `store()` writes, and the call's own promise never settles. Only for tools of `execute()` runs.
+ */
+export class CodemodeExit {}
+
+/**
  * Everything a VM needs to run one script, independent of where it runs. Plain data, so it can
  * cross a `postMessage` or a Workers RPC call unchanged.
  */
@@ -73,6 +79,8 @@ export type HostToWorkerMessage =
 		now?: number;
 		/** Deterministic mode, `ok: false`: a JSON object whose properties the script's `Error` gets. */
 		properties?: string;
+		/** The call ends the script like `exit()`; the call's promise never settles. */
+		exit?: boolean;
 	};
 
 export function isWorkerToHostMessage(value: unknown): value is WorkerToHostMessage {

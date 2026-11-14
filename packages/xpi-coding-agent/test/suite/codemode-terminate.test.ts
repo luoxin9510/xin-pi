@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { fauxAssistantMessage, fauxToolCall } from "xpi-ai";
 import type { ToolResultMessage } from "xpi-ai/compat";
 import type { ExtensionAPI } from "../../src/core/extensions/types.ts";
+import { readCodemodeStore } from "../../src/extensions/codemode/execute.ts";
 import { createCodemodeExtension } from "../../src/extensions/codemode/index.ts";
 import { createHarness, getToolResult, type Harness } from "./harness.ts";
 
@@ -90,6 +91,12 @@ describe("codemode: nested terminate and unlisted tools", () => {
 		expect(harness.getPendingResponseCount()).toBe(1);
 	});
 
+	it("keeps the store() writes of a script that a nested call ended, like exit()", async () => {
+		const harness = await setup();
+		await run(harness, `store("kept", 42); await tools.stop({});`);
+		expect(readCodemodeStore(harness.session.sessionManager.getBranch())).toEqual({ kept: 42 });
+	});
+
 	it("does not truncate the terminating call's text", async () => {
 		const harness = await setup();
 		const marker = `LONG-${"x".repeat(2000)}`;
@@ -165,5 +172,17 @@ describe("codemode: nested terminate and unlisted tools", () => {
 		]);
 		await harness.session.prompt("again");
 		expect(lines(getToolResult(harness, "nothing"))).toEqual(["Tool nothing not found"]);
+	});
+
+	it("fails a direct call of such a tool as not found while codemode is off", async () => {
+		const harness = await setup();
+		harness.session.setActiveToolsByName([]);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("stop", {})], { stopReason: "toolUse" }),
+			fauxAssistantMessage("done"),
+		]);
+		await harness.session.prompt("go");
+		expect(lines(getToolResult(harness, "stop"))).toEqual(["Tool stop not found"]);
+		expect(calls).toEqual([]);
 	});
 });

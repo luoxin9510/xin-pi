@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	CodemodeExit,
 	CodemodeSandbox,
 	type CodemodeSandboxBase,
 	type CodemodeSandboxBaseOptions,
@@ -337,6 +338,16 @@ describe.each(Object.keys(BACKENDS))("%s backend", (name) => {
 				return { all: ALL_TOOLS.map((tool) => tool.name), call: await tools.quiet(), byName: await tools["quiet"]() };
 			`);
 			expect(result).toMatchObject({ ok: true, value: { all: ["shown"], call: "quiet", byName: "quiet" } });
+		});
+
+		it("ends the script after a call that returns CodemodeExit, keeping output and store writes", async () => {
+			const sandbox = createSandbox([{ name: "stop", execute: () => new CodemodeExit() }]);
+			const result = await sandbox.execute(`text("before"); store("k", 1); await tools.stop(); text("after");`);
+			expect(result).toMatchObject({
+				ok: true,
+				output: [{ type: "text", text: "before" }],
+				storeWrites: { set: { k: 1 } },
+			});
 		});
 
 		it("passes undefined arguments and results through", async () => {

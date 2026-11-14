@@ -22,6 +22,7 @@ export {
 	MAX_STORE_TOTAL_CHARS,
 	MAX_STORE_VALUE_CHARS,
 } from "./runtime/prelude-source.ts";
+export { CodemodeExit } from "./runtime/protocol.ts";
 export {
 	type CodemodeRemote,
 	type CodemodeRemoteExchange,

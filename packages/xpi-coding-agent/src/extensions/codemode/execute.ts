@@ -15,6 +15,7 @@ import type {
 	Usage,
 } from "xpi-ai";
 import {
+	CodemodeExit,
 	type CodemodeOutputItem,
 	type CodemodeResult,
 	CodemodeSandbox,
@@ -549,7 +550,6 @@ async function runCodemode(
 	const listedTools = callable.filter(isListed);
 	// A nested call whose result says `terminate` ends the script, like exit(): see `terminated` below.
 	const terminations: string[] = [];
-	const terminator = new AbortController();
 	// ALL_TOOLS entries carry the declaration.
 	const guidelines = options.getToolGuidelines?.();
 	const samples = new Map(
@@ -592,8 +592,7 @@ async function runCodemode(
 					// The script ends here: its output so far stays, this call's text is the last of the result, and the
 					// call's own promise never settles.
 					terminations.push(textOf(outcome.result));
-					terminator.abort();
-					return await new Promise<never>(() => {});
+					return new CodemodeExit();
 				}
 				return toScriptValue(tool, outcome);
 			})();
@@ -684,10 +683,7 @@ async function runCodemode(
 			},
 		});
 		const store = ctx ? readCodemodeStore(ctx.sessionManager.getBranch()) : {};
-		result = await sandbox.execute(code, {
-			signal: signal ? AbortSignal.any([signal, terminator.signal]) : terminator.signal,
-			store,
-		});
+		result = await sandbox.execute(code, { signal, store });
 	} finally {
 		await sandbox?.close();
 		if (reserved) {
@@ -698,8 +694,7 @@ async function runCodemode(
 	// Calls still marked running were cut off by the script ending, a timeout, or an abort; those an add-on lets outlive
 	// the script (on any end but an abort) were left running. A global they went through (`agent()`) was kept with them.
 	over = true;
-	// The sandbox saw an abort; the caller's signal tells whether the script was stopped or ended by its own call.
-	const endedByCall = terminations.length > 0 && !signal?.aborted && !result.ok && result.error.kind === "aborted";
+	const endedByCall = terminations.length > 0 && result.ok;
 	const released: CodemodeKeptCall[] = [];
 	const aborted = !result.ok && result.error.kind === "aborted";
 	for (const call of calls) {

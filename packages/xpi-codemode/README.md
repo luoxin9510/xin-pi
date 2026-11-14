@@ -50,7 +50,7 @@ await sandbox.close();
 - `ALL_TOOLS` lists `{ name, description }` for every tool, with `name` as the identifier. A tool with `unlisted: true` is callable as `tools.<name>` but is not in `ALL_TOOLS`.
 - `text(value)` appends a text item to `result.output`; values other than strings are JSON-stringified. `console.log/info/warn/error/debug` append text items with `console: true`.
 - `image(urlOrItem)` appends an image item. It accepts a base64 `data:` URL, `{ image_url }`, or an image block (`{ type: "image", data, mimeType }`, as MCP tools and `xpi-ai` produce). Remote URLs are rejected.
-- `exit()` ends the script successfully right away, keeping its output and store writes.
+- `exit()` ends the script successfully right away, keeping its output and store writes. A tool's `execute` can return `new CodemodeExit()` to do the same right after its call; the call's promise never settles.
 - `globals` passed to the sandbox are called as top-level functions, for example a host helper `image(ref)`. They behave like tools but are not recorded in `result.calls`. A name like `models.classify` puts the function on a frozen `models` object. With `spread: true`, `execute` receives all call arguments as an array instead of the first one, and `signature` replaces the declaration generated from the schemas.
 - `store(key, value)` and `load(key)` read and write JSON values synchronously. See [Store](#store).
 - Nothing else: no timers, `fetch`, `process`, `require`, modules, or `WebAssembly`. `eval` and `Function` work but only produce more code inside the same VM.
