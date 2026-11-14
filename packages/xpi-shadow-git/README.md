@@ -14,6 +14,8 @@ point between the two. It is the library and the command line behind `xpi sg`.
   files are links into it, and build output goes to a scratch area. Two backends: `namespace` (Linux, `unshare` and
   `mount`, real isolation) and `policy` (anywhere; advisory for shell commands). `sandboxPolicy(sandbox, path)`
   answers what a sandboxed command may do with a path.
+- An **AGENTS.md template** (`AGENTS_MD_TEMPLATE`; `xpi sg agents-md` prints it, `xpi sg init --agents-md` writes it
+  as a local-only file) tells agents how to commit for the host and what to fill in for a workspace.
 - Runtime dependencies: Node and git 2.20 or newer. No npm dependencies.
 
 ```typescript

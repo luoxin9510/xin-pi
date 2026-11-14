@@ -13,8 +13,8 @@ files may be read-only or links into a shared cache, and a `.git` directory is o
 shadow-git puts a git repository next to the workspace instead of inside it:
 
 - The git directory lives in a store (`<agent dir>/shadow-git/<name>.git`) and its `core.worktree` names the workspace.
-  Nothing is written into the workspace: no `.git`, no config, no marker files. The one exception is opt-in
-  (`--gitfile`, below).
+  Nothing is written into the workspace: no `.git`, no config, no marker files. The two exceptions are opt-in
+  (`--gitfile` and `--agents-md`, below).
 - The `host` branch receives only imports from the host. Its tip is the **sync point**, the last state the host and git
   agreed on. The `main` branch is where your work lands.
 - Moving changes in and out is explicit: `xpi sg import` and `xpi sg export`. A small **adapter** script is the only
@@ -62,7 +62,8 @@ xpi sg import            # bring the host's changes in
 | `--scope <paths>` | Space-separated paths the adapter works on, relative to the workspace. Empty is the whole workspace. Only scoped paths and local-only paths are ever tracked. |
 | `--local-only <glob>...` | Globs that are tracked in git but never exported (for example `AGENTS.md`, `.pi/`). A glob ending in `/` means everything below. They are git pathspec globs anchored at the workspace root. |
 | `--config <key>=<value>` | A setting written to the shadow repo's config before the adapter runs (repeatable). |
-| `--gitfile` | Write a `.git` file (`gitdir: <store>/<name>.git`) into the workspace and exclude it, so tools that look for a `.git` find the repo. The only thing shadow-git ever puts in a workspace; off by default. |
+| `--gitfile` | Write a `.git` file (`gitdir: <store>/<name>.git`) into the workspace and exclude it, so tools that look for a `.git` find the repo. Off by default; with `--agents-md`, one of the two things shadow-git ever puts in a workspace. |
+| `--agents-md` | Write the [AGENTS.md template](#the-agentsmd-template) into the workspace, add `AGENTS.md` to the local-only globs, and commit it on `main` (never on `host`). Refused when an `AGENTS.md` exists. Off by default. |
 
 `init` refuses (exit 2) a directory that is registered, or above or below a registered one, and a name already in use.
 If the adapter fails during `init`, the half-built repo is removed.
@@ -108,7 +109,8 @@ checkout succeeds, so a failed abort can be run again.
 ### Export
 
 `xpi sg export` prints the plan and changes nothing: `git diff --no-renames --name-status host..main` without the
-local-only paths, with the subjects of the commits in `host..main`. A rename is a `D` and an `A`. It needs a clean tree
+local-only paths, with the subjects of the commits in `host..main` that touch an exported path (a commit that only
+changes local-only paths, such as notes or `AGENTS.md`, is left out). A rename is a `D` and an `A`. It needs a clean tree
 on `main` and the invariant (exit 2 otherwise). A path outside `shadow.scope` stops it (exit 2, with the list), because
 the fast-forward would otherwise drop those paths from every later plan.
 
@@ -140,6 +142,7 @@ sessions do not write these entries yet.
 | `xpi sg status` | git status, commits ahead of `host`, a stopped import, live sessions, the adapter's `status`. |
 | `xpi sg env` | Print `export GIT_DIR=... GIT_WORK_TREE=...`. |
 | `xpi sg list` | Print the registry: `<workspace>\t<name>`. |
+| `xpi sg agents-md` | Print the [AGENTS.md template](#the-agentsmd-template). Needs no registered workspace. |
 | `xpi sg merge <branch>` | Merge a branch into `main`. |
 | `xpi sg sbx create <id> [--from <branch>] [--profile <file>]` | Create a sandbox (see [Sandboxes](#sandboxes)). |
 | `xpi sg sbx run <id> -- <command...>` | Run a command in a sandbox. |
@@ -367,6 +370,30 @@ share its tree; start another sandbox for work that must not mix.
 Some build and test tools send work to other machines, such as through a job scheduler or a remote build service. That
 work runs outside the sandbox. The sandbox does not manage what it reads or changes and has no special support for it.
 Results it writes back into the workspace are the user's to handle.
+
+## The AGENTS.md template
+
+xpi's prompt already tells agents the rules (see [Agents in xpi](#agents-in-xpi)). The template adds what only you can
+say about a workspace, and how to work for the host:
+
+- Commit small, with subjects written as host check-in comments, because `export --apply` joins the subjects into the
+  check-in message.
+- Write build and test output to scratch paths, never into tracked directories.
+- In a sandbox, commit on `sbx/<id>` and stop; the user merges.
+- Places to fill in: the host VCS's write commands (and matching `shadow.blockCommand` regexes), how to build and
+  test, the scratch paths, and the shared paths that must not change.
+
+`xpi sg init ... --agents-md` writes it for a new workspace as a local-only file. For an existing workspace, or for
+another tool's instructions file:
+
+```bash
+xpi sg agents-md > AGENTS.md            # or > CLAUDE.md
+xpi sg config --add shadow.localOnly AGENTS.md
+xpi sg add AGENTS.md && xpi sg commit -m "sg: add AGENTS.md (local-only)"
+```
+
+The file sits in the workspace, so the host VCS sees it as an unknown file. If that matters, ignore it on the host
+side. Other tools than xpi need `eval "$(xpi sg env)"` before git reaches the shadow repo; the template says so.
 
 ## Agents in xpi
 

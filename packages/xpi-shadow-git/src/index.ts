@@ -1,4 +1,5 @@
 export { callAdapter, findAdapter } from "./adapter.ts";
+export { AGENTS_MD_FILE, AGENTS_MD_TEMPLATE } from "./agents-md.ts";
 export { type Backend, namespaceScript, type Probe, probeNamespace, resolveBackend } from "./backend.ts";
 export { runSg } from "./cli.ts";
 export { assertNoImport, configAll, currentBranch, dirtyPaths, readImportRecord, revParse } from "./config.ts";

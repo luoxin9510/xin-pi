@@ -159,7 +159,11 @@ export interface ExportPlan {
 	subjects: string[];
 }
 
-/** `host..main` minus the local-only paths. A rename is a `D` and an `A`. */
+/**
+ * `host..main` minus the local-only paths. A rename is a `D` and an `A`. The subjects are those of the commits that
+ * touch an exported path, so a commit that only changes local-only paths (notes, AGENTS.md) stays out of the check-in
+ * message.
+ */
 export function exportPlan(repo: Repo): ExportPlan {
 	const raw = splitZ(
 		git(repo, ["diff", "--no-renames", "--name-status", "-z", "host", "main", "--", ...planSpecs(repo)]).stdout,
@@ -169,7 +173,9 @@ export function exportPlan(repo: Repo): ExportPlan {
 		const code = raw[at][0];
 		entries.push({ status: code === "A" || code === "D" ? code : "M", path: raw[at + 1] });
 	}
-	const subjects = lines(git(repo, ["log", "--reverse", "--format=%s", "host..main"]).stdout);
+	const subjects = lines(
+		git(repo, ["log", "--reverse", "--format=%s", "host..main", "--", ...planSpecs(repo)]).stdout,
+	);
 	return { entries, subjects };
 }
 
