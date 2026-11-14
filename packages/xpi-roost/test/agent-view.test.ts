@@ -11,6 +11,16 @@ import type { Event, JobRow, ScheduleRow } from "../src/lib/protocol.ts";
 import type { ScheduleLaunchInput } from "../src/lib/schedule.ts";
 import { BUILTINS } from "./support/builtins.ts";
 
+// spec 03: the builds are set by the tests; unset, nothing is stale
+const builds = vi.hoisted(() => ({ disk: undefined as string | undefined, running: undefined as string | undefined }));
+vi.mock("../src/lib/version.ts", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../src/lib/version.ts")>()),
+	get ROOST_BUILD() {
+		return builds.running;
+	},
+	buildOnDisk: () => builds.disk,
+}));
+
 // The hub finds a session's host socket in the roost of ROOST_AGENT_DIR (xpi sets it for the hub's process): a
 // temporary one here, so no test reaches the owner's.
 let agentDir: string;
@@ -93,6 +103,8 @@ class FakeClient {
 	replyResult: unknown = { delivered: true, saved: false };
 	/** M43: what /log shows. */
 	log: RoostEvent[] = [];
+	/** Spec 03: the build the daemon says it runs. */
+	statusBuild: string | undefined;
 	/** Phase 2: what /schedule lists. */
 	schedules: ScheduleRow[] = [];
 	constructor(rows: JobRow[]) {
@@ -134,6 +146,7 @@ class FakeClient {
 		}
 		this.requests.push({ op, args });
 		if (op === "list") return { jobs: this.rows };
+		if (op === "status") return this.statusBuild ? { build: this.statusBuild } : {};
 		if (op === "dispatch") {
 			await new Promise((r) => setTimeout(r, this.dispatchDelay));
 			return { id: "new1", name: "new task" };
@@ -2506,5 +2519,74 @@ describe("phase 2: /schedule in the hub (spec 02, decisions 8-10)", () => {
 		client.emit({ event: "job", job: { ...run, state: "working" } });
 		client.emit({ event: "job", job: { ...run, state: "done", status: "idle", endedAt: Date.now() } });
 		expect(notified).toEqual([["nightly", "completed"]]);
+	});
+});
+
+describe("spec 03: the stale-build line", () => {
+	afterEach(() => {
+		builds.disk = undefined;
+		builds.running = undefined;
+	});
+	const line = (screen: string) => screen.split("\n").find((l) => l.includes("older build of xpi")) ?? "";
+
+	it("stays while the daemon or a running session runs an older build than the installed one", async () => {
+		builds.disk = "bbbbbbbbbbbbbbbb";
+		const rows = [
+			row({ build: "aaaaaaaaaaaaaaaa" }),
+			row({ build: "aaaaaaaaaaaaaaaa" }),
+			row({ build: "bbbbbbbbbbbbbbbb" }),
+			row({ build: "aaaaaaaaaaaaaaaa", pid: null, state: "done", status: null, endedAt: Date.now() }),
+			row(),
+		];
+		const { view, client } = setup(rows);
+		client.statusBuild = "aaaaaaaaaaaaaaaa";
+		await view.start();
+		const screen = view.render(200).join("\n");
+		expect(line(screen)).toContain("(the background service, 2 sessions)");
+		expect(line(screen)).toContain("xpi roost daemon stop --keep-workers, then xpi roost respawn --all");
+		view.dispose();
+	});
+
+	it("says nothing when the builds match, or one is unknown", async () => {
+		builds.disk = "bbbbbbbbbbbbbbbb";
+		const { view, client } = setup([row({ build: "bbbbbbbbbbbbbbbb" }), row()]);
+		client.statusBuild = "bbbbbbbbbbbbbbbb";
+		await view.start();
+		expect(view.render(200).join("\n")).not.toContain("older build");
+		view.dispose();
+		builds.disk = undefined;
+		const b = setup([row({ build: "aaaaaaaaaaaaaaaa" })]);
+		b.client.statusBuild = "aaaaaaaaaaaaaaaa";
+		await b.view.start();
+		expect(b.view.render(200).join("\n")).not.toContain("older build");
+		b.view.dispose();
+	});
+
+	it("names the hub itself only in the standalone hub", async () => {
+		builds.disk = "bbbbbbbbbbbbbbbb";
+		builds.running = "aaaaaaaaaaaaaaaa";
+		const inSession = setup([row({ build: "bbbbbbbbbbbbbbbb" })]);
+		await inSession.view.start();
+		expect(inSession.view.render(200).join("\n")).not.toContain("older build");
+		inSession.view.dispose();
+		const alone = setup([row({ build: "bbbbbbbbbbbbbbbb" })], { extra: { standalone: true } });
+		await alone.view.start();
+		const l = line(alone.view.render(200).join("\n"));
+		expect(l).toContain("(this hub)");
+		expect(l).toContain("start the hub again");
+		expect(l).not.toContain("xpi roost daemon stop");
+		alone.view.dispose();
+	});
+
+	it("is gone after the sessions are restarted (the next list carries the new build)", async () => {
+		builds.disk = "bbbbbbbbbbbbbbbb";
+		const rows = [row({ build: "aaaaaaaaaaaaaaaa" })];
+		const { view, client } = setup(rows);
+		await view.start();
+		expect(line(view.render(200).join("\n"))).toContain("(1 session)");
+		client.rows = [{ ...rows[0]!, build: "bbbbbbbbbbbbbbbb" }];
+		client.emit({ event: "job", job: client.rows[0]! } as Event);
+		expect(view.render(200).join("\n")).not.toContain("older build");
+		view.dispose();
 	});
 });

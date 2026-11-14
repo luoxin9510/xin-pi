@@ -40,7 +40,7 @@ import {
 	uninstallService,
 } from "./lib/service.ts";
 import { screenPath } from "./lib/store.ts";
-import { ROOST_VERSION } from "./lib/version.ts";
+import { buildOnDisk, isStale, ROOST_VERSION } from "./lib/version.ts";
 
 interface Out {
 	write(text: string): unknown;
@@ -139,6 +139,8 @@ export async function runRoostCli(argv: string[], opts: RoostCliOptions): Promis
 	for (const name of ROOST_LOCATION_ENV) process.env[name] = location[name];
 
 	let warned = false;
+	/** Until `xpi roost restart` exists (spec 03, PR 2) this is the recipe that moves everything to the installed code. */
+	const RESTART_RECIPE = "xpi roost daemon stop --keep-workers, then xpi roost respawn --all";
 	/** Refuses what would start a PTY host when node-pty is not installed here. */
 	const needPty = (what: string) => {
 		if (opts.ptyInstalled === false)
@@ -153,7 +155,12 @@ export async function runRoostCli(argv: string[], opts: RoostCliOptions): Promis
 		const s = await client.request("status", {});
 		if (s.version !== ROOST_VERSION) {
 			stderr.write(
-				`warning: the background service is ${s.version}, this xpi is ${ROOST_VERSION}; restart it with: xpi roost daemon stop --keep-workers, then xpi roost respawn --all\n`,
+				`warning: the background service is ${s.version}, this xpi is ${ROOST_VERSION}; restart it with: ${RESTART_RECIPE}\n`,
+			);
+		} else if (isStale(s.build, buildOnDisk())) {
+			// spec 03: the same version, rebuilt: the version alone cannot tell
+			stderr.write(
+				`warning: the background service runs an older build of xpi than the installed one; restart it with: ${RESTART_RECIPE}\n`,
 			);
 		}
 		if (s.ptyError) stderr.write(`warning: background sessions cannot start: ${s.ptyError}. ${opts.ptyHint}\n`);
@@ -321,6 +328,11 @@ export async function runRoostCli(argv: string[], opts: RoostCliOptions): Promis
 		const rows = all ? jobs : jobs.filter((j) => j.endedAt === null || now - j.endedAt < ENDED_CUTOFF_MS);
 		if (args.includes("--json")) stdout.write(`${JSON.stringify(rows, null, 2)}\n`);
 		else stdout.write(formatList(rows, { width: process.stdout.columns || 100 }));
+		// spec 03: running sessions whose process started before the installed build (their stdout is the table)
+		const onDisk = buildOnDisk();
+		const stale = jobs.filter((j) => j.pid !== null && isStale(j.build, onDisk)).length;
+		if (stale > 0)
+			stderr.write(`${stale} session${stale === 1 ? " runs" : "s run"} an older build: ${RESTART_RECIPE}\n`);
 	}
 
 	/** Decision 8: a session the daemon runs does not make, change or run schedules (a person does). */
@@ -565,12 +577,21 @@ export async function runRoostCli(argv: string[], opts: RoostCliOptions): Promis
 			const s = await client.request("status", {});
 			if (s.version !== ROOST_VERSION) {
 				stderr.write(
-					`warning: the daemon is ${s.version}, this xpi is ${ROOST_VERSION}; restart it with: xpi roost daemon stop --keep-workers, then xpi roost respawn --all\n`,
+					`warning: the daemon is ${s.version}, this xpi is ${ROOST_VERSION}; restart it with: ${RESTART_RECIPE}\n`,
 				);
 			}
+			const daemonStale = isStale(s.build, buildOnDisk());
+			const buildLine = s.build
+				? `${s.build}${daemonStale ? `  (older than the installed ${buildOnDisk()})` : ""}`
+				: "unknown";
+			if (daemonStale && s.version === ROOST_VERSION)
+				stderr.write(
+					`warning: the daemon runs an older build of xpi than the installed one; restart it with: ${RESTART_RECIPE}\n`,
+				);
 			stdout.write(
 				[
 					`version     ${s.version}`,
+					`build       ${buildLine}`,
 					`pid         ${s.pid}`,
 					`socket dir  ${s.socketDir}`,
 					`sessions    ${s.liveJobs} live / ${s.totalJobs} total`,
