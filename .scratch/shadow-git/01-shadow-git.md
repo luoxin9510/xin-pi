@@ -168,18 +168,21 @@ host's state plus the local-only paths".
    update created a file at a local-only path that `host` does not track, stop (exit 1) on `host` and list those
    paths: a host file collides with a local-only path, and the user renames one of them or changes
    `shadow.localOnly`. Then commit any change on `host` as `sg: import <label>` (`git add -A -- <scope>` with a
-   `:(exclude,glob)<glob>` pathspec per local-only glob).
+   `:(exclude,glob)<glob>` pathspec per local-only glob). Remove `SG_IMPORT`: from here on, a stop is git's own
+   state.
 5. `git switch main`. Print the files changed both in the new import and in `old host..main`.
-6. `git merge host`. A conflict stops the command (exit 1) with git's own message. The user resolves it with plain git.
-7. Remove `SG_IMPORT` and release the lock.
+6. `git merge host`. A conflict stops the command (exit 1) with git's own message and `MERGE_HEAD`. The user resolves
+   it with plain git (`git merge --continue` or `--abort`).
+7. Release the lock.
 
-**A stopped import.** If import stops after step 3 (a collision in step 4, a failed commit, a crash), `SG_IMPORT`
+**A stopped import.** If import stops in step 3 or 4 (a collision, a failed commit, a crash), `SG_IMPORT`
 stays, like git's own `MERGE_HEAD`, and the lock is released; the record is the guard.
 
 - `xpi sg import` with the record present resumes. With a label it skips steps 1–3 and continues at step 4. Without
   one (`update` did not finish) it runs `update` again.
-- `xpi sg import --abort` runs `git checkout -f host`, removes files `host` does not track within the scope, and
-  removes the record. The workspace is then at the last imported host state.
+- `xpi sg import --abort` runs `git checkout -f host` and `git clean -fd -- <scope>` (no `-x`, so ignored build
+  outputs stay), removes the record, and runs `git switch main`. Without a record there is nothing to abort (exit 2);
+  a conflicted merge is aborted with `git merge --abort`.
 - While the record exists, `export`, `merge`, `sbx create` and new top-level sessions in the workspace refuse
   (exit 2), and `xpi sg status` shows it.
 
