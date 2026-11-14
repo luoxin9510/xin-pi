@@ -425,22 +425,27 @@ start; shell sessions are never restarted.
 ### `/restart` in a session
 
 `/restart` in a background session asks the daemon to restart this session; `/restart all` runs the whole `xpi roost
-restart`, with this session last. In a foreground session (not one the daemon runs) there is nothing to restart it from
+restart`, with this session last. A person typed it, so nothing is cut short: a session that was working carries on
+with the usual "Continue where you left off." A daemon from before `ids` is asked with the older request; if that
+cannot do it, the command says to run `xpi roost restart`. In a foreground session (not one the daemon runs) there is nothing to restart it from
 outside: `/restart` prints how to do it by hand, quit it and start it again with the command that resumes it. In a
-peek, `/restart` restarts the peeked session.
+peek, `/restart` restarts the peeked session (it takes no argument there).
 
 The agent may run `xpi roost restart` itself (or `xpi roost restart <its own name>`) from its shell tool; nothing
 refuses it. The daemon cannot tell that the caller is a session, so the command, like `/restart`, opens a connection of
 its own, and when `ROOST_JOB_ID` names a session among those to restart it asks for that session last. The restart
 is one request that the daemon finishes after the caller's process is gone. When the caller was working (the agent
 ran the command in a tool call), its new process is told that xpi was restarted on the installed build, that the
-command that asked for it was cut short and shows no result, and not to run it again; when it was idle (a person
-typed `/restart`), it comes back showing where it left off and no prompt is sent.
+command that asked for it was cut short and shows no result, and not to run it again; when it was idle, it comes
+back showing where it left off and no prompt is sent. This prompt is only for the command line: `/restart` and
+the hub's `/restart` never send it.
 
 ### Terminals attached to a restarting session
 
 A terminal attached to a session when it restarts (by any of the above) says `restarting…`, waits up to 30 s for
-the new process and attaches again by itself, in `xpi roost attach` and in the hub alike. The daemon marks the row
+the new process and attaches again by itself, in `xpi roost attach` and in the hub alike. While it waits the terminal
+stays raw: keys typed are dropped (not echoed, not sent to the new session), and the detach key or Ctrl-C ends the
+attach. If the restart failed (the row is no longer restarting and has ended), it stops waiting and says why. The daemon marks the row
 `restarting` from before it ends the old process until the new one is up (or the start failed), and the old process
 tells its attached terminal why it ended (`restart`). A session that does not come back ends the attach as any other end.
 

@@ -44,8 +44,16 @@ docs for what it adds.
 - [x] R12 attach: a terminal follows its session through a restart (decision 7)
       Done: `attachFollowingRestart` (`lib/attach.ts`) in `xpi roost attach` and the hub's attach: `restarting…`, up to 30 s, attach again. Tests: `test/attach-follow.test.ts` (6), `test/restart-cli.test.ts` (an attached terminal in a pty follows `restart`).
 
-- [x] R13 tests per the spec: integration, PTY, the real Haiku check
-      Done: integration and unit tests as above. Not done here: a PTY test of `/restart` typed in a session, and the real Haiku check (the lead runs it).
+- [x] R13 tests per the spec: integration and unit tests
+      Done: unit tests for the orchestration (order, `--if-stale`, failures, caller last, the prompt only for the CLI,
+      the older-daemon fallback: `test/restart.test.ts`); integration tests with a real daemon and hosts
+      (`test/restart-cli.test.ts`: the daemon and every running xpi session replaced, shell and ended sessions left
+      alone, a request that outlives its client with `last` last, an attached terminal in a pty following a restart;
+      `test/daemon.test.ts`: `ids`/`last`, `restarting`, the exit reason, no `stopped` event); attach follow
+      (`test/attach-follow.test.ts`: the gap keeps the terminal raw, keys dropped, detach key and Ctrl-C leave, early
+      end); the hub and the session's command. The PTY test for a typed `/restart` was replaced by the lead's manual
+      pty check.
+- [ ] R13b the real Haiku check (the lead runs it)
 
 - [x] R14 docs: `roost.md` section, `cli.md`, `protocol.md`, hub help, the repository's `AGENTS.md`; R4's warning text
       names `xpi roost restart`
