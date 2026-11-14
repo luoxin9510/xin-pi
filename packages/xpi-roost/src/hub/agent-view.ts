@@ -687,7 +687,8 @@ export class AgentView implements Component {
 			this.noteBuild(e.job);
 			this.rows.set(e.job.id, e.job);
 			this.checkSwitch(e.job);
-			const kind = observeJob(e.job);
+			// a restart in progress is not news: the old process's exit shows as stopped
+			const kind = e.job.restarting ? undefined : observeJob(e.job);
 			if (kind && !this.attached) this.o.notify?.(e.job, kind);
 			if (this.attachWhenLive === e.job.id && !this.attached) {
 				if (e.job.pid) {
@@ -1850,12 +1851,12 @@ export class AgentView implements Component {
 					: this.say(first?.error ?? `${row.name} was not started`, "warning");
 			}
 			case "restart": {
+				if (arg) return this.say("/restart takes no argument in a peek: it restarts this session only", "warning");
 				// spec 03: a running xpi session only; the hub inside this very session names it last (it goes with it)
 				done();
 				if (row.pid === null || row.kind === "shell")
 					return this.say(`${row.name} is not running as an xpi session`, "warning");
-				const r = await port.jobs.restart([row.id], row.id === this.o.selfId ? { id: row.id } : undefined);
-				const first = r.results[0];
+				const first = await port.jobs.restart(row.id, row.id === this.o.selfId ? { id: row.id } : undefined);
 				return first?.started
 					? this.say(`restarting ${row.name} onto the installed build`, "success")
 					: this.say(first?.error ?? `${row.name} was not restarted`, "warning");
@@ -2807,9 +2808,14 @@ export class AgentView implements Component {
 					attachToHost(
 						hostSocketPath(id),
 						{ stdin: process.stdin, stdout: process.stdout },
-						{ isDetachKey: this.o.isDetachKey, onAttached },
+						{ isDetachKey: this.o.isDetachKey, onAttached, keepTerminal: true },
 					),
 				{
+					io: { stdin: process.stdin, stdout: process.stdout, isDetachKey: this.o.isDetachKey },
+					ended: () => {
+						const r = this.rows.get(id);
+						return r && r.restarting !== true && r.endedAt !== null ? (r.error ?? `it is ${r.state}`) : undefined;
+					},
 					restarting: () => this.rows.get(id)?.restarting === true,
 					say: (text) => process.stdout.write(`\r\n${text}\r\n`),
 				},

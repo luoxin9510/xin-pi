@@ -1525,6 +1525,9 @@ describe("spec 03: restarting sessions by id", () => {
 		expect(seen.at(-1)).toBeUndefined();
 		expect((await find(client, id))?.restarting).toBeUndefined();
 		expect(readState(id)?.restarting).toBeUndefined();
+		// the old process ending for a restart is not an event of the feed, and the state is what it was
+		const { events } = await client.request("events", {});
+		expect(events.filter((e) => e.kind === "state" && e.id === id && e.state === "stopped")).toEqual([]);
 		sock.destroy();
 	});
 });

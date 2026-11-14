@@ -196,6 +196,8 @@ const lastSeen = new Map<string, { state: JobStateName; waitingFor: JobRow["wait
 
 /** A job's row went out: a state change that matters is an event. */
 function noteState(job: JobRow): void {
+	// spec 03: the old process ending for a restart is not news (the host's exit shows as stopped meanwhile)
+	if (job.restarting) return;
 	const prev = lastSeen.get(job.id);
 	lastSeen.set(job.id, { state: job.state, waitingFor: job.waitingFor, question: job.question });
 	if (!prev) return;
@@ -915,6 +917,7 @@ async function respawn(
 	if (starting.has(id) || respawning.has(id)) return { id, started: false };
 	respawning.add(id);
 	let restarting = false;
+	let priorState: JobState["state"] | undefined;
 	try {
 		// DM-5: an automatic restart waiting: this start takes its place (once it can start)
 		const pendingResume = typeof readState(id)?.resumeAt === "number";
@@ -930,6 +933,7 @@ async function respawn(
 			if (!prompt && readState(id)?.state === "working") prompt = CONTINUE;
 			// spec 03: attached terminals and the hub see a restart, not an end, until the new host is up (or this fails)
 			restarting = true;
+			priorState = readState(id)?.state;
 			updateState(id, { restarting: true });
 			pushJob(id);
 			await terminateHost(id, "restart");
@@ -960,7 +964,8 @@ async function respawn(
 		clearWorker(id);
 		updateState(id, {
 			...(restore
-				? { stateSince: st?.stateSince }
+				? // the old process's exit marked it stopped; a restart gives back the state it was in
+					{ stateSince: st?.stateSince, ...(priorState ? { state: priorState } : {}) }
 				: { state: "working" as const, stateSince: now, summary: null, question: null, choices: [] }),
 			// a shell job has no worker to report: it is busy until it exits
 			status: rec.kind === "shell" ? "busy" : null,

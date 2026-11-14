@@ -2642,6 +2642,17 @@ describe("spec 03: /restart in the hub", () => {
 		view.dispose();
 	});
 
+	it("in a peek it refuses an argument instead of restarting only that session", async () => {
+		const { view, client } = setup([row({ id: "p1", name: "tests" })]);
+		await view.start();
+		view.handleInput(" ");
+		type(view, "/restart all");
+		view.handleInput("\r");
+		expect(await screenWith(view, "takes no argument")).toContain("/restart takes no argument in a peek");
+		expect(ops(client, "respawn")).toEqual([]);
+		view.dispose();
+	});
+
 	it("in the main input it restarts the service and every running xpi session, one request, the daemon first", async () => {
 		const { view, client } = setup([
 			row({ id: "p1", name: "tests" }),
@@ -2661,9 +2672,9 @@ describe("spec 03: /restart in the hub", () => {
 	});
 
 	it("a hub inside a session names its own session last", async () => {
-		// idle: the person who opened the hub is not in the middle of a tool call, so no prompt is sent
+		// working or not, a person typed it: no tool call was cut short, so no prompt is sent
 		const { view, client } = setup(
-			[row({ id: "p1", name: "tests", state: "done" }), row({ id: "p2", name: "other" })],
+			[row({ id: "p1", name: "tests", state: "working" }), row({ id: "p2", name: "other" })],
 			{
 				extra: { selfId: "p1" },
 			},
