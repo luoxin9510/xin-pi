@@ -11,11 +11,20 @@ export interface RelayState {
 
 export const HANDOVER_TOOL = "handover";
 export const HANDBACK_TOOL = "handback";
+/** The tool whose results the router also reads: a handover made from a codemode script ends the script's result. */
+const CODEMODE_TOOL = "codemode";
 
 /** Opens the hand-back record, which is the summary of the compaction that ends a worker phase. */
 export const RECORD_MARKER = "<relay-hand-back";
 /** In the message `/handover` sends: the user gives the work to the worker without a `handover` call. */
 export const USER_HANDOVER_MARKER = "<relay-handover-by-user>";
+
+/** The text of a successful `handover` result, and the last line of the codemode result that made the call. */
+export function handoverMarker(round: number): string {
+	return `<relay-handover round="${round}"/>`;
+}
+
+const HANDOVER_MARKER_LINE = /^<relay-handover round="(\d+)"\/>$/;
 
 function textOf(message: Message): string {
 	if (message.role === "assistant") return "";
@@ -24,9 +33,20 @@ function textOf(message: Message): string {
 	return content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("\n");
 }
 
+/** The round of the handover marker that is the last line of `text`, if there is one. */
+export function lastLineHandoverRound(text: string): number | undefined {
+	const last = text.trimEnd().split("\n").at(-1)?.trim() ?? "";
+	const match = HANDOVER_MARKER_LINE.exec(last);
+	return match ? Number(match[1]) : undefined;
+}
+
 /**
  * The state for the next request. Only what follows the latest response counts: a handover or a hand back takes
  * effect once, on the request right after it.
+ *
+ * A handover is the last line of the result of `handover` or `codemode` (the script that called it) when it names the
+ * next round: a file the worker reads that contains the string does not end a result with it, and a marker of another
+ * round is not this branch's.
  */
 export function nextState(state: RelayState | undefined, messages: readonly Message[]): RelayState {
 	const current = state ?? { phase: "lead", round: 0 };
@@ -35,7 +55,9 @@ export function nextState(state: RelayState | undefined, messages: readonly Mess
 	let handBack = -1;
 	tail.forEach((message, index) => {
 		if (message.role === "toolResult") {
-			if (message.toolName === HANDOVER_TOOL && !message.isError) handover = index;
+			if ((message.toolName === HANDOVER_TOOL || message.toolName === CODEMODE_TOOL) && !message.isError) {
+				if (lastLineHandoverRound(textOf(message)) === current.round + 1) handover = index;
+			}
 			return;
 		}
 		const text = textOf(message);
