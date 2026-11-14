@@ -26,6 +26,9 @@ What xin-pi adds to pi:
 - **Relay**: the model `relay/auto` runs one conversation on two models. A strong lead explores, plans and reviews; a
   cheap worker builds. The lead hands over with a plan and acceptance commands, and reads a record of the result, not
   the worker's transcript.
+- **Checks after edits**: name your type-check or lint commands in the `checks.commands` setting and xpi runs them after
+  each turn that changed something, then shows the model the errors that are new, before its next request
+  ([docs/checks.md](docs/checks.md)).
 - **`/upstream`**: compares upstream pi with xin-pi and asks the model what is worth porting.
 - **shadow-git**: in a workspace owned by another version control system and registered with `xpi sg init`, git works with no setup, `/sg` imports, exports and merges, and subagents and teammates work in sandboxes ([docs/shadow-git.md](https://github.com/luoxin9510/xin-pi/blob/main/packages/xpi-coding-agent/docs/shadow-git.md)).
 - **Background sessions** (macOS and Linux): `xpi --bg "<task>"` or `/bg` hands a session to a daemon that keeps it

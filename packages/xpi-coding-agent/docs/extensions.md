@@ -728,6 +728,7 @@ pi.on("turn_start", async (event, ctx) => {
 let replacedResponse = false;
 pi.on("turn_end", async (event, ctx) => {
   // event.turnIndex, event.message, event.toolResults
+  // event.terminated: every tool result of the turn asked to end the run, so no request follows this turn_end.
   // event.entries contains the structural entries proposed so far.
   if (replacedResponse || event.outcome !== "completed" || event.toolResults.length > 0) return;
   replacedResponse = true;
@@ -751,7 +752,7 @@ pi.on("turn_end", async (event, ctx) => {
 
 `continue: true` ensures one next provider request for that boundary invocation. If tool results, steering, or a follow-up already cause that request, they satisfy the decision and no additional request is made; otherwise Pi makes one context-only request. Error and aborted responses remain hard exits. `continue: false` never suppresses natural work. Guard continuation conditions: an unconditional `continue: true` is evaluated again after the next response and can create an endless loop. A `custom_message` draft contributes a user-role model message but is extension-authored: it does not run human input hooks, slash commands, skills, or prompt templates.
 
-Host integrations that construct `TurnEndEvent` values must provide `messageEntryId`, `toolResultEntryIds`, `outcome`, `entries`, `continue`, and `context`. `ExtensionEvent` exhaustive switches must also handle `agent_before_settle`. `ExtensionRunner.emit()` excludes actionable turn boundaries; dispatch `turn_end` and `agent_before_settle` through `emitBoundary(baseEvent, buildContext)` so handlers receive chained previews. Other dedicated runner methods still return results for events such as `session_before_*`.
+Host integrations that construct `TurnEndEvent` values must provide `messageEntryId`, `toolResultEntryIds`, `outcome`, `terminated` (from `AgentTurnContext.terminated`, which the agent loop sets when the tool batch ended the run; false without tool calls and on error or abort), `entries`, `continue`, and `context`. `ExtensionEvent` exhaustive switches must also handle `agent_before_settle`. `ExtensionRunner.emit()` excludes actionable turn boundaries; dispatch `turn_end` and `agent_before_settle` through `emitBoundary(baseEvent, buildContext)` so handlers receive chained previews. Other dedicated runner methods still return results for events such as `session_before_*`.
 
 #### message_start / message_update / message_end
 
