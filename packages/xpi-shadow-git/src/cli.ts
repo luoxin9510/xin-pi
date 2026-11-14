@@ -4,6 +4,16 @@ import { checkGitVersion, repoEnv } from "./git.ts";
 import { initRepo } from "./init.ts";
 import { run } from "./proc.ts";
 import { type Repo, readRegistry, resolveRepo } from "./registry.ts";
+import {
+	backendLabel,
+	createSandbox,
+	describeSandbox,
+	listSandboxes,
+	removeSandbox,
+	runInSandbox,
+	type Sandbox,
+	sandboxFromEnv,
+} from "./sandbox.ts";
 import { status } from "./status.ts";
 import { abortImport, asWriter, exportMain, importHost, mergeBranch } from "./sync.ts";
 
@@ -18,6 +28,10 @@ const HELP = `Usage: xpi sg [--repo <name>] <command>
   env               Print GIT_DIR and GIT_WORK_TREE as shell exports
   list              Print the registered workspaces
   merge <branch>    Merge a branch into main (merge --continue and --abort go to git)
+  sbx create <id> [--from <branch>] [--profile <file>]   Create a sandbox: a worktree on sbx/<id> plus a path policy
+  sbx run <id> -- <command...>                           Run a command in a sandbox
+  sbx ls                                                 List the sandboxes
+  sbx rm <id> [--force]                                  Remove a sandbox (its branch stays)
   <git command>     Anything else runs git on the shadow repo
 
 push, fetch, pull, clone, remote and submodule are not available: the shadow repo is local.
@@ -88,10 +102,13 @@ export function gitCommandWord(args: string[]): string | undefined {
 
 const shellQuote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
 
-function passThrough(repo: Repo, args: string[]): number {
+function passThrough(repo: Repo, args: string[], inside?: Sandbox): number {
+	const env = inside
+		? { ...repoEnv(repo), GIT_DIR: inside.gitDir, GIT_WORK_TREE: sandboxWorkTree(repo.ctx, inside) }
+		: repoEnv(repo);
 	const result = run(repo.ctx.git, args, {
 		cwd: repo.ctx.cwd,
-		env: repoEnv(repo),
+		env,
 		stdio: repo.ctx.stdio === "inherit" ? "inherit" : "pipe",
 	});
 	if (repo.ctx.stdio === "capture") {
@@ -128,16 +145,21 @@ async function dispatch(ctx: SgContext, args: string[]): Promise<number> {
 			takeFlags(tail, []);
 			for (const entry of readRegistry(ctx)) ctx.out(`${entry.path}\t${entry.name}\n`);
 			return 0;
-		case "sbx":
-			throw precondition("xpi sg sbx is not available yet");
 		default:
 	}
 	const blocked = gitCommandWord(rest);
 	if (blocked !== undefined && BLOCKED.has(blocked))
 		throw precondition(`xpi sg ${blocked} is not available: the shadow repo is local and never pushed`);
 
-	const repo = resolveRepo(ctx, repoName);
+	const inside = sandboxFromEnv(ctx);
+	const repo = inside ? inside.repo : resolveRepo(ctx, repoName);
+	// Inside a sandbox the primary workspace is read-only: only the sandbox's own repository state may change.
+	if (inside && WRITES_PRIMARY.has(command) && !(command === "export" && !tail.includes("--apply"))) {
+		throw precondition(`xpi sg ${command} is not available inside a sandbox (${inside.repo.name}/${inside.id})`);
+	}
 	switch (command) {
+		case "sbx":
+			return sbx(repo, tail);
 		case "import":
 			if (takeFlags(tail, ["--abort"]).has("--abort")) await abortImport(repo);
 			else await importHost(repo);
@@ -151,7 +173,9 @@ async function dispatch(ctx: SgContext, args: string[]): Promise<number> {
 			return 0;
 		case "env":
 			takeFlags(tail, []);
-			ctx.out(`export GIT_DIR=${shellQuote(repo.gitDir)} GIT_WORK_TREE=${shellQuote(repo.workspace)}\n`);
+			ctx.out(
+				`export GIT_DIR=${shellQuote(inside ? inside.gitDir : repo.gitDir)} GIT_WORK_TREE=${shellQuote(inside ? sandboxWorkTree(ctx, inside) : repo.workspace)}\n`,
+			);
 			return 0;
 		case "merge":
 			if (tail.length === 1 && (tail[0] === "--continue" || tail[0] === "--abort")) {
@@ -163,7 +187,69 @@ async function dispatch(ctx: SgContext, args: string[]): Promise<number> {
 			await mergeBranch(repo, tail[0]);
 			return 0;
 		default:
-			return passThrough(repo, rest);
+			return passThrough(repo, rest, inside);
+	}
+}
+
+// What changes the primary workspace or the registry of sandboxes
+const WRITES_PRIMARY = new Set(["import", "export", "merge"]);
+
+/** The work tree git sees inside a sandbox: the workspace's own path under `namespace`, else the tree. */
+const sandboxWorkTree = (ctx: SgContext, sbx: Sandbox): string =>
+	ctx.env.XPI_SG_BACKEND === "namespace" ? sbx.workspace : sbx.tree;
+
+function sbx(repo: Repo, args: string[]): number {
+	const [sub, ...rest] = args;
+	const ctx = repo.ctx;
+	const flags = (
+		spec: Record<string, boolean>,
+		list: string[],
+	): { values: Record<string, string>; positional: string[] } => {
+		const values: Record<string, string> = {};
+		const positional: string[] = [];
+		for (let at = 0; at < list.length; at++) {
+			const arg = list[at];
+			if (!arg.startsWith("--")) positional.push(arg);
+			else if (!(arg in spec)) throw precondition(`unknown argument ${arg}`);
+			else if (spec[arg]) {
+				const value = list[++at];
+				if (value === undefined) throw precondition(`${arg} needs a value`);
+				values[arg] = value;
+			} else values[arg] = "";
+		}
+		return { values, positional };
+	};
+	const inSandbox = ctx.env.XPI_SG_SANDBOX;
+	switch (sub) {
+		case "create": {
+			if (inSandbox)
+				throw precondition("sandboxes do not nest: xpi sg sbx create is not available inside a sandbox");
+			const { values, positional } = flags({ "--from": true, "--profile": true }, rest);
+			if (positional.length !== 1)
+				throw precondition("usage: xpi sg sbx create <id> [--from <branch>] [--profile <file>]");
+			const sandbox = createSandbox(repo, positional[0], { from: values["--from"], profile: values["--profile"] });
+			ctx.out(`created sandbox ${repo.name}/${sandbox.id} on ${sandbox.branch}: ${sandbox.tree}\n`);
+			return 0;
+		}
+		case "run": {
+			const split = rest.indexOf("--");
+			if (split !== 1 || rest.length < 3) throw precondition("usage: xpi sg sbx run <id> -- <command> [args]");
+			return runInSandbox(repo, rest[0], rest.slice(2));
+		}
+		case "ls":
+			flags({}, rest);
+			for (const sandbox of listSandboxes(repo)) ctx.out(`${describeSandbox(sandbox, backendLabel(repo))}\n`);
+			return 0;
+		case "rm": {
+			if (inSandbox) throw precondition("xpi sg sbx rm is not available inside a sandbox");
+			const { values, positional } = flags({ "--force": false }, rest);
+			if (positional.length !== 1) throw precondition("usage: xpi sg sbx rm <id> [--force]");
+			removeSandbox(repo, positional[0], "--force" in values);
+			ctx.out(`removed sandbox ${repo.name}/${positional[0]}; branch sbx/${positional[0]} is kept\n`);
+			return 0;
+		}
+		default:
+			throw precondition("usage: xpi sg sbx create|run|ls|rm ... (xpi sg help)");
 	}
 }
 

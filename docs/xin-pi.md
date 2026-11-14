@@ -48,7 +48,8 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
   `xpi sg <subcommand>` is dispatched in `coding-agent/src/main.ts` next to `xpi roost`, through
   `src/extensions/shadow-git/cli.lazy.ts`. The package has no npm dependencies; its two shell adapters
   (`adapters/`) are copied to `dist/shadow-git-adapters/` by `copy-assets` (`getShadowGitAdaptersDir` in `config.ts`).
-  Not built yet: sandboxes, `builtin:shadow-git`, `/sg`.
+  Sandboxes (`xpi sg sbx`, the path policy, the `namespace` and `policy` backends) are built; not yet:
+  `builtin:shadow-git`, `/sg`, the policy check in xpi's tools.
 - App-config environment variables carry the prefix `XPI_` instead of `PI_` (`XPI_OFFLINE`, `XPI_TELEMETRY`,
   `XPI_PACKAGE_DIR`, `XPI_SKIP_VERSION_CHECK`, ...). The list of renamed names is `ENV_VARS` in `scripts/xpi-rename.mjs`.
   CI secrets, build constants and release tooling variables keep their names.

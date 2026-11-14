@@ -1,8 +1,8 @@
 # shadow-git
 
 A private git history over a workspace that another version control system owns. This page covers what exists today:
-the core (`xpi sg`), the sync model and the adapters. Sandboxes for parallel agents and the integration into xpi
-sessions (`/sg`, hooks, `isolation: "worktree"`) are not built yet; `xpi sg sbx` says so.
+the core (`xpi sg`), the sync model, the adapters, and sandboxes for parallel agents. The integration into xpi
+sessions (`/sg`, hooks, `isolation: "worktree"`, and the policy check in xpi's file tools) is not built yet.
 
 ## What it is
 
@@ -121,7 +121,7 @@ After an export, `host` holds the local-only paths too, so `host` is "the host's
 ### Merge, lock and live sessions
 
 `xpi sg merge <branch>` merges a branch into `main` under the lock (`main` checked out, a clean tree). It is for
-branches that come from elsewhere, such as sandboxes later. `xpi sg merge --continue|--abort` go to `git merge`, under
+branches that come from elsewhere, such as a sandbox's `sbx/<id>`. `xpi sg merge --continue|--abort` go to `git merge`, under
 the same lock and live-session check.
 
 Writes to the primary workspace (`import`, `export --apply`, `merge`) take `<store>/<name>.lock`, a file created
@@ -141,12 +141,15 @@ sessions do not write these entries yet.
 | `xpi sg env` | Print `export GIT_DIR=... GIT_WORK_TREE=...`. |
 | `xpi sg list` | Print the registry: `<workspace>\t<name>`. |
 | `xpi sg merge <branch>` | Merge a branch into `main`. |
+| `xpi sg sbx create <id> [--from <branch>] [--profile <file>]` | Create a sandbox (see [Sandboxes](#sandboxes)). |
+| `xpi sg sbx run <id> -- <command...>` | Run a command in a sandbox. |
+| `xpi sg sbx ls` | List the sandboxes. |
+| `xpi sg sbx rm <id> [--force]` | Remove a sandbox; its branch stays. |
 | `xpi sg <git command> ...` | git on the shadow repo, with its exit code. |
 
 `push`, `fetch`, `pull`, `clone`, `remote` and `submodule` exit 2: the shadow repo is local. The check skips git's
 global options (`-c k=v`, `-C dir`, `--git-dir=...`) and looks at the command word. It is a guard rail, not
-enforcement: a git alias or `xpi sg env` plus plain git gets around it. `xpi sg sbx ...` exits 2
-("not available yet").
+enforcement: a git alias or `xpi sg env` plus plain git gets around it.
 
 The repo is the registered workspace with the longest path that contains the current directory; no match is exit 2.
 `xpi sg --repo <name> <command>` (before the command) picks one by name.
@@ -163,6 +166,7 @@ The store and tools come from the environment:
 | `XPI_SG_STORE` | `<agent dir>/shadow-git` | The store: the registry, the shadow repos and the locks. |
 | `XPI_SG_GIT` | `git` on `PATH` | The git binary. It must be 2.20 or newer; older is exit 2 naming this variable. |
 | `XPI_SG_ADAPTER_PATH` | `<store>/adapters` | Directories searched for adapters first, `:`-separated. |
+| `XPI_SG_UNSHARE` | `unshare` | The program the `namespace` sandbox backend probes and runs. Tests set it to a missing file. |
 
 Per-repo settings are git config keys in the shadow repo, edited with `xpi sg config ...`:
 
@@ -173,9 +177,12 @@ Per-repo settings are git config keys in the shadow repo, edited with `xpi sg co
 | `shadow.localOnly` (multi) | Local-only globs. `xpi sg config --add shadow.localOnly <glob>`. |
 | `shadow.gitfile` | Whether `init` wrote the `.git` file. |
 | `shadow.<adapter>.*` | Whatever the adapter reads, such as `shadow.plain.upstream`. |
+| `sandbox.backend` | `auto` (default), `namespace` or `policy`. |
+| `sandbox.require` | `namespace`: a sandbox command fails (exit 2) instead of falling back to `policy`. |
+| `sandbox.rule` (multi) | Path rules, `<mode> <path>`. See [Path policy](#path-policy). |
 
 The shadow repo sets `extensions.worktreeConfig` and `core.repositoryformatversion = 1`, and keeps `core.worktree` in
-`config.worktree` of the main worktree, so linked worktrees (sandboxes, later) can have their own.
+`config.worktree` of the main worktree, so linked worktrees (sandboxes) have their own.
 
 ## Adapters
 
@@ -211,6 +218,144 @@ The package ships two adapters, both POSIX `sh`:
 
 Adapters for real host VCSs are written by their users and are not part of xin-pi.
 
+## Sandboxes
+
+Several agents can work on one workspace when each has its own copy of the files it changes. A sandbox is a private git
+worktree plus a path policy that decides, path by path, what a sandboxed command sees and may write.
+
+- The primary workspace is read-only to every sandbox. Only `import`, `export --apply` and `merge` write it, under the
+  lock.
+- `<store>/<name>.sbx/<id>/tree/` is a git worktree on branch `sbx/<id>`, made from `main` (or `--from <branch>`). Its
+  `.git` file is in the store, not the workspace. Each sandbox has its own index and branch, so sandboxes commit in
+  parallel.
+- Work leaves a sandbox only as commits on `sbx/<id>`. You run `xpi sg merge sbx/<id>`, then `xpi sg export`.
+
+```bash
+xpi sg sbx create fix-parser                 # a worktree on sbx/fix-parser, from main
+xpi sg sbx run fix-parser -- sh              # a shell in it
+xpi sg sbx run fix-parser -- ./run-tests.sh  # any command: a test, a build, an agent
+xpi sg sbx ls                                # branch, commits ahead of main, changed files, backend
+xpi sg merge sbx/fix-parser                  # you, in the primary workspace
+xpi sg sbx rm fix-parser                     # the branch stays
+```
+
+`sbx rm` stops (exit 2) when the sandbox has uncommitted changes; `--force` removes it anyway. `sbx create` is refused
+(exit 2) while an import is stopped (`SG_IMPORT`), and the id must not be one of `tree`, `scratch`, `primary`,
+`policy`, `links`, `excludes`. `xpi sg status` lists the sandboxes.
+
+### Path policy
+
+Rules are git config values, `sandbox.rule = <mode> <path>`, set with `xpi sg config --add sandbox.rule "<mode> <path>"`.
+`@ws` is the primary workspace root (`@ws/build` is a path under it); an absolute path inside the workspace is the same
+as `@ws/...`; any other absolute path is outside it. The longest matching prefix wins; among rules of the same length
+the later one does. `xpi sg sbx create --profile <file>` reads the rules from a git-config file (`[sandbox]`,
+`rule = ...`) **instead of** the repo's. The rules are copied into the sandbox when it is created.
+
+| Mode | A sandboxed command sees | It may write | Typical use |
+|---|---|---|---|
+| `private` | Its own copy | Yes | Source the agent changes |
+| `shared-ro` | The primary file | No | Shared libraries, test suites, tool installs |
+| `shared-rw` | The primary file | Yes, visible to every sandbox | Shared caches, only when listed |
+| `scratch` | An empty per-sandbox directory | Yes | Build and test output |
+| `hidden` | Nothing | No | Host VCS metadata, other users' areas, credentials |
+
+**Defaults, when no rule matches:**
+
+- Paths the shadow repo tracks are `private`.
+- Other paths under `@ws` are `shared-ro`: read from the primary workspace, so shared scripts and test suites work
+  unchanged.
+- The adapter's `metadata` paths are `hidden`. A rule of the same length or a longer one overrides this; a shorter one
+  (`shared-ro @ws`) does not unhide them.
+- Paths outside `@ws` are `shared-ro`.
+- Writes are denied unless the mode is `private`, `scratch` or `shared-rw`.
+
+Checks at `sbx create` (exit 2, nothing is created):
+
+- A `scratch`, `hidden` or `shared-rw` rule that covers tracked files is an error. It would hide the agent's own files,
+  or leave them out of the share. A `shared-ro` rule over tracked files is allowed: the policy then refuses writes to
+  them.
+- A `scratch` path must be under `@ws`. A `private` rule needs no setup: a path starts with what git tracks.
+- A rule needs a mode and a path (`@ws`, `@ws/<path>` or absolute), with no `.` or `..`.
+
+### The sandbox tree
+
+Both backends start from the same tree:
+
+- The worktree holds the tracked files, as the sandbox's own copies.
+- `<store>/<name>.sbx/<id>/primary` is the sandbox's view of the primary workspace: a symlink to it under `policy`, a
+  read-only bind mount under `namespace`. Every link in the tree points into `primary`, never at the workspace's own
+  path, which the `namespace` backend covers with the tree.
+- Every untracked, not-hidden entry of the primary workspace is a symlink in the tree to `primary/<path>`. A directory
+  with no tracked files below it is one link, so the number of links stays small. The links are refreshed whenever
+  `sbx run` starts, so a file that appeared in the primary since is there.
+- A `scratch` path is a link to `<store>/<name>.sbx/<id>/scratch/<path>`.
+- A `shared-rw` path under `@ws` is a link to the workspace path under `policy`, and a read-write bind of it at its
+  place in the tree under `namespace`.
+- The links and mount points are listed in the worktree's own `core.excludesFile` (through
+  `extensions.worktreeConfig`), so they never show in the sandbox's `git status`. An untracked file the agent makes in a
+  directory that would be a link keeps the directory real, and its other entries become links.
+
+### Backends
+
+`sandbox.backend` is `auto` (the default), `namespace` or `policy`. `auto` checks that
+`unshare --user --map-root-user --mount` works (and that `mount` and `findmnt` exist), once per command, uses
+`namespace` if it does and `policy` if not, and prints which on stderr. With `sandbox.require = namespace` a failed
+check is exit 2, as is `sandbox.backend = namespace`. macOS has `policy` only.
+
+**`namespace`** (Linux). `sbx run` runs the command in a new user and mount namespace through a small `sh` script.
+Every mount point exists before `unshare`. The mount order is fixed:
+
+1. The workspace is bound (`--rbind`) at `primary` and remounted read-only.
+2. `hidden` paths are covered, inside `primary` too: an empty read-only `tmpfs` over a directory, `/dev/null` over a file.
+3. `shared-rw` paths are bound read-write at their place in the tree.
+4. The tree is bound (`--rbind`, so the binds from step 3 come along) over the workspace's own path. Inside the
+   sandbox `/proj/ws` shows the agent's files, so scripts that hard-code the workspace path work unchanged.
+5. `shared-ro` rules for absolute paths outside the workspace are bound read-only over themselves, and `hidden`
+   absolute paths are covered.
+
+A read-only remount in a user namespace fails unless it repeats the flags the mount was locked with (`nosuid`, `nodev`,
+`noexec` and the access-time flags). Steps 1 and 5 read them with `findmnt -no OPTIONS` and pass them again. Recent
+`mount` programs do it themselves; older ones need it. A failed setup step ends the command with exit 125 and a
+message. The command starts in the workspace's path, and its environment has `GIT_WORK_TREE` set to it.
+
+Outside the workspace and the listed paths the filesystem keeps its normal permissions: a fully read-only system would
+break xpi's own session files, the home directory and temp files.
+
+**`policy`** (any platform; the only one on macOS). It needs nothing installed:
+
+- The command runs with the tree as its working directory, and `GIT_WORK_TREE` is the tree. Absolute paths into the
+  primary workspace reach the primary files.
+- The path policy is a function of the package: `sandboxPolicy(sandbox, absolutePath)` returns the mode and whether
+  reading and writing are allowed. It checks real paths (the parent directory's for a new file), so a write through a
+  link into `primary` is a write to the primary file and is denied. The xpi integration enforces it in its file tools
+  (`read`, `write`, `edit`).
+- `bash` is advisory. Nothing stops a shell command from writing a primary file. A command that must be held to the
+  rules should run under `namespace`.
+
+### `sbx run`
+
+`xpi sg sbx run <id> -- <command...>` runs the command with these variables, which always replace values the parent
+passed down (so a `GIT_DIR` from another repository cannot leak in):
+
+| Variable | Value |
+|---|---|
+| `XPI_SG_SANDBOX` | `<name>/<id>` |
+| `GIT_DIR` | `<store>/<name>.git/worktrees/<id>` |
+| `GIT_WORK_TREE` | the tree (`policy`) or the workspace's path (`namespace`) |
+| `XPI_SG_BACKEND` | `namespace` or `policy` |
+| `XPI_SG_STORE` | the store, so `xpi sg` inside finds it |
+
+Its exit code is the command's. Inside, `git` works on the sandbox: its own index, branch and commits. `xpi sg
+<git command>` does too, and `xpi sg import`, `merge`, `export --apply` and `sbx create|rm|run` are refused (exit 2):
+a sandbox does not write the primary workspace and sandboxes do not nest. Several `sbx run` of one sandbox at once
+share its tree; start another sandbox for work that must not mix.
+
+### Commands that send work elsewhere
+
+Some build and test tools send work to other machines, such as through a job scheduler or a remote build service. That
+work runs outside the sandbox. The sandbox does not manage what it reads or changes and has no special support for it.
+Results it writes back into the workspace are the user's to handle.
+
 ## Limits
 
 - **git environment.** `xpi sg env` makes `GIT_DIR` and `GIT_WORK_TREE` point at the shadow repo for that shell. Every git
@@ -222,8 +367,20 @@ Adapters for real host VCSs are written by their users and are not part of xin-p
 - **A clean tree is required** for `import`, `export` and `merge`, including no untracked files that are not ignored.
 - **Local-only globs** are git pathspec globs from the workspace root, so `AGENTS.md` matches only the root file. They
   cannot contain spaces, because the adapter receives them space-separated.
+- **Sandbox policy is advisory outside a namespace.** Under `policy`, a shell command can write a primary file; only
+  the xpi integration (not built yet) refuses a denied path in its own file tools. `namespace` enforces it with
+  mounts, for everything but the writable submounts below.
+- **Root in the namespace.** The command runs as root inside the namespace, with the user's own uid outside. Files owned
+  by other users show as `nobody`, setuid programs do not work, and some tools refuse to run as root. For those,
+  `policy` is the way.
+- **Writable submounts.** The read-only remount covers the mount at `primary`, not mounts inside the workspace
+  (`--rbind` brings submounts along as they were), so a submount that is writable stays writable there.
+- **The global excludes file does not apply in a sandbox.** The sandbox's own `core.excludesFile` (the link list)
+  replaces the user's global one for that worktree. `info/exclude` of the shadow repo still applies, and `.gitignore`
+  files do.
 - **Live-session check.** The check reads `<store>/<name>.sessions`, but nothing writes entries until xpi sessions are
   wired in; until then a command line run does not see an open xpi session.
-- **No sandboxes yet.** Several agents on one workspace need them; `xpi sg sbx` is not available.
+- **`shared-ro` over tracked files** is enforced by the policy only; the namespace does not mount over them.
+- **A sandbox's links are a snapshot of one moment.** They are refreshed when `sbx run` starts, not while it runs.
 - **Standalone binary.** The shipped adapters are files next to the binary; if you move the binary alone, put them in
   `XPI_SG_ADAPTER_PATH`.

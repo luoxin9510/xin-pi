@@ -2,6 +2,7 @@ import { callAdapter } from "./adapter.ts";
 import { configGet, currentBranch, readImportRecord } from "./config.ts";
 import { git } from "./git.ts";
 import type { Repo } from "./registry.ts";
+import { listText } from "./sandbox.ts";
 import { liveSessions } from "./sessions.ts";
 
 /** git status, the commits ahead of `host`, the adapter's own summary, and a stopped import. */
@@ -22,6 +23,8 @@ export function status(repo: Repo): void {
 	const sessions = liveSessions(repo);
 	if (sessions.length > 0) out(`live sessions: pid ${sessions.join(", ")}\n`);
 	out(git(repo, ["status", "--short", "--branch"]).stdout);
+	const sandboxes = listText(repo);
+	if (sandboxes.length > 0) out(`sandboxes:\n${sandboxes.map((line) => `  ${repo.name}/${line}`).join("\n")}\n`);
 	try {
 		const text = callAdapter(repo, "status").trimEnd();
 		if (text)
