@@ -72,7 +72,8 @@ At the `tool_call` event (codemode's nested calls emit it too, so a script is co
   `realpath(ctx.cwd)` (on macOS `/tmp` is `/private/tmp`; without this an anchored pattern misses a symlinked file).
   Inside the root, the relative path is matched; outside, the absolute path without its leading `/`. On Windows
   `ignore` rejects a drive path (`C:/...` is not relative), so the drive's colon is dropped: `C/Users/x/.ssh/id_rsa`;
-  UNC and `\\?\` paths drop their prefix the same way (`server/share/...`). Separators are always `/`. A pattern without a slash, such as `id_rsa*`,
+  UNC paths drop their leading `\\` (`server/share/...`); a `\\?\` path drops its prefix and then its drive colon
+  (`\\?\C:\x` becomes `C/x`). Separators are always `/`. A pattern without a slash, such as `id_rsa*`,
   matches at any depth, so `~/.ssh/id_rsa` matches; an anchored pattern such as `config/x` only matches inside the
   project.
 - The root itself never matches: `ignore` throws on an empty path, so a candidate equal to its root (`ls .`, `grep`
@@ -120,7 +121,8 @@ At the `tool_call` event (codemode's nested calls emit it too, so a script is co
   `id_rsa.pub` not, `.git/config` write blocked and read allowed, `.git` itself as a file); user and project entries
   in order, `!` undoing a default; `.` and `""` (the root, never matched, no throw); a path outside the project
   (`~/.ssh/id_rsa`); a symlink to `.env` under another name, also with the project under a symlinked directory; a new
-  file under `.git/`; case on darwin and not on linux; Windows separators, drive, UNC and `\\?\` paths, with `ignore` loaded while `process.platform` is simulated as
+  file under `.git/`; case on darwin and not on linux; Windows separators, drive, UNC and `\\?\` paths, with `ignore` loaded while
+  `process.platform` is simulated as
   `win32` (it decides at load time); a
   scheme path skipped; a non-string entry skipped with one warning.
 - Settings (`test/settings-manager.test.ts`): the two lists concatenate across layers; an untrusted project's list is
