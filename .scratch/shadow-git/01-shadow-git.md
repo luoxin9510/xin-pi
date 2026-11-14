@@ -1,6 +1,6 @@
 # 01: shadow-git
 
-Status: approved; not built yet.
+Status: done. PRs #95 (spec), #96 core, #97 sandboxes, #98 xpi integration, #99 wrap-up.
 
 Approval: approved by the owner on 2026-11-14 ("是"), with both owner questions as recommended (decisions 18 and
 19). It had six rounds of independent review (one review and five delta checks); the last found nothing blocking or
@@ -672,3 +672,9 @@ After the second review of PR 3:
 - **The memory variable is passed narrowly.** `XPI_SUBAGENT_MEMORY_DIR` is left out for a read-only memory, and, when
   `XPI_SG_SANDBOX` is set, for a child whose memory directory is not the one received or below it; what the process
   received is removed from the child's environment otherwise.
+
+PR 4 (wrap-up): the real-model check is `test/subagent/real/24-shadow-git.test.ts` (an isolated agent commits in its sandbox;
+`xpi sg merge` and the export plan show it; the agent's `xpi sg export --apply` is blocked and the host unchanged). The
+namespace backend is also run end to end offline in `test/subagent/shadow-git/namespace.test.ts` (an isolated subagent and a
+teammate; skips where namespaces are unavailable). The detailed porting guide is the section "shadow-git: the detailed
+guide" of `porting.md`.

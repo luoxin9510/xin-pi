@@ -424,7 +424,10 @@ of worktree in the subagent extension; both are options of the unit.
   git and the plain adapter; no model, no network). `test/namespace.test.ts` runs the `namespace` backend and skips where
   it is unavailable. The extension and isolation: `test/subagent/shadow-git/*.test.ts` in coding-agent (part of
   `npm run test:subagent`; a fake child process, temp store and workspace, the `policy` backend forced by
-  `XPI_SG_UNSHARE`).
+  `XPI_SG_UNSHARE`). `test/subagent/shadow-git/namespace.test.ts` runs an isolated subagent and a teammate under the
+  `namespace` backend (offline, fake child) and skips with the probe's message where namespaces are unavailable. By hand on
+  Haiku, after `npm run build`: `test/subagent/real/24-shadow-git.test.ts` (an isolated agent commits in its sandbox,
+  `xpi sg merge` and the export plan show it, an agent's `export --apply` is blocked).
 - **Linux**: the reference platform, and the only one with the `namespace` sandbox backend. It needs
   `unshare --user --map-root-user --mount --pid --fork --mount-proc` to work: some systems turn unprivileged user namespaces off with a sysctl or a
   security module, and some restrict them by default (check CI runners). The namespace tests skip, with the probe's
@@ -435,8 +438,61 @@ of worktree in the subagent extension; both are options of the unit.
   for the core; the system `sh` and `git` work, and `/var` and `/tmp` are links, so the registry stores real paths
   (`realpath`) and the cwd is resolved the same way. Sandboxes use the `policy` backend only: `bash` in a sandbox is
   advisory, and the file tools' path check and the block list are what hold an agent.
-- **Guide**: this entry; [shadow-git](shadow-git.md) (the adapter contract, the sync model, agents in xpi); and, for
-  the subagent side, [Porting the subagent extension](subagent-porting.md#shadow-git-sandboxes).
+- **Guide**: [the detailed guide](#shadow-git-the-detailed-guide) below (core API, adapter contract, the namespace script,
+  the extension hooks); [shadow-git](shadow-git.md) (the user docs: sync model, adapters, sandboxes, agents in xpi); and, for
+  the subagent side, [shadow-git isolation](#shadow-git-isolation) and [Porting the subagent extension](subagent-porting.md#shadow-git-sandboxes).
+
+### shadow-git: the detailed guide
+
+Read in this order; each layer needs only the ones above it.
+
+**1. The core (`packages/xpi-shadow-git/src`, Node and git only).**
+
+| Piece | API (`src/index.ts`) | What it is |
+|---|---|---|
+| Commands | `runSg(args, options)` | `xpi sg <args>`; returns 0, 1 (git or adapter failure) or 2 (precondition). `options`: `cwd`, `env`, `stdout`, `stderr`, `stdio`, `defaultStore`, `builtinAdaptersDir`, `lockTimeoutMs`, `ownSessionPid`. |
+| Steps | `initRepo`, `importHost`, `abortImport`, `exportPlan`, `exportMain`, `mergeBranch` | The sync model of [shadow-git](shadow-git.md#sync-model): `host` receives imports, `main` holds work, export fast-forwards `host`. |
+| Registry and repo | `readRegistry`, `resolveRepo(ctx, name?)`, `createContext` | One line per workspace in `<store>/registry`; the longest registered path that contains the cwd wins. |
+| Lock and sessions | `withLock`, `pidAlive`, `liveSessions`, `sessionsDir` | A lock file with the holder's pid, stale only when the pid is gone; `<name>.sessions/<pid>` entries written by top-level sessions. |
+| Sandboxes | `createSandbox`, `loadSandbox`, `listSandboxes`, `removeSandbox`, `refreshTree`, `changedFiles`, `sandboxGit`, `sandboxFromEnv` | A git worktree on `sbx/<id>` plus the tree's links to the primary, in `<store>/<name>.sbx/<id>`. |
+| Policy | `sandboxPolicy(sandbox, path, backend)`, `parseRule`, `MODES` | What a command may do with a path, by its real path (`private`, `shared-ro`, `shared-rw`, `scratch`, `hidden`). |
+| Backends | `probeNamespace`, `resolveBackend`, `namespaceScript(sandbox, subdir)`, `prepareLaunch(repo, id)` | `prepareLaunch` refreshes the links and returns `wrap(cmd, { env, subdir })`: the program, arguments, cwd and environment that start `cmd` in the sandbox. |
+
+**2. The adapter contract.** `sg-adapter-<name>` is an executable in `XPI_SG_ADAPTER_PATH`, the shipped adapters, then
+`PATH`. Called as `<adapter> <op>` in the workspace root with `XPI_SG_WORKSPACE`, `XPI_SG_SCOPE`, `XPI_SG_LOCAL_ONLY`,
+`XPI_SG_GIT_DIR` and `XPI_SG_GIT` set. Ops: `metadata` (the host VCS's own paths, hidden in sandboxes), `excludes`
+(gitignore patterns), `prepare` (every in-scope file writable), `update` (one-line label; bring the workspace to the
+host's latest, leaving local-only paths alone), `checkin` (stdin `A|M|D<TAB>path`, `--message-file`), `status` (at most 20
+lines). `sg-adapter-template` documents each op; `sg-adapter-plain` is the reference. Full text in
+[shadow-git](shadow-git.md#adapters).
+
+**3. The namespace script (Linux).** `unshare --user --map-root-user --mount --pid --fork --mount-proc sh -c <script>
+xpi-sg-sandbox <cmd...>`, with every mount point made before `unshare`. The script, in order: bind the workspace at the
+sandbox's `primary` and remount it read-only with the flags it was locked with (read by `findmnt`); cover `hidden` paths
+(tmpfs over a directory, `/dev/null` over a file); bind `shared-rw` paths read-write into the tree; bind the tree over the
+workspace's own path; bind `shared-ro` absolute paths read-only and cover hidden ones; make the shared git directory's
+`config`, `config.worktree`, `hooks/`, `info/` and `worktrees/` read-only, keeping the sandbox's own `worktrees/<id>`
+writable except its `commondir`, `gitdir` and `config.worktree` (a moved `commondir` would make git read another
+config, with filter drivers that run outside the sandbox); make `<name>.sbx` read-only except
+this sandbox's `tree` and `scratch`; `cd` to the workspace path plus the subdirectory and `exec`. A failed setup step ends
+with exit 125. Port it to another init system or sandbox runner by keeping that order and the writable exceptions.
+
+**4. The extension hooks (`src/extensions/shadow-git/`).** All of it uses the extension API only:
+
+| Hook | In the primary workspace | In a sandbox |
+|---|---|---|
+| factory | registers handlers, `/sg` (top-level session only); first among the built-ins | registers handlers; nothing is decided from the cwd; if `XPI_SG_SANDBOX` cannot be opened, every tool call is blocked (fail closed) |
+| `session_start` | decides from the session's `cwd`: sets or restores `GIT_DIR`/`GIT_WORK_TREE`, writes or removes the live entry, notices a stopped import | resets the block list |
+| `session_shutdown` | removes the entry, restores the environment | none |
+| `before_agent_start` | adds the prompt section, rewrites a missing entry | adds the sandbox prompt section |
+| `tool_call` | blocks every call while an import is stopped; blocks shell commands by `guard.ts` (any tool with a string `command`) | the same block list, and `policy-check.ts` for `read`, `write`, `edit`, `grep`, `find`, `ls` |
+| `/sg` | `import`, `export`, `merge`, `status`, `sbx ls` through `runSg` with `ownSessionPid` | none |
+
+Process-level pieces: an exit hook that removes the live entry, and `XPI_SUBAGENT_MEMORY_DIR` (set by the subagent runner
+to the child's own memory directory, the only memory a sandboxed session may write; omitted for read-only memory, and
+inside a sandbox for any directory outside the one the process itself received).
+
+**5. Isolation** is the next section and [Porting the subagent extension](subagent-porting.md#shadow-git-sandboxes).
 
 ### shadow-git isolation
 

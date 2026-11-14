@@ -49,7 +49,10 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
   `src/extensions/shadow-git/cli.lazy.ts`. The package has no npm dependencies; its two shell adapters
   (`adapters/`) are copied to `dist/shadow-git-adapters/` by `copy-assets` (`getShadowGitAdaptersDir` in `config.ts`).
   Sandboxes (`xpi sg sbx`, the path policy, the `namespace` and `policy` backends) and the xpi integration
-  (`builtin:shadow-git`, below) are built.
+  (`builtin:shadow-git`, below) are built. Porting: [the detailed guide](../packages/xpi-coding-agent/docs/porting.md#shadow-git-the-detailed-guide).
+  Tests: the package's vitest suite (the namespace tests need Linux user namespaces), `test/subagent/shadow-git/*.test.ts`
+  (offline; `namespace.test.ts` runs the namespace backend end to end where it works), and by hand on Haiku
+  `test/subagent/real/24-shadow-git.test.ts` (part of `test:subagent:real`).
 - App-config environment variables carry the prefix `XPI_` instead of `PI_` (`XPI_OFFLINE`, `XPI_TELEMETRY`,
   `XPI_PACKAGE_DIR`, `XPI_SKIP_VERSION_CHECK`, ...). The list of renamed names is `ENV_VARS` in `scripts/xpi-rename.mjs`.
   CI secrets, build constants and release tooling variables keep their names.

@@ -6,6 +6,7 @@
 //   logFile?: string (append "start" when the process starts and "line <n>" before each line: the order of events
 //   across several children), hold?: { line, starts } (before that line, wait until the log has that many "start"
 //   entries, at most 4 s: siblings that should run at the same time are seen to, however slow the machine),
+//   tryPrimaryWrite?: string (a file name to write under the sandbox's `primary` at start; the error code is recorded),
 //   reply?: string[] (lines for a second prompt: the child stays up after `lines` and plays these when one comes),
 //   takeSteers?: boolean (answer a steer command with a user message_end carrying its text),
 //   byPrompt?: { [text]: string[] } (lines to play instead of `lines` when the prompt contains that text; first match) }
@@ -25,6 +26,7 @@ log("start");
 const sp = argv.indexOf("--system-prompt");
 const spTail = argv.indexOf("--system-prompt-tail");
 const commands = [];
+const writes = {}; // tryPrimaryWrite: the error code of each attempt ("ok" when it worked)
 const record = () =>
   writeFileSync(
     process.env.FAKE_PI_RECORD,
@@ -41,12 +43,24 @@ const record = () =>
         ["XPI_SG_SANDBOX", "XPI_SG_BACKEND", "XPI_SG_STORE", "GIT_DIR", "GIT_WORK_TREE", "XPI_SUBAGENT_MEMORY_DIR"].map((name) => [name, process.env[name]]),
       ),
       commands,
+      writes,
       cwd: process.cwd(),
       systemPrompt: sp === -1 ? undefined : readFileSync(argv[sp + 1], "utf8"),
       systemPromptTail: spTail === -1 ? undefined : readFileSync(argv[spTail + 1], "utf8"),
       schema: process.env.XPI_SUBAGENT_SCHEMA_FILE ? readFileSync(process.env.XPI_SUBAGENT_SCHEMA_FILE, "utf8") : undefined,
     }),
   );
+if (scenario.tryPrimaryWrite) {
+  // A write into the sandbox's own `primary` view of the workspace: read-only under the namespace backend.
+  const [name, id] = (process.env.XPI_SG_SANDBOX ?? "/").split("/");
+  const file = `${process.env.XPI_SG_STORE}/${name}.sbx/${id}/primary/${scenario.tryPrimaryWrite}`;
+  try {
+    writeFileSync(file, "x\n");
+    writes.primary = "ok";
+  } catch (error) {
+    writes.primary = error.code;
+  }
+}
 record();
 if (scenario.sessionFile) {
   mkdirSync(dirname(scenario.sessionFile), { recursive: true });
