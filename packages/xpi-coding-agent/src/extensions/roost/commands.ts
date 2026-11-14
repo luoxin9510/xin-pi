@@ -58,6 +58,12 @@ export const EXTENSION_COMMANDS: Record<string, How & { description: string; arg
 	workflows: { how: "picker", description: "Saved workflows and this session's workflow runs" },
 	subagents: { how: "picker", args: "optional", description: "This session's subagents" },
 	tasks: { how: "picker", description: "The agent team's task list" },
+	sg: {
+		how: "reply",
+		args: "optional",
+		argumentHint: "import | export [--apply] | merge <branch> | status | sbx ls",
+		description: "shadow-git: import, export, merge and status for this workspace",
+	},
 	agents: { how: "picker", description: "The hub, inside the session" },
 	relay: { how: "screen", description: "Relay: who has the work, the round and the two models" },
 	handover: { how: "reply", args: "optional", description: "Relay: give the work to the worker model now" },
