@@ -41,7 +41,12 @@ describe("spec 03: forgetInheritedJob", () => {
 			PATH: "/bin",
 		};
 		forgetInheritedJob(inherited);
-		expect(inherited).toEqual({ ROOST_HOME: "/keep", PATH: "/bin" });
+		// no caller left, only the fact that it runs inside session j1 (decision 8 still applies)
+		expect(inherited).toEqual({ ROOST_HOME: "/keep", PATH: "/bin", ROOST_INSIDE: "j1" });
+		// one level deeper (an xpi in that xpi's shell, which a session started again): the outermost session stays
+		const deeper: NodeJS.ProcessEnv = { ROOST_JOB_ID: "j3", ROOST_SOCKET: "/tmp/s", ROOST_INSIDE: "j1" };
+		forgetInheritedJob(deeper);
+		expect(deeper).toEqual({ ROOST_INSIDE: "j1" });
 		// the session itself (its token is there): untouched
 		const session: NodeJS.ProcessEnv = { ROOST_JOB_ID: "j2", ROOST_SOCKET: "/tmp/s", ROOST_JOB_TOKEN: "t" };
 		forgetInheritedJob(session);

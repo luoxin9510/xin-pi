@@ -8,7 +8,7 @@ import { attachFollowingRestart, attachToHost, type DetachKeyMatcher } from "./l
 import { DaemonClient, DaemonError, type DaemonStart, daemonElsewhere, daemonEnv, requestOnce } from "./lib/client.ts";
 import { eventAgo, eventLine, type RoostEvent } from "./lib/events.ts";
 import { hostControl } from "./lib/hostclient.ts";
-import { readJobEnv } from "./lib/identity.ts";
+import { insideSession, readJobEnv } from "./lib/identity.ts";
 import { formatList, formatSchedules } from "./lib/list-format.ts";
 import { readStateLock } from "./lib/locks.ts";
 import {
@@ -384,9 +384,9 @@ export async function runRoostCli(argv: string[], opts: RoostCliOptions): Promis
 
 	/** Decision 8: a session the daemon runs does not make, change or run schedules (a person does). */
 	function refuseInSession(what: string): void {
-		if (readJobEnv(process.env, "id"))
+		if (insideSession(process.env))
 			throw new DaemonError(
-				`schedule ${what} is refused inside a background session (ROOST_JOB_ID is set): schedules are made by a person; run it from your own terminal or the hub`,
+				`schedule ${what} is refused inside a background session (ROOST_JOB_ID or ROOST_INSIDE is set): schedules are made by a person; run it from your own terminal or the hub`,
 				"in_session",
 			);
 	}

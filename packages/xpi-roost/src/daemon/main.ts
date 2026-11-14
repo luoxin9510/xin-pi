@@ -971,8 +971,9 @@ async function respawn(
 				: { state: "working" as const, stateSince: now, summary: null, question: null, choices: [] }),
 			// a shell job has no worker to report: it is busy until it exits
 			status: rec.kind === "shell" ? "busy" : null,
-			// a restored blocked row keeps what it waits for until the new worker reports (it reports the same)
-			waitingFor: restore && priorState === "blocked" ? (priorWaitingFor ?? null) : null,
+			// a question outlives its process (the new worker asks it again): a restored row keeps it until then; a
+			// dialog or the first prompt went with the old process
+			waitingFor: restore && priorState === "blocked" && priorWaitingFor === "question" ? "question" : null,
 			tool: null,
 			error: null,
 			reportedAt: undefined,

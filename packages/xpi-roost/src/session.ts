@@ -2,7 +2,7 @@
 // and whether this process is a session the daemon runs. Files and the environment only: no
 // daemon client, nothing that connects. A session the daemon runs loads the rest (`xpi-roost`).
 
-import { JOB_ENV_NAMES, readJobEnv } from "./lib/identity.ts";
+import { INSIDE_ENV, JOB_ENV_NAMES, readJobEnv } from "./lib/identity.ts";
 
 export { readJobEnv };
 
@@ -34,9 +34,14 @@ export function isRoostSession(env: NodeJS.ProcessEnv = process.env): boolean {
  * Spec 03: an xpi started from a session's shell (a foreground xpi in bash) inherits the session's id and socket, but
  * is not that session. Left in its environment, they would reach what it starts in turn: `xpi roost restart` run by
  * its agent would name the outer session as the caller and send it the restart prompt, and its `/agents` would take
- * the outer session for itself. Called once by xpi's roost extension in every process that is not a session.
+ * the outer session for itself. It keeps `ROOST_INSIDE`, so what a session may not do stays refused. Called once by
+ * xpi's roost extension in every process that is not a session.
  */
 export function forgetInheritedJob(env: NodeJS.ProcessEnv = process.env): void {
-	if (readJobEnv(env, "id") === undefined || isRoostSession(env)) return;
+	const id = readJobEnv(env, "id");
+	if (id === undefined || isRoostSession(env)) return;
+	const inside = env[INSIDE_ENV] || id;
 	for (const k of Object.keys(env)) if (JOB_ENV_NAMES.includes(k) || k.startsWith("ROOST_JOB_")) delete env[k];
+	// still inside that session for what a session may not do (decision 8): no caller, only the fact
+	env[INSIDE_ENV] = inside;
 }

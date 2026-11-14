@@ -272,6 +272,8 @@ describe("an ordinary start", () => {
 			// spec 03: and it forgets the job it inherited, so what it starts in turn is no session's child
 			expect(process.env.ROOST_JOB_ID).toBeUndefined();
 			expect(process.env.ROOST_SOCKET).toBeUndefined();
+			expect(process.env.ROOST_INSIDE).toBe("j9");
+			delete process.env.ROOST_INSIDE;
 
 			// the session itself: it has the token; after the worker took it out, a /reload is still the session
 			Object.assign(process.env, { ROOST_JOB_ID: "j9", ROOST_SOCKET: join(dir, "daemon.sock") });
