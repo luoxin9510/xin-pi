@@ -1,4 +1,5 @@
 import type { InlineExtension } from "../core/extensions/types.ts";
+import checksExtension from "./checks/index.ts";
 import codemodeExtension from "./codemode/index.ts";
 import commitExtension from "./commit/index.ts";
 import llamaExtension from "./llama/index.ts";
@@ -30,6 +31,9 @@ export const builtInExtensions: InlineExtension[] = [
 	{ name: "upstream", factory: upstreamExtension, builtin: true },
 	// Not replaceable. Disable it with `-builtin:commit`.
 	{ name: "commit", factory: commitExtension, builtin: true },
+	// Not replaceable. Runs the `checks.commands` settings after a turn that changed something. Off without commands.
+	// Disable it with `-builtin:checks`.
+	{ name: "checks", factory: checksExtension, builtin: true },
 	// Not replaceable. Background sessions (xpi roost): the session write lock, `--bg`, the worker role in a session the
 	// daemon runs. Disable it with `-builtin:roost`.
 	{ name: "roost", factory: roostExtension, builtin: true },
