@@ -20,7 +20,7 @@ cp permission-gate.ts ~/.pi/agent/extensions/
 |-----------|-------------|
 | `permission-gate.ts` | Prompts for confirmation before dangerous shell commands (rm -rf, sudo, etc.) run by `exec`-effect tools |
 | `project-trust.ts` | Demonstrates the `project_trust` event for user/global and CLI extensions |
-| `protected-paths.ts` | Blocks calls of `write`-effect tools (write, edit, ...) to protected paths (.env, .git/, node_modules/) |
+| `protected-paths.ts` | Blocks calls of `write`-effect tools (write, edit, ...) to protected paths (.env, .git/, node_modules/). A teaching example; the built-in `protect` extension does this for real ([docs/protect.md](../../docs/protect.md)) |
 | `confirm-destructive.ts` | Confirms before destructive session actions (clear, switch, fork) |
 | `dirty-repo-guard.ts` | Prevents session changes with uncommitted git changes |
 | `gondolin/` | Route built-in tools and `!` commands into a Gondolin micro-VM |

@@ -4,10 +4,10 @@ This page is a menu for taking xpi's features into another agent harness, read l
 components you want, follow each one's dependencies, and port only that set. Two levels, as in a kernel:
 
 - A **unit** is what you copy. Its files import each other, so a unit comes whole: you cannot copy half of it and build.
-  There are seven: [codemode](#codemode), [subagents](#subagents) (which needs codemode), [relay](#relay),
+  There are eight: [codemode](#codemode), [subagents](#subagents) (which needs codemode), [relay](#relay),
   [roost](#roost) (the `xpi-roost` package), the [roost adapter](#roost-adapter) (which needs roost) and
   [shadow-git](#shadow-git) (the `xpi-shadow-git` package; its isolation option needs subagents) and
-  [checks](#checks).
+  [checks](#checks) and [protect](#protect).
 - An **option** is a feature inside a unit. It comes with the unit's files; you turn it off by a setting, or by removing
   the line that wires it in (named in each option), not by leaving files out.
 
@@ -42,6 +42,7 @@ graph TD
   adapter[unit: roost adapter]
   shadowgit[unit: shadow-git]
   checks[unit: checks]
+  protect[unit: protect]
   subagents --> codemode
   adapter --> roost
   shadowgit -. isolation option .-> subagents
@@ -49,6 +50,7 @@ graph TD
   roost -. options .- o2[schedules, login service, hub]
   shadowgit -. options .- o4[local-only paths, scope, --gitfile, xpi integration, isolation]
   checks -. options .- o5[commands, timeouts, error cap, subagents]
+  protect -. options .- o6[pattern lists, /protect]
   adapter -. options .- o3[--bg, /bg, /agents, hub wiring, scheduleLaunch]
 ```
 
@@ -61,10 +63,11 @@ graph TD
 | [roost core](#roost-core) | roost | node-pty, unix sockets, detached child processes, a CLI that starts a session from argv with a session file | [schedules](#schedules) (no `scheduleLaunch`), [login service](#login-service) (remove its `cmdDaemon` branch); the hub is a separate entry point, unused unless wired |
 | [shadow-git](#shadow-git) | shadow-git | Node and git 2.20 or newer; a `sh` for the shipped adapters | `--gitfile`, local-only paths and the scope are settings; the xpi integration (the extension, [isolation](#shadow-git-isolation)) by leaving its wiring out |
 | [checks](#checks) | checks | tool effects on `tool_call`, the `turn_end` boundary with `custom_message` drafts and its `terminated` field (core change, see the entry), `registerMessageRenderer`, `ctx.signal`, `ui.setStatus` | nothing to turn off but the `checks.commands` setting |
+| [protect](#protect) | protect | tool effects and `input` on `tool_call` with `{ block, reason }`, `pi.getSettings()`, `pi.registerCommand`, `ctx.ui.notify`; a settings layer merge that concatenates the two `protect` lists (core change, see the entry) | the two `protect` lists emptied, or the wiring line left out |
 | [roost session side](#roost-session-side), [hub](#roost-hub) | roost, roost adapter | extension events, flags and commands; a TUI library like `xpi-tui` for the hub | `/agents` and the hub, by removing their registrations |
 
 A pick never needs a unit outside its row: the import graphs of `extensions/relay/index.ts`,
-`extensions/codemode/index.ts`, `extensions/subagent/index.ts`, `extensions/roost/index.ts`, `extensions/checks/index.ts` and xpi-roost's three
+`extensions/codemode/index.ts`, `extensions/subagent/index.ts`, `extensions/roost/index.ts`, `extensions/checks/index.ts`, `extensions/protect/index.ts` and xpi-roost's three
 process entries reach only the files listed in their units (plus the host's own `core/`, `modes/`, `utils/`,
 `cli/args.ts` and `config.ts`, and, for subagents, the MCP built-in's `config.ts` named in its entry).
 
@@ -306,6 +309,26 @@ The options below come with the unit. Each says how to turn it off.
 - **Linux**: each command runs through the shell in its own process group, which is killed on timeout, abort and shutdown.
   **macOS**: the same (the group is stopped first, then killed, by `killProcessTree`). Windows: `taskkill /T`.
 - **Guide**: this entry and [Checks after edits](checks.md); there is no separate checks porting guide.
+
+## protect
+
+- **Gives**: the file tools cannot read secrets (`.env`, private keys) or write protected paths (`.git/`,
+  `node_modules/`); patterns are gitignore patterns in the `protect.secret` and `protect.readOnly` settings; `/protect`
+  shows the rules and switches them off and on for a session. See [Protected paths](protect.md).
+- **Depends on**: no other unit. The extension API: `tool_call` events carrying `effect` and `input` and returning
+  `{ block: true, reason }`, `session_start`, `pi.getSettings()`, `pi.registerCommand`, `ctx.ui.notify`. One core change in
+  `core/settings-manager.ts`: `deepMergeSettings` concatenates the `protect.secret` and `protect.readOnly` lists of the
+  user and project layers (user first) instead of the project replacing the user's list (`mergeProtect`, like
+  `mergeDefaultTools`). Without it a project's list would drop the user's.
+- **Copy (one unit)**: `coding-agent/src/extensions/protect/` (`index.ts`, `match.ts`). It imports
+  `core/settings-defaults.ts` (the default lists), `core/tools/path-utils.ts` (`resolveToCwd`) and the `ignore` package.
+- **Rewrite**: the settings namespace `protect.*` (`core/settings-schema.ts`, `core/settings-defaults.ts`).
+- **Verify**: `test/protect-match.test.ts`, `test/suite/protect.test.ts` and the `protect` cases of
+  `test/settings-manager.test.ts` (vitest, singly).
+- **Linux**: the real path of a symlink is matched too. **macOS**: the same, with case-insensitive matching and the
+  `/tmp` to `/private/tmp` real path handled by matching the real path against the real project root. Windows: case-insensitive;
+  drive, UNC and `\\?\` paths are rewritten to `/` paths without a colon before matching.
+- **Guide**: this entry and [Protected paths](protect.md); there is no separate protect porting guide.
 
 ## roost
 

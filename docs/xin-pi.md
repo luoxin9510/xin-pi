@@ -100,6 +100,16 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
     tool batch's `terminate`. Loads in subagents. User docs: [checks.md](../packages/xpi-coding-agent/docs/checks.md).
     Tests: `test/checks-runner.test.ts`, `test/checks-parse.test.ts`, `test/suite/checks.test.ts` (fake runner),
     `test/suite/checks-tsc.test.ts` (real `tsc`), `terminated` in `xpi-agent-core` `test/agent-loop.test.ts`.
+  - `protect` (`src/extensions/protect/`, off with `-builtin:protect`): at `tool_call`, a `read` or `write` effect with a
+    string `path` (no `name://` scheme) is resolved with `resolveToCwd`, matched with `ignore` as the project-relative path
+    (or the absolute path without its leading `/` outside the project) in two forms, the resolved path and its real
+    path, each also as a directory; `secret` blocks reads and writes, `readOnly` blocks writes. The effective lists are
+    the defaults (`SETTINGS_DEFAULTS.protect`), then the user's, then the project's entries, read at each call. Blocked:
+    `{ block, reason }` plus a warning notification with a UI. `/protect [off|on]` shows the lists and switches a
+    session-only flag, reset at `session_start`. `bash` and codemode `exec` are not parsed. Core change: `mergeProtect` in
+    `settings-manager.ts` concatenates the two lists across layers. Loads in subagents. User docs:
+    [protect.md](../packages/xpi-coding-agent/docs/protect.md). Tests: `test/protect-match.test.ts`,
+    `test/suite/protect.test.ts` (faux provider, nested codemode write), `test/settings-manager.test.ts`.
   - `roost` (`src/extensions/roost/`, off with `-builtin:roost`): the session side of background sessions. In every
     session (not in a subagent child) the session write lock, `<session file>.lock`, taken at `session_start` and
     released at `session_shutdown` (DM-8: the daemon refuses to start a session on a locked file). It imports only
