@@ -121,9 +121,8 @@ At the `tool_call` event (codemode's nested calls emit it too, so a script is co
   `id_rsa.pub` not, `.git/config` write blocked and read allowed, `.git` itself as a file); user and project entries
   in order, `!` undoing a default; `.` and `""` (the root, never matched, no throw); a path outside the project
   (`~/.ssh/id_rsa`); a symlink to `.env` under another name, also with the project under a symlinked directory; a new
-  file under `.git/`; case on darwin and not on linux; Windows separators, drive, UNC and `\\?\` paths, with `ignore` loaded while
-  `process.platform` is simulated as
-  `win32` (it decides at load time); a
+  file under `.git/`; case on darwin and not on linux; Windows separators, drive, UNC and `\\?\` paths, with
+  `ignore` loaded while `process.platform` is simulated as `win32` (it decides at load time); a
   scheme path skipped; a non-string entry skipped with one warning.
 - Settings (`test/settings-manager.test.ts`): the two lists concatenate across layers; an untrusted project's list is
   ignored.
