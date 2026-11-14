@@ -5,6 +5,7 @@ import llamaExtension from "./llama/index.ts";
 import mcpExtension from "./mcp/index.ts";
 import relayExtension from "./relay/index.ts";
 import roostExtension from "./roost/index.ts";
+import shadowGitExtension from "./shadow-git/index.ts";
 import subagentExtension from "./subagent/index.ts";
 import toolSearchExtension from "./tool-search/index.ts";
 import upstreamExtension from "./upstream/index.ts";
@@ -24,6 +25,9 @@ export const builtInExtensions: InlineExtension[] = [
 	{ name: "upstream", factory: upstreamExtension, builtin: true },
 	// Not replaceable. Disable it with `-builtin:commit`.
 	{ name: "commit", factory: commitExtension, builtin: true },
+	// Not replaceable. Registers nothing unless the cwd is in a registered shadow-git workspace or XPI_SG_SANDBOX is set.
+	// Disable it with `-builtin:shadow-git`.
+	{ name: "shadow-git", factory: shadowGitExtension, builtin: true },
 	// Not replaceable. Background sessions (xpi roost): the session write lock, `--bg`, the worker role in a session the
 	// daemon runs. Disable it with `-builtin:roost`.
 	{ name: "roost", factory: roostExtension, builtin: true },
