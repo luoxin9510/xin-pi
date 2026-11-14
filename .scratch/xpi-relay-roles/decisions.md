@@ -56,3 +56,6 @@ Causes found in the code (author):
 "Relay mode is for transparency, observability and saving money. For an orchestrator over several agents we have
 workflows." The spec adds an observability section from this: every transition and every repair leaves a visible
 line and an entry, and `/relay` and the record show them.
+
+"Relay happens in one session, so the lead's and the worker's work both leave a trace." The spec states it as a
+constraint: nothing leaves the session, and the compaction changes only what the lead reads.

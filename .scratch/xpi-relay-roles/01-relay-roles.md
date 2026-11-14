@@ -16,6 +16,11 @@ Relay exists for transparency, observability and saving money. Orchestrating sev
 not to relay. Every choice below is checked against that: the user can see what happened, can look it up afterwards,
 and the strong model's tokens go down, not up.
 
+Both roles work in one session, so the lead's and the worker's work both stay on record. The session file is
+append-only: the hand-back compaction only changes what the lead's later requests read; the worker's steps stay in
+the session, in the scrollback and in `/tree`. Nothing in this spec moves work out of the session (no child process,
+no second session), and every transition and repair is an entry in it (see 6).
+
 ## Goal
 
 Each model always knows its role from its own prompt; it can only reach its own hand tool, and only from codemode;
