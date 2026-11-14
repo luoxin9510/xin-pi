@@ -16,7 +16,7 @@ import { ROOST_VERSION } from "../src/lib/version.ts";
 
 const DAEMON = resolve("src/daemon/main.ts");
 const HOST = resolve("src/host/main.ts");
-const ENV_NAMES = [...ROOST_LOCATION_ENV, "ROOST_PARENT_PID", "XDG_RUNTIME_DIR", "ROOST_JOB_ID"];
+const ENV_NAMES = [...ROOST_LOCATION_ENV, "ROOST_PARENT_PID", "XDG_RUNTIME_DIR", "ROOST_JOB_ID", "ROOST_INSIDE"];
 
 const saved: Record<string, string | undefined> = {};
 let agentDir: string;
@@ -554,8 +554,14 @@ describe("phase 2: xpi roost schedule", () => {
 		]) {
 			const r = await roost("schedule", ...argv);
 			expect(r.code, argv.join(" ")).toBe(1);
-			expect(r.err).toContain(`schedule ${argv[0]} is refused inside a background session (ROOST_JOB_ID is set)`);
+			expect(r.err).toContain(`schedule ${argv[0]} is refused inside a background session`);
 		}
+		// spec 03: an xpi started in the session's shell forgot the job but keeps ROOST_INSIDE: still refused
+		delete process.env.ROOST_JOB_ID;
+		process.env.ROOST_INSIDE = "abcd1234";
+		const nested = await roost("schedule", "add", "t", "manual", "task");
+		expect(nested.code).toBe(1);
+		expect(nested.err).toContain("is refused inside a background session");
 		expect((await roost("schedule", "list")).code).toBe(0);
 		expect((await roost("schedule", "pause", "s")).code).toBe(0);
 		expect((await roost("schedule", "resume", "s")).code).toBe(0);

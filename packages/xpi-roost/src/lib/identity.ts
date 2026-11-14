@@ -8,8 +8,20 @@ export const JOB_ENV = {
 	dir: "ROOST_JOB_DIR",
 } as const;
 
+/**
+ * Spec 03: set (to the session's id) in an xpi started from a session's shell once it forgot the job it inherited. It
+ * says "inside a background session" without naming a caller: what is refused in a session (decision 8, schedules)
+ * stays refused there.
+ */
+export const INSIDE_ENV = "ROOST_INSIDE";
+
 /** Every name that makes a process a job's worker: never inherited by another job. */
-export const JOB_ENV_NAMES: readonly string[] = [...Object.values(JOB_ENV), "ROOST_RESTORE"];
+export const JOB_ENV_NAMES: readonly string[] = [...Object.values(JOB_ENV), "ROOST_RESTORE", INSIDE_ENV];
+
+/** Whether this process runs inside a background session: the session itself, or anything started from it. */
+export function insideSession(env: NodeJS.ProcessEnv): string | undefined {
+	return readJobEnv(env, "id") ?? (env[INSIDE_ENV] || undefined);
+}
 
 /** The environment a job's worker starts with. */
 export function jobEnv(o: { id: string; token?: string; socket: string; dir: string }): Record<string, string> {

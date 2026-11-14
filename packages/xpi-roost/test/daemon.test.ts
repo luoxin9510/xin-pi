@@ -1530,4 +1530,37 @@ describe("spec 03: restarting sessions by id", () => {
 		expect(events.filter((e) => e.kind === "state" && e.id === id && e.state === "stopped")).toEqual([]);
 		sock.destroy();
 	});
+
+	it("a session restarted while it waits for an answer still shows what it waits for", async () => {
+		const { client } = await startDaemon();
+		const a = args("sleep 30");
+		writeFileSync(a.sessionFile, "{}\n");
+		const { id } = await client.request("dispatch", a);
+		await waitFor(async () => (await find(client, id))?.pid);
+		const token = readState(id)?.jobToken as string;
+		await (await asWorker()).request("report", {
+			id,
+			token,
+			report: {
+				state: "blocked",
+				status: "waiting",
+				waitingFor: "question",
+				summary: "which one?",
+				question: "which one?",
+				choices: ["a", "b"],
+				tool: null,
+				error: null,
+				name: "asks",
+				model: "x/y",
+			},
+		});
+		expect((await find(client, id))?.waitingFor).toBe("question");
+		expect((await client.request("respawn", { ids: [id] })).results).toEqual([{ id, started: true }]);
+		// before the new worker has said anything, the restored row is blocked on the same question
+		const row = await waitFor(async () => {
+			const r = await find(client, id);
+			return r?.pid && !r.restarting ? r : undefined;
+		});
+		expect(row).toMatchObject({ state: "blocked", waitingFor: "question", question: "which one?" });
+	});
 });

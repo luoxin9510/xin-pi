@@ -223,7 +223,7 @@ Entries it cannot run (edited by hand, or from a newer xpi) are left in the file
 counts them.
 
 **Inside a background session**, `xpi roost schedule add`, `edit` and `run` refuse (the session's environment has
-`ROOST_JOB_ID`); `list`, `pause`, `resume` and `rm` work, and so does `/schedule` in a hub opened there with
+`ROOST_JOB_ID`, or `ROOST_INSIDE` in an xpi started from its shell); `list`, `pause`, `resume` and `rm` work, and so does `/schedule` in a hub opened there with
 `/agents`, where you are the one typing. `/schedule` is the hub's command only: an ordinary xpi session has none, so it
 is not confused with a timer inside one session. This keeps a model from adding schedules by accident, not on
 purpose: it could clear the variable. The daemon takes the schedule operations from people only, never from a
@@ -439,6 +439,12 @@ ran the command in a tool call), its new process is told that xpi was restarted 
 command that asked for it was cut short and shows no result, and not to run it again; when it was idle, it comes
 back showing where it left off and no prompt is sent. This prompt is only for the command line: `/restart` and
 the hub's `/restart` never send it.
+
+An xpi started from a session's shell (a foreground xpi run in bash) inherits the session's `ROOST_JOB_ID`,
+`ROOST_SOCKET` and the other `ROOST_JOB_*` variables but is not that session, so it removes them from its own
+environment when it starts and sets `ROOST_INSIDE` to the session's id instead. What it runs in turn, `xpi roost
+restart` included, does not take the outer session for its caller, and what a session may not do (`xpi roost schedule
+add`, `edit` and `run`) is still refused there.
 
 ### Terminals attached to a restarting session
 

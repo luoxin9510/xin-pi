@@ -121,7 +121,7 @@ export function hubOptions(h: XpiHost): Omit<AgentViewOptions, "tui" | "theme" |
 		isDetachKey: detachMatcher(keybindings),
 		detachKeyName: keybindings.getKeys("app.suspend").join(" or ") || "app.suspend",
 		builtins: builtinCommands,
-		// in a session the daemon runs (or a process started in its terminal): that session's row is this one
+		// in a session the daemon runs: that session's row is this one (an xpi started in its shell forgot the job)
 		...(self ? { selfId: self } : {}),
 		// phase 2 (decision 9): as `xpi roost schedule add` builds it; this hub's --session-dir kept
 		scheduleLaunch: (input) => scheduleLaunch(input, { agentDir: h.agentDir, ...(sessionDir ? { sessionDir } : {}) }),

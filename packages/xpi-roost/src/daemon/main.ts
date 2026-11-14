@@ -918,6 +918,7 @@ async function respawn(
 	respawning.add(id);
 	let restarting = false;
 	let priorState: JobState["state"] | undefined;
+	let priorWaitingFor: JobState["waitingFor"] | undefined;
 	try {
 		// DM-5: an automatic restart waiting: this start takes its place (once it can start)
 		const pendingResume = typeof readState(id)?.resumeAt === "number";
@@ -934,6 +935,7 @@ async function respawn(
 			// spec 03: attached terminals and the hub see a restart, not an end, until the new host is up (or this fails)
 			restarting = true;
 			priorState = readState(id)?.state;
+			priorWaitingFor = readState(id)?.waitingFor;
 			updateState(id, { restarting: true });
 			pushJob(id);
 			await terminateHost(id, "restart");
@@ -969,7 +971,9 @@ async function respawn(
 				: { state: "working" as const, stateSince: now, summary: null, question: null, choices: [] }),
 			// a shell job has no worker to report: it is busy until it exits
 			status: rec.kind === "shell" ? "busy" : null,
-			waitingFor: null,
+			// a question outlives its process (the new worker asks it again): a restored row keeps it until then; a
+			// dialog or the first prompt went with the old process
+			waitingFor: restore && priorState === "blocked" && priorWaitingFor === "question" ? "question" : null,
 			tool: null,
 			error: null,
 			reportedAt: undefined,
