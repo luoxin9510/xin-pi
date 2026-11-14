@@ -1,6 +1,6 @@
 # 01: shadow-git
 
-Status: done. PRs #95 (spec), #96 core, #97 sandboxes, #98 xpi integration, and this wrap-up.
+Status: done. PRs #95 (spec), #96 core, #97 sandboxes, #98 xpi integration, #99 wrap-up.
 
 Approval: approved by the owner on 2026-11-14 ("是"), with both owner questions as recommended (decisions 18 and
 19). It had six rounds of independent review (one review and five delta checks); the last found nothing blocking or

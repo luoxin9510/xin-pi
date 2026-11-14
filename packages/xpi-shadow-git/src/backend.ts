@@ -133,7 +133,10 @@ export function gitGuards(sbx: Sandbox): { ownFiles: string[]; readOnly: string[
  * 2. cover `hidden` paths (inside `primary` too);
  * 3. bind `shared-rw` paths read-write at their place in the tree;
  * 4. bind the tree over the workspace's own path;
- * 5. bind `shared-ro` absolute paths read-only over themselves, and cover hidden absolute paths.
+ * 5. bind `shared-ro` absolute paths read-only over themselves, and cover hidden absolute paths;
+ * 6. make the shared git directory's `config`, `config.worktree`, `hooks/`, `info/` and `worktrees/` read-only, keeping
+ *    this sandbox's own `worktrees/<id>` writable except its `commondir`, `gitdir` and `config.worktree`;
+ * 7. make `<name>.sbx` read-only except this sandbox's `tree` and `scratch`.
  * Every mount point exists before this runs. The command starts in the workspace's own path plus `subdir` (relative,
  * with no `..`).
  */

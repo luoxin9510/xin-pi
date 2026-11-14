@@ -471,7 +471,9 @@ xpi-sg-sandbox <cmd...>`, with every mount point made before `unshare`. The scri
 sandbox's `primary` and remount it read-only with the flags it was locked with (read by `findmnt`); cover `hidden` paths
 (tmpfs over a directory, `/dev/null` over a file); bind `shared-rw` paths read-write into the tree; bind the tree over the
 workspace's own path; bind `shared-ro` absolute paths read-only and cover hidden ones; make the shared git directory's
-`config`, `hooks/`, `info/` and `worktrees/` read-only except the sandbox's own files; make `<name>.sbx` read-only except
+`config`, `config.worktree`, `hooks/`, `info/` and `worktrees/` read-only, keeping the sandbox's own `worktrees/<id>`
+writable except its `commondir`, `gitdir` and `config.worktree` (a moved `commondir` would make git read another
+config, with filter drivers that run outside the sandbox); make `<name>.sbx` read-only except
 this sandbox's `tree` and `scratch`; `cd` to the workspace path plus the subdirectory and `exec`. A failed setup step ends
 with exit 125. Port it to another init system or sandbox runner by keeping that order and the writable exceptions.
 
@@ -479,7 +481,7 @@ with exit 125. Port it to another init system or sandbox runner by keeping that 
 
 | Hook | In the primary workspace | In a sandbox |
 |---|---|---|
-| factory | registers handlers, `/sg` (top-level session only); first among the built-ins | registers handlers; nothing is decided from the cwd |
+| factory | registers handlers, `/sg` (top-level session only); first among the built-ins | registers handlers; nothing is decided from the cwd; if `XPI_SG_SANDBOX` cannot be opened, every tool call is blocked (fail closed) |
 | `session_start` | decides from the session's `cwd`: sets or restores `GIT_DIR`/`GIT_WORK_TREE`, writes or removes the live entry, notices a stopped import | resets the block list |
 | `session_shutdown` | removes the entry, restores the environment | none |
 | `before_agent_start` | adds the prompt section, rewrites a missing entry | adds the sandbox prompt section |
@@ -487,7 +489,8 @@ with exit 125. Port it to another init system or sandbox runner by keeping that 
 | `/sg` | `import`, `export`, `merge`, `status`, `sbx ls` through `runSg` with `ownSessionPid` | none |
 
 Process-level pieces: an exit hook that removes the live entry, and `XPI_SUBAGENT_MEMORY_DIR` (set by the subagent runner
-to the child's own memory directory, the only memory a sandboxed session may write).
+to the child's own memory directory, the only memory a sandboxed session may write; omitted for read-only memory, and
+inside a sandbox for any directory outside the one the process itself received).
 
 **5. Isolation** is the next section and [Porting the subagent extension](subagent-porting.md#shadow-git-sandboxes).
 
