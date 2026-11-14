@@ -18,7 +18,8 @@ to npm), environment variables are `XPI_*`, and these built-in extensions are ad
   agents and a verifier return ranked findings for your uncommitted changes, a branch, a commit or a PR), and a panel and
   full-screen view to watch and talk to subagents.
 - [relay](packages/xpi-coding-agent/docs/relay.md): the model `relay/auto`. A strong model explores, plans and reviews;
-  a cheap one builds; the strong model reads a record of the result instead of the cheap one's transcript.
+  a cheap one builds; the strong model reads a record of the result instead of the cheap one's transcript. Both work in
+  one session, and every phase change and repair is an entry and a line on screen.
 - `upstream`: `/upstream` reports what upstream pi has that is worth porting.
 - `commit`: `/commit` drafts a commit message for the staged changes with a small model (setting `commit.model`,
   default `haiku`), opens it in an editor, and commits; hooks run and nothing is pushed or amended.

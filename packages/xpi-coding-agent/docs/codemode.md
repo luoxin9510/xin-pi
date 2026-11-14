@@ -35,9 +35,9 @@ A background script is listed in the panel and has a script screen (Enter on its
 | `image(value)` | Add an image to the output: a base64 `data:` URL, an `{ image_url }` object, or an image block `{ type: "image", data, mimeType }` such as those returned by MCP tools and `models.generateImages()`. Remote URLs are not supported. PNG, JPEG, GIF, and WebP are accepted. Each image is also saved to a temp file, and the result names the path before the image. |
 | `console.log(...)` | Add a line to the `<console_output>` block after the other output. Arguments are joined with spaces; `info`, `warn`, `error`, and `debug` do the same. |
 | `return value` | A top-level `return` adds the value like `text()`. |
-| `exit()` | End the script successfully. |
+| `exit()` | End the script successfully. A nested call whose result says `terminate` does the same, see [Call tools](#call-tools). |
 | `store(key, value)` / `load(key)` | Keep small JSON values across `codemode` calls. See [Store values](#store-values). |
-| `ALL_TOOLS` | Every callable tool as `{ name, description }`, including tools the description does not list. |
+| `ALL_TOOLS` | Every callable tool as `{ name, description }`, including tools the description does not list but not [unlisted](#unlisted-tools) ones. |
 | `searchTools(query, { limit?, namespace? })` | Rank callable tools by relevance (BM25, default limit 8). Resolves to `{ name, description }[]`. |
 | `describeTool(name)` | Resolves to a tool's description and TypeScript declaration, or `undefined`. |
 | `describeNamespace(name)` | Resolves to `{ name, description?, instructions?, tools }` for a namespace such as an MCP server, or `undefined`. |
@@ -55,6 +55,18 @@ What a call resolves to depends on the tool:
 - Other tools, such as `edit` and `write`, resolve to their text output. They follow the session's [stale-edit guard](settings.md#edit-and-write-safety): a script's `read` counts for its later `edit` and `write`, and an edit of a file that was not read or changed since rejects.
 
 A call that fails, is blocked, or gets invalid arguments rejects with an `Error` that carries the tool's error text. Use `Promise.allSettled()` to keep the results of the calls that succeed.
+
+### A nested call that ends the script
+
+A nested call whose result has `terminate: true` ends the script like `exit()`: the statements after it do not run, and calls that were already started are cut off as they are when a script ends. The codemode result then asks to terminate too, so the turn ends when every tool result of the response does, as for any tool. The terminating call's result text is the last text of the codemode result: after the `<console_output>` block, and exempt from the output limit. A caller that reads the last line of a codemode result (the relay extension reads a marker from it) can rely on it. The call's own promise never settles, and the values the script stored with `store()` are not kept. A failed call (`isError`) never terminates.
+
+### Unlisted tools
+
+A tool registered with `listed: false` (and `codemode` or `deferred` exposure) is callable as `tools.<name>(...)` but is in no listing: not the `codemode` description, `ALL_TOOLS`, `searchTools()`, `describeTool()` or `tool_search`. The extension that registers it tells the model how to call it, in a prompt of its own. Relay's `handover` and `handback` are such tools, so each role learns only its own.
+
+### A direct call of a tool only scripts can reach
+
+A model sometimes calls a `codemode` or `deferred` tool directly, as `handover(...)`, although it was never declared to it. The agent loop runs that call as a nested call: argument validation, the `tool_call` and `tool_result` hooks, permissions and `terminate` apply as for any call, and the hooks see a top-level call (no `parentToolCallId`). The first line of the result text says `(Call <name> from codemode next time: await tools.<name>(...).)` and the tool's own text follows, so its last line stays its own. A name that is no tool of the session still fails as "not found".
 
 The `codemode` description lists tools with their TypeScript declarations, grouped by namespace (for example one MCP server). Tools with `deferred` exposure, which includes MCP tools with the default `codemode` exposure, are not listed, so the description stays the same while MCP servers connect. Listed declarations share a budget of 3000 estimated tokens (`codemode.inlineBudget` in [settings](settings.md#tools)). Scripts find the other tools with `searchTools()`, `describeTool()`, `describeNamespace()`, or by filtering `ALL_TOOLS`.
 

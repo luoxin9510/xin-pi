@@ -47,7 +47,7 @@ await sandbox.close();
 `code` is the body of an async function: `return` and top-level `await` work. Inside the script, with every sandbox:
 
 - `tools.<name>(args)` returns a promise. Arguments and results make a JSON round trip. A tool that throws rejects with an `Error` carrying the same message. Tool names are also exposed as identifiers: characters that are not valid in identifiers become `_` (`toCodemodeIdentifier`), so `my-tool` is `tools.my_tool` as well as `tools["my-tool"]`.
-- `ALL_TOOLS` lists `{ name, description }` for every tool, with `name` as the identifier.
+- `ALL_TOOLS` lists `{ name, description }` for every tool, with `name` as the identifier. A tool with `unlisted: true` is callable as `tools.<name>` but is not in `ALL_TOOLS`.
 - `text(value)` appends a text item to `result.output`; values other than strings are JSON-stringified. `console.log/info/warn/error/debug` append text items with `console: true`.
 - `image(urlOrItem)` appends an image item. It accepts a base64 `data:` URL, `{ image_url }`, or an image block (`{ type: "image", data, mimeType }`, as MCP tools and `xpi-ai` produce). Remote URLs are rejected.
 - `exit()` ends the script successfully right away, keeping its output and store writes.

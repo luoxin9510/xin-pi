@@ -2072,7 +2072,7 @@ pi.setActiveTools([...new Set([...active, "my_custom_tool"])]); // Keep current 
 pi.setActiveTools(["read", "bash"]); // Only read and bash
 ```
 
-`pi.getAllTools()` returns `name`, `description`, `parameters`, `promptGuidelines`, `exposure`, `effect`, `sourceInfo`, and, when set, `namespace`, `annotations`, and `reachesTools`.
+`pi.getAllTools()` returns `name`, `description`, `parameters`, `promptGuidelines`, `exposure`, `effect`, `sourceInfo`, and, when set, `namespace`, `annotations`, `reachesTools`, and `listed: false`.
 
 Typical `sourceInfo` values:
 - `source: "builtin"` for tools shipped with Pi: core tools (`path: "builtin:<tool>"`) and tools registered by built-in extensions such as `builtin:mcp` (`path: "builtin:<extension>"`)
@@ -2920,9 +2920,13 @@ When `search_tools` adds a match, the model receives the complete updated tool l
 - `deferred`: like `codemode`, but codemode tools do not list it; `tool_search` can find and activate it.
 - `hidden`: registered but unreachable. Re-register a tool with `exposure: "hidden"` to withdraw it, since tools cannot be unregistered.
 
+`listed: false` on a `codemode` or `deferred` tool keeps it out of every listing (codemode's description, `searchTools()`, `describeTool()`, `ALL_TOOLS`, `tool_search`) while scripts still call it by name; `pi.getAllTools()` reports `listed: false` for it. Use it when the extension's own prompt tells the model about the tool, as the built-in relay does for `handover` and `handback`. A tool whose result sets `terminate: true` also ends the codemode script that called it, see [Codemode](codemode.md#a-nested-call-that-ends-the-script).
+
+A call the model makes to a `codemode` or `deferred` tool it was not shown is not an error: the agent loop resolves the name through `AgentLoopConfig.resolveUndeclaredTool` (the session resolves registered tools of those two exposures) and runs it through the same pipeline as any call (validation, `tool_call` and `tool_result` hooks, `terminate`), with the note `(Call <name> from codemode next time: await tools.<name>(...).)` as the first line of the result text. See [Codemode](codemode.md#a-direct-call-of-a-tool-only-scripts-can-reach). A host that embeds the agent loop sets `resolveUndeclaredTool` on `Agent` or `AgentLoopConfig`; without it unknown names fail as "not found".
+
 `namespace: { name, aliases, description, instructions }` groups related tools, as MCP servers do. Codemode tools list a namespace under one heading with its `description`. `instructions` holds longer usage guidance; it is not listed, and codemode scripts read it with `describeNamespace(name)`. `aliases` are other names scripts may look the namespace up by, for example the server name `docs` for `mcp__docs`; a name and the same name as a script identifier (`my-docs`, `my_docs`) match alike.
 
-Registering a `direct` or `model-only` tool activates it unless it sets `defaultActive: false`; the other exposures are not activated on registration. The active set (`pi.getActiveTools()`, `pi.setActiveTools()`) is the set of tools declared to the model, except active tools whose declarations `prepareLoadout` hides. `pi.getAllTools()` reports each tool's `exposure`, `effect`, `namespace`, `annotations`, and `reachesTools`.
+Registering a `direct` or `model-only` tool activates it unless it sets `defaultActive: false`; the other exposures are not activated on registration. The active set (`pi.getActiveTools()`, `pi.setActiveTools()`) is the set of tools declared to the model, except active tools whose declarations `prepareLoadout` hides. `pi.getAllTools()` reports each tool's `exposure`, `effect`, `namespace`, `annotations`, `reachesTools`, and `listed: false` when set.
 
 #### Tool effects
 
@@ -2958,7 +2962,7 @@ pi.on("tool_call", async (event, ctx) => {
 });
 ```
 
-A tool that orchestrates other tools can adjust what the model sees while it is active with `prepareLoadout(loadout)`. It runs whenever the active tools change and receives the declared tools, the callable tools, and every registered tool with its exposure, namespace, and prompt guidelines. It returns replacement `descriptions` for declared tools (including its own) and `hiddenDeclarations`: active tools whose declarations requests leave out while they stay active and callable. The default system prompt leaves hidden tools out of its tool list and rules, and names no tool in the skills hint when the file reader is hidden, so the orchestrating tool should present their guidelines itself. `codemode` uses only this hook, `exposure`, `reachesTools`, and `ctx.executeTool()`, so another tool can implement the same behavior under a different name.
+A tool that orchestrates other tools can adjust what the model sees while it is active with `prepareLoadout(loadout)`. It runs whenever the active tools change and receives the declared tools, the callable tools, and every registered tool with its exposure, whether it is listed (`isListed`), namespace, and prompt guidelines. It returns replacement `descriptions` for declared tools (including its own) and `hiddenDeclarations`: active tools whose declarations requests leave out while they stay active and callable. The default system prompt leaves hidden tools out of its tool list and rules, and names no tool in the skills hint when the file reader is hidden, so the orchestrating tool should present their guidelines itself. `codemode` uses only this hook, `exposure`, `reachesTools`, and `ctx.executeTool()`, so another tool can implement the same behavior under a different name.
 
 A tool that reaches other tools declares which ones a call may reach with `reachesTools(input)`: `"all"`, or the words of the input that may name them, where a word refers to every tool or namespace whose name it contains. `codemode` returns `"all"` for scripts that search or list tools and the words of the script otherwise; `tool_search` always returns `"all"`. Extensions that register tools late use it from their `tool_call` handler to finish registering the tools a call needs before it runs, as the MCP extension does for servers that are still connecting. The MCP extension also activates `codemode` or `tool_search` for MCP tools only when the tool of that name declares `reachesTools`.
 
