@@ -669,3 +669,6 @@ After the second review of PR 3:
 - **Memory.** Not `~/.claude/agent-memory` as a whole: the subagent runner sets `XPI_SUBAGENT_MEMORY_DIR` to the child's own
   memory directory (it follows `claudeDir`), and only that is writable. Project-scope memory is in the primary, so a
   sandboxed agent's writes there are refused (documented).
+- **The memory variable is passed narrowly.** `XPI_SUBAGENT_MEMORY_DIR` is left out for a read-only memory, and, when
+  `XPI_SG_SANDBOX` is set, for a child whose memory directory is not the one received or below it; what the process
+  received is removed from the child's environment otherwise.

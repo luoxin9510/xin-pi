@@ -362,3 +362,36 @@ test("a child with memory gets its own memory directory in XPI_SUBAGENT_MEMORY_D
 		l.restore();
 	}
 });
+
+test("XPI_SUBAGENT_MEMORY_DIR: not for a read-only memory; inside a sandbox only the directory received or one below it", async () => {
+	const { l, s, load } = await setup();
+	try {
+		const mem = (name: string) => join(s.home, ".claude", "agent-memory", name);
+		s.write(join(s.home, ".claude/agents/m.md"), agentFile("name: m\ndescription: d\nmemory: user"));
+		s.write(
+			join(s.home, ".claude/agents/ro.md"),
+			agentFile("name: ro\ndescription: d\nmemory: user\ndisallowedTools: Write"),
+		);
+		s.write(join(s.home, ".claude/agents/other.md"), agentFile("name: other\ndescription: d\nmemory: user"));
+		s.scenario({ lines: happyLines("hi") });
+		const t = await load();
+		const envOf = async (type: string) => {
+			await t.run({ subagent_type: type });
+			return s.record().env!.XPI_SUBAGENT_MEMORY_DIR;
+		};
+		assert.equal(await envOf("ro"), undefined, "a read-only memory is not passed on");
+		assert.equal(await envOf("m"), mem("m"), "outside a sandbox the child's own directory");
+		// inside a sandbox that was given m's directory
+		process.env.XPI_SG_SANDBOX = "demo/w1";
+		process.env.XPI_SUBAGENT_MEMORY_DIR = mem("m");
+		assert.equal(await envOf("m"), mem("m"), "the same directory");
+		assert.equal(await envOf("other"), undefined, "another agent's memory is left out");
+		assert.equal(await envOf("ro"), undefined);
+		process.env.XPI_SUBAGENT_MEMORY_DIR = join(s.home, ".claude", "agent-memory");
+		assert.equal(await envOf("other"), mem("other"), "below the directory received");
+		delete process.env.XPI_SUBAGENT_MEMORY_DIR;
+		assert.equal(await envOf("m"), undefined, "a sandbox that was given none passes none");
+	} finally {
+		l.restore();
+	}
+});

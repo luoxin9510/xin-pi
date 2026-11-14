@@ -438,6 +438,8 @@ has `XPI_SG_SANDBOX` set. It registers no `/sg` and no live entry.
   - the agent's own memory directory, which the subagent runner passes in `XPI_SUBAGENT_MEMORY_DIR` (so another agent's
     memory is refused: it could plant instructions for it). Project-scope memory (`<workspace>/.claude/agent-memory`) is in
     the primary workspace, so a sandboxed agent's writes to it are refused too;
+    the runner leaves the variable out for a read-only memory, and, inside a sandbox, for a child whose memory directory is not the
+    one this process received or below it (an agent file written in the sandbox cannot name another agent's memory);
   - the sandbox's own `scratch` and `tree` (already writable by the policy).
 
   xpi's agent directory as a whole is not on the list: `settings.json`, `auth.json` and `extensions/` there are read by
