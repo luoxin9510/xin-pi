@@ -14,7 +14,7 @@ import type { CodemodeWasmModule } from "../wasm.ts";
 export interface VmStartData {
 	code: string;
 	/** `jsName` is the identifier the script uses; `description` is listed in `ALL_TOOLS`. */
-	tools: { name: string; jsName: string; description: string }[];
+	tools: { name: string; jsName: string; description: string; unlisted?: boolean }[];
 	globals: { name: string; spread: boolean }[];
 	memoryLimitBytes: number | undefined;
 	/** Snapshot for `load()`: key to JSON text. */

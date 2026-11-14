@@ -328,6 +328,17 @@ describe.each(Object.keys(BACKENDS))("%s backend", (name) => {
 			});
 		});
 
+		it("calls an unlisted tool but leaves it out of ALL_TOOLS", async () => {
+			const sandbox = createSandbox([
+				{ name: "shown", description: "Listed", execute: () => "shown" },
+				{ name: "quiet", description: "Hidden", unlisted: true, execute: () => "quiet" },
+			]);
+			const result = await sandbox.execute(`
+				return { all: ALL_TOOLS.map((tool) => tool.name), call: await tools.quiet(), byName: await tools["quiet"]() };
+			`);
+			expect(result).toMatchObject({ ok: true, value: { all: ["shown"], call: "quiet", byName: "quiet" } });
+		});
+
 		it("passes undefined arguments and results through", async () => {
 			const sandbox = createSandbox([{ name: "noop", execute: (args) => args }]);
 			const result = await sandbox.execute("return [await tools.noop(), await tools.noop(null)]");

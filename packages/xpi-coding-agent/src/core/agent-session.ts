@@ -1683,6 +1683,7 @@ export class AgentSession {
 			parameters: definition.parameters,
 			promptGuidelines: definition.promptGuidelines,
 			exposure: this._getToolExposure(definition.name),
+			...(definition.listed === false ? { listed: false as const } : {}),
 			effect: resolveToolEffect(definition),
 			...(definition.namespace ? { namespace: definition.namespace } : {}),
 			...(definition.annotations ? { annotations: { ...definition.annotations } } : {}),
@@ -1784,6 +1785,7 @@ export class AgentSession {
 				callable: this._getCallableTools(new Set(tools.map((tool) => tool.name))),
 				registered: [...this._toolRegistry.values()],
 				getExposure: (name) => this._getToolExposure(name),
+				isListed: (name) => this._toolDefinitions.get(name)?.definition.listed !== false,
 				getNamespace: (name) => this._toolDefinitions.get(name)?.definition.namespace,
 				getPromptGuidelines: (name) => this._toolPromptGuidelines.get(name) ?? [],
 			};

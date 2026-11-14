@@ -250,6 +250,7 @@ class Execution {
 				name: tool.name,
 				jsName: tool.jsName ?? toCodemodeIdentifier(tool.name),
 				description: tool.description ?? "",
+				...(tool.unlisted ? { unlisted: true } : {}),
 			})),
 			globals: options.globals.map((global) => ({ name: global.name, spread: global.spread === true })),
 			memoryLimitBytes: options.memoryLimitBytes,
