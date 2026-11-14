@@ -206,7 +206,8 @@ See [Configuration](configuration.md) for conventional directories and project t
 
 - `-e`, `--extension <path>`<br>
   Loads an extension file or directory, or a built-in extension such as `builtin:mcp`, and is repeatable. It cannot
-  turn one off: `-e -builtin:checks` (or any source starting with `-`, `!` or `+`) is an error. Turn a built-in off
+  turn one off: `-e -builtin:checks` (or any source starting with `-`, `!` or `+`) is an error; a local file whose name
+  starts with one of them is written `./-name.ts`. Turn a built-in off
   with `"-builtin:<name>"` in the `extensions` setting, or start with `--no-extensions` and `-e` the ones to keep.
 - `-ne`, `--no-extensions`<br>
   Disables discovered, configured, and built-in extensions. Explicit `-e` paths still load, so `pi -ne -e builtin:mcp` keeps only the built-in MCP support.

@@ -283,6 +283,10 @@ describe("parseArgs", () => {
 			const other = parseArgs(["--extension", "+./x.ts"]);
 			expect(other.extensions).toBeUndefined();
 			expect(other.diagnostics[0]!.message).toContain('cannot start with "+"');
+			expect(other.diagnostics[0]!.message).toContain("write a local file as ./+./x.ts");
+			const plus = parseArgs(["-e", "+builtin:mcp"]);
+			expect(plus.extensions).toBeUndefined();
+			expect(plus.diagnostics[0]!.message).toContain("write -e builtin:mcp to load a built-in");
 		});
 	});
 
