@@ -23,6 +23,10 @@ to npm), environment variables are `XPI_*`, and these built-in extensions are ad
 - `commit`: `/commit` drafts a commit message for the staged changes with a small model (setting `commit.model`,
   default `haiku`), opens it in an editor, and commits; hooks run and nothing is pushed or amended.
 
+- `xpi sg`: a private git history over a workspace that another version control system owns, with `import` and `export`
+  as the sync point and a small adapter script for the host VCS. See
+  [docs/shadow-git.md](packages/xpi-coding-agent/docs/shadow-git.md).
+
 xin-pi does not merge upstream; changes are ported by hand. The full list is in [docs/xin-pi.md](docs/xin-pi.md).
 
 ## Getting started
@@ -76,6 +80,7 @@ published to npm (it bundles the others).
 | **[xpi-mcp](packages/xpi-mcp)** | Standalone Model Context Protocol client |
 | **[xpi-schema](packages/xpi-schema)** | JSON Schema validation without eval (drafts 2020-12 and 7) |
 | **[xpi-evals](packages/xpi-evals)** | Real-model evals (private, not published) |
+| **[xpi-shadow-git](packages/xpi-shadow-git)** | A private git history over a workspace owned by another version control system, with `import` and `export` as the sync point (`xpi sg`; see [shadow-git](packages/xpi-coding-agent/docs/shadow-git.md)) |
 | **[xpi-roost](packages/xpi-roost)** | Background sessions: the roost daemon, PTY host, the hub, schedules and their library (private, ships inside `xpi-coding-agent`) |
 
 ## Permissions & Containerization

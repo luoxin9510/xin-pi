@@ -11,7 +11,7 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
   stays the shared `~/.pi/agent` (and `.pi/` in projects); override the agent dir with `XPI_CODING_AGENT_DIR` and the
   session dir with `XPI_CODING_AGENT_SESSION_DIR`.
 - Packages are unscoped `xpi-*`, directory name equal to package name: `xpi-ai`, `xpi-agent-core`, `xpi-tui`,
-  `xpi-coding-agent`, `xpi-codemode`, `xpi-mcp`, `xpi-schema`, `xpi-telemetry`, `xpi-evals`, `xpi-roost`. All share one
+  `xpi-coding-agent`, `xpi-codemode`, `xpi-mcp`, `xpi-schema`, `xpi-telemetry`, `xpi-evals`, `xpi-roost`, `xpi-shadow-git`. All share one
   version. Only `xpi-coding-agent` (the CLI, a self-contained bundle) is published to npm; see [Releasing](#releasing).
 - `xpi-roost` (private) is pi-roost's daemon, PTY host and library, ported for background sessions (specs:
   `.scratch/xpi-roost/01-roost-core.md`, and `02-schedules.md` for schedules and the login service). It imports nothing
@@ -43,6 +43,12 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
   (`allowedInstallScriptPackages` in `scripts/generate-coding-agent-install-lock.mjs`, with the reason: no Linux
   prebuild), and the generator marks packages reached only through `optionalDependencies` (node-pty, node-addon-api)
   `optional: true`.
+- `xpi-shadow-git` is a private git history over a workspace that a non-git VCS owns (spec:
+  `.scratch/shadow-git/01-shadow-git.md`; user docs: [shadow-git.md](../packages/xpi-coding-agent/docs/shadow-git.md)).
+  `xpi sg <subcommand>` is dispatched in `coding-agent/src/main.ts` next to `xpi roost`, through
+  `src/extensions/shadow-git/cli.lazy.ts`. The package has no npm dependencies; its two shell adapters
+  (`adapters/`) are copied to `dist/shadow-git-adapters/` by `copy-assets` (`getShadowGitAdaptersDir` in `config.ts`).
+  Not built yet: sandboxes, `builtin:shadow-git`, `/sg`.
 - App-config environment variables carry the prefix `XPI_` instead of `PI_` (`XPI_OFFLINE`, `XPI_TELEMETRY`,
   `XPI_PACKAGE_DIR`, `XPI_SKIP_VERSION_CHECK`, ...). The list of renamed names is `ENV_VARS` in `scripts/xpi-rename.mjs`.
   CI secrets, build constants and release tooling variables keep their names.

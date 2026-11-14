@@ -1,0 +1,221 @@
+# shadow-git
+
+A private git history over a workspace that another version control system owns. This page covers what exists today:
+the core (`xpi sg`), the sync model and the adapters. Sandboxes for parallel agents and the integration into xpi
+sessions (`/sg`, hooks, `isolation: "worktree"`) are not built yet; `xpi sg sbx` says so.
+
+## What it is
+
+Agent tooling assumes git: cheap diffs, checkpoints, rollback, branches. Many development workspaces are owned by a
+different version control system (the **host VCS**: any VCS that is not git), where commands are slow and verbose,
+files may be read-only or links into a shared cache, and a `.git` directory is often not allowed.
+
+shadow-git puts a git repository next to the workspace instead of inside it:
+
+- The git directory lives in a store (`<agent dir>/shadow-git/<name>.git`) and its `core.worktree` names the workspace.
+  Nothing is written into the workspace: no `.git`, no config, no marker files. The one exception is opt-in
+  (`--gitfile`, below).
+- The `host` branch receives only imports from the host. Its tip is the **sync point**, the last state the host and git
+  agreed on. The `main` branch is where your work lands.
+- Moving changes in and out is explicit: `xpi sg import` and `xpi sg export`. A small **adapter** script is the only
+  code that talks to the host VCS, so xin-pi ships no support for any real VCS product. You write the adapter for yours.
+
+Not in scope: remotes (the shadow repo is never pushed), a merge engine of its own (conflicts are resolved with plain
+git), automatic check-in by agents (only you export), and managing work that leaves the machine.
+
+## Set up with the plain adapter
+
+The `plain` adapter treats another directory as the host. It is for trying shadow-git and for tests. The directory,
+the **upstream**, holds a `.plainvcs/version` counter next to the files.
+
+```bash
+mkdir -p /proj/upstream/.plainvcs && echo 1 > /proj/upstream/.plainvcs/version
+cp -R /proj/upstream/. /proj/ws                 # the workspace starts as a copy
+
+cd /proj/ws
+xpi sg init demo --adapter plain --config shadow.plain.upstream=/proj/upstream
+xpi sg status
+```
+
+`init` registers the current directory, builds the shadow repo, writes the adapter's excludes and the host VCS's own
+files (its `metadata`) to the repo's `info/exclude`, runs the adapter's `prepare` and commits the baseline on `host`
+(`sg: baseline`). `main` starts at the same commit and is checked out.
+
+Work with git as usual. Every subcommand `xpi sg` does not own goes to git on the shadow repo:
+
+```bash
+xpi sg status
+xpi sg add -A && xpi sg commit -m "fix the parser"
+xpi sg log --oneline
+xpi sg export            # what would go to the host
+xpi sg export --apply    # check it in through the adapter
+xpi sg import            # bring the host's changes in
+```
+
+`xpi sg env` prints `export GIT_DIR=... GIT_WORK_TREE=...` for a shell that wants plain `git` (`eval "$(xpi sg env)"`).
+
+`init` options:
+
+| Option | Meaning |
+|---|---|
+| `--adapter <name>` | Required. Resolves to `sg-adapter-<name>` (see [Adapters](#adapters)). |
+| `--scope <paths>` | Space-separated paths the adapter works on, relative to the workspace. Empty is the whole workspace. Only scoped paths and local-only paths are ever tracked. |
+| `--local-only <glob>...` | Globs that are tracked in git but never exported (for example `AGENTS.md`, `.pi/`). A glob ending in `/` means everything below. They are git pathspec globs anchored at the workspace root. |
+| `--config <key>=<value>` | A setting written to the shadow repo's config before the adapter runs (repeatable). |
+| `--gitfile` | Write a `.git` file (`gitdir: <store>/<name>.git`) into the workspace and exclude it, so tools that look for a `.git` find the repo. The only thing shadow-git ever puts in a workspace; off by default. |
+
+`init` refuses (exit 2) a directory that is registered, or above or below a registered one, and a name already in use.
+If the adapter fails during `init`, the half-built repo is removed.
+
+Ignore build outputs and caches through the adapter's `excludes` or by editing `<store>/<name>.git/info/exclude`: an
+untracked file that is not ignored makes the tree "dirty" and stops `import`, `export` and `merge`.
+
+## Sync model
+
+**Invariant:** `host` is always an ancestor of `main`. Import keeps it by merging; export keeps it by fast-forwarding
+`host` to `main`.
+
+```text
+host:  baseline --- import 1 ----------- import 2 ----- (export moves host up to main)
+                \                       \
+main:            work --- work --------- merge host --- work
+```
+
+### Import
+
+`xpi sg import` needs a clean work tree and takes the lock. It runs these steps:
+
+1. Switch the workspace to `host` and write `<name>.git/SG_IMPORT`.
+2. Run the adapter's `update` (it prints a one-line label). The adapter must leave the local-only paths alone.
+3. Put the local-only paths back as they are on `host`, in case the update changed or deleted them. If the update created
+   a file at a local-only path that `host` does not track, stop (exit 1): a host file collides with a local-only path.
+   Rename one of them or change `shadow.localOnly`, then run `xpi sg import` again.
+4. Commit what changed on `host` as `sg: import <label>` and remove `SG_IMPORT`.
+5. Switch to `main`, print the files changed in both the import and your work since the last import, and
+   `git merge host`.
+6. A merge conflict stops the command (exit 1) with git's own state: resolve it with git, then
+   `xpi sg merge --continue` (or `xpi sg merge --abort`).
+
+**A stopped import** (a collision, a failed adapter, a crash) leaves `SG_IMPORT`, like git's own `MERGE_HEAD`, and
+releases the lock. While it exists, `export` and `merge` refuse (exit 2) and `xpi sg status` shows it.
+`xpi sg import` resumes: if the adapter's update had finished it continues at the commit, otherwise it runs `update`
+again. `xpi sg import --abort` returns to the last host state (`git checkout -f host`, `git clean -fd` in the scope,
+with no `-x` so ignored build outputs stay) and goes back to `main`.
+
+### Export
+
+`xpi sg export` prints the plan and changes nothing: `git diff --no-renames --name-status host..main` without the
+local-only paths, with the subjects of the commits in `host..main`. A rename is a `D` and an `A`. It needs a clean tree
+on `main` and the invariant (exit 2 otherwise). A path outside `shadow.scope` stops it (exit 2, with the list), because
+the fast-forward would otherwise drop those paths from every later plan.
+
+`xpi sg export --apply` takes the lock, gives the plan to the adapter's `checkin` with a message made from the commit
+subjects, and on success fast-forwards `host` to `main`. If the adapter fails, git is unchanged (exit 1). Export is all
+of `host..main`: to export part of the work, keep the rest on another branch.
+
+After an export, `host` holds the local-only paths too, so `host` is "the host's state plus the local-only paths".
+
+### Merge, lock and live sessions
+
+`xpi sg merge <branch>` merges a branch into `main` under the lock (`main` checked out, a clean tree). It is for
+branches that come from elsewhere, such as sandboxes later. `xpi sg merge --continue|--abort` go to `git merge`.
+
+Writes to the primary workspace (`import`, `export --apply`, `merge`) take `<store>/<name>.lock`, a file created
+exclusively that holds the pid. A lock whose process is gone is taken over; a held one is waited for up to ten seconds
+(then exit 2). They also refuse (exit 2) while another live xpi session is listed in `<store>/<name>.sessions/<pid>`,
+since that session edits the primary workspace without the lock. Entries whose pid is not alive are dropped. xpi
+sessions do not write these entries yet.
+
+## CLI
+
+| Command | Effect |
+|---|---|
+| `xpi sg init <name> --adapter <a> [--scope <paths>] [--local-only <glob>...] [--config <k>=<v>] [--gitfile]` | Register the current directory. |
+| `xpi sg import [--abort]` | Import, resume a stopped import, or abort it. |
+| `xpi sg export [--apply]` | Print the plan, or check it in and advance `host`. |
+| `xpi sg status` | git status, commits ahead of `host`, a stopped import, live sessions, the adapter's `status`. |
+| `xpi sg env` | Print `export GIT_DIR=... GIT_WORK_TREE=...`. |
+| `xpi sg list` | Print the registry: `<workspace>\t<name>`. |
+| `xpi sg merge <branch>` | Merge a branch into `main`. |
+| `xpi sg <git command> ...` | git on the shadow repo, with its exit code. |
+
+`push`, `fetch`, `pull`, `clone`, `remote` and `submodule` exit 2: the shadow repo is local. `xpi sg sbx ...` exits 2
+("not available yet").
+
+The repo is the registered workspace with the longest path that contains the current directory; no match is exit 2.
+`xpi sg --repo <name> <command>` (before the command) picks one by name.
+
+Exit codes: 0 success, 1 a git or adapter failure (their stderr is shown as it is), 2 a failed precondition (a dirty
+tree, a broken invariant, no repo, a git that is too old, a held lock, a live session).
+
+### Configuration
+
+The store and tools come from the environment:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `XPI_SG_STORE` | `<agent dir>/shadow-git` | The store: the registry, the shadow repos and the locks. |
+| `XPI_SG_GIT` | `git` on `PATH` | The git binary. It must be 2.20 or newer; older is exit 2 naming this variable. |
+| `XPI_SG_ADAPTER_PATH` | `<store>/adapters` | Directories searched for adapters first, `:`-separated. |
+
+Per-repo settings are git config keys in the shadow repo, edited with `xpi sg config ...`:
+
+| Key | Meaning |
+|---|---|
+| `shadow.adapter` | The adapter name. |
+| `shadow.scope` | Space-separated paths passed to the adapter. |
+| `shadow.localOnly` (multi) | Local-only globs. `xpi sg config --add shadow.localOnly <glob>`. |
+| `shadow.gitfile` | Whether `init` wrote the `.git` file. |
+| `shadow.<adapter>.*` | Whatever the adapter reads, such as `shadow.plain.upstream`. |
+
+The shadow repo sets `extensions.worktreeConfig` and `core.repositoryformatversion = 1`, and keeps `core.worktree` in
+`config.worktree` of the main worktree, so linked worktrees (sandboxes, later) can have their own.
+
+## Adapters
+
+An adapter is an executable named `sg-adapter-<name>`. shadow-git looks for it in `XPI_SG_ADAPTER_PATH`, then in the
+adapters shipped with xpi (the two below), then on `PATH`. It is called as `sg-adapter-<name> <op> [args]` with the
+workspace root as its cwd and these variables set: `XPI_SG_WORKSPACE` (absolute path), `XPI_SG_SCOPE` and
+`XPI_SG_LOCAL_ONLY` (space-separated; the adapter must never change or delete a local-only path), `XPI_SG_GIT_DIR` (the
+shadow repo, for settings and the tracked file list) and `XPI_SG_GIT` (the git binary). `GIT_DIR` and `GIT_WORK_TREE`
+are not passed on. A non-zero exit is a failure and its stderr is shown unchanged. Paths are relative to the workspace
+root.
+
+| Op | Input | Output (stdout) | Contract |
+|---|---|---|---|
+| `metadata` | | One path per line | The host VCS's own files and directories. Never tracked; hidden in sandboxes. |
+| `excludes` | | One gitignore pattern per line | Other paths git must never track: build outputs, caches. |
+| `prepare` | | | Afterwards every in-scope file is a writable regular file. |
+| `update` | | A one-line label | Bring the workspace to the latest host state within the scope. |
+| `checkin` | stdin: `A\|M\|D<TAB>path` lines; `--message-file <f>` | | Check in exactly these changes as one host operation, or fail with no partial effect where the host allows it. |
+| `status` | | Free text, at most 20 lines | A short summary of the host side. |
+
+The package ships two adapters, both POSIX `sh`:
+
+- **`sg-adapter-plain`**: the directory in `shadow.plain.upstream` is the host. `update` copies the upstream into the
+  workspace and removes files that `host` tracked and the upstream no longer has, except local-only paths. `checkin`
+  checks every listed file first, then copies them into the upstream, bumps the version and appends the message to
+  `.plainvcs/log`. File names with a newline are not supported.
+- **`sg-adapter-template`**: every op with comments on its contract and the questions a writer has to answer for their
+  VCS, such as which names the VCS puts in a workspace, how to make files writable without breaking a shared cache, and
+  whether a check-in needs a lock first. It fails every op that needs a decision, so it cannot be used by accident.
+  Copy it to `sg-adapter-<yourname>`, fill it in, and put it in `XPI_SG_ADAPTER_PATH`.
+
+Adapters for real host VCSs are written by their users and are not part of xin-pi.
+
+## Limits
+
+- **git environment.** `xpi sg env` makes `GIT_DIR` and `GIT_WORK_TREE` point at the shadow repo for that shell. Every git
+  command in that shell then reaches the shadow repo, even after `cd` to another repository. Prefer `xpi sg <git
+  command>`, which sets them for one command only. Without them, `git` in the workspace finds no repository (unless
+  you used `--gitfile`).
+- **Modification times.** Switching branches rewrites the modification times of the files it changes, and an import
+  switches to `host` and back. Build tools that compare modification times rebuild those files.
+- **A clean tree is required** for `import`, `export` and `merge`, including no untracked files that are not ignored.
+- **Local-only globs** are git pathspec globs from the workspace root, so `AGENTS.md` matches only the root file. They
+  cannot contain spaces, because the adapter receives them space-separated.
+- **Live-session check.** The check reads `<store>/<name>.sessions`, but nothing writes entries until xpi sessions are
+  wired in; until then a command line run does not see an open xpi session.
+- **No sandboxes yet.** Several agents on one workspace need them; `xpi sg sbx` is not available.
+- **Standalone binary.** The shipped adapters are files next to the binary; if you move the binary alone, put them in
+  `XPI_SG_ADAPTER_PATH`.

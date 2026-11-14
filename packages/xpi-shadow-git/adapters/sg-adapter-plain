@@ -1,0 +1,154 @@
+#!/bin/sh
+# sg-adapter-plain: treats another directory as the host.
+#
+# The directory is `shadow.plain.upstream` in the shadow repo's config (set it with
+# `xpi sg config shadow.plain.upstream <dir>`, or `xpi sg init ... --config shadow.plain.upstream=<dir>`). It holds a
+# `.plainvcs/` metadata directory with a `version` counter and a `log`. This adapter exists for the tests and for
+# trying shadow-git without a host VCS. It is not a version control system: there are no conflicts and no history.
+#
+#   update   copies the upstream into the workspace and deletes the files that were tracked and are gone upstream
+#   checkin  copies the listed files into the upstream, deletes the removed ones, and bumps the version
+#
+# Local-only paths (XPI_SG_LOCAL_ONLY) are never copied over or deleted. File names with a newline are not supported.
+set -eu
+set -f
+
+op="${1:-}"
+[ $# -gt 0 ] && shift
+
+: "${XPI_SG_WORKSPACE:?XPI_SG_WORKSPACE is not set (this adapter is run by xpi sg)}"
+SCOPE="${XPI_SG_SCOPE:-}"
+LOCAL_ONLY="${XPI_SG_LOCAL_ONLY:-}"
+TAB=$(printf '\t')
+
+die() {
+	echo "sg-adapter-plain: $*" >&2
+	exit 1
+}
+
+upstream() {
+	dir=$("${XPI_SG_GIT:-git}" --git-dir="$XPI_SG_GIT_DIR" config --get shadow.plain.upstream 2>/dev/null || true)
+	[ -n "$dir" ] || die "set shadow.plain.upstream (xpi sg config shadow.plain.upstream <dir>)"
+	[ -d "$dir/.plainvcs" ] || die "$dir has no .plainvcs directory"
+	printf '%s' "$dir"
+}
+
+version() {
+	cat "$1/.plainvcs/version" 2>/dev/null || echo 0
+}
+
+in_scope() {
+	[ -n "$SCOPE" ] || return 0
+	for s in $SCOPE; do
+		s="${s%/}"
+		case "$1" in "$s" | "$s"/*) return 0 ;; esac
+	done
+	return 1
+}
+
+local_only() {
+	for g in $LOCAL_ONLY; do
+		case "$g" in */) g="$g*" ;; esac
+		# shellcheck disable=SC2254 # the glob is a pattern on purpose
+		case "$1" in $g) return 0 ;; esac
+	done
+	return 1
+}
+
+safe_path() {
+	case "$1" in /* | ../* | */../* | */.. | .. | "") die "refusing the path $1" ;; esac
+}
+
+case "$op" in
+metadata)
+	echo ".plainvcs"
+	;;
+excludes) ;;
+prepare)
+	cd "$XPI_SG_WORKSPACE"
+	if [ -n "$SCOPE" ]; then
+		for s in $SCOPE; do
+			[ -e "$s" ] && chmod -R u+w "$s"
+		done
+	else
+		chmod -R u+w .
+	fi
+	exit 0
+	;;
+update)
+	up=$(upstream)
+	cd "$XPI_SG_WORKSPACE"
+	(cd "$up" && find . -type f ! -path './.plainvcs/*' | sed 's|^\./||') | while IFS= read -r f; do
+		in_scope "$f" || continue
+		local_only "$f" && continue
+		mkdir -p "$(dirname "$f")"
+		[ -e "$f" ] && chmod u+w "$f"
+		cp "$up/$f" "$f"
+	done
+	"${XPI_SG_GIT:-git}" -c core.quotepath=false --git-dir="$XPI_SG_GIT_DIR" ls-tree -r --name-only refs/heads/host |
+		while IFS= read -r f; do
+			in_scope "$f" || continue
+			local_only "$f" && continue
+			[ -e "$up/$f" ] || rm -f "$f"
+		done
+	mkdir -p .plainvcs
+	cp "$up/.plainvcs/version" .plainvcs/version
+	echo "plain v$(version "$up")"
+	;;
+checkin)
+	msgfile=""
+	while [ $# -gt 0 ]; do
+		case "$1" in
+		--message-file)
+			msgfile="${2:?--message-file needs a file}"
+			shift 2
+			;;
+		*) die "unknown argument $1" ;;
+		esac
+	done
+	up=$(upstream)
+	cd "$XPI_SG_WORKSPACE"
+	changes=$(mktemp "${TMPDIR:-/tmp}/sg-plain.XXXXXX")
+	trap 'rm -f "$changes"' EXIT
+	cat >"$changes"
+	# check everything before changing anything: no partial effect
+	while IFS="$TAB" read -r status f; do
+		safe_path "$f"
+		case "$status" in
+		A | M) [ -f "$f" ] || die "$f is not a file in the workspace" ;;
+		D) ;;
+		*) die "unknown status $status for $f" ;;
+		esac
+	done <"$changes"
+	while IFS="$TAB" read -r status f; do
+		case "$status" in
+		A | M)
+			mkdir -p "$up/$(dirname "$f")"
+			cp "$f" "$up/$f"
+			;;
+		D) rm -f "$up/$f" ;;
+		esac
+	done <"$changes"
+	n=$(($(version "$up") + 1))
+	echo "$n" >"$up/.plainvcs/version"
+	mkdir -p .plainvcs
+	echo "$n" >.plainvcs/version
+	{
+		echo "v$n"
+		[ -z "$msgfile" ] || cat "$msgfile"
+		echo
+	} >>"$up/.plainvcs/log"
+	;;
+status)
+	if up=$("${XPI_SG_GIT:-git}" --git-dir="$XPI_SG_GIT_DIR" config --get shadow.plain.upstream 2>/dev/null) && [ -d "$up/.plainvcs" ]; then
+		echo "upstream $up is at version $(version "$up")"
+		echo "workspace is at version $(version "$XPI_SG_WORKSPACE")"
+	else
+		echo "no upstream configured (shadow.plain.upstream)"
+	fi
+	;;
+*)
+	echo "sg-adapter-plain: unknown op '$op' (metadata, excludes, prepare, update, checkin, status)" >&2
+	exit 2
+	;;
+esac

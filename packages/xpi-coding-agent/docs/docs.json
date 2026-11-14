@@ -165,6 +165,10 @@
           "path": "roost.md"
         },
         {
+          "title": "Shadow-git",
+          "path": "shadow-git.md"
+        },
+        {
           "title": "Slash Commands",
           "path": "slash-commands.md"
         },

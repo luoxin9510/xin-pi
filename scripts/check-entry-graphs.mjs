@@ -25,6 +25,7 @@ const WORKSPACE = {
 	"xpi-telemetry": "packages/xpi-telemetry/src",
 	"xpi-mcp": "packages/xpi-mcp/src",
 	"xpi-roost": "packages/xpi-roost/src",
+	"xpi-shadow-git": "packages/xpi-shadow-git/src",
 	"xpi-schema": "packages/xpi-schema/src",
 	"xpi-tui": "packages/xpi-tui/src",
 };
