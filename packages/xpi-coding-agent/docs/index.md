@@ -31,6 +31,11 @@ Use the [Quickstart customization chooser](quickstart.md#choose-how-to-customize
 [Porting xpi features](porting.md) is a menu of the portable components (codemode, subagents, workflows, relay,
 background sessions, schedules, the login service): pick what you want, see what each depends on, and follow its guide.
 
+## Put git over a workspace another VCS owns
+
+[Shadow-git](shadow-git.md) (`xpi sg`) keeps a private git history next to a workspace that a non-git version control
+system owns, with explicit `import` and `export` between the two and a small adapter script for the host VCS.
+
 ## Automate or embed Pi
 
 - Use [print mode](cli.md#invocation-and-output) for one-off and scripted tasks.

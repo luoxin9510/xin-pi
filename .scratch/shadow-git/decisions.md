@@ -74,7 +74,7 @@ not manage what they change ("…沙盒不要去管，不要复杂化").
 
 ## Approval (2026-11-14)
 
-The owner approved the spec after four review rounds ("是"), with both owner questions as recommended.
+The owner approved the spec after six review rounds (one review and five delta checks) ("是"), with both owner questions as recommended.
 
 18. **The main session** edits the primary workspace like any checkout. Sandboxes are for subagents and teammates.
 19. **Teammates** each get a sandbox in a shadow-git workspace. Elsewhere teams are unchanged.

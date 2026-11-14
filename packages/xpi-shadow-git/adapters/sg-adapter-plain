@@ -1,0 +1,175 @@
+#!/bin/sh
+# sg-adapter-plain: treats another directory as the host.
+#
+# The directory is `shadow.plain.upstream` in the shadow repo's config (set it with
+# `xpi sg config shadow.plain.upstream <dir>`, or `xpi sg init ... --config shadow.plain.upstream=<dir>`). It holds a
+# `.plainvcs/` metadata directory with a `version` counter and a `log`. This adapter exists for the tests and for
+# trying shadow-git without a host VCS. It is not a version control system: there are no conflicts and no history.
+#
+#   update   copies the upstream into the workspace and deletes the files that were tracked and are gone upstream
+#   checkin  copies the listed files into the upstream, deletes the removed ones, and bumps the version
+#
+# Local-only paths (XPI_SG_LOCAL_ONLY) are never copied over or deleted. They are matched by git, as git pathspec globs. File names with a newline are not supported.
+set -eu
+set -f
+
+op="${1:-}"
+[ $# -gt 0 ] && shift
+
+: "${XPI_SG_WORKSPACE:?XPI_SG_WORKSPACE is not set (this adapter is run by xpi sg)}"
+SCOPE="${XPI_SG_SCOPE:-}"
+LOCAL_ONLY="${XPI_SG_LOCAL_ONLY:-}"
+TAB=$(printf '\t')
+GIT="${XPI_SG_GIT:-git}"
+work=$(mktemp -d "${TMPDIR:-/tmp}/sg-plain.XXXXXX")
+trap 'rm -rf "$work"' EXIT
+
+die() {
+	echo "sg-adapter-plain: $*" >&2
+	exit 1
+}
+
+upstream() {
+	dir=$("$GIT" --git-dir="$XPI_SG_GIT_DIR" config --get shadow.plain.upstream 2>/dev/null || true)
+	[ -n "$dir" ] || die "set shadow.plain.upstream (xpi sg config shadow.plain.upstream <dir>)"
+	[ -d "$dir/.plainvcs" ] || die "$dir has no .plainvcs directory"
+	printf '%s' "$dir"
+}
+
+version() {
+	cat "$1/.plainvcs/version" 2>/dev/null || echo 0
+}
+
+in_scope() {
+	[ -n "$SCOPE" ] || return 0
+	for s in $SCOPE; do
+		s="${s%/}"
+		case "$1" in "$s" | "$s"/*) return 0 ;; esac
+	done
+	return 1
+}
+
+# Print the paths of the list in $1 that match a local-only glob, one per line, with git's own pathspec rules (shell
+# `case` differs: `*` would cross `/`, and `**/x` would not match a root `x`). The candidates go into a scratch index
+# (no objects are written) and git lists the ones the pathspecs select.
+local_only_matches() {
+	out=$2
+	: >"$out"
+	[ -n "$LOCAL_ONLY" ] || return 0
+	empty=e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+	while IFS= read -r f; do
+		case "$f" in \"*) die "refusing the path $f" ;; esac
+		printf '100644 %s 0\t%s\n' "$empty" "$f"
+	done <"$1" >"$work/index-info"
+	rm -f "$work/index"
+	GIT_INDEX_FILE="$work/index" "$GIT" --git-dir="$XPI_SG_GIT_DIR" update-index --add --info-only --index-info <"$work/index-info" || die "git could not read the paths"
+	set --
+	for g in $LOCAL_ONLY; do
+		case "$g" in */) g="$g**" ;; esac
+		set -- "$@" ":(glob)$g"
+	done
+	GIT_INDEX_FILE="$work/index" "$GIT" -c core.quotepath=false --git-dir="$XPI_SG_GIT_DIR" --work-tree="$XPI_SG_WORKSPACE" ls-files -- "$@" >"$out" || die "git could not match the local-only globs"
+}
+
+safe_path() {
+	case "$1" in /* | ../* | */../* | */.. | .. | "") die "refusing the path $1" ;; esac
+}
+
+case "$op" in
+metadata)
+	echo ".plainvcs"
+	;;
+excludes) ;;
+prepare)
+	cd "$XPI_SG_WORKSPACE"
+	if [ -n "$SCOPE" ]; then
+		for s in $SCOPE; do
+			[ -e "$s" ] && chmod -R u+w "./$s"
+		done
+	else
+		chmod -R u+w .
+	fi
+	exit 0
+	;;
+update)
+	up=$(upstream)
+	cd "$XPI_SG_WORKSPACE"
+	# listings go to files first: a failing find or ls-tree must stop the update, not shorten the list
+	(cd "$up" && find . -type f ! -path './.plainvcs/*') >"$work/found" || die "cannot list $up"
+	sed 's|^\./||' "$work/found" >"$work/upstream.list"
+	"$GIT" -c core.quotepath=false --git-dir="$XPI_SG_GIT_DIR" ls-tree -r --name-only refs/heads/host >"$work/tracked.list" ||
+		die "cannot list the files tracked on host"
+	cat "$work/upstream.list" "$work/tracked.list" >"$work/all.list"
+	local_only_matches "$work/all.list" "$work/local.list"
+	while IFS= read -r f; do
+		in_scope "$f" || continue
+		grep -qxF -- "$f" "$work/local.list" && continue
+		mkdir -p -- "$(dirname -- "$f")"
+		[ -e "$f" ] && chmod u+w "./$f"
+		cp -- "$up/$f" "$f"
+	done <"$work/upstream.list"
+	while IFS= read -r f; do
+		in_scope "$f" || continue
+		grep -qxF -- "$f" "$work/local.list" && continue
+		[ -e "$up/$f" ] || rm -f -- "$f"
+	done <"$work/tracked.list"
+	mkdir -p .plainvcs
+	cp -- "$up/.plainvcs/version" .plainvcs/version
+	echo "plain v$(version "$up")"
+	;;
+checkin)
+	msgfile=""
+	while [ $# -gt 0 ]; do
+		case "$1" in
+		--message-file)
+			msgfile="${2:?--message-file needs a file}"
+			shift 2
+			;;
+		*) die "unknown argument $1" ;;
+		esac
+	done
+	up=$(upstream)
+	cd "$XPI_SG_WORKSPACE"
+	changes="$work/changes"
+	cat >"$changes"
+	# check everything before changing anything: no partial effect
+	while IFS="$TAB" read -r status f; do
+		safe_path "$f"
+		case "$status" in
+		A | M) [ -f "./$f" ] || die "$f is not a file in the workspace" ;;
+		D) ;;
+		*) die "unknown status $status for $f" ;;
+		esac
+	done <"$changes"
+	while IFS="$TAB" read -r status f; do
+		case "$status" in
+		A | M)
+			mkdir -p -- "$up/$(dirname -- "$f")"
+			cp -- "$f" "$up/$f"
+			;;
+		D) rm -f -- "$up/$f" ;;
+		esac
+	done <"$changes"
+	n=$(($(version "$up") + 1))
+	echo "$n" >"$up/.plainvcs/version"
+	mkdir -p .plainvcs
+	echo "$n" >.plainvcs/version
+	{
+		echo "v$n"
+		[ -z "$msgfile" ] || cat "$msgfile"
+		echo
+	} >>"$up/.plainvcs/log"
+	;;
+status)
+	if up=$("$GIT" --git-dir="$XPI_SG_GIT_DIR" config --get shadow.plain.upstream 2>/dev/null) && [ -d "$up/.plainvcs" ]; then
+		echo "upstream $up is at version $(version "$up")"
+		echo "workspace is at version $(version "$XPI_SG_WORKSPACE")"
+	else
+		echo "no upstream configured (shadow.plain.upstream)"
+	fi
+	;;
+*)
+	echo "sg-adapter-plain: unknown op '$op' (metadata, excludes, prepare, update, checkin, status)" >&2
+	exit 2
+	;;
+esac

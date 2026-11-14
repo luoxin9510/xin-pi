@@ -1,0 +1,48 @@
+{
+	"name": "xpi-shadow-git",
+	"version": "1.11.1",
+	"private": true,
+	"description": "A private git history over a workspace owned by another version control system, with an import and export sync point",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"source": "./src/index.ts",
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		}
+	},
+	"sideEffects": false,
+	"files": [
+		"dist",
+		"adapters",
+		"README.md"
+	],
+	"scripts": {
+		"clean": "node ../../scripts/package-files.mjs clean dist",
+		"build": "tsc -p tsconfig.build.json",
+		"test": "vitest --run",
+		"prepublishOnly": "npm run clean && npm run build"
+	},
+	"keywords": [
+		"git",
+		"workspace",
+		"version-control",
+		"agents"
+	],
+	"author": "Earendil Works",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/luoxin9510/xin-pi.git",
+		"directory": "packages/xpi-shadow-git"
+	},
+	"engines": {
+		"node": ">=22.19.0"
+	},
+	"devDependencies": {
+		"@types/node": "22.19.19",
+		"vitest": "4.1.12"
+	}
+}

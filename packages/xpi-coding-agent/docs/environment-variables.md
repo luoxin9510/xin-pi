@@ -102,6 +102,16 @@ These variables are read by Pi itself:
 
 Provider credentials such as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and provider-specific configuration are listed in [Providers](providers.md#use-an-api-key-from-the-environment).
 
+## Shadow-git
+
+`xpi sg` keeps its store in `<agent dir>/shadow-git`. See [shadow-git](shadow-git.md#configuration).
+
+| Variable | Description |
+|----------|-------------|
+| `XPI_SG_STORE` | Override the store (the registry, the shadow repos and the locks) |
+| `XPI_SG_GIT` | The git binary to use; it must be 2.20 or newer |
+| `XPI_SG_ADAPTER_PATH` | Directories searched for `sg-adapter-<name>` before the adapters shipped with xpi and `PATH` (default `<store>/adapters`) |
+
 ## Background Sessions
 
 `xpi roost` keeps a daemon per agent directory: state in `<agent dir>/xpi-roost/`, sockets in

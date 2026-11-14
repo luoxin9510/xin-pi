@@ -4,8 +4,9 @@ This page is a menu for taking xpi's features into another agent harness, read l
 components you want, follow each one's dependencies, and port only that set. Two levels, as in a kernel:
 
 - A **unit** is what you copy. Its files import each other, so a unit comes whole: you cannot copy half of it and build.
-  There are five: [codemode](#codemode), [subagents](#subagents) (which needs codemode), [relay](#relay),
-  [roost](#roost) (the `xpi-roost` package) and the [roost adapter](#roost-adapter) (which needs roost).
+  There are six: [codemode](#codemode), [subagents](#subagents) (which needs codemode), [relay](#relay),
+  [roost](#roost) (the `xpi-roost` package), the [roost adapter](#roost-adapter) (which needs roost) and
+  [shadow-git](#shadow-git) (the `xpi-shadow-git` package).
 - An **option** is a feature inside a unit. It comes with the unit's files; you turn it off by a setting, or by removing
   the line that wires it in (named in each option), not by leaving files out.
 
@@ -38,10 +39,12 @@ graph TD
   relay[unit: relay]
   roost[unit: roost]
   adapter[unit: roost adapter]
+  shadowgit[unit: shadow-git]
   subagents --> codemode
   adapter --> roost
   subagents -. options .- o1[Agent tool, names and SendMessage, background, panel and screens, workflows, fork]
   roost -. options .- o2[schedules, login service, hub]
+  shadowgit -. options .- o4[local-only paths, scope, --gitfile]
   adapter -. options .- o3[--bg, /bg, /agents, hub wiring, scheduleLaunch]
 ```
 
@@ -52,6 +55,7 @@ graph TD
 | [names and SendMessage](#subagents-names-and-sendmessage), [background](#subagents-background), [panel and screens](#subagents-panel-and-screens), [workflows](#workflows) | codemode, subagents | as the Agent tool, plus what each option lists | the options you do not want |
 | [relay](#relay) | relay | virtual models (`core/virtual-models.ts`), the `agent_before_settle` boundary with compaction drafts | nothing to turn off |
 | [roost core](#roost-core) | roost | node-pty, unix sockets, detached child processes, a CLI that starts a session from argv with a session file | [schedules](#schedules) (no `scheduleLaunch`), [login service](#login-service) (remove its `cmdDaemon` branch); the hub is a separate entry point, unused unless wired |
+| [shadow-git](#shadow-git) | shadow-git | Node and git 2.20 or newer; a `sh` for the shipped adapters | `--gitfile`, local-only paths and the scope are settings; nothing else to turn off |
 | [roost session side](#roost-session-side), [hub](#roost-hub) | roost, roost adapter | extension events, flags and commands; a TUI library like `xpi-tui` for the hub | `/agents` and the hub, by removing their registrations |
 
 A pick never needs a unit outside its row: the import graphs of `extensions/relay/index.ts`,
@@ -385,6 +389,30 @@ command line (`src/cli.ts`) and their library (`src/lib/`), plus the hub (`src/h
   in coding-agent.
 - **Linux / macOS**: as roost core.
 - **Guide**: [Porting roost](../../xpi-roost/docs/porting.md), step 6.
+
+## shadow-git
+
+The `packages/xpi-shadow-git` package, one unit: the library and command line (`src/`) and the two adapters
+(`adapters/`). It imports nothing of xpi and has no npm dependencies. What exists today is the core: init, import
+(with resume and abort), export, status, env, list, merge, the lock, the live-session check and git pass-through.
+Sandboxes and the xpi integration (`/sg`, hooks, isolation) come later and get their entries when they land.
+
+- **Gives**: a private git history over a workspace that another version control system owns, with `import` and
+  `export` as the sync point and an adapter for the host VCS. See [shadow-git](shadow-git.md).
+- **Depends on**: no other unit and nothing of the host agent. Host capabilities: Node, spawning `git` (2.20 or newer)
+  and a POSIX `sh` for the adapters. A caller supplies the working directory, the store and where the shipped adapters
+  are (`runSg` options `defaultStore` and `builtinAdaptersDir`).
+- **Copy (one unit)**: `packages/xpi-shadow-git/` (`src/`, `adapters/`). The coding agent wires it in with
+  `src/extensions/shadow-git/cli.lazy.ts` and `cli.ts` (the `xpi sg` dispatch in `src/main.ts`), and `getShadowGitAdaptersDir`
+  in `src/config.ts` plus the `copy-assets` lines of its `package.json` that copy the adapters next to the build.
+- **Rewrite**: the command name in the messages (`xpi sg`), the environment variables `XPI_SG_*`, the default store
+  (`<agent dir>/shadow-git`) and the agent directory source.
+- **Verify**: `node ../../node_modules/vitest/dist/cli.js --run` in `packages/xpi-shadow-git` (temp directories, real
+  git and the plain adapter; no model, no network).
+- **Linux**: the reference platform. **macOS**: the same; the system `sh` and `git` work, and `/var` and `/tmp` are links,
+  so the registry stores real paths (`realpath`) and the cwd is resolved the same way.
+- **Guide**: this entry and [shadow-git](shadow-git.md) (the adapter contract and the sync model). The detailed porting
+  guide comes with the later pieces.
 
 ## Adding a component
 

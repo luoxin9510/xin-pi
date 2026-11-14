@@ -357,6 +357,11 @@ These commands work outside a session, so agents can run them through `bash`. Se
 
 Project `.pi/mcp.json` files are only read for projects that are already trusted.
 
+## Shadow-git commands
+
+`xpi sg` puts a private git history over a workspace that another version control system owns: `init`, `import`,
+`export`, `status`, `env`, `list`, `merge`, and git for everything else. See [shadow-git](shadow-git.md).
+
 ## Background session commands
 
 `xpi roost` lists and controls background sessions: xpi sessions that a per-agent-directory daemon runs in

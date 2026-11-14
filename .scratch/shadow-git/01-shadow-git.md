@@ -3,7 +3,8 @@
 Status: approved; not built yet.
 
 Approval: approved by the owner on 2026-11-14 ("是"), with both owner questions as recommended (decisions 18 and
-19). It had four rounds of independent review; the last found nothing blocking or should-fix.
+19). It had six rounds of independent review (one review and five delta checks); the last found nothing blocking or
+should-fix.
 
 ## Problem
 
@@ -392,7 +393,7 @@ When the session's cwd is in a registered workspace, `builtin:shadow-git` does t
   different system command on Linux, so the prompt and docs always say `xpi sg`.)
 - **Prompt.** A short paragraph says that a host VCS owns the workspace, that agents must never call it to write, and
   that `xpi sg export` shows the user what is pending.
-- **The main session** edits the primary workspace like any checkout. The user is present and commits on `main`.
+- **The main session** (decision 18) edits the primary workspace like any checkout. The user is present and commits on `main`.
   Sandboxes are for agents the user is not watching.
 
 **Isolation in a shadow-git workspace.**
@@ -494,3 +495,31 @@ Before each PR, a word list kept outside the repository is grepped over the diff
 3. **xpi integration.** `builtin:shadow-git`: environment, `/sg`, hooks, prompt, the policy check in tools,
    isolation, teammates. `docs/subagent.md`.
 4. **Wrap-up.** The detailed porting guide, `docs/xin-pi.md`, the real Haiku check, and a release.
+
+## Revisions while implementing
+
+PR 1 (core) differs from the text above in these places.
+
+- **`git checkout`, not `git switch`.** The spec's steps say `git switch`, which needs git 2.23. The minimum is 2.20, so
+  import, abort and the tests use `git checkout -q <branch> --`.
+- **Lock staleness.** The lock is stale when its holder's pid is gone; there is no age limit. The team locks also treat
+  a lock older than 30 seconds as stale, but an import or a check-in can run for minutes, and taking over a lock of a
+  live holder would let two writers into the primary workspace. A lock file that cannot be read yet is stale after
+  five seconds.
+- **Adapter lookup.** `XPI_SG_ADAPTER_PATH` (default `<store>/adapters`), then the adapters shipped with xpi, then `PATH`.
+  The spec lists only the first and the last, but the plain adapter has to be found without setup.
+- **Adapter environment.** Adapters also get `XPI_SG_GIT_DIR` (the shadow repo) and `XPI_SG_GIT` (the git binary), so the
+  plain adapter can read `shadow.plain.upstream` and the tracked file list. `GIT_DIR` and `GIT_WORK_TREE` are removed.
+- **Additions to the CLI.** `init --config <key>=<value>` (a setting written before the adapter runs, so the plain
+  adapter's upstream can be given at init) and `init --gitfile` (`shadow.gitfile = true`). `xpi sg merge --continue` and
+  `--abort` go to `git merge`, because `merge` is an `xpi sg` command and plain git is not reachable through it.
+- **Registration order.** `init` appends the registry line after the baseline commit, not before the adapter's ops, and
+  removes the half-built repo if any step fails.
+- **Local-only matching in adapters.** The spec says only that adapters must leave local-only paths alone. The globs are
+  git pathspec globs, which shell `case` patterns do not match the same way, so the plain adapter asks git, and the
+  docs and the template say so.
+- **`metadata` is root-relative.** Every `metadata` line is anchored to the workspace root in `info/exclude`. A host name
+  that repeats in every directory goes in `excludes`.
+- **`import --abort`** also cleans local-only paths, and removes the record only after `git checkout main` succeeds.
+  Resuming an import from a branch other than `host` needs a clean tree.
+- **`merge --continue|--abort`** take the lock and the live-session check.

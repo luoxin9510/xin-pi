@@ -67,6 +67,7 @@ import { hasTrustRequiringProjectResources, ProjectTrustStore } from "./core/tru
 import { builtInExtensions } from "./extensions/index.ts";
 import { loadMcpCommand } from "./extensions/mcp/cli.lazy.ts";
 import { loadRoostCommand } from "./extensions/roost/cli.lazy.ts";
+import { loadShadowGitCommand } from "./extensions/shadow-git/cli.lazy.ts";
 import { runMigrations, showDeprecationWarnings } from "./migrations.ts";
 import { InteractiveMode, runPrintMode, runRpcMode } from "./modes/index.ts";
 import { initTheme, setThemeJsonValidator, stopThemeWatcher } from "./modes/interactive/theme/theme.ts";
@@ -666,6 +667,12 @@ export async function main(args: string[], options?: MainOptions) {
 	if (args[0] === "roost") {
 		const { runRoostCommand } = await loadRoostCommand();
 		process.exitCode = await runRoostCommand(args.slice(1), { agentDir });
+		return;
+	}
+
+	if (args[0] === "sg") {
+		const { runShadowGitCommand } = await loadShadowGitCommand();
+		process.exitCode = await runShadowGitCommand(args.slice(1), { cwd, agentDir });
 		return;
 	}
 

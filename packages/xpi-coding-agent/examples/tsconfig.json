@@ -83,6 +83,9 @@
 			"xpi-roost/hub": [
 				"../../../packages/xpi-roost/src/hub/index.ts"
 			],
+			"xpi-shadow-git": [
+				"../../../packages/xpi-shadow-git/src/index.ts"
+			],
 			"typebox": [
 				"../../../node_modules/typebox"
 			],

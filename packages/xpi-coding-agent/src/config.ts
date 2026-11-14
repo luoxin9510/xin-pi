@@ -480,6 +480,17 @@ export function getExamplesPath(): string {
 	return resolve(join(getPackageDir(), "examples"));
 }
 
+/**
+ * The adapters shipped with `xpi sg` (`sg-adapter-plain`, `sg-adapter-template`): xpi-shadow-git's `adapters/` in a
+ * source checkout, `dist/shadow-git-adapters/` in the npm package, `shadow-git-adapters/` next to a standalone binary.
+ */
+export function getShadowGitAdaptersDir(): string {
+	const packageDir = getPackageDir();
+	if (isBunBinary) return join(packageDir, "shadow-git-adapters");
+	if (existsSync(join(packageDir, "src"))) return resolve(packageDir, "..", "xpi-shadow-git", "adapters");
+	return join(packageDir, "dist", "shadow-git-adapters");
+}
+
 /** Get path to CHANGELOG.md */
 export function getChangelogPath(): string {
 	return resolve(join(getPackageDir(), "CHANGELOG.md"));
