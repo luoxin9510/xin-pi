@@ -26,7 +26,12 @@ Haiku check before merge.
 
 - [x] C6 a real `tsc` check in a temp project
       Done: test/suite/checks-tsc.test.ts (the repo's own `tsc` by absolute path).
-- [ ] C6b the real Haiku check (the lead runs it)
+- [x] C6b the real Haiku check (the lead runs it)
+      Done (2026-11-14, by hand, the built bundle, an isolated agent directory, `checks.commands` = the repo's tsc):
+      Haiku was told to make an edit that breaks the return type and to fix what it is told about; it got the check
+      message, fixed `math.ts` and then `main.ts` (a second message after its fix), and the project type-checks. Five
+      runs in a row, 14-18 s each. Four earlier runs stalled (no output until killed), including one meant to have
+      checks off (`-e -builtin:checks` does not disable a built-in); they were not reproduced afterwards.
 - [x] C7 docs: `checks.md`, `settings.md`, `porting.md` (diagram and Pick table), `subagent.md`, `docs/xin-pi.md`, both
       READMEs
       Done: checks.md, settings.md, porting.md, subagent.md, xin-pi.md, both READMEs, extensions.md, docs.json.
