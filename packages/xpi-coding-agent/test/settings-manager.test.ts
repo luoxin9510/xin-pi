@@ -265,6 +265,21 @@ describe("SettingsManager", () => {
 			expect(manager.getProjectSettings()).toEqual({});
 		});
 
+		it("should not expose a project's checks.commands until the project is trusted", () => {
+			// The checks extension reads pi.getSettings(), so commands from an untrusted repository are never run.
+			writeFileSync(
+				join(projectDir, ".pi", "settings.json"),
+				JSON.stringify({ checks: { commands: ["echo from-project"] } }),
+			);
+			const manager = SettingsManager.create(projectDir, agentDir, { projectTrusted: false });
+
+			expect(manager.getSettings().checks?.commands).toBeUndefined();
+
+			manager.setProjectTrusted(true);
+
+			expect(manager.getSettings().checks?.commands).toEqual(["echo from-project"]);
+		});
+
 		it("should reload project settings after trust changes to true", () => {
 			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ theme: "global" }));
 			writeFileSync(join(projectDir, ".pi", "settings.json"), JSON.stringify({ theme: "project" }));

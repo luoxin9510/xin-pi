@@ -408,6 +408,32 @@ const CommitSettingsSchema = Type.Object(
 	{ additionalProperties: true, description: "Settings of the built-in commit extension (/commit)." },
 );
 
+const ChecksSettingsSchema = Type.Object(
+	{
+		commands: Type.Optional(
+			Type.Array(Type.String(), {
+				description:
+					"Shell commands run in the session's working directory after a turn that changed something (a write or exec tool ran). New errors in their output go to the model before its next request. Empty or unset: the feature is off.",
+			}),
+		),
+		timeoutMs: Type.Optional(
+			Type.Number({
+				minimum: 1,
+				description: "Per command; a command that runs longer is killed and skipped for that check.",
+				default: SETTINGS_DEFAULTS.checks.timeoutMs,
+			}),
+		),
+		maxErrors: Type.Optional(
+			Type.Number({
+				minimum: 1,
+				description: "Most errors listed in one message to the model.",
+				default: SETTINGS_DEFAULTS.checks.maxErrors,
+			}),
+		),
+	},
+	{ additionalProperties: true, description: "Settings of the built-in checks extension (checks after edits)." },
+);
+
 // xpi roost's block (background sessions). xpi-roost validates it itself (its lib/config.ts: a bad value is skipped)
 // and its daemon reads the user's section from <agent dir>/settings.json; this is for the published schema. Defaults are
 // in the descriptions. A project's settings cannot set the four environment keys (inheritEnv, envAllowList,
@@ -779,6 +805,7 @@ export const SettingsSchema = Type.Object(
 		agentTeams: Type.Optional(AgentTeamsSettingsSchema),
 		relay: Type.Optional(RelaySettingsSchema),
 		commit: Type.Optional(CommitSettingsSchema),
+		checks: Type.Optional(ChecksSettingsSchema),
 		roost: Type.Optional(RoostSettingsSchema),
 	},
 	{ additionalProperties: true },

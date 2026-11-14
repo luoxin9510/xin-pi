@@ -91,6 +91,15 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
     `AGENTS.md`/`CLAUDE.md`, the last 20 subjects), asks `ctx.complete` for `{ type, scope?, summary, body? }` with the
     model of `commit.model` (default `haiku`), opens `ui.editor`, and runs `git commit -F <temp file>`. Extension API
     only; no core change besides the settings entry. Tests: `test/suite/commit.test.ts` (faux provider, temp repo).
+  - `checks` (`src/extensions/checks/`, off with `-builtin:checks`): after a turn that changed something (a `write` or
+    `exec` tool ran, noted at `tool_call` by id and counted at `tool_result`), it runs the `checks.commands` settings once
+    at `turn_end` and returns the new errors as a `display: true` `custom_message` draft (identity `(command, file,
+    message)`, baseline taken in the background at `session_start`, the first change waits for it). `runner.ts` (shell,
+    process group kill, 1 MiB cap), `parse.ts` (tsc, GitHub annotations, mypy, `path:line:col`), `render.ts` (collapsed
+    TUI line). Core change: `TurnEndEvent.terminated`, from `AgentTurnContext.terminated` set by the agent loop from the
+    tool batch's `terminate`. Loads in subagents. User docs: [checks.md](../packages/xpi-coding-agent/docs/checks.md).
+    Tests: `test/checks-runner.test.ts`, `test/checks-parse.test.ts`, `test/suite/checks.test.ts` (fake runner),
+    `test/suite/checks-tsc.test.ts` (real `tsc`), `terminated` in `xpi-agent-core` `test/agent-loop.test.ts`.
   - `roost` (`src/extensions/roost/`, off with `-builtin:roost`): the session side of background sessions. In every
     session (not in a subagent child) the session write lock, `<session file>.lock`, taken at `session_start` and
     released at `session_shutdown` (DM-8: the daemon refuses to start a session on a locked file). It imports only

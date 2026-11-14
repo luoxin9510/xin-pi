@@ -4,9 +4,10 @@ This page is a menu for taking xpi's features into another agent harness, read l
 components you want, follow each one's dependencies, and port only that set. Two levels, as in a kernel:
 
 - A **unit** is what you copy. Its files import each other, so a unit comes whole: you cannot copy half of it and build.
-  There are six: [codemode](#codemode), [subagents](#subagents) (which needs codemode), [relay](#relay),
+  There are seven: [codemode](#codemode), [subagents](#subagents) (which needs codemode), [relay](#relay),
   [roost](#roost) (the `xpi-roost` package), the [roost adapter](#roost-adapter) (which needs roost) and
-  [shadow-git](#shadow-git) (the `xpi-shadow-git` package; its isolation option needs subagents).
+  [shadow-git](#shadow-git) (the `xpi-shadow-git` package; its isolation option needs subagents) and
+  [checks](#checks).
 - An **option** is a feature inside a unit. It comes with the unit's files; you turn it off by a setting, or by removing
   the line that wires it in (named in each option), not by leaving files out.
 
@@ -40,12 +41,14 @@ graph TD
   roost[unit: roost]
   adapter[unit: roost adapter]
   shadowgit[unit: shadow-git]
+  checks[unit: checks]
   subagents --> codemode
   adapter --> roost
   shadowgit -. isolation option .-> subagents
   subagents -. options .- o1[Agent tool, names and SendMessage, background, panel and screens, workflows, fork]
   roost -. options .- o2[schedules, login service, hub]
   shadowgit -. options .- o4[local-only paths, scope, --gitfile, xpi integration, isolation]
+  checks -. options .- o5[commands, timeouts, error cap, subagents]
   adapter -. options .- o3[--bg, /bg, /agents, hub wiring, scheduleLaunch]
 ```
 
@@ -57,10 +60,11 @@ graph TD
 | [relay](#relay) | relay | virtual models (`core/virtual-models.ts`), the `agent_before_settle` boundary with compaction drafts | nothing to turn off |
 | [roost core](#roost-core) | roost | node-pty, unix sockets, detached child processes, a CLI that starts a session from argv with a session file | [schedules](#schedules) (no `scheduleLaunch`), [login service](#login-service) (remove its `cmdDaemon` branch); the hub is a separate entry point, unused unless wired |
 | [shadow-git](#shadow-git) | shadow-git | Node and git 2.20 or newer; a `sh` for the shipped adapters | `--gitfile`, local-only paths and the scope are settings; the xpi integration (the extension, [isolation](#shadow-git-isolation)) by leaving its wiring out |
+| [checks](#checks) | checks | tool effects on `tool_call`, the `turn_end` boundary with `custom_message` drafts and its `terminated` field (core change, see the entry), `registerMessageRenderer`, `ctx.signal`, `ui.setStatus` | nothing to turn off but the `checks.commands` setting |
 | [roost session side](#roost-session-side), [hub](#roost-hub) | roost, roost adapter | extension events, flags and commands; a TUI library like `xpi-tui` for the hub | `/agents` and the hub, by removing their registrations |
 
 A pick never needs a unit outside its row: the import graphs of `extensions/relay/index.ts`,
-`extensions/codemode/index.ts`, `extensions/subagent/index.ts`, `extensions/roost/index.ts` and xpi-roost's three
+`extensions/codemode/index.ts`, `extensions/subagent/index.ts`, `extensions/roost/index.ts`, `extensions/checks/index.ts` and xpi-roost's three
 process entries reach only the files listed in their units (plus the host's own `core/`, `modes/`, `utils/`,
 `cli/args.ts` and `config.ts`, and, for subagents, the MCP built-in's `config.ts` named in its entry).
 
@@ -280,6 +284,28 @@ The options below come with the unit. Each says how to turn it off.
 - **Linux**: the acceptance commands run with `shell: true` in their own process group, which is killed on timeout or
   abort. **macOS**: the same.
 - **Guide**: this entry and [Relay](relay.md) (settings, the record, limits); there is no separate relay porting guide.
+
+## checks
+
+- **Gives**: after a turn that changed something, the project's own check commands (`checks.commands`: type checker,
+  linter) run once and the model gets the errors that are new since the last check, before its next request. See
+  [Checks after edits](checks.md).
+- **Depends on**: no other unit. The extension API: `tool_call` events carrying the tool's `effect` and `toolCallId`,
+  `tool_result`, `session_start` and `session_shutdown`, the `turn_end` boundary returning `custom_message` drafts
+  (`{ entries: [...event.entries, draft] }`), `pi.registerMessageRenderer`, `pi.getSettings()`, `ctx.signal`,
+  `ctx.ui.setStatus`. One core change: `TurnEndEvent.terminated` (true when every tool result of the turn asked to end the
+  run, so no request follows), filled from `AgentTurnContext.terminated`, which the agent loop sets from the tool
+  batch's `terminate` result (`xpi-agent-core` `agent-loop.ts`, `types.ts`; `core/agent-session.ts`
+  `_dispatchTurnEndBoundary`; `core/extensions/types.ts`). Without it the extension would also check on a turn that ends
+  the run, and the message would reach no model.
+- **Copy (one unit)**: `coding-agent/src/extensions/checks/` (`index.ts`, `runner.ts`, `parse.ts`, `render.ts`). It
+  imports `core/settings-defaults.ts`, `utils/shell.ts` (`killProcessTree`) and `xpi-tui` (`Box`, `Text`, for the renderer).
+- **Rewrite**: the settings namespace `checks.*` (`core/settings-schema.ts`, `core/settings-defaults.ts`).
+- **Verify**: `test/checks-runner.test.ts`, `test/checks-parse.test.ts`, `test/suite/checks.test.ts` and
+  `test/suite/checks-tsc.test.ts` (vitest, singly); in xpi-agent-core, the `terminated` tests in `test/agent-loop.test.ts`.
+- **Linux**: each command runs through the shell in its own process group, which is killed on timeout, abort and shutdown.
+  **macOS**: the same (the group is stopped first, then killed, by `killProcessTree`). Windows: `taskkill /T`.
+- **Guide**: this entry and [Checks after edits](checks.md); there is no separate checks porting guide.
 
 ## roost
 

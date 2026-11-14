@@ -476,6 +476,39 @@ describe("AgentSession actionable boundaries", () => {
 		expect(harness.faux.state.callCount).toBe(2);
 	});
 
+	it.each([
+		{ name: "every result terminates", terminate: true, expected: [true] },
+		{ name: "a normal batch", terminate: false, expected: [false, false] },
+	])("gives turn_end terminated when $name", async ({ terminate, expected }) => {
+		const tool: AgentTool = {
+			name: "probe",
+			label: "Probe",
+			description: "Returns, optionally ending the run",
+			parameters: Type.Object({}),
+			execute: async () => ({ content: [{ type: "text", text: "ok" }], details: {}, terminate }),
+		};
+		const seen: boolean[] = [];
+		const harness = await createHarness({
+			tools: [tool],
+			extensionFactories: [
+				(pi) => {
+					pi.on("turn_end", (event) => {
+						seen.push(event.terminated);
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage(fauxToolCall("probe", {}), { stopReason: "toolUse" }),
+			fauxAssistantMessage("done"),
+		]);
+
+		await harness.session.prompt("go");
+
+		expect(seen).toEqual(expected);
+	});
+
 	it("dispatches actionable turn_end for synthetic run failures", async () => {
 		let turnEnds = 0;
 		const harness = await createHarness({

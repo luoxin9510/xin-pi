@@ -22,6 +22,9 @@ to npm), environment variables are `XPI_*`, and these built-in extensions are ad
 - `upstream`: `/upstream` reports what upstream pi has that is worth porting.
 - `commit`: `/commit` drafts a commit message for the staged changes with a small model (setting `commit.model`,
   default `haiku`), opens it in an editor, and commits; hooks run and nothing is pushed or amended.
+- [checks](packages/xpi-coding-agent/docs/checks.md): after a turn that changed something, runs the commands in the
+  `checks.commands` setting (type checker, linter) and shows the model the errors that are new, before its next request.
+  Off until you name commands.
 
 - `xpi sg`: a private git history over a workspace that another version control system owns, with `import` and `export`
   as the sync point and a small adapter script for the host VCS. The built-in `shadow-git` extension gives sessions in

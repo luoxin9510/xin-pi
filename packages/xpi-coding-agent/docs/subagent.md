@@ -26,7 +26,7 @@ return [a.output, b.output].join("\n---\n");
   script, waiting for agents), [Structured output](#structured-output), [Names and SendMessage](#names-and-sendmessage), [Agent teams](#agent-teams) (experimental), [Fork](#fork)
 - Per-agent options: [Worktree isolation](#worktree-isolation), [Agent memory](#agent-memory), [MCP](#mcp),
   [Permission mode plan](#permission-mode-plan), [Extensions as hooks](#extensions-as-hooks),
-  [Codemode-only children](#codemode-only-children)
+  [Codemode-only children](#codemode-only-children), [Checks in subagents](#checks-in-subagents)
 - Scripts: [Workflows](#workflows) (saved workflows, runs and relaunch, pause and resume)
 - Interactive xpi: [Watching and talking to subagents](#watching-and-talking-to-subagents) (the panel, the subagent screen,
   the script screen)
@@ -1090,6 +1090,14 @@ session: nothing is added to the session file, and a script row that dropped out
 | `Esc` | back to main |
 
 These keys are fixed, like the panel's and the subagent screen's.
+
+## Checks in subagents
+
+The [checks](checks.md) extension (`checks.commands` in settings; off without commands) loads in subagents too, with the
+same settings, and runs in the subagent's working directory: its worktree when isolated. A subagent takes its own
+baseline. Two overlaps are accepted: a subagent that is not isolated changes the parent's tree, so the parent checks again
+after its `Agent` turn and may report errors the subagent already saw; and an isolated worktree without `node_modules`
+makes a command fail with output that cannot be parsed, which is in its baseline and is reported only if it changes.
 
 ## Config
 
