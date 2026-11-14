@@ -1,0 +1,437 @@
+# 01: shadow-git
+
+Status: draft. Not approved.
+
+## Problem
+
+Agent tooling assumes git. It wants cheap diffs, checkpoints, rollback, branches and worktrees. xpi's own features do
+too: `isolation: "worktree"`, `/commit`, `/review`, and the footer's branch.
+
+Many development workspaces are owned by another version control system (the **host VCS** here: any VCS that is not
+git). Host commands are often slow and verbose, and files may be read-only or links into a shared cache. Putting a
+`.git` directory into such a workspace is often not allowed, and the host VCS would see it.
+
+A second need comes with it. Several agents should be able to work on one workspace at once. Each needs its own copy of
+the files it changes. Shared scripts and test suites must keep reading the files they read today.
+
+## Goals
+
+- Agents get a normal git interface over an unmodified host workspace.
+- Nothing is placed in the workspace: no `.git`, no config, no marker files. The one exception is opt-in
+  (`shadow.gitfile`).
+- Any host VCS works through a small adapter. xin-pi ships no adapter for a real VCS product.
+- The boundary between agent work and host check-ins is an explicit sync point.
+- Many agents work in parallel on one workspace, each in a sandbox, with few dependencies.
+
+## Non-goals
+
+- **No remote.** The shadow repo is local to one user and is never pushed.
+- **No two-way merge engine.** Conflicts between host updates and local work are resolved by the user with plain git.
+- **Not a replacement for the host VCS**, which stays the system of record.
+- **No automatic check-in by agents.** Only the user checks in.
+- **No management of work that leaves the machine** (decision 16; see [Commands that send work elsewhere](#commands-that-send-work-elsewhere)).
+
+## Facts this builds on
+
+Paths are under `packages/xpi-coding-agent/src/` unless stated.
+
+- **Subcommands.** `main.ts` dispatches `xpi roost` and `xpi mcp` before argument parsing (`if (args[0] === "roost")`).
+  `xpi sg` goes next to them.
+- **Built-in extensions** are listed in `extensions/index.ts` (`builtin:subagent`, `builtin:relay`, `builtin:mcp`) and
+  can be disabled with `-builtin:<name>`.
+- **Worktree isolation** is `extensions/subagent/worktree.ts`:
+  - `planWorktree(cwd, agentId)` finds the git root with `git rev-parse --show-toplevel` and places the worktree at
+    `<root>/.pi/worktrees/<agentId>` on branch `subagent/<agentId>`.
+  - `ensureWorktree`, `settleWorktree`, `removeWorktree`, `listWorktrees` create, settle and list them.
+  - `addExclude` writes to `info/exclude`. `.worktreeinclude` copies ignored files in.
+  - In a shadow-git workspace today, `planWorktree` fails (no `.git`). With `GIT_DIR` and `GIT_WORK_TREE` set it would
+    succeed and put the worktree inside the workspace, which this spec forbids.
+- **Agent teams.** A teammate is never isolated: a named call with `isolation` is a plain subagent
+  (`extensions/subagent/agent-tool.ts`).
+- **Hooks.** A `tool_call` handler can return `{ block: true, reason }` (`docs/extensions.md`). `before_agent_start`
+  can change the system prompt.
+- **git.** `GIT_DIR` and `GIT_WORK_TREE` are honoured by every git command. `core.worktree` in a git dir names its
+  work tree. `extensions.worktreeConfig` (git 2.20) gives each linked worktree its own config, such as its own
+  `core.excludesFile`.
+- **Linux namespaces.** `unshare` and `mount` are in util-linux, which is part of the base system on Linux
+  distributions. `unshare --user --map-root-user --mount` needs unprivileged user namespaces. Some systems turn them
+  off with a sysctl or a security module; Ubuntu 24.04 restricts them by default, which affects its CI runners.
+
+## Decisions (`decisions.md`)
+
+Grill 1–3 are recorded there with the owner's words. They are referenced below by number.
+
+## Solution
+
+### Where it lives (decisions 1, 2, 8)
+
+- **`packages/xpi-shadow-git`**: the core, in TypeScript. Its only runtime dependencies are Node and the `git` binary.
+  It exports the library used by the CLI and the extension, and contains the `adapters/` directory (below).
+- **`xpi sg <cmd>`**: dispatched in `main.ts` next to `roost`. It loads the core lazily, so it costs nothing elsewhere.
+- **`builtin:shadow-git`**: the extension. When the cwd is not in a registered workspace and xpi is not in a sandbox,
+  it registers nothing, so xpi behaves exactly as today.
+
+### Concepts
+
+| Term | Meaning |
+| --- | --- |
+| Host VCS | The version control system that owns the workspace. |
+| Workspace | The host-owned directory tree. shadow-git writes no metadata into it. |
+| Shadow repo | A git dir at `<store>/<name>.git` whose `core.worktree` is the workspace. |
+| Adapter | A small executable that implements the host interface for one host VCS. |
+| `host` branch | Receives only import commits. Its tip is the **sync point**: the last state the host and git agreed on. |
+| `main` branch | Where the user's and agents' work lands. The default checkout. |
+| Import | Bring host changes into `host`, then merge them into `main`. |
+| Export | Hand the changes in `host..main` to the host through the adapter's check-in. |
+| Primary workspace | The workspace itself, as opposed to a sandbox's copy. |
+| Sandbox | A git worktree on branch `sbx/<id>` plus a path policy (below). |
+
+### Layout and configuration (decision 17)
+
+Everything lives under one store directory. The workspace is referenced only by absolute path.
+
+```
+<store>/
+  registry                  # one line per workspace: <absolute path>\t<name>
+  adapters/                 # searched for adapters before PATH
+  <name>.git/               # the shadow repo (GIT_DIR); config holds core.worktree and shadow.* keys
+  <name>.lock               # lock for writes to the primary workspace
+  <name>.sbx/<id>/tree/     # a sandbox's worktree
+  <name>.sbx/<id>/scratch/  # a sandbox's scratch area
+```
+
+- **Resolving the repo.** The longest registry path that contains the cwd wins. No match is exit 2. `--repo <name>`
+  overrides it.
+- **The lock** is a file created exclusively, holding the pid and host name, taken over when stale. It uses the same
+  rules as the team locks (`extensions/subagent/team-files.ts`). Node has no `flock`.
+- **Environment.**
+
+  | Variable | Default | Meaning |
+  | --- | --- | --- |
+  | `XPI_SG_STORE` | `<agent dir>/shadow-git` | The store. |
+  | `XPI_SG_GIT` | `git` on `PATH` | The git binary. It must be 2.20 or newer; older is an error naming this variable. |
+  | `XPI_SG_ADAPTER_PATH` | `<store>/adapters` | Extra directories searched for adapters before `PATH`. |
+
+- **Config keys**, stored in the shadow repo with `git config`:
+
+  | Key | Example | Meaning |
+  | --- | --- | --- |
+  | `core.worktree` | `/proj/ws` | The workspace root. |
+  | `shadow.adapter` | `plain` | The adapter; resolves to `sg-adapter-<name>`. |
+  | `shadow.scope` | `src/ test/` | Optional paths passed to the adapter. Empty is the whole workspace. |
+  | `shadow.localOnly` (multi) | `AGENTS.md`, `.pi/` | Globs tracked in git but never exported. |
+  | `shadow.blockCommand` (multi) | a regex | Host VCS write commands agents must not run (see [Agents in xpi](#agents-in-xpi)). |
+  | `shadow.gitfile` | `false` | Opt-in `.git` file in the workspace (decision 15). |
+  | `sandbox.backend` | `auto` | `auto`, `namespace` or `policy` (decision 9). |
+  | `sandbox.require` | unset | `namespace`: fail instead of falling back. |
+  | `sandbox.rule` (multi) | `scratch @ws/build` | Path rules (see [Path policy](#path-policy-decision-13)). |
+
+  `xpi sg config ...` is git pass-through, so the user edits these with plain `git config` syntax. Keeping rules in
+  git config needs no TOML or YAML parser.
+
+### Sync model (decision 14)
+
+**Invariant:** `host` is always an ancestor of `main`. Import keeps it by merging. Export keeps it by fast-forwarding
+`host` to `main`.
+
+Local-only paths are tracked on `main` and never exported. After an export `host` contains them too, so `host` is "the
+host's state plus the local-only paths".
+
+#### init
+
+1. Refuse when the directory, or a directory above or below it, is already registered (exit 2).
+2. Create `<name>.git` with `core.worktree` set, and append the registry line.
+3. Write the adapter's `excludes` and `metadata` output to `info/exclude`.
+4. Run the adapter's `prepare`.
+5. Commit the tree on `host` as `sg: baseline`. Create `main` at the same commit and check it out.
+6. With `shadow.gitfile = true`, write the `.git` file and add `.git` to `info/exclude`.
+
+#### import
+
+1. Require a clean work tree (no changes and no untracked files that are not ignored). Take the lock.
+2. `git switch host`. The workspace returns to the host state (local-only paths that were exported stay).
+3. Run the adapter's `update`. It prints a one-line label.
+4. Commit any change on `host` as `sg: import <label>` (`git add -A` within the scope).
+5. `git switch main`. Print the files changed both in the new import and in `old host..main`.
+6. `git merge host`. A conflict stops the command (exit 1) with git's own message. The user resolves it with plain git.
+
+`git switch` rewrites the modification times of changed files. Build tools that use them rebuild those files. The docs
+say this.
+
+#### export
+
+1. Require a clean work tree on `main` and the invariant (exit 2 otherwise).
+2. **Plan:** `git diff --no-renames --name-status host..main`, minus local-only paths. Print it with the subjects of
+   the commits in `host..main`. Read-only. A rename is a `D` and an `A`.
+3. If a planned path is outside `shadow.scope`, exit 2 and list those paths. The fast-forward in step 5 would
+   otherwise drop them from every later plan.
+4. **Apply** (`--apply`, the user only): take the lock and give the plan to the adapter's `checkin`, with a message
+   made from the commit subjects.
+5. On success, fast-forward `host` to `main`. On failure, change nothing in git and exit 1.
+
+Export is all of `host..main`. To export part of the work, keep the rest on another branch.
+
+### CLI
+
+Every subcommand that `xpi sg` does not own goes to git with the repo's `GIT_DIR` and `GIT_WORK_TREE` set, so
+`xpi sg diff`, `xpi sg log` and `xpi sg commit` behave like git.
+
+| Command | Effect |
+| --- | --- |
+| `xpi sg init <name> --adapter <a> [--scope <paths>] [--local-only <glob>...]` | Register the cwd and run init. |
+| `xpi sg import` | Run import. |
+| `xpi sg export` | Print the export plan. Read-only. |
+| `xpi sg export --apply` | Print the plan, check it in through the adapter, and advance `host`. |
+| `xpi sg status` | git status, commits ahead of `host`, the adapter's `status`, and the sandboxes. |
+| `xpi sg env` | Print `export GIT_DIR=... GIT_WORK_TREE=...` for the resolved repo. |
+| `xpi sg sbx create\|run\|ls\|rm ...` | Manage sandboxes (below). |
+| `xpi sg merge <branch>` | Merge a branch (usually `sbx/<id>`) into `main` in the primary workspace, under the lock. |
+| `xpi sg list` | Print the registry. |
+| `xpi sg <git command> ...` | Git pass-through. |
+
+`push`, `fetch`, `pull`, `clone`, `remote` and `submodule` exit 2 with a one-line message.
+
+Exit codes are 0 for success, 1 for a git or adapter failure (their stderr is shown as it is), and 2 for a failed
+precondition (a dirty tree, a broken invariant, no repo, a git that is too old).
+
+**Error handling.** Any non-zero git or adapter exit ends the command with that tool's stderr. There are no retries or
+fallbacks. Input is validated at the boundaries only: arguments, registry lines, and adapter output.
+
+### Adapters (decisions 5, 10)
+
+An adapter is an executable named `sg-adapter-<name>`, found in `XPI_SG_ADAPTER_PATH` and then `PATH`. shadow-git
+talks to the host VCS only through it.
+
+It is called as `sg-adapter-<name> <op> [args]` with the workspace root as its cwd and with `XPI_SG_WORKSPACE` (an
+absolute path) and `XPI_SG_SCOPE` (space-separated paths, possibly empty) set. A non-zero exit is a failure, and its
+stderr is shown unchanged. Paths are relative to the workspace root.
+
+| Op | Input | Output (stdout) | Contract |
+| --- | --- | --- | --- |
+| `metadata` | | One path per line | The host VCS's own files and directories. Never tracked; hidden in sandboxes. |
+| `excludes` | | One gitignore pattern per line | Other paths git must never track (build outputs, caches). |
+| `prepare` | | | Afterwards every in-scope file is a writable regular file. |
+| `update` | | A one-line label | Bring the workspace to the latest host state within the scope. |
+| `checkin` | stdin: `A\|M\|D<TAB>path` lines; `--message-file <f>` | | Check in exactly these changes as one host operation, or fail with no partial effect where the host allows it. |
+| `status` | | Free text, at most 20 lines | A short summary of the host side (locks held, newer versions available). |
+
+The package ships two adapters in `packages/xpi-shadow-git/adapters/`, both POSIX `sh`:
+
+- **`sg-adapter-plain`** treats another directory as the host. That directory is given by `shadow.plain.upstream`
+  and holds a `.plainvcs/` metadata dir with a version counter. `update` copies the upstream into the workspace,
+  deleting removed files. `checkin` copies the listed files into the upstream and bumps the version. It exists for
+  the tests and for trying shadow-git without a host VCS.
+- **`sg-adapter-template`**: every op with comments on its contract and the questions a writer must answer for their
+  VCS. Examples are metadata names, how to make files writable without breaking a shared cache, and whether a check-in
+  needs a lock first.
+
+Adapters for real host VCSs are written by their users and kept outside xin-pi.
+
+### Sandboxes (decisions 3, 9, 13, 16)
+
+A sandbox is a private git worktree plus a path policy that decides, path by path, what a sandboxed command sees and
+may write.
+
+**Model.**
+
+- The primary workspace is read-only to every sandbox. Only `import`, `export --apply` and `merge` write it, under the
+  lock.
+- `<name>.sbx/<id>/tree/` is a git worktree on `sbx/<id>`, created from `main` (or `--from <branch>`). Its `.git` file
+  is inside the store, not the workspace. Each sandbox has its own index and branch, so sandboxes commit in parallel.
+- Work leaves a sandbox only as commits on `sbx/<id>`. The user runs `xpi sg merge sbx/<id>`, then exports.
+
+#### Path policy (decision 13)
+
+Rules are `sandbox.rule = <mode> <path>`. `@ws` is the primary workspace root, and absolute paths are allowed. The
+longest matching prefix wins. `xpi sg sbx create --profile <file>` reads the rules from a git-config file instead.
+
+| Mode | A sandboxed command sees | It may write | Typical use |
+| --- | --- | --- | --- |
+| `private` | Its own copy | Yes | Source the agent changes |
+| `shared-ro` | The primary file | No | Shared libraries, test suites, tool installs |
+| `shared-rw` | The primary file | Yes, visible to every sandbox | Shared caches, only when listed |
+| `scratch` | An empty per-sandbox directory | Yes | Build and test output |
+| `hidden` | Nothing | No | Host VCS metadata, other users' areas, credentials |
+
+**Defaults, when no rule matches:**
+
+- Paths the shadow repo tracks are `private`.
+- Other paths under `@ws` are `shared-ro`, read from the primary workspace, so shared scripts and suites work
+  unchanged.
+- The adapter's `metadata` paths are `hidden`.
+- Paths outside `@ws` are `shared-ro`.
+- Writes are denied unless the mode is `private`, `scratch` or `shared-rw`.
+
+A `scratch` or `hidden` rule that covers tracked files is an error at `sbx create` (exit 2). It would hide the agent's
+own files.
+
+#### The sandbox tree
+
+Both backends start from the same tree:
+
+- The worktree holds the tracked files.
+- Every untracked, not-hidden entry of the primary workspace becomes a symlink in the tree to the primary file. A
+  directory with no tracked files below it becomes one link, so the number of links stays small. The links are
+  refreshed when `sbx run` starts.
+- A `scratch` path becomes a link to `scratch/<path>`.
+- The links are listed in the worktree's own `core.excludesFile` (through `extensions.worktreeConfig`), so they never
+  show up in the sandbox's `git status`.
+
+#### Backends (decision 9)
+
+**`namespace`** (Linux). It runs the command in a new user and mount namespace with
+`unshare --user --map-root-user --mount`, via a small `sh` script:
+
+- The primary workspace is bound read-only at `<name>.sbx/<id>/primary`. The tree's symlinks for `shared-ro` paths
+  point there.
+- The tree is bound over the workspace's own path. Inside the sandbox, `/proj/ws` shows the agent's files, so scripts
+  that hard-code the workspace path work unchanged.
+- `scratch` directories are bound in, and `hidden` paths become empty `tmpfs` mounts.
+- `shared-ro` rules for absolute paths outside the workspace are bound read-only over themselves.
+- Outside the workspace and listed paths, the filesystem keeps its normal permissions. A fully read-only system would
+  break xpi's own session files, the home directory and temp files. xpi's file tools still enforce the whole policy
+  (see the policy backend).
+- The command runs as root inside the namespace (the user's own uid outside). The docs say so. Some tools refuse to run
+  as root; for them, `policy` is the way.
+
+**`policy`** (any platform; the only one on macOS). It needs nothing installed:
+
+- The command runs with the tree as its cwd. Absolute paths into the primary workspace reach the primary files.
+- xpi's `read`, `write` and `edit` tools check each path against the policy in process and refuse a denied one.
+- `bash` is advisory. The prompt tells the agent the rules, and the `tool_call` hook blocks the commands listed under
+  [Agents in xpi](#agents-in-xpi). Nothing stops a shell command from writing a primary file. The docs say this
+  plainly.
+
+**`auto`** checks `unshare --user --map-root-user --mount true` once per command. It picks `namespace` when that works,
+else `policy`, and prints which one it picked. With `sandbox.require = namespace`, a failed check is exit 2.
+
+#### Commands
+
+| Command | Effect |
+| --- | --- |
+| `xpi sg sbx create <id> [--from <branch>] [--profile <file>]` | Create the worktree on `sbx/<id>`, the scratch area and the links. |
+| `xpi sg sbx run <id> -- <cmd...>` | Run a command in the sandbox with `GIT_DIR` and `GIT_WORK_TREE` set for it, and `XPI_SG_SANDBOX=<name>/<id>`. |
+| `xpi sg sbx ls` | List sandboxes: branch, commits ahead of `main`, changed files, backend. |
+| `xpi sg sbx rm <id>` | Remove the worktree and scratch. The branch `sbx/<id>` is kept. |
+
+`xpi sg sbx run <id> -- xpi` runs a whole xpi session in a sandbox. Its `builtin:shadow-git` sees `XPI_SG_SANDBOX`
+and applies the policy to its tools.
+
+#### Commands that send work elsewhere
+
+Some build and test tools send work to other machines, such as through a job scheduler or a remote build service. That
+work runs outside the sandbox. The sandbox does not manage what it reads or changes and has no special support for it.
+Results it writes back into the workspace are the user's to handle.
+
+### Agents in xpi (decisions 3, 6)
+
+When the session's cwd is in a registered workspace, `builtin:shadow-git` does the following.
+
+- **git with no setup.** It sets `GIT_DIR` and `GIT_WORK_TREE` in xpi's own environment. Every child inherits them:
+  `bash`, `!` commands, MCP servers and subagents. xpi's own git features (`/commit`, `/review`, worktree planning)
+  then use the shadow repo. Features that read a `.git` path on disk see nothing unless `shadow.gitfile` is on. A git
+  command run anywhere in that session reaches the shadow repo, even after `cd` to another repository. The docs say
+  so.
+- **User commands.** `/sg import`, `/sg export [--apply]`, `/sg merge <branch>`, `/sg status` and `/sg sbx ls` run the
+  core in process and print its output. They are typed by the user; the model cannot run slash commands.
+- **Blocked for agents.** A `tool_call` hook on `bash` blocks the following and returns a one-line reason:
+  - `sg`/`xpi sg` with `import`, `merge`, `export ... --apply`, or `sbx create|rm`;
+  - any `sg-adapter-*`;
+  - every `shadow.blockCommand` regex (the adapter template suggests patterns for host VCS write commands).
+
+  `sg status`, `sg export` (the plan), `sg sbx ls` and git pass-through are allowed.
+- **Prompt.** A short paragraph says that a host VCS owns the workspace, that agents must never call it to write, and
+  that `sg export` shows the user what is pending.
+- **The main session** edits the primary workspace like any checkout. The user is present and commits on `main`.
+  Sandboxes are for agents the user is not watching.
+
+**Isolation in a shadow-git workspace.**
+
+- `isolation: "worktree"` creates a shadow-git sandbox `sub-<agentId>` from the primary's current branch, instead of
+  `<root>/.pi/worktrees/<agentId>`. The child runs in it through the chosen backend, as `sbx run` does. This is a
+  second kind of `WorktreeRef` in `worktree.ts`; the meta file records which kind.
+- Settling follows today's rule. With no commits and no changes, the sandbox and its branch are removed. Otherwise
+  both are kept, and the result names `sbx/sub-<agentId>` and says to run `/sg merge`.
+- `/subagents worktrees` lists and removes these sandboxes too.
+- **Teammates** (owner question 2). In a shadow-git workspace each teammate gets a sandbox `team-<name>`. Running
+  several agents on one workspace is the point of the sandbox. Without one, teammates would write the same files.
+  Elsewhere teams are unchanged.
+
+### Porting
+
+The porting menu gets a "shadow-git" entry: depends on the subagent system for the isolation part, Linux first, with
+the `policy` backend as the portable fallback. The detailed guide lists the core's API, the adapter contract, the
+namespace script, and the hook. Same PR rule as every feature.
+
+### Docs
+
+- `packages/xpi-coding-agent/docs/shadow-git.md`: what it is, setup with the plain adapter, the sync model, the
+  CLI, adapters and the template, sandboxes and both backends, agents in xpi, and the limits (advisory `bash` in
+  `policy`, git env reaching other repos, mtimes on import, root in the namespace, work sent elsewhere).
+- `README.md` and `docs/xin-pi.md`: one line and a link.
+- `docs/subagent.md`: isolation in a shadow-git workspace, and teammates.
+- The porting menu and detailed guide.
+- `packages/xpi-shadow-git/README.md`.
+
+Before each PR, a word list kept outside the repository is grepped over the diff (decision 10).
+
+## Out of scope
+
+- Adapters for real VCS products.
+- bubblewrap, macOS `sandbox-exec`, overlay filesystems.
+- Remotes, sharing a shadow repo between users, Git LFS.
+- Managing work that leaves the machine (decision 16).
+- Agents checking in or importing.
+- Making a whole system read-only in the namespace backend.
+
+## Questions for the owner
+
+1. **The main session edits the primary workspace.** The draft lets the interactive session edit the workspace like
+   any checkout, and keeps sandboxes for subagents and teammates. The other choice puts every agent, the main one too,
+   in a sandbox, as the owner's original notes did. Recommended: as drafted.
+2. **Teammates get sandboxes.** In a shadow-git workspace each teammate runs in its own sandbox, which changes
+   "teammates are never isolated" for these workspaces only. Recommended: yes.
+
+## Testing
+
+- **Offline**, with temp stores and workspaces and the plain adapter. Each new guard is checked to fail when removed.
+  - **Core.**
+    - init writes nothing into the workspace, and refuses nested registrations;
+    - registry resolution by longest prefix, and `--repo`;
+    - the git version check;
+    - the blocked commands and pass-through.
+  - **Sync.**
+    - import with no local work, with local work, and with a conflict (stops; the both-changed list is printed);
+    - local-only paths kept out of the plan;
+    - export plan, out-of-scope paths refused, `--apply` success and adapter failure (git unchanged);
+    - the invariant checks and exit codes.
+  - **Lock.** Two writers at once; a stale lock is taken over.
+  - **Sandboxes.**
+    - create, ls, rm, with the branch kept;
+    - links for untracked paths kept out of the sandbox's status;
+    - scratch and hidden rules, and the error for rules over tracked files;
+    - the policy check for `read`, `write` and `edit`, and the `tool_call` blocks;
+    - `auto` falling back with the message, and `require = namespace` failing.
+  - **Namespace backend**: in a Linux container (OrbStack locally) where unprivileged user namespaces work. Covers
+    the path view at the workspace's own path, a read-only primary, a hidden path, a scratch path, and a `git commit`
+    inside. In CI the test skips with the probe's message when the runner forbids namespaces.
+  - **xpi integration.**
+    - nothing registered outside a workspace;
+    - `GIT_DIR` reaching `bash` and subagents;
+    - `isolation: "worktree"` making a sandbox, settling, and `/subagents worktrees`;
+    - teammates in sandboxes;
+    - the `/sg` commands.
+- **Real check** before the last merge, with Haiku, a temporary agent dir and HOME, a copied auth file whose expiry is
+  checked first, and the real `~/.pi/agent` untouched. A session in a plain-adapter workspace starts a subagent with
+  `isolation: "worktree"` that changes a file and commits. The user's `/sg merge` and `/sg export` then show the
+  change, and the agent's attempt to run `sg export --apply` is blocked.
+
+## PRs (after approval)
+
+1. **Core.** The package, `xpi sg` (init, import, export, status, env, list, merge, pass-through, blocks), the lock,
+   both adapters, `docs/shadow-git.md` (core parts), the package README.
+2. **Sandboxes.** The tree and links, the path policy, both backends, `sbx` commands, the container test. Docs and the
+   porting entry for what exists.
+3. **xpi integration.** `builtin:shadow-git`: environment, `/sg`, hooks, prompt, the policy check in tools,
+   isolation, teammates. `docs/subagent.md`.
+4. **Wrap-up.** The detailed porting guide, `docs/xin-pi.md`, the real Haiku check, and a release.
