@@ -12,7 +12,8 @@
 // Like pi, it waits for a `prompt` command on stdin, answers it with a response, then plays the lines. Without `hang` it
 // exits after the lines; with `hang` it stays up and ignores stdin closing.
 // FAKE_PI_RECORD: path where argv, XPI_SUBAGENT_DEPTH, the system prompt head and tail texts, the schema file's content
-// (XPI_SUBAGENT_SCHEMA_FILE) and the commands received are written as JSON.
+// (XPI_SUBAGENT_SCHEMA_FILE), the shadow-git variables (XPI_SG_SANDBOX, XPI_SG_BACKEND, XPI_SG_STORE, GIT_DIR, GIT_WORK_TREE)
+// and the commands received are written as JSON.
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { createInterface } from "node:readline";
@@ -36,6 +37,9 @@ const record = () =>
         XPI_TEAM_DIR: process.env.XPI_TEAM_DIR,
         XPI_TEAM_TOOLS: process.env.XPI_TEAM_TOOLS,
       },
+      env: Object.fromEntries(
+        ["XPI_SG_SANDBOX", "XPI_SG_BACKEND", "XPI_SG_STORE", "GIT_DIR", "GIT_WORK_TREE", "XPI_SUBAGENT_MEMORY_DIR"].map((name) => [name, process.env[name]]),
+      ),
       commands,
       cwd: process.cwd(),
       systemPrompt: sp === -1 ? undefined : readFileSync(argv[sp + 1], "utf8"),

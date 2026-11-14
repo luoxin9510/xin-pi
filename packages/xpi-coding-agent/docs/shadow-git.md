@@ -1,8 +1,8 @@
 # shadow-git
 
-A private git history over a workspace that another version control system owns. This page covers what exists today:
-the core (`xpi sg`), the sync model, the adapters, and sandboxes for parallel agents. The integration into xpi
-sessions (`/sg`, hooks, `isolation: "worktree"`, and the policy check in xpi's file tools) is not built yet.
+A private git history over a workspace that another version control system owns. This page covers the core (`xpi sg`),
+the sync model, the adapters, sandboxes for parallel agents, and how xpi sessions use them (`builtin:shadow-git`:
+`/sg`, hooks, the policy check in xpi's file tools, `isolation: "worktree"` and teammates).
 
 ## What it is
 
@@ -338,7 +338,7 @@ break xpi's own session files, the home directory and temp files.
 - The path policy is a function of the package: `sandboxPolicy(sandbox, absolutePath)` returns the mode and whether
   reading and writing are allowed. It checks real paths (the parent directory's for a new file), so a write through a
   link into `primary` is a write to the primary file and is denied. The xpi integration enforces it in its file tools
-  (`read`, `write`, `edit`).
+  (`read`, `write`, `edit`, and the read check for `grep`, `find` and `ls`); see [Agents in xpi](#agents-in-xpi).
 - `bash` is advisory. Nothing stops a shell command from writing a primary file. A command that must be held to the
   rules should run under `namespace`.
 
@@ -368,6 +368,118 @@ Some build and test tools send work to other machines, such as through a job sch
 work runs outside the sandbox. The sandbox does not manage what it reads or changes and has no special support for it.
 Results it writes back into the workspace are the user's to handle.
 
+## Agents in xpi
+
+`builtin:shadow-git` wires all of this into xpi sessions. It is on by default and off with `-builtin:shadow-git`. It
+acts only when the session's cwd is in a registered workspace (the **primary**) or `XPI_SG_SANDBOX` is set (inside a
+**sandbox**); its handlers do nothing elsewhere, so xpi behaves as without it. The cwd is read at each session start,
+from the session itself: a session resumed from another directory (`/resume`, `--session`) is judged by that
+directory. A session in the primary workspace edits it like
+any checkout: the user is present and commits on `main`. Sandboxes are for the agents the user is not watching.
+
+### In the primary workspace
+
+- **git with no setup.** The extension sets `GIT_DIR` and `GIT_WORK_TREE` in xpi's own environment, so `bash`, `!`
+  commands, MCP servers and subagents inherit them, and xpi's own git features (`/commit`, `/review`) use the shadow
+  repo. When the session moves to a directory that is not in a workspace, the values from before are restored (and
+  its live entry removed); moving into one sets them and writes the entry. A sandboxed child replaces them with its own. Features that read a `.git` path on disk see nothing unless
+  `--gitfile` was used. A git command run anywhere in the session reaches the shadow repo, even after `cd` to another
+  repository.
+- **Live session entry.** A top-level session (not a subagent child, not sandboxed) writes `<name>.sessions/<pid>` and
+  removes it at session shutdown and at process exit; a `/reload` leaves one entry. `xpi sg import`, `export --apply`
+  and `merge` read these entries and refuse while another live session is listed, because it edits the workspace
+  without the lock.
+- **A stopped import.** While `SG_IMPORT` exists, a session started in the workspace shows an error notice and blocks
+  every tool call, with the reason `run xpi sg import to resume it or xpi sg import --abort`. Extensions cannot end
+  startup, so the session stays open for the user to read the message. A blocked session holds no live entry (otherwise
+  the resume would refuse); once the import is settled, tool calls work again and the entry is written.
+- **`/sg`.** Typed by the user; the model cannot run slash commands. It runs the core in process and prints its output:
+
+  | Command | Runs |
+  | --- | --- |
+  | `/sg import [--abort]` | `xpi sg import [--abort]` |
+  | `/sg export [--apply]` | `xpi sg export [--apply]` |
+  | `/sg merge <branch>` (or `--continue`, `--abort`) | `xpi sg merge ...` |
+  | `/sg status` | `xpi sg status` |
+  | `/sg sbx ls` | `xpi sg sbx ls` |
+
+  The commands that write the workspace (`import`, `export --apply`, `merge`) follow the core's rules and run only when no
+  other live session is listed and none of this session's agents works in the primary: the main agent, and subagents or
+  teammates that have no sandbox, and running background codemode scripts (their agents may write the workspace).
+  Otherwise they say which. A background `bash` job that the model started and left running cannot be tracked: it is
+  not seen, so wait for it before importing. The read-only ones (`status`, `export`, `sbx ls`) always
+  run. `xpi sg` in a terminal does everything else (`init`, `sbx create`, `sbx rm`, `config`, any git command).
+- **Blocked for agents.** A `tool_call` hook on `bash`, `powershell` and any other tool whose input has a string `command` blocks, with a one-line reason: `xpi sg` (and a bare `sg`, in case
+  of an alias, also inside another command such as `xpi sg sbx run s -- xpi sg merge b`) with `import`, `merge`, `export ... --apply` or `sbx create|rm`; any `sg-adapter-*`; and every
+  `shadow.blockCommand` regex (`xpi sg config --add shadow.blockCommand '\bhostvcs (submit|sync)\b'`; an invalid regex is
+  reported and ignored). `xpi sg status`, `xpi sg export` (the plan), `xpi sg sbx ls`, `sbx run` and git pass-through are
+  allowed. The hook searches the command text; it is a guard rail against an agent that does not try to get around it,
+  not a shell parser. It also matches the words inside quotes (`echo "xpi sg import"` is blocked). A bare `sg` is a
+  different system command on Linux, so the prompt and these docs always say `xpi sg`.
+- **Order.** `shadow-git` is the first built-in extension: its `session_start` sets the environment, and the `session_start` of the ones after it (`mcp` starting servers, for example) already sees it.
+- **Prompt.** A short paragraph (one section, the same every turn) says that a host VCS owns the workspace, that agents
+  never call it to write, that `xpi sg export` shows the user what is pending, and to write `xpi sg`, never `sg`.
+
+### Inside a sandbox
+
+A session started with `xpi sg sbx run <id> -- xpi`, or a subagent or teammate that xpi started in a sandbox (below),
+has `XPI_SG_SANDBOX` set. It registers no `/sg` and no live entry.
+
+- **Policy check in the file tools.** `read`, `write` and `edit` check each path with the sandbox's path policy, by
+  the real path (a new file by its parent directory's), and refuse a denied one with a one-line reason. So a write
+  through a link into `primary` is refused, and a hidden path (the adapter's `metadata`) cannot be read. `grep`, `find`
+  and `ls` get the read check for the path they are given (their default, the working directory, is the sandbox's own
+  tree). Paths of other schemes (`name://...`) are not files and are not checked. A codemode script's calls to these
+  tools pass through the same hook.
+- **Paths that are always writable.** Under the policy, paths outside `@ws` are `shared-ro` by default, which would stop
+  xpi itself. These are always writable, whatever the rules say, and only these:
+  - the session's own directory (a subagent's session is below its parent's);
+  - the system's temp directory (`os.tmpdir()`);
+  - the agent's own memory directory, which the subagent runner passes in `XPI_SUBAGENT_MEMORY_DIR` (so another agent's
+    memory is refused: it could plant instructions for it). Project-scope memory (`<workspace>/.claude/agent-memory`) is in
+    the primary workspace, so a sandboxed agent's writes to it are refused too;
+    the runner leaves the variable out for a read-only memory, and, inside a sandbox, for a child whose memory directory is not the
+    one this process received or below it (an agent file written in the sandbox cannot name another agent's memory);
+  - the sandbox's own `scratch` and `tree` (already writable by the policy).
+
+  xpi's agent directory as a whole is not on the list: `settings.json`, `auth.json` and `extensions/` there are read by
+  the next session that is not sandboxed. Three things stay refused even inside the listed directories: the **store**
+  (it holds the shadow repo, the registry and every other sandbox), the **primary workspace** and the sandbox's
+  `primary` link (the workspace may itself sit under the temp directory). The check is for the file tools only. A
+  `bash` command is held by nothing under `policy`.
+- **Scheme paths are refused.** A path like `name://x` is resolved by the host's schemes, which can locate a file
+  anywhere, so the check cannot judge it; the file tools refuse it in a sandbox. A path that only contains `://` after a
+  directory (`/ws/x://y`) is an ordinary path and is checked.
+- **`bash` stays advisory.** The prompt states the rules and the same block list as in the primary applies. Under
+  `namespace` the mounts enforce what `bash` does.
+- **Prompt.** One paragraph: the agent is in sandbox `<name>/<id>`, the primary is read-only, its work only counts as
+  commits on `sbx/<id>`, it never calls the host VCS, and under `policy` that `bash` is not sandboxed.
+- **A sandbox that cannot be opened** (`XPI_SG_SANDBOX` names one that is missing or fails its checks) blocks every tool
+  call.
+- **No nesting.** `isolation: "worktree"` and teammates (which would each get a sandbox) are refused inside a sandbox,
+  with the message "sandboxes do not nest".
+
+### Isolation and teammates
+
+In a registered workspace the `Agent` tool's `isolation: "worktree"` makes a shadow-git sandbox instead of a git worktree
+under `.pi/worktrees` (nothing is put in the workspace):
+
+- The sandbox is `sub-<agentId>`, on branch `sbx/sub-<agentId>`, made from the primary's current branch. The child
+  process runs in it through the backend that `auto` chooses, the same way `xpi sg sbx run` runs a command: its cwd is
+  the sandbox's tree (under `namespace`, the workspace's own path) plus the directory the parent was in, when the commit
+  has it, and it has the same `XPI_SG_*`, `GIT_DIR` and `GIT_WORK_TREE`. Uncommitted changes of the primary are not in
+  the sandbox (the result carries a warning).
+- When the child ends with no commits and no changes, the sandbox and its branch are removed. Otherwise both are kept,
+  and the result names the branch and says that the user merges it with `/sg merge sbx/sub-<agentId>`. A resume runs in
+  the same sandbox.
+- `/subagents worktrees` lists and removes these sandboxes too (the ones xpi made: `sub-*` and `team-*`; yours are left
+  alone). Removing one deletes its branch as well, as for a worktree.
+- The meta file of the agent records `kind: "shadow-git"` with the repo name, the sandbox id and the backend.
+- **Teammates** (agent teams): in a registered workspace each teammate gets the sandbox `team-<name>` the same way, kept
+  after it stops when it holds work. Running several agents on one workspace is what the sandbox is for: without one,
+  teammates would write the same files. A new teammate whose sandbox `team-<name>` still exists from an earlier one is
+  refused with a message (merge and remove the old one, or choose another name). Elsewhere teams are unchanged.
+
 ## Limits
 
 - **git environment.** `xpi sg env` makes `GIT_DIR` and `GIT_WORK_TREE` point at the shadow repo for that shell. Every git
@@ -380,8 +492,16 @@ Results it writes back into the workspace are the user's to handle.
 - **Local-only globs** are git pathspec globs from the workspace root, so `AGENTS.md` matches only the root file. They
   cannot contain spaces, because the adapter receives them space-separated.
 - **Sandbox policy is advisory outside a namespace.** Under `policy`, a shell command can write a primary file; only
-  the xpi integration (not built yet) refuses a denied path in its own file tools. `namespace` enforces it with
-  mounts, for everything but the writable submounts below.
+  xpi's own file tools refuse a denied path. `namespace` enforces it with mounts, for everything but the writable
+  submounts below.
+- **The bash block list is a guard rail.** It searches command text, so a command built at run time, or a program the
+  agent writes and runs, is not caught.
+- **The always-writable paths.** The session directory, the temp directory and the agent's own memory directory are writable
+  from a sandboxed session's file tools, so a sandboxed agent can change other sessions' files there and anything in
+  the temp directory that other programs read. Under `namespace`, ordinary file permissions apply everywhere
+  outside the workspace, the store and the listed mounts, for `bash` as well.
+- **Stopped import.** A session started while an import is stopped cannot be refused cleanly (an extension cannot end
+  startup): it opens, shows the error and blocks its tool calls.
 - **Root in the namespace.** The command runs as root inside the namespace, with the user's own uid outside. Files owned
   by other users show as `nobody`, setuid programs do not work, and some tools refuse to run as root. For those,
   `policy` is the way.
@@ -408,8 +528,8 @@ Results it writes back into the workspace are the user's to handle.
 - **The global excludes file does not apply in a sandbox.** The sandbox's own `core.excludesFile` (the link list)
   replaces the user's global one for that worktree. `info/exclude` of the shadow repo still applies, and `.gitignore`
   files do.
-- **Live-session check.** The check reads `<store>/<name>.sessions`, but nothing writes entries until xpi sessions are
-  wired in; until then a command line run does not see an open xpi session.
+- **Live-session check.** The check reads `<store>/<name>.sessions`, which top-level xpi sessions in the primary write.
+  A session that runs with `-builtin:shadow-git`, or another harness that does not write entries, is not seen.
 - **`shared-ro` over tracked files** is enforced by the policy only; the namespace does not mount over them.
 - **A sandbox's links are a snapshot of one moment.** They are refreshed when `sbx run` starts, not while it runs.
 - **Standalone binary.** The shipped adapters are files next to the binary; if you move the binary alone, put them in

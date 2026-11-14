@@ -5,13 +5,13 @@
 // system prompt and tool declarations are stored in the session and travel with it: the fork's first request reads
 // main's prompt cache. It runs as a normal child (no Agent, SendMessage or Workflow), so it cannot start a subagent.
 
-import { join } from "node:path";
 import { SessionManager } from "../../core/session-manager.ts";
 import type { Config } from "./config.ts";
 import type { AgentDefinition } from "./definition.ts";
 import { childInvocation } from "./invocation.ts";
 import { type CallInput, type ChildSpec, type ParentContext, type ResolveOptions, resolveChild } from "./resolve.ts";
 import { subagentSessionDir } from "./sessions.ts";
+import { worktreeCwd } from "./worktree.ts";
 
 export const FORK_TYPE = "fork";
 const FORK_SOURCE = "builtin:fork";
@@ -97,7 +97,7 @@ export function resolveFork(
 	const model = input.model ?? parent.model;
 	if (!model) throw new Error("the parent session has no model for the fork to use");
 	const thinking = input.effort ?? parent.thinking;
-	const cwd = options.worktree ? join(options.worktree.path, options.worktree.subdir ?? "") : parent.cwd;
+	const cwd = options.worktree ? worktreeCwd(options.worktree) : parent.cwd;
 	const invocation = childInvocation(config.piCommand);
 	return {
 		command: invocation.command,

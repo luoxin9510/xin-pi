@@ -4,13 +4,27 @@
 import { execFile } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { findWorkspace, NESTING_MESSAGE, sandboxRef } from "../shadow-git/workspace.ts";
+import {
+	ensureSandbox,
+	listSandboxWorktrees,
+	planSandbox,
+	removeSandboxWorktree,
+	sandboxSubdir,
+	settleSandbox,
+} from "./sandbox-worktree.ts";
 
-// Where a worktree is, and what it started from. Stored in the agent's meta file.
+// Where a worktree is, and what it started from. Stored in the agent's meta file. Two kinds: a plain git worktree
+// (`kind` absent), and, in a shadow-git workspace, a sandbox of the workspace's shadow repo (sandbox-worktree.ts).
 export interface WorktreeRef {
-	root: string; // the main checkout (git root of the parent's cwd)
-	path: string; // <root>/.pi/worktrees/<agentId>
-	branch: string; // subagent/<agentId>
+	kind?: "shadow-git"; // absent: a plain git worktree
+	root: string; // the main checkout (git root of the parent's cwd); a sandbox: the workspace
+	path: string; // <root>/.pi/worktrees/<agentId>; a sandbox: its tree, in the shadow-git store
+	branch: string; // subagent/<agentId>; a sandbox: sbx/<id>
 	base: string; // commit the worktree started from
+	repo?: string; // a sandbox: the registered workspace's name
+	sandbox?: string; // a sandbox: its id (sub-<agentId>, or team-<name> for a teammate)
+	backend?: "namespace" | "policy"; // a sandbox: how the child is isolated (policy: bash is advisory)
 	subdir?: string; // the parent's cwd relative to the checkout; the child starts in the same directory inside the worktree
 	removed?: "user"; // `/subagents worktrees` removed it (and its branch) while it held changes: a resume must not recreate it
 }
@@ -76,8 +90,19 @@ function locked<T>(root: string, work: () => Promise<T>): Promise<T> {
 	return run;
 }
 
-// Check that `cwd` is in a repository with a commit, and say where the worktree for `agentId` will be.
-export async function planWorktree(cwd: string, agentId: string): Promise<WorktreeRef> {
+// What the child's cwd is: the worktree's path plus the subdirectory the parent was in. Under a shadow-git sandbox with the
+// namespace backend the tree is mounted over the workspace's own path, so that is the cwd.
+export function worktreeCwd(ref: WorktreeRef): string {
+	const base = ref.kind === "shadow-git" && ref.backend === "namespace" ? ref.root : ref.path;
+	return join(base, ref.subdir ?? "");
+}
+
+// Check that `cwd` is in a repository with a commit, and say where the worktree for `agentId` will be. In a shadow-git
+// workspace it plans the sandbox `sub-<agentId>` instead (or `team-<teammate>` for a teammate).
+export async function planWorktree(cwd: string, agentId: string, teammate?: string): Promise<WorktreeRef> {
+	if (sandboxRef()) throw new Error(NESTING_MESSAGE);
+	const shadow = findWorkspace(cwd);
+	if (shadow) return planSandbox(shadow, teammate === undefined ? `sub-${agentId}` : `team-${teammate}`);
 	let root: string;
 	try {
 		root = await gitLine(cwd, ["rev-parse", "--show-toplevel"]);
@@ -119,6 +144,7 @@ export async function gitRoot(cwd: string): Promise<string | undefined> {
 // Where in the worktree the child starts: the parent's cwd relative to the checkout, when that directory is in the
 // commit the worktree starts from; else the worktree root, with a warning.
 export async function worktreeSubdir(ref: WorktreeRef, cwd: string): Promise<{ subdir: string; warning?: string }> {
+	if (ref.kind === "shadow-git") return sandboxSubdir(ref, cwd);
 	const sub = relative(ref.root, cwd);
 	if (sub === "" || sub.startsWith("..")) return { subdir: "" };
 	try {
@@ -157,6 +183,7 @@ async function copyIncluded(root: string, path: string): Promise<void> {
 // Make sure the worktree exists. A kept one is re-entered as it is. Otherwise it is created from the main checkout's
 // current HEAD (also when an unchanged one was removed after an earlier exchange): `ref.base` is updated. Returns warnings.
 export function ensureWorktree(ref: WorktreeRef): Promise<string[]> {
+	if (ref.kind === "shadow-git") return locked(ref.root, async () => ensureSandbox(ref));
 	return locked(ref.root, async () => {
 		if (existsSync(ref.path)) return [];
 		if (ref.removed === "user") {
@@ -269,6 +296,7 @@ async function remove(ref: WorktreeRef): Promise<void> {
 
 // End of an exchange, after the child has exited: an unchanged worktree is removed with its branch, a changed one is kept.
 export function settleWorktree(ref: WorktreeRef): Promise<WorktreeOutcome> {
+	if (ref.kind === "shadow-git") return locked(ref.root, async () => settleSandbox(ref));
 	return locked(ref.root, async () => {
 		if (!existsSync(ref.path)) {
 			// Someone deleted the directory during the run. The branch is left alone: it may hold commits.
@@ -283,6 +311,7 @@ export function settleWorktree(ref: WorktreeRef): Promise<WorktreeOutcome> {
 
 // Remove a worktree whatever it holds (`/subagents worktrees`).
 export function removeWorktree(ref: WorktreeRef): Promise<void> {
+	if (ref.kind === "shadow-git") return locked(ref.root, async () => removeSandboxWorktree(ref));
 	return locked(ref.root, () => remove(ref));
 }
 
@@ -296,6 +325,8 @@ export interface WorktreeInfo {
 // The `subagent/*` worktrees of the main checkout that `cwd` belongs to (also when `cwd` is inside one of them), from
 // `git worktree list --porcelain`. Outside a repository: none.
 export async function listWorktrees(cwd: string): Promise<WorktreeInfo[]> {
+	const shadow = findWorkspace(cwd);
+	if (shadow) return listSandboxWorktrees(shadow); // GIT_DIR is set there: `git worktree list` would list the sandboxes
 	let out: string;
 	try {
 		out = await git(cwd, ["worktree", "list", "--porcelain"]);

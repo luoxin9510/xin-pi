@@ -2,7 +2,7 @@
 
 import { mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { mcpNamespace } from "xpi-mcp";
 import { getAgentDir } from "../../config.ts";
 import { findGitPaths } from "../../core/footer-data-provider.ts";
@@ -14,7 +14,7 @@ import { childInvocation } from "./invocation.ts";
 import { newAgentId, subagentSessionDir } from "./sessions.ts";
 import { findSkill } from "./skills.ts";
 import { TEAM_TOOL_NAMES, teammatePrompt } from "./team-text.ts";
-import type { WorktreeRef } from "./worktree.ts";
+import { type WorktreeRef, worktreeCwd } from "./worktree.ts";
 
 export interface CallInput {
 	description: string;
@@ -56,6 +56,13 @@ export interface ChildSpec {
 	warnings: string[];
 	shutdownGraceMs?: number; // time after SIGTERM before SIGKILL (subagent.shutdownGraceMs)
 	worktree?: WorktreeRef; // isolation: the child's cwd is its path; the exchange creates and settles it
+	// A shadow-git sandbox: what to start instead of `command` (the sandbox's wrapper). Set by the exchange once the
+	// sandbox exists; the runner calls it with the arguments it has built.
+	launch?: (
+		command: string,
+		args: string[],
+		env: NodeJS.ProcessEnv,
+	) => { command: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv };
 	teamPrompt?: string; // a teammate's frozen prompt section, to store in its meta file (team.ts)
 }
 
@@ -129,6 +136,24 @@ function mapTool(name: string, toolMap: Record<string, string>): string | undefi
 }
 
 // Claude Code's three memory directories; created here. `name` becomes a path segment.
+// Whether a sandboxed child may be told this memory directory (`XPI_SUBAGENT_MEMORY_DIR`): not when the memory is
+// read-only, and, inside a shadow-git sandbox, only the directory this process was given or one below it. Otherwise an
+// agent file written in a sandbox (`memory: user`, another agent's name) would reach another agent's memory.
+export function writableMemory(path: string | undefined, readOnly: MemoryReadOnly): path is string {
+	if (path === undefined || readOnly) return false;
+	if (!process.env.XPI_SG_SANDBOX) return true;
+	const given = process.env.XPI_SUBAGENT_MEMORY_DIR;
+	return given !== undefined && (path === given || path.startsWith(given.endsWith(sep) ? given : given + sep));
+}
+
+// The child's environment with `XPI_SUBAGENT_MEMORY_DIR` set to the agent's own memory directory (a sandboxed child may
+// write there, builtin:shadow-git, and nowhere else in memory), or removed: what this process received is not the child's.
+function withMemoryDir(env: Record<string, string>, dir: string | undefined): Record<string, string> {
+	if (dir === undefined) delete env.XPI_SUBAGENT_MEMORY_DIR;
+	else env.XPI_SUBAGENT_MEMORY_DIR = dir;
+	return env;
+}
+
 export function memoryDir(def: AgentDefinition, parent: ParentContext, options: ResolveOptions): string {
 	if (/[\\/]/.test(def.name) || def.name === "." || def.name === "..") {
 		throw new Error(`agent name "${def.name}" cannot be used for memory: it must not contain a path separator`);
@@ -456,10 +481,9 @@ export function resolveChild(
 		options.team !== undefined,
 	);
 	const extensions = childExtensions(def, parent.trusted);
-	const cwd = options.worktree ? join(options.worktree.path, options.worktree.subdir ?? "") : parent.cwd;
-	const memory = def.memory
-		? memorySection(memoryDir(def, parent, options), tools.memoryReadOnly, tools.warnings)
-		: undefined;
+	const cwd = options.worktree ? worktreeCwd(options.worktree) : parent.cwd;
+	const memoryPath = def.memory ? memoryDir(def, parent, options) : undefined;
+	const memory = memoryPath ? memorySection(memoryPath, tools.memoryReadOnly, tools.warnings) : undefined;
 	const teamPrompt = options.team
 		? (options.team.prompt ?? teammatePrompt(options.team.team, options.team.member, options.team.roster))
 		: undefined;
@@ -496,19 +520,22 @@ export function resolveChild(
 		command: invocation.command,
 		args,
 		// A codemode-only child gets `codemode` in mode "only" from the subagent extension itself (index.ts).
-		env: {
-			...(process.env as Record<string, string>),
-			XPI_SUBAGENT_DEPTH: "1",
-			...(codemode ? { XPI_SUBAGENT_CHILD_CODEMODE: "only" } : {}),
-			...(options.team
-				? {
-						XPI_TEAM: options.team.team,
-						XPI_TEAM_MEMBER: options.team.member,
-						XPI_TEAM_DIR: options.team.dir,
-						XPI_TEAM_TOOLS: teamTools,
-					}
-				: {}),
-		},
+		env: withMemoryDir(
+			{
+				...(process.env as Record<string, string>),
+				XPI_SUBAGENT_DEPTH: "1",
+				...(codemode ? { XPI_SUBAGENT_CHILD_CODEMODE: "only" } : {}),
+				...(options.team
+					? {
+							XPI_TEAM: options.team.team,
+							XPI_TEAM_MEMBER: options.team.member,
+							XPI_TEAM_DIR: options.team.dir,
+							XPI_TEAM_TOOLS: teamTools,
+						}
+					: {}),
+			},
+			writableMemory(memoryPath, tools.memoryReadOnly) ? memoryPath : undefined,
+		),
 		cwd,
 		systemPrompt: { head: system.head, tail: system.tail },
 		prefixKey: [

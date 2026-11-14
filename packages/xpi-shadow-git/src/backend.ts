@@ -134,9 +134,10 @@ export function gitGuards(sbx: Sandbox): { ownFiles: string[]; readOnly: string[
  * 3. bind `shared-rw` paths read-write at their place in the tree;
  * 4. bind the tree over the workspace's own path;
  * 5. bind `shared-ro` absolute paths read-only over themselves, and cover hidden absolute paths.
- * Every mount point exists before this runs.
+ * Every mount point exists before this runs. The command starts in the workspace's own path plus `subdir` (relative,
+ * with no `..`).
  */
-export function namespaceScript(sbx: Sandbox): string {
+export function namespaceScript(sbx: Sandbox, subdir = ""): string {
 	const ws = sbx.workspace;
 	const out: string[] = [
 		"set -eu",
@@ -197,11 +198,19 @@ export function namespaceScript(sbx: Sandbox): string {
 	out.push("# 7. the other sandboxes: read-only; this one's tree and scratch stay writable");
 	for (const own of [sbx.tree, sbx.scratch]) out.push(`step mount --rbind ${shq(own)} ${shq(own)}`);
 	out.push(`step mount --rbind ${shq(sandboxes)} ${shq(sandboxes)}`, `ro_remount ${shq(sandboxes)}`);
-	out.push(`step cd ${shq(ws)}`, 'exec "$@"');
+	out.push(`step cd ${shq(subdir === "" ? ws : join(ws, subdir))}`, 'exec "$@"');
 	return `${out.join("\n")}\n`;
 }
 
 /** The program and arguments that run `cmd` in the namespace. */
-export function namespaceCommand(ctx: SgContext, sbx: Sandbox, cmd: string[]): { file: string; args: string[] } {
-	return { file: unshareOf(ctx), args: [...UNSHARE_ARGS, "sh", "-c", namespaceScript(sbx), "xpi-sg-sandbox", ...cmd] };
+export function namespaceCommand(
+	ctx: SgContext,
+	sbx: Sandbox,
+	cmd: string[],
+	subdir = "",
+): { file: string; args: string[] } {
+	return {
+		file: unshareOf(ctx),
+		args: [...UNSHARE_ARGS, "sh", "-c", namespaceScript(sbx, subdir), "xpi-sg-sandbox", ...cmd],
+	};
 }

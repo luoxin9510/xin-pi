@@ -40,7 +40,7 @@
 		"test": "npm run test:subagent && npm run test:upstream && vitest --run",
 		"test:upstream": "node --test --experimental-strip-types 'test/upstream/*.test.ts'",
 		"test:upstream:real": "node --test --experimental-strip-types 'test/upstream/real/*.test.ts'",
-		"test:subagent": "node --test --experimental-strip-types 'test/subagent/faults/*.test.ts' 'test/subagent/panel/*.test.ts' 'test/subagent/worktree/*.test.ts' 'test/subagent/memory/*.test.ts' 'test/subagent/teams/*.test.ts'",
+		"test:subagent": "node --test --experimental-strip-types 'test/subagent/faults/*.test.ts' 'test/subagent/panel/*.test.ts' 'test/subagent/worktree/*.test.ts' 'test/subagent/memory/*.test.ts' 'test/subagent/teams/*.test.ts' 'test/subagent/shadow-git/*.test.ts'",
 		"test:subagent:real": "node --test --experimental-strip-types 'test/subagent/real/*.test.ts'",
 		"test:subagent:parent": "node --test --experimental-strip-types 'test/subagent/parent/*.test.ts'",
 		"test:subagent:tui": "node --test --experimental-strip-types 'test/subagent/tui/*.test.ts'",

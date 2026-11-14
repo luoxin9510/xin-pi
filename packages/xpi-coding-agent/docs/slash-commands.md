@@ -63,6 +63,7 @@ Added by the built-in `subagent` extension (see [Subagents](subagent.md)); absen
 | `/subagents worktrees` | List the kept subagent worktrees of the checkout and remove the ones you pick |
 | `/subtask <task>` | Start a fork: a copy of this conversation that does a side task in the background and reports back |
 | `/tasks` | Open the agent team's task list (id, status, owner, subject, blockers), which refreshes as the files change; needs [agent teams](subagent.md#agent-teams) on |
+| `/sg [import \| export [--apply] \| merge <branch> \| status \| sbx ls]` | [shadow-git](shadow-git.md#agents-in-xpi): import, export, merge and status for the shadow-git workspace this session is in; only registered there |
 | `/workflows` | List saved workflows and this session's workflow runs; Enter runs a workflow, acts on a run that is going (its agents, pause or resume, stop), or relaunches one that stopped or failed |
 | `/<workflow name> [args]` | Run a saved workflow with no model turn; `args` is JSON or text |
 | `/review [target]` | Built-in workflow: review the uncommitted changes (no target), a branch (changes since it diverged), a commit, or `#N` (a GitHub PR) with parallel read-only `reviewer` agents and a verifier; returns ranked findings and edits nothing. A `review.js` of your own hides it. See [Built-in workflows](subagent.md#built-in-workflows) |

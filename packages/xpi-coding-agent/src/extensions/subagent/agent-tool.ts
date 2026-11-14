@@ -3,6 +3,7 @@
 import { type Static, Type } from "typebox";
 import { type JsonValue, StringEnum } from "xpi-ai";
 import type { ExtensionContext } from "../../core/extensions/types.ts";
+import { findWorkspace, sandboxRef } from "../shadow-git/workspace.ts";
 import { type AgentCallHandle, scripts } from "./background.ts";
 import type { Config } from "./config.ts";
 import { type AgentDefinition, EFFORTS, inertNotice } from "./definition.ts";
@@ -50,7 +51,7 @@ const parameters = Type.Object({
 	isolation: Type.Optional(
 		Type.String({
 			description:
-				'"worktree": the agent works in its own git worktree and branch, kept only when it changed something (the result\'s `worktree`).',
+				'"worktree": the agent works in its own git worktree and branch (in a shadow-git workspace, its own sandbox on branch sbx/<id>), kept only when it changed something (the result\'s `worktree`).',
 		}),
 	),
 	schema: Type.Optional(
@@ -337,8 +338,12 @@ async function startAgent(
 	let worktree: WorktreeRef | undefined;
 	if (stored) worktree = stored.worktree;
 	let worktreeWarning: string | undefined;
-	if (!stored && (input.isolation ?? def.isolation) === "worktree") {
-		worktree = await planWorktree(parent.cwd, agentId);
+	// In a shadow-git workspace every teammate gets a sandbox too (decision 19): running several agents on one workspace is
+	// the point of the sandbox. Elsewhere teams are unchanged.
+	const teammateSandbox =
+		launch !== undefined && (sandboxRef() !== undefined || findWorkspace(parent.cwd) !== undefined);
+	if (!stored && ((input.isolation ?? def.isolation) === "worktree" || teammateSandbox)) {
+		worktree = await planWorktree(parent.cwd, agentId, launch?.member);
 		const { subdir, warning } = await worktreeSubdir(worktree, parent.cwd);
 		if (subdir !== "") worktree.subdir = subdir;
 		worktreeWarning = warning;

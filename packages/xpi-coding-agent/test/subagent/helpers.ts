@@ -93,6 +93,7 @@ export function sandbox() {
 			depth?: string;
 			team?: Record<string, string | undefined>; // the XPI_TEAM* variables the child was started with
 			commands: { type: string; message?: string }[];
+			env?: Record<string, string | undefined>; // the shadow-git variables the child was started with
 			cwd: string;
 			systemPrompt?: string;
 			systemPromptTail?: string;

@@ -125,9 +125,15 @@ export function runChild(
 	return new Promise((resolve, reject) => {
 		let child: ChildProcessByStdio<Writable, Readable, Readable>;
 		try {
-			child = spawn(spec.command, argv, {
+			const launched = spec.launch?.(spec.command, argv, env) ?? {
+				command: spec.command,
+				args: argv,
 				cwd: spec.cwd,
 				env,
+			};
+			child = spawn(launched.command, launched.args, {
+				cwd: launched.cwd,
+				env: launched.env,
 				stdio: ["pipe", "pipe", "pipe"],
 				detached: GROUPS, // own process group: signals reach the child's whole tree (process-tree.ts)
 			});

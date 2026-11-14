@@ -13,7 +13,14 @@ import {
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { namespaceCommand } from "../src/backend.ts";
-import { createContext, loadSandbox, namespaceScript, resolveRepo, sandboxPolicy } from "../src/index.ts";
+import {
+	createContext,
+	loadSandbox,
+	namespaceScript,
+	prepareLaunch,
+	resolveRepo,
+	sandboxPolicy,
+} from "../src/index.ts";
 import { changedFiles } from "../src/sandbox.ts";
 import { cleanup, initialised, type Lab, read, write } from "./helpers.ts";
 
@@ -671,5 +678,50 @@ describe("review fixes", () => {
 		expect(changedFiles(sbx)).toEqual([]);
 		writeFileSync(join(sbx.gitDir, "commondir"), "/elsewhere\n");
 		expect(() => changedFiles(sbx)).toThrow("commondir changed");
+	});
+	it("prepareLaunch wraps a command for a caller that starts it itself: the tree plus a subdirectory, and the sandbox's variables over the caller's", async () => {
+		const l = await sandboxLab();
+		await create(l);
+		const repo = resolveRepo(createContext({ cwd: l.ws, env: l.env }), undefined);
+		const launch = await prepareLaunch(repo, "a", false);
+		expect(launch.backend).toBe("policy");
+		const tree = join(sbxDir(l, "a"), "tree");
+		const base = {
+			PATH: process.env.PATH,
+			GIT_DIR: "/other.git",
+			GIT_WORK_TREE: "/other",
+			XPI_SG_SANDBOX: "x/y",
+			KEEP: "1",
+		};
+		const command = launch.wrap(
+			["sh", "-c", 'pwd -P; echo "$GIT_DIR|$GIT_WORK_TREE|$XPI_SG_SANDBOX|$XPI_SG_BACKEND|$KEEP"'],
+			{
+				env: base,
+				subdir: "src",
+			},
+		);
+		expect(command.cwd).toBe(join(tree, "src"));
+		const run = spawnSync(command.file, command.args, { cwd: command.cwd, env: command.env, encoding: "utf8" });
+		expect(run.stdout).toBe(
+			`${join(tree, "src")}\n${join(l.store, "demo.git", "worktrees", "a")}|${tree}|demo/a|policy|1\n`,
+		);
+		expect(launch.wrap(["true"]).cwd).toBe(tree);
+		for (const bad of ["../x", "a//b", "/abs"]) expect(() => launch.wrap(["true"], { subdir: bad })).toThrow();
+	});
+
+	it("prepareLaunch inside a sandbox is refused: sandboxes do not nest", async () => {
+		const l = await sandboxLab();
+		await create(l);
+		const repo = resolveRepo(createContext({ cwd: l.ws, env: { ...l.env, XPI_SG_SANDBOX: "demo/a" } }), "demo");
+		await expect(prepareLaunch(repo, "a", false)).rejects.toThrow("sandboxes do not nest");
+	});
+
+	it("the namespace script starts in a subdirectory of the workspace's own path when asked", async () => {
+		const l = await sandboxLab();
+		await create(l);
+		const sbx = sandboxOf(l);
+		expect(namespaceScript(sbx)).toContain(`step cd '${l.ws}'\n`);
+		expect(namespaceScript(sbx, "src")).toContain(`step cd '${join(l.ws, "src")}'\n`);
+		expect(namespaceCommand(createContext({ cwd: l.ws, env: l.env }), sbx, ["true"], "src").args).toContain("true");
 	});
 });

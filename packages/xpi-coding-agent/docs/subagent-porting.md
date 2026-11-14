@@ -455,6 +455,52 @@ A port is done when these pass against its host's fake. By hand on a real model 
 teammates, a dependent task, messages, an approved shutdown, the end of the session). Both are part of
 `npm run test:subagent:tui`.
 
+## Shadow-git sandboxes
+
+An option of the [shadow-git](porting.md#shadow-git) unit, in this extension: in a workspace registered with
+`xpi sg init`, `isolation: "worktree"` and teammates (agent teams) run in a sandbox of the workspace's shadow repo
+instead of a git worktree at `<root>/.pi/worktrees/<agentId>`. Port it with the unit; it needs layers 1 to 3 and the
+[agent teams](#agent-teams) wiring for teammates. The user-level description is in [shadow-git](shadow-git.md#isolation-and-teammates).
+
+**Files.**
+
+| File | What it does |
+|---|---|
+| `src/extensions/subagent/sandbox-worktree.ts` | plan, ensure, settle, remove and list a sandbox, and `sandboxLauncher` |
+| `src/extensions/subagent/worktree.ts` | `WorktreeRef.kind` and the dispatch by kind; `worktreeCwd` |
+| `src/extensions/subagent/agent-tool.ts` | plans the sandbox for a teammate (`team-<name>`), where `isolation` plans `sub-<agentId>` |
+| `src/extensions/subagent/exchange.ts`, `runner.ts`, `resolve.ts` | `ChildSpec.launch`: set after the sandbox exists, called by `runChild` just before `spawn` |
+| `src/extensions/shadow-git/workspace.ts` | `findWorkspace(cwd)`, `quietContext`, the nesting message |
+
+**The contract.**
+
+- `WorktreeRef` has a second kind, `kind: "shadow-git"` (stored in the agent's meta file, so a resume knows). Its `root` is
+  the workspace, `path` the sandbox tree (in the store, outside the workspace), `branch` `sbx/<id>`, and `repo`,
+  `sandbox` and `backend` say which sandbox and how it runs. Every function of `worktree.ts` that takes a ref
+  dispatches on it: a host that keeps one kind can ignore the rest.
+- Planning (`planWorktree`) refuses inside a sandbox (`XPI_SG_SANDBOX`), plans a sandbox in a registered workspace, and
+  otherwise a git worktree as before. A sandbox that already exists under the id (a kept teammate's) is an error.
+- The child is not started with `spec.command` as it is: `spec.launch(command, args, env)` returns what to start
+  (`unshare ... sh -c <script> <command>` under `namespace`, the command itself with the sandbox's cwd under `policy`)
+  and the environment, in which the sandbox's variables replace `GIT_DIR`, `GIT_WORK_TREE`, `XPI_SG_SANDBOX`,
+  `XPI_SG_BACKEND` and `XPI_SG_STORE`. It is built from `prepareLaunch(repo, id)` of xpi-shadow-git, which refreshes the
+  tree's links under the sandbox's lock first, so it is async and runs in the exchange, not in `resolve`. The runner
+  cannot build the command earlier: it adds the system-prompt files to the arguments itself.
+- Settling removes a sandbox (and its branch) with no commits and no changes, else keeps it; the outcome carries a
+  `note` telling the user to run `/sg merge sbx/<id>`. All core calls here are synchronous and print nothing
+  (`quietContext`): the terminal belongs to the TUI.
+- The core API used: `resolveRepo`, `createSandbox`, `loadSandbox`, `listSandboxes`, `removeSandbox(..., dropBranch)`,
+  `changedFiles`, `sandboxGit`, `prepareLaunch`, `resolveBackend`, `currentBranch`, `revParse`, `dirtyPaths`, `git`.
+
+**Teams.** `startAgent` plans `team-<member>` when a teammate starts in a registered workspace (and refuses in a sandbox).
+Each exchange of a teammate settles its sandbox: an idle teammate that did nothing holds none, and the next wake
+recreates it from the primary's current branch. Nothing in `team.ts` changed.
+
+**Verify.** `test/subagent/shadow-git/isolation.test.ts` and `teams.test.ts` (the fake child records its cwd and the
+`XPI_SG_*` variables; `fake-pi.mjs`). They force the `policy` backend (`XPI_SG_UNSHARE` names a missing program). The
+`namespace` command that `prepareLaunch` builds, with its subdirectory, is covered in xpi-shadow-git's
+`test/namespace.test.ts`, which runs where user namespaces work (a Linux container with seccomp and AppArmor unconfined).
+
 ## Keeping up with pi
 
 xin-pi no longer merges upstream pi. To follow it, run `/upstream` (it lists what upstream changed since the fork point

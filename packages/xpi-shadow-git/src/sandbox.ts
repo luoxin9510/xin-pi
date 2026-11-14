@@ -283,10 +283,10 @@ export const changedFiles = (sbx: Sandbox): string[] =>
 	sandboxGit(sbx, ["status", "--porcelain", "-z", "--no-renames"]).stdout.split("\0").filter(Boolean);
 
 /**
- * Remove the worktree and scratch. The branch `sbx/<id>` stays. Uncommitted work stops it (exit 2) unless `force`.
+ * Remove the worktree and scratch. The branch `sbx/<id>` stays, unless `dropBranch` deletes it. Uncommitted work stops it (exit 2) unless `force`.
  * A sandbox that cannot be opened is removed with `force`.
  */
-export function removeSandbox(repo: Repo, id: string, force: boolean): void {
+export function removeSandbox(repo: Repo, id: string, force: boolean, dropBranch = false): void {
 	validateId(id);
 	let sbx: Sandbox;
 	try {
@@ -294,6 +294,7 @@ export function removeSandbox(repo: Repo, id: string, force: boolean): void {
 	} catch (error) {
 		if (!force || !existsSync(layout(repo, id).root)) throw error;
 		discard({ ...layout(repo, id), rules: [], metadata: [] });
+		if (dropBranch) git(repo, ["branch", "-D", `sbx/${id}`], { allowFail: true });
 		return;
 	}
 	if (!force) {
@@ -305,6 +306,7 @@ export function removeSandbox(repo: Repo, id: string, force: boolean): void {
 		}
 	}
 	discard(sbx);
+	if (dropBranch) git(repo, ["branch", "-D", sbx.branch], { allowFail: true });
 }
 
 // ---- the tree ----
@@ -480,28 +482,64 @@ export function refreshLocked(sbx: Sandbox, backend: Backend): Promise<number> {
 
 // ---- run ----
 
+/** A sandbox ready to run commands: its links are refreshed and the backend is chosen. */
+export interface SandboxLaunch {
+	sandbox: Sandbox;
+	backend: Backend;
+	/**
+	 * What to start for `cmd` (a program and its arguments) in the sandbox: under `namespace` the `unshare` program
+	 * with the setup script, under `policy` the command itself. `subdir` is a directory of the workspace (relative, no
+	 * `..`) to start in; `env` is the base environment (default: the context's). The sandbox's own variables always
+	 * replace what `env` carries.
+	 */
+	wrap(
+		cmd: string[],
+		options?: { env?: NodeJS.ProcessEnv; subdir?: string },
+	): { file: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv };
+}
+
+/** Open a sandbox for running commands: refresh its links under its lock and resolve the backend (`announce`: print an `auto` choice). */
+export async function prepareLaunch(repo: Repo, id: string, announce = true): Promise<SandboxLaunch> {
+	const ctx = repo.ctx;
+	if (ctx.env.XPI_SG_SANDBOX)
+		throw precondition("sandboxes do not nest: xpi sg sbx run is not available inside a sandbox");
+	const sbx = loadSandbox(repo, id);
+	const backend = resolveBackend(repo, announce);
+	await refreshLocked(sbx, backend);
+	return {
+		sandbox: sbx,
+		backend,
+		wrap(cmd, options = {}) {
+			const subdir = options.subdir ?? "";
+			if (subdir !== "" && subdir.split("/").some((part) => part === ".." || part === ""))
+				throw precondition(`${JSON.stringify(subdir)} is not a relative directory without ..`);
+			// These always replace what the parent passed down.
+			const env: NodeJS.ProcessEnv = {
+				...cleanEnv(options.env ?? ctx.env),
+				XPI_SG_STORE: realPath(ctx.store),
+				XPI_SG_SANDBOX: `${repo.name}/${id}`,
+				XPI_SG_BACKEND: backend,
+				GIT_DIR: sbx.gitDir,
+				GIT_WORK_TREE: backend === "namespace" ? repo.workspace : sbx.tree,
+			};
+			if (backend === "namespace") {
+				const command = namespaceCommand(ctx, sbx, cmd, subdir);
+				return { file: command.file, args: command.args, cwd: "/", env };
+			}
+			return { file: cmd[0], args: cmd.slice(1), cwd: join(sbx.tree, subdir), env };
+		},
+	};
+}
+
 export async function runInSandbox(repo: Repo, id: string, cmd: string[]): Promise<number> {
 	const ctx = repo.ctx;
 	if (ctx.env.XPI_SG_SANDBOX)
 		throw precondition("sandboxes do not nest: xpi sg sbx run is not available inside a sandbox");
 	if (cmd.length === 0) throw precondition("usage: xpi sg sbx run <id> -- <command> [args]");
-	const sbx = loadSandbox(repo, id);
-	const backend = resolveBackend(repo, true);
-	await refreshLocked(sbx, backend);
-	// These always replace what the parent passed down.
-	const env: NodeJS.ProcessEnv = {
-		...cleanEnv(ctx.env),
-		XPI_SG_STORE: realPath(ctx.store),
-		XPI_SG_SANDBOX: `${repo.name}/${id}`,
-		XPI_SG_BACKEND: backend,
-		GIT_DIR: sbx.gitDir,
-		GIT_WORK_TREE: backend === "namespace" ? repo.workspace : sbx.tree,
-	};
+	const launch = await prepareLaunch(repo, id);
+	const command = launch.wrap(cmd);
 	const stdio = ctx.stdio === "inherit" ? "inherit" : "pipe";
-	const result =
-		backend === "namespace"
-			? ((command) => run(command.file, command.args, { cwd: "/", env, stdio }))(namespaceCommand(ctx, sbx, cmd))
-			: run(cmd[0], cmd.slice(1), { cwd: sbx.tree, env, stdio });
+	const result = run(command.file, command.args, { cwd: command.cwd, env: command.env, stdio });
 	if (stdio === "pipe") {
 		ctx.out(result.stdout);
 		ctx.err(result.stderr);
