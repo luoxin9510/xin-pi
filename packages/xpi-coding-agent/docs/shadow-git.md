@@ -386,7 +386,8 @@ Results it writes back into the workspace are the user's to handle.
   by other users show as `nobody`, setuid programs do not work, and some tools refuse to run as root. For those,
   `policy` is the way.
 - **The git directory is shared.** Refs are shared, so a sandbox can move `main` or any other branch (and write
-  `HEAD`), and can rewrite objects it can reach. `namespace` makes `config`, `hooks/` and `info/` read-only (step 6),
+  `HEAD`), and can rewrite objects it can reach. It can also write the main worktree's `index` and a stopped
+  import's `SG_IMPORT` record, which steers where `import --abort` returns; check `xpi sg status` before you abort. `namespace` makes `config`, `hooks/` and `info/` read-only (step 6),
   which keeps a sandbox from planting something your own commands then run. Under `policy` the git directory is fully
   writable. Under `policy` a sandbox can write its own `worktrees/<id>/commondir` or `config.worktree` (or another
   sandbox's) so that git, run later from outside, reads a config with a `filter` driver. The commands `xpi sg` runs

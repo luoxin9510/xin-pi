@@ -195,7 +195,7 @@ export function namespaceScript(sbx: Sandbox): string {
 	}
 	const sandboxes = dirname(sbx.root);
 	out.push("# 7. the other sandboxes: read-only; this one's tree and scratch stay writable");
-	for (const own of [sbx.tree, sbx.scratch]) out.push(`step mount --bind ${shq(own)} ${shq(own)}`);
+	for (const own of [sbx.tree, sbx.scratch]) out.push(`step mount --rbind ${shq(own)} ${shq(own)}`);
 	out.push(`step mount --rbind ${shq(sandboxes)} ${shq(sandboxes)}`, `ro_remount ${shq(sandboxes)}`);
 	out.push(`step cd ${shq(ws)}`, 'exec "$@"');
 	return `${out.join("\n")}\n`;

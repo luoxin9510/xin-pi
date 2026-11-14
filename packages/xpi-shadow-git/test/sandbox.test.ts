@@ -648,8 +648,8 @@ describe("review fixes", () => {
 			`mount --rbind '${wt}' '${wt}'`,
 			`ro_remount '${wt}'`,
 			"# 7.",
-			`mount --bind '${sbx.tree}' '${sbx.tree}'`,
-			`mount --bind '${sbx.scratch}' '${sbx.scratch}'`,
+			`mount --rbind '${sbx.tree}' '${sbx.tree}'`,
+			`mount --rbind '${sbx.scratch}' '${sbx.scratch}'`,
 			`mount --rbind '${sandboxes}' '${sandboxes}'`,
 			`ro_remount '${sandboxes}'`,
 		];
