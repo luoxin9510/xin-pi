@@ -23,5 +23,5 @@ export { type AwayLog, awayIsEmpty, emptyAway, recapList } from "./lib/recap.ts"
 export { RUN_SLOT } from "./lib/schedule.ts";
 export { writeCommands } from "./lib/store.ts";
 export { sessionUsage, type UsageInfo } from "./lib/usage.ts";
-export { ROOST_VERSION } from "./lib/version.ts";
+export { buildOnDisk, isStale, ROOST_BUILD, ROOST_VERSION } from "./lib/version.ts";
 export { CUSTOM_DIALOG_MS, FIRST_PROMPT_MS, WorkerTracker } from "./lib/worker-state.ts";

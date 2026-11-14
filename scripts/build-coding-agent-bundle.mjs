@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { isBuiltin } from "node:module";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -283,6 +284,32 @@ createRequire(import.meta.url)("./cli-runtime.js");
 writeFileSync(join(bundleDir, "cli.js"), cliLauncher);
 chmodSync(join(bundleDir, "cli.js"), 0o755);
 chmodSync(join(bundleDir, "rpc-entry.js"), 0o755);
+
+// The build id (xpi roost, spec 03): the first 16 hex digits of a SHA-256 over every file under dist/bundle, each as
+// its path relative to the bundle (with "/") and its content, in sorted path order, `build-id` itself left out. A
+// process compares the id it started with against this file to learn that the installed code changed, also at the
+// same version. It depends on the files alone, so the same sources give the same id in any checkout.
+function bundleFiles(dir) {
+	const found = [];
+	for (const entry of readdirSync(dir, { withFileTypes: true })) {
+		const full = join(dir, entry.name);
+		if (entry.isDirectory()) found.push(...bundleFiles(full));
+		else if (entry.isFile()) found.push(full);
+	}
+	return found;
+}
+const idHash = createHash("sha256");
+const bundled = bundleFiles(bundleDir)
+	.map((file) => relative(bundleDir, file).replaceAll("\\", "/"))
+	.filter((path) => path !== "build-id")
+	.sort();
+for (const path of bundled) {
+	// length-prefixed, so one file's tail cannot be read as the next file's name
+	const content = readFileSync(join(bundleDir, path));
+	idHash.update(`${path}\0${content.length}\0`);
+	idHash.update(content);
+}
+writeFileSync(join(bundleDir, "build-id"), `${idHash.digest("hex").slice(0, 16)}\n`);
 
 const files = new Set(metafiles.flatMap((metafile) => Object.keys(metafile.outputs))).size + 1;
 const mib = (outputBytes(metafiles) + cliLauncher.length) / (1024 * 1024);
