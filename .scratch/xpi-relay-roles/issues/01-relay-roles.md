@@ -54,7 +54,8 @@ the docs, the real Haiku runs before merge.
 - `listed: false` also hides the tool from `tool_search` and `pi.getAllTools()` reports it (`listed: false`);
   `ToolLoadout.isListed` is new.
 - Print mode: the lines go to stderr when `--verbose` is in `process.argv` (the flag is not visible to extensions).
-- Tests changed because behaviour changed: the tool-list test (tools are direct only in the fallback), the first flow
+- Tests changed because behaviour changed: suite/agent-session-mcp.test.ts "rejects direct model calls to codemode-only MCP
+  tools" (now "runs ... as nested calls, with a note": that is seam C for MCP tools; an unknown name still fails), the tool-list test (tools are direct only in the fallback), the first flow
   test (no worker message at a handover; the role is in the system section), "refuses a handback from the lead..."
   (replaced by the correction and blocked-hand-back tests), the `nextState` test (a handover is a marker as the last line).
   `leadFacts()` lost its first sentence ("Relay mode. You are the lead model (...)"): the section's own line says it.
