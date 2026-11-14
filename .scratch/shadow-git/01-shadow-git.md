@@ -558,7 +558,25 @@ PR 2 (sandboxes) differs from the text above in these places.
   script cannot be shown to matter there (a raw `mount(2)` remount without them fails with EPERM, which confirms the
   lock). The script repeats them anyway, for older `mount` programs.
 - **`sbx ls` format.** One line per sandbox: `<id>  sbx/<id>  <n> commit(s) ahead of main  <n> changed file(s)  backend <b>`;
-  `status` prints the same lines under `sandboxes:`.
+  `status` prints the same lines under `sandboxes:`, each prefixed with `<name>/`. A sandbox that cannot be opened is
+  listed as `<id>  broken: <reason>`.
 - **Out of the namespace script:** an absolute `shared-rw` rule nested under an absolute `shared-ro` rule is not made
   writable again, and hidden paths inside a `shared-rw` path are covered in the tree but a hidden rule is not applied to
   submounts of the workspace.
+
+After review of PR 2:
+
+- **pid namespace.** The namespace backend runs `unshare --user --map-root-user --mount --pid --fork --mount-proc`
+  (the probe too). Without it `/proc/<pid>/root` of a process outside reaches the primary through the host's mount
+  namespace. Container runtimes that mask `/proc` make the probe fail, so `auto` falls back to `policy` there.
+- **Step 6, the git directory.** After the spec's five steps the script binds the shadow repo's `config`,
+  `config.worktree`, `hooks/` and `info/`, and the sandbox's own `config.worktree`, read-only. `sbx` creates `hooks/`
+  if it is missing. The commands `xpi sg` runs itself also pass `-c core.fsmonitor=`. Refs stay shared and writable;
+  `policy` leaves the git directory writable. Both are documented as limits.
+- **Locking and links.** `sbx run` refreshes the links under `<id>/lock`, and leaves a link that is right alone, so a
+  running command never sees one vanish; an `EEXIST` from a concurrent refresh counts as success.
+- **Broken sandboxes** are listed as broken, and `sbx rm --force` removes one. A git config file that cannot be read
+  is an error (exit 1), not an empty rule list.
+- **Inside a sandbox**, `init` and `--repo <other>` are refused too; `XPI_SG_STORE` passed to the command is the
+  store's real path; the final `cd` of the script is a setup step (exit 125); `strictatime` is among the repeated
+  mount flags.

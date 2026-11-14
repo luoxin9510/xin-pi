@@ -7,24 +7,26 @@ import {
 	readlinkSync,
 	rmdirSync,
 	rmSync,
+	statSync,
 	symlinkSync,
 	unlinkSync,
 	writeFileSync,
 } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { callAdapter, lines } from "./adapter.ts";
 import { type Backend, namespaceCommand, probeNamespace, resolveBackend } from "./backend.ts";
 import { assertNoImport, configAll, configGet } from "./config.ts";
 import type { SgContext } from "./context.ts";
 import { failure, precondition } from "./errors.ts";
 import { cleanEnv, git, gitIn } from "./git.ts";
+import { withLock } from "./lock.ts";
 import { run } from "./proc.ts";
 import { gitDirOf, type Repo, realPath, resolveRepo } from "./registry.ts";
 import { covers, type Mode, modeOf, parseRule, type Rule, ruleText } from "./rules.ts";
 
 export const ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 // Names inside a sandbox's directory
-const RESERVED = new Set(["tree", "scratch", "primary", "policy", "links", "excludes"]);
+const RESERVED = new Set(["tree", "scratch", "primary", "policy", "links", "excludes", "lock"]);
 
 /** A sandbox: a git worktree on `sbx/<id>`, a scratch area, a view of the primary workspace, and its path rules. */
 export interface Sandbox {
@@ -75,6 +77,8 @@ const policyFile = (root: string): string => join(root, "policy");
 
 function configFile(repo: Repo, file: string, key: string): string[] {
 	const result = git(repo, ["config", "--file", file, "--get-all", key], { allowFail: true });
+	// 1 is "no such key"; anything else is a file git cannot read
+	if (result.status > 1) throw failure(`${file}: ${result.stderr.trim() || "cannot read this git config file"}`);
 	return result.status === 0 ? result.stdout.split("\n").filter((line) => line !== "") : [];
 }
 
@@ -110,17 +114,33 @@ export function sandboxGit(sbx: Sandbox, args: string[], options: { allowFail?: 
 	);
 }
 
-/** The sandboxes of a repo, by id. */
-export function listSandboxes(repo: Repo): Sandbox[] {
+/** A sandbox's directory that cannot be opened: its tree or policy is missing or unreadable. */
+export interface BrokenSandbox {
+	id: string;
+	reason: string;
+}
+
+/** Every sandbox of a repo by id; one that cannot be opened is listed as broken instead of failing the rest. */
+export function sandboxEntries(repo: Repo): (Sandbox | BrokenSandbox)[] {
 	const dir = sandboxesDir(repo);
 	if (!existsSync(dir)) return [];
-	const found: Sandbox[] = [];
+	const found: (Sandbox | BrokenSandbox)[] = [];
 	for (const id of readdirSync(dir).sort()) {
-		if (!ID.test(id) || !existsSync(policyFile(join(dir, id)))) continue;
-		found.push(loadSandbox(repo, id));
+		if (!ID.test(id) || RESERVED.has(id) || !statSync(join(dir, id)).isDirectory()) continue;
+		try {
+			if (!existsSync(policyFile(join(dir, id)))) throw precondition("its policy file is missing");
+			if (!existsSync(join(dir, id, "tree"))) throw precondition("its tree is missing");
+			found.push(loadSandbox(repo, id));
+		} catch (error) {
+			found.push({ id, reason: (error as Error).message.split("\n")[0] });
+		}
 	}
 	return found;
 }
+
+/** The sandboxes of a repo that can be opened. */
+export const listSandboxes = (repo: Repo): Sandbox[] =>
+	sandboxEntries(repo).filter((entry): entry is Sandbox => "root" in entry);
 
 const branchExists = (repo: Repo, id: string): boolean =>
 	git(repo, ["rev-parse", "--verify", "--quiet", `refs/heads/sbx/${id}`], { allowFail: true }).status === 0;
@@ -153,7 +173,7 @@ function checkTracked(rules: Rule[], metadata: string[], tracked: string[]): voi
 		const mode = modeOf(set, true, path);
 		if (mode && MODES_THAT_NEED_NO_TRACKED.has(mode)) {
 			const rule = rules.filter((candidate) => candidate.ws && covers(candidate, path)).at(-1);
-			bad.push(`  ${path}  (${rule ? ruleText(rule) : `hidden: host metadata ${mode}`})`);
+			bad.push(`  ${path}  (${rule ? ruleText(rule) : "metadata path (hidden)"})`);
 		}
 	}
 	if (bad.length > 0) {
@@ -237,9 +257,20 @@ function discard(sbx: Sandbox): void {
 export const changedFiles = (sbx: Sandbox): string[] =>
 	sandboxGit(sbx, ["status", "--porcelain", "-z", "--no-renames"]).stdout.split("\0").filter(Boolean);
 
-/** Remove the worktree and scratch. The branch `sbx/<id>` stays. Uncommitted work stops it (exit 2) unless `force`. */
+/**
+ * Remove the worktree and scratch. The branch `sbx/<id>` stays. Uncommitted work stops it (exit 2) unless `force`.
+ * A sandbox that cannot be opened is removed with `force`.
+ */
 export function removeSandbox(repo: Repo, id: string, force: boolean): void {
-	const sbx = loadSandbox(repo, id);
+	validateId(id);
+	let sbx: Sandbox;
+	try {
+		sbx = loadSandbox(repo, id);
+	} catch (error) {
+		if (!force || !existsSync(layout(repo, id).root)) throw error;
+		discard({ ...layout(repo, id), rules: [], metadata: [] });
+		return;
+	}
 	if (!force) {
 		const changed = changedFiles(sbx);
 		if (changed.length > 0) {
@@ -255,46 +286,49 @@ export function removeSandbox(repo: Repo, id: string, force: boolean): void {
 
 const MANIFEST = "links";
 
-function readManifest(sbx: Sandbox): { kind: "l" | "m"; path: string }[] {
+type Kind = "l" | "m";
+
+function readManifest(sbx: Sandbox): Map<string, Kind> {
+	const found = new Map<string, Kind>();
 	const file = join(sbx.root, MANIFEST);
-	if (!existsSync(file)) return [];
-	return readFileSync(file, "utf8")
-		.split("\n")
-		.filter((line) => line.length > 2)
-		.map((line) => ({ kind: line[0] === "m" ? "m" : "l", path: line.slice(2) }));
-}
-
-function dropManifest(sbx: Sandbox): void {
-	for (const entry of readManifest(sbx).reverse()) {
-		const at = join(sbx.tree, entry.path);
-		try {
-			const stat = lstatSync(at);
-			if (entry.kind === "l" && stat.isSymbolicLink()) unlinkSync(at);
-			else if (entry.kind === "m" && stat.isDirectory()) rmdirSync(at);
-			else if (entry.kind === "m" && stat.isFile() && stat.size === 0) unlinkSync(at);
-		} catch {}
+	if (!existsSync(file)) return found;
+	for (const line of readFileSync(file, "utf8").split("\n")) {
+		if (line.length > 2) found.set(line.slice(2), line[0] === "m" ? "m" : "l");
 	}
+	return found;
 }
 
-/** Whether a directory holds anything but directories: files or links of the agent's own. */
-function hasRealFiles(dir: string): boolean {
-	for (const entry of readdirSync(dir, { withFileTypes: true })) {
-		if (!entry.isDirectory() || hasRealFiles(join(dir, entry.name))) return true;
+/** Whether a directory holds anything but directories and the links this tool made: the agent's own files. */
+function hasRealFiles(dir: string, base: string, ours: Map<string, Kind>): boolean {
+	for (const entry of readdirSync(join(dir, base), { withFileTypes: true })) {
+		const path = base === "" ? entry.name : `${base}/${entry.name}`;
+		if (entry.isDirectory() ? hasRealFiles(dir, path, ours) : !ours.has(path)) return true;
 	}
 	return false;
 }
 
 const ignoreLine = (path: string): string => `/${path.replace(/[\\*?[\]]/g, "\\$&").replace(/ $/, "\\ ")}`;
 
+interface Want {
+	kind: Kind;
+	/** For a link, where it points. */
+	target?: string;
+}
+
 /**
  * Bring the tree's links up to date: the untracked, not-hidden entries of the primary workspace, `scratch` paths and
  * `shared-rw` paths. A directory with no tracked files below it becomes one link. They are listed in the sandbox's own
- * excludes file, so they never show in its `git status`. Returns the number of links.
+ * excludes file, so they never show in its `git status`. Links that are right stay as they are, so a command already
+ * running in the sandbox never sees one vanish. The caller holds the sandbox's lock (`refreshLocked`). Returns the
+ * number of links.
  */
 export function refreshTree(sbx: Sandbox, backend: Backend): number {
 	const ws = sbx.workspace;
-	dropManifest(sbx);
-	const kinds = new Map<string, "l" | "m">();
+	const old = readManifest(sbx);
+	const wanted = new Map<string, Want>();
+
+	// the shadow repo's hooks directory has to exist for the namespace to make it read-only
+	mkdirSync(join(gitDirOf(sbx.repo.ctx, sbx.repo.name), "hooks"), { recursive: true });
 
 	// primary: a link to the workspace, or an empty mount point
 	const primary = sbx.primary;
@@ -322,16 +356,12 @@ export function refreshTree(sbx: Sandbox, backend: Backend): number {
 	for (const rule of sbx.rules) if (rule.ws && rule.mode !== "shared-ro") note(rule.path);
 	for (const path of sbx.metadata) note(path);
 
-	const place = (path: string, target: string): void => {
-		const at = join(sbx.tree, path);
+	const treeHasReal = (path: string): boolean => {
 		try {
-			if (lstatSync(at).isSymbolicLink()) unlinkSync(at);
-			else if (lstatSync(at).isDirectory() && !hasRealFiles(at)) rmSync(at, { recursive: true, force: true });
-			else return;
-		} catch {}
-		mkdirSync(dirname(at), { recursive: true });
-		symlinkSync(target, at);
-		kinds.set(path, "l");
+			return lstatSync(join(sbx.tree, path)).isDirectory() && hasRealFiles(sbx.tree, path, old);
+		} catch {
+			return false;
+		}
 	};
 
 	const walk = (rel: string): void => {
@@ -341,12 +371,10 @@ export function refreshTree(sbx: Sandbox, backend: Backend): number {
 			const mode = modeOf(sbx, true, path);
 			if (mode === "hidden" || mode === "private" || mode === "scratch" || mode === "shared-rw") continue;
 			if (trackedFiles.has(path)) continue;
-			const at = join(sbx.tree, path);
-			const real = entry.isDirectory() && (trackedDirs.has(path) || ruleDirs.has(path) || treeHasReal(at));
-			if (real) {
-				mkdirSync(at, { recursive: true });
+			if (entry.isDirectory() && (trackedDirs.has(path) || ruleDirs.has(path) || treeHasReal(path))) {
+				mkdirSync(join(sbx.tree, path), { recursive: true });
 				walk(path);
-			} else place(path, join(sbx.primary, path));
+			} else wanted.set(path, { kind: "l", target: join(sbx.primary, path) });
 		}
 	};
 	walk("");
@@ -355,52 +383,90 @@ export function refreshTree(sbx: Sandbox, backend: Backend): number {
 		if (!rule.ws || rule.path === "") continue;
 		if (rule.mode === "scratch") {
 			mkdirSync(join(sbx.scratch, rule.path), { recursive: true });
-			place(rule.path, join(sbx.scratch, rule.path));
+			wanted.set(rule.path, { kind: "l", target: join(sbx.scratch, rule.path) });
 		} else if (rule.mode === "shared-rw" && existsSync(join(ws, rule.path))) {
-			if (backend === "policy") place(rule.path, join(ws, rule.path));
-			else {
-				const at = join(sbx.tree, rule.path);
-				mkdirSync(dirname(at), { recursive: true });
-				if (lstatSync(join(ws, rule.path)).isDirectory()) mkdirSync(at, { recursive: true });
-				else if (!existsSync(at)) writeFileSync(at, "");
-				kinds.set(rule.path, "m");
-			}
+			wanted.set(rule.path, backend === "policy" ? { kind: "l", target: join(ws, rule.path) } : { kind: "m" });
 		}
+	}
+
+	// Links no longer wanted go; the rest are made if they are not there already.
+	for (const [path, kind] of old) {
+		if (wanted.get(path)?.kind === kind) continue;
+		const at = join(sbx.tree, path);
+		try {
+			const stat = lstatSync(at);
+			if (kind === "l" && stat.isSymbolicLink()) unlinkSync(at);
+			else if (kind === "m" && stat.isDirectory()) rmdirSync(at);
+			else if (kind === "m" && stat.isFile() && stat.size === 0) unlinkSync(at);
+		} catch {}
+	}
+	const made = new Map<string, Kind>();
+	for (const [path, want] of wanted) {
+		const at = join(sbx.tree, path);
+		if (want.kind === "m") {
+			mkdirSync(dirname(at), { recursive: true });
+			if (lstatSync(join(ws, path)).isDirectory()) mkdirSync(at, { recursive: true });
+			else if (!existsSync(at)) writeFileSync(at, "");
+			made.set(path, "m");
+			continue;
+		}
+		if (placeLink(at, want.target ?? "", old, path)) made.set(path, "l");
 	}
 
 	writeFileSync(
 		join(sbx.root, MANIFEST),
-		[...kinds].map(([path, kind]) => `${kind} ${path}`).join("\n") + (kinds.size > 0 ? "\n" : ""),
+		[...made].map(([path, kind]) => `${kind} ${path}`).join("\n") + (made.size > 0 ? "\n" : ""),
 	);
 	writeFileSync(
 		join(sbx.root, "excludes"),
-		`# shadow-git: links and mount points in the sandbox tree\n${[...kinds.keys()].map(ignoreLine).join("\n")}${kinds.size > 0 ? "\n" : ""}`,
+		`# shadow-git: links and mount points in the sandbox tree\n${[...made.keys()].map(ignoreLine).join("\n")}${made.size > 0 ? "\n" : ""}`,
 	);
-	return [...kinds.values()].filter((kind) => kind === "l").length;
+	return [...made.values()].filter((kind) => kind === "l").length;
 }
 
-function treeHasReal(at: string): boolean {
+/** Make the link `at` -> `target` unless it is right already. A real file or a directory with the agent's files stays. */
+function placeLink(at: string, target: string, ours: Map<string, Kind>, path: string): boolean {
 	try {
-		return lstatSync(at).isDirectory() && hasRealFiles(at);
-	} catch {
-		return false;
+		const stat = lstatSync(at);
+		if (stat.isSymbolicLink()) {
+			if (readlinkSync(at) === target) return true;
+			if (!ours.has(path)) return false; // the agent's own link
+			unlinkSync(at);
+		} else if (stat.isDirectory() && !hasRealFiles(dirname(at), basename(at), ours)) {
+			rmSync(at, { recursive: true, force: true });
+		} else return false;
+	} catch {}
+	mkdirSync(dirname(at), { recursive: true });
+	try {
+		symlinkSync(target, at);
+	} catch (error) {
+		// another refresh made it first
+		if ((error as NodeJS.ErrnoException).code !== "EEXIST" || readlinkSync(at) !== target) throw error;
 	}
+	return true;
+}
+
+const lockOf = (sbx: Sandbox): string => join(sbx.root, "lock");
+
+/** `refreshTree` under the sandbox's lock, so two `sbx run` of one sandbox do not race. */
+export function refreshLocked(sbx: Sandbox, backend: Backend): Promise<number> {
+	return withLock(sbx.repo.ctx, lockOf(sbx), () => refreshTree(sbx, backend));
 }
 
 // ---- run ----
 
-export function runInSandbox(repo: Repo, id: string, cmd: string[]): number {
+export async function runInSandbox(repo: Repo, id: string, cmd: string[]): Promise<number> {
 	const ctx = repo.ctx;
 	if (ctx.env.XPI_SG_SANDBOX)
 		throw precondition("sandboxes do not nest: xpi sg sbx run is not available inside a sandbox");
 	if (cmd.length === 0) throw precondition("usage: xpi sg sbx run <id> -- <command> [args]");
 	const sbx = loadSandbox(repo, id);
 	const backend = resolveBackend(repo, true);
-	refreshTree(sbx, backend);
+	await refreshLocked(sbx, backend);
 	// These always replace what the parent passed down.
 	const env: NodeJS.ProcessEnv = {
 		...cleanEnv(ctx.env),
-		XPI_SG_STORE: ctx.store,
+		XPI_SG_STORE: realPath(ctx.store),
 		XPI_SG_SANDBOX: `${repo.name}/${id}`,
 		XPI_SG_BACKEND: backend,
 		GIT_DIR: sbx.gitDir,
@@ -430,21 +496,23 @@ export function describeSandbox(sbx: Sandbox, backend: string): string {
 /** The backend the sandboxes of this repo would use now, as text, without failing. */
 export function backendLabel(repo: Repo): string {
 	const want = configGet(repo, "sandbox.backend") ?? "auto";
-	try {
-		if (want === "policy") return "policy";
-		if (want === "namespace" || want === "auto") {
-			const probe = probeNamespace(repo.ctx);
-			if (probe.ok) return "namespace";
-			if (want === "auto" && configGet(repo, "sandbox.require") !== "namespace") return "policy";
-			return "unavailable";
-		}
-	} catch {}
-	return want;
+	if (want === "policy") return "policy";
+	if (want !== "namespace" && want !== "auto") return want;
+	if (probeNamespace(repo.ctx).ok) return "namespace";
+	return want === "auto" && configGet(repo, "sandbox.require") !== "namespace" ? "policy" : "unavailable";
 }
 
+/** One line per sandbox for `sbx ls` and `status`. A sandbox that cannot be opened says why instead of failing the rest. */
 export function listText(repo: Repo): string[] {
-	const sandboxes = listSandboxes(repo);
-	if (sandboxes.length === 0) return [];
+	const entries = sandboxEntries(repo);
+	if (entries.length === 0) return [];
 	const backend = backendLabel(repo);
-	return sandboxes.map((sbx) => describeSandbox(sbx, backend));
+	return entries.map((entry) => {
+		if (!("root" in entry)) return `${entry.id}  broken: ${entry.reason}`;
+		try {
+			return describeSandbox(entry, backend);
+		} catch (error) {
+			return `${entry.id}  broken: ${(error as Error).message.split("\n")[0]}`;
+		}
+	});
 }

@@ -5,7 +5,7 @@ import type { SgContext } from "./context.ts";
 import { precondition } from "./errors.ts";
 import { cleanEnv } from "./git.ts";
 import { run } from "./proc.ts";
-import type { Repo } from "./registry.ts";
+import { gitDirOf, type Repo } from "./registry.ts";
 import { modeOf } from "./rules.ts";
 import type { Sandbox } from "./sandbox.ts";
 
@@ -19,11 +19,14 @@ export interface Probe {
 
 const unshareOf = (ctx: SgContext): string => ctx.env.XPI_SG_UNSHARE || "unshare";
 
-const UNSHARE_ARGS = ["--user", "--map-root-user", "--mount"];
+// A pid namespace with its own /proc: without it `/proc/<pid>/root` and `/proc/<pid>/cwd` of a process outside reach
+// the primary workspace through the host's mount namespace.
+const UNSHARE_ARGS = ["--user", "--map-root-user", "--mount", "--pid", "--fork", "--mount-proc"];
 
 /**
- * Whether `unshare --user --map-root-user --mount` works here, and `mount` and `findmnt` are present (the script
- * needs them). Run once per command. `XPI_SG_UNSHARE` names another program, for tests.
+ * Whether `unshare --user --map-root-user --mount --pid --fork --mount-proc` works here, and `mount` and `findmnt` are
+ * present (the script needs them). Container runtimes often mask parts of `/proc`, which makes the fresh `/proc`
+ * mount fail; then the backend is not available. Run once per command. `XPI_SG_UNSHARE` names another program, for tests.
  */
 export function probeNamespace(ctx: SgContext): Probe {
 	if (process.platform !== "linux" && !ctx.env.XPI_SG_UNSHARE) {
@@ -42,7 +45,7 @@ export function probeNamespace(ctx: SgContext): Probe {
 	}
 	if (result.status !== 0) {
 		const reason = result.stderr.trim().split("\n")[0] || "mount or findmnt is missing";
-		return { ok: false, message: `unshare --user --map-root-user --mount failed: ${reason}` };
+		return { ok: false, message: `unshare ${UNSHARE_ARGS.join(" ")} failed: ${reason}` };
 	}
 	return { ok: true, message: "ok" };
 }
@@ -107,6 +110,22 @@ function hiddenPaths(sbx: Sandbox): { all: string[]; inRw: string[] } {
 }
 
 /**
+ * Files and directories of the shadow repo's git directory that a sandbox must not write: a changed `config`, a hook or
+ * a `config.worktree` would run as the user's own commands later (a `core.fsmonitor`, a filter driver, a hook).
+ * Refs and objects stay writable: that is how a sandbox commits.
+ */
+export function gitGuards(sbx: Sandbox): string[] {
+	const dir = gitDirOf(sbx.repo.ctx, sbx.repo.name);
+	return [
+		join(dir, "config"),
+		join(dir, "config.worktree"),
+		join(dir, "hooks"),
+		join(dir, "info"),
+		join(sbx.gitDir, "config.worktree"),
+	];
+}
+
+/**
  * The `sh` script `sbx run` gives to `unshare`. The command is its arguments. The mount order is fixed:
  * 1. bind the workspace at `primary` and remount it read-only, repeating the locked flags;
  * 2. cover `hidden` paths (inside `primary` too);
@@ -123,7 +142,7 @@ export function namespaceScript(sbx: Sandbox): string {
 		'step() { "$@" || { echo "xpi sg: sandbox setup failed: $*" >&2; exit 125; }; }',
 		"# A read-only remount in a user namespace must repeat the flags the mount was locked with.",
 		"ro_remount() {",
-		`\tflags=$(findmnt -no OPTIONS --target "$1" | head -n 1 | tr ',' '\\n' | grep -E '^(nosuid|nodev|noexec|noatime|nodiratime|relatime)$' | paste -s -d, - || true)`,
+		`\tflags=$(findmnt -no OPTIONS --target "$1" | head -n 1 | tr ',' '\\n' | grep -E '^(nosuid|nodev|noexec|noatime|nodiratime|relatime|strictatime)$' | paste -s -d, - || true)`,
 		`\tstep mount -o "remount,bind,ro\${flags:+,$flags}" "$1"`,
 		"}",
 		`# 1. the primary workspace, read-only`,
@@ -159,7 +178,11 @@ export function namespaceScript(sbx: Sandbox): string {
 		const target = !rule.ws && rule.mode === "hidden" ? kindOf(rule.path) : undefined;
 		if (target) out.push(cover(target));
 	}
-	out.push(`cd ${shq(ws)}`, 'exec "$@"');
+	out.push("# 6. the shared git directory: what runs as the user's own commands is read-only");
+	for (const target of gitGuards(sbx)) {
+		out.push(`step mount --rbind ${shq(target)} ${shq(target)}`, `ro_remount ${shq(target)}`);
+	}
+	out.push(`step cd ${shq(ws)}`, 'exec "$@"');
 	return `${out.join("\n")}\n`;
 }
 

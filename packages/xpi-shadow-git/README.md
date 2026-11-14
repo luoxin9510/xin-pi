@@ -42,9 +42,6 @@ node ../../node_modules/vitest/dist/cli.js --run
 
 The tests use temp directories, real git and the plain adapter; they set `XPI_SG_STORE` and never touch `~/.pi`.
 `test/namespace.test.ts` needs unprivileged user namespaces and skips, with the probe's message, where they are not
-available (macOS, a restricted runner). To run it on Linux from another system, use a container that allows them:
-
-```bash
-docker run --rm --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
-  -v "$PWD/../..:/w" -w /w node:24 sh -c '<install vitest in a scratch dir, copy the package, run it>'
-```
+available (macOS, a restricted runner). To run it on Linux from another system, use a container runtime that allows
+unprivileged user namespaces and a fresh `/proc` (for example with seccomp and AppArmor unconfined and the masked
+system paths unconfined), install vitest in a scratch directory, copy the package there and run it.

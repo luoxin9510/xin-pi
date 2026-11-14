@@ -58,7 +58,17 @@ export interface GitOptions {
 }
 
 // Internal commits and merges ignore the user's hooks and signing settings.
-const INTERNAL = ["-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "-c", "merge.autoEdit=no"];
+// `core.fsmonitor=` keeps a program named in a sandbox's own config from running when the user's commands read it.
+const INTERNAL = [
+	"-c",
+	"core.hooksPath=/dev/null",
+	"-c",
+	"core.fsmonitor=",
+	"-c",
+	"commit.gpgsign=false",
+	"-c",
+	"merge.autoEdit=no",
+];
 
 /** Run git with a chosen working directory and environment. A non-zero exit fails with git's stderr (exit 1). */
 export function gitIn(

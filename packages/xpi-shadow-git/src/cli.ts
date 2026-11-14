@@ -4,16 +4,7 @@ import { checkGitVersion, repoEnv } from "./git.ts";
 import { initRepo } from "./init.ts";
 import { run } from "./proc.ts";
 import { type Repo, readRegistry, resolveRepo } from "./registry.ts";
-import {
-	backendLabel,
-	createSandbox,
-	describeSandbox,
-	listSandboxes,
-	removeSandbox,
-	runInSandbox,
-	type Sandbox,
-	sandboxFromEnv,
-} from "./sandbox.ts";
+import { createSandbox, listText, removeSandbox, runInSandbox, type Sandbox, sandboxFromEnv } from "./sandbox.ts";
 import { status } from "./status.ts";
 import { abortImport, asWriter, exportMain, importHost, mergeBranch } from "./sync.ts";
 
@@ -136,6 +127,15 @@ async function dispatch(ctx: SgContext, args: string[]): Promise<number> {
 	}
 	checkGitVersion(ctx);
 
+	// Inside a sandbox the repo is the sandbox's own: no other repo, and no new registration.
+	const sandboxRef = ctx.env.XPI_SG_SANDBOX;
+	if (sandboxRef) {
+		if (command === "init") throw precondition("xpi sg init is not available inside a sandbox");
+		if (repoName !== undefined && repoName !== sandboxRef.split("/")[0]) {
+			throw precondition(`--repo ${repoName} is not available inside a sandbox of ${sandboxRef.split("/")[0]}`);
+		}
+	}
+
 	switch (command) {
 		case "init":
 			await initRepo(ctx, parseInit(tail));
@@ -159,7 +159,7 @@ async function dispatch(ctx: SgContext, args: string[]): Promise<number> {
 	}
 	switch (command) {
 		case "sbx":
-			return sbx(repo, tail);
+			return await sbx(repo, tail);
 		case "import":
 			if (takeFlags(tail, ["--abort"]).has("--abort")) await abortImport(repo);
 			else await importHost(repo);
@@ -198,7 +198,7 @@ const WRITES_PRIMARY = new Set(["import", "export", "merge"]);
 const sandboxWorkTree = (ctx: SgContext, sbx: Sandbox): string =>
 	ctx.env.XPI_SG_BACKEND === "namespace" ? sbx.workspace : sbx.tree;
 
-function sbx(repo: Repo, args: string[]): number {
+async function sbx(repo: Repo, args: string[]): Promise<number> {
 	const [sub, ...rest] = args;
 	const ctx = repo.ctx;
 	const flags = (
@@ -234,11 +234,11 @@ function sbx(repo: Repo, args: string[]): number {
 		case "run": {
 			const split = rest.indexOf("--");
 			if (split !== 1 || rest.length < 3) throw precondition("usage: xpi sg sbx run <id> -- <command> [args]");
-			return runInSandbox(repo, rest[0], rest.slice(2));
+			return await runInSandbox(repo, rest[0], rest.slice(2));
 		}
 		case "ls":
 			flags({}, rest);
-			for (const sandbox of listSandboxes(repo)) ctx.out(`${describeSandbox(sandbox, backendLabel(repo))}\n`);
+			for (const line of listText(repo)) ctx.out(`${line}\n`);
 			return 0;
 		case "rm": {
 			if (inSandbox) throw precondition("xpi sg sbx rm is not available inside a sandbox");

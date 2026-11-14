@@ -239,7 +239,8 @@ xpi sg merge sbx/fix-parser                  # you, in the primary workspace
 xpi sg sbx rm fix-parser                     # the branch stays
 ```
 
-`sbx rm` stops (exit 2) when the sandbox has uncommitted changes; `--force` removes it anyway. `sbx create` is refused
+`sbx ls` and `status` list a sandbox that cannot be opened (its tree or policy is missing or unreadable) as
+`<id>  broken: <reason>` and go on; `sbx rm <id> --force` removes it. `sbx rm` stops (exit 2) when the sandbox has uncommitted changes; `--force` removes it anyway. `sbx create` is refused
 (exit 2) while an import is stopped (`SG_IMPORT`), and the id must not be one of `tree`, `scratch`, `primary`,
 `policy`, `links`, `excludes`. `xpi sg status` lists the sandboxes.
 
@@ -298,12 +299,13 @@ Both backends start from the same tree:
 ### Backends
 
 `sandbox.backend` is `auto` (the default), `namespace` or `policy`. `auto` checks that
-`unshare --user --map-root-user --mount` works (and that `mount` and `findmnt` exist), once per command, uses
+`unshare --user --map-root-user --mount --pid --fork --mount-proc` works (and that `mount` and `findmnt` exist), once per command, uses
 `namespace` if it does and `policy` if not, and prints which on stderr. With `sandbox.require = namespace` a failed
 check is exit 2, as is `sandbox.backend = namespace`. macOS has `policy` only.
 
-**`namespace`** (Linux). `sbx run` runs the command in a new user and mount namespace through a small `sh` script.
-Every mount point exists before `unshare`. The mount order is fixed:
+**`namespace`** (Linux). `sbx run` runs the command in a new user, mount and pid namespace (with its own `/proc`)
+through a small `sh` script. The pid namespace matters: without it `/proc/<pid>/root` of a process outside would reach
+the primary workspace through the host's mount namespace. Every mount point exists before `unshare`. The mount order is fixed:
 
 1. The workspace is bound (`--rbind`) at `primary` and remounted read-only.
 2. `hidden` paths are covered, inside `primary` too: an empty read-only `tmpfs` over a directory, `/dev/null` over a file.
@@ -312,11 +314,15 @@ Every mount point exists before `unshare`. The mount order is fixed:
    sandbox `/proj/ws` shows the agent's files, so scripts that hard-code the workspace path work unchanged.
 5. `shared-ro` rules for absolute paths outside the workspace are bound read-only over themselves, and `hidden`
    absolute paths are covered.
+6. The shadow repo's `config`, `config.worktree`, `hooks/` and `info/`, and the sandbox's own `config.worktree`, are
+   bound read-only. A changed config or a hook would run as your own commands later (a `core.fsmonitor`, a filter
+   driver, a hook). Refs and objects stay writable: that is how a sandbox commits. `sbx` creates the `hooks/`
+   directory if it is missing, so it can be covered.
 
 A read-only remount in a user namespace fails unless it repeats the flags the mount was locked with (`nosuid`, `nodev`,
 `noexec` and the access-time flags). Steps 1 and 5 read them with `findmnt -no OPTIONS` and pass them again. Recent
-`mount` programs do it themselves; older ones need it. A failed setup step ends the command with exit 125 and a
-message. The command starts in the workspace's path, and its environment has `GIT_WORK_TREE` set to it.
+`mount` programs do it themselves; older ones need it. A failed setup step (also the final `cd`) ends the command with
+exit 125 and a message. The command starts in the workspace's path, and its environment has `GIT_WORK_TREE` set to it.
 
 Outside the workspace and the listed paths the filesystem keeps its normal permissions: a fully read-only system would
 break xpi's own session files, the home directory and temp files.
@@ -345,9 +351,11 @@ passed down (so a `GIT_DIR` from another repository cannot leak in):
 | `XPI_SG_BACKEND` | `namespace` or `policy` |
 | `XPI_SG_STORE` | the store, so `xpi sg` inside finds it |
 
-Its exit code is the command's. Inside, `git` works on the sandbox: its own index, branch and commits. `xpi sg
-<git command>` does too, and `xpi sg import`, `merge`, `export --apply` and `sbx create|rm|run` are refused (exit 2):
-a sandbox does not write the primary workspace and sandboxes do not nest. Several `sbx run` of one sandbox at once
+`sbx run` takes a per-sandbox lock (`<id>/lock`) while it refreshes the links, so two runs of one sandbox do not race.
+Links that are right stay as they are. Its exit code is the command's. Inside, `git` works on the sandbox: its own index, branch and commits. `xpi sg
+<git command>` does too, and `xpi sg import`, `merge`, `export --apply`, `init` and `sbx create|rm|run` are refused (exit 2), as is `--repo` for another repo:
+a sandbox does not write the primary workspace and sandboxes do not nest. This refusal depends on `XPI_SG_SANDBOX`
+being set; it is a guard rail, not enforcement (see the limits). Several `sbx run` of one sandbox at once
 share its tree; start another sandbox for work that must not mix.
 
 ### Commands that send work elsewhere
@@ -373,6 +381,19 @@ Results it writes back into the workspace are the user's to handle.
 - **Root in the namespace.** The command runs as root inside the namespace, with the user's own uid outside. Files owned
   by other users show as `nobody`, setuid programs do not work, and some tools refuse to run as root. For those,
   `policy` is the way.
+- **The git directory is shared.** Refs are shared, so a sandbox can move `main` or any other branch (and write
+  `HEAD`), and can rewrite objects it can reach. `namespace` makes `config`, `hooks/` and `info/` read-only (step 6),
+  which keeps a sandbox from planting something your own commands then run. Under `policy` the git directory is fully
+  writable. Config in the sandbox's own `config.worktree` (a `diff` or `filter` driver, a `textconv`) is covered by
+  `namespace` but not by `policy`, and only `core.hooksPath` and `core.fsmonitor` are switched off in the commands
+  `xpi sg` runs itself (`sbx ls`, `status`). Read a sandbox's work with `git diff` in the sandbox before you trust its
+  attributes and config.
+- **The in-sandbox refusal is a guard rail.** Inside a sandbox `xpi sg import`, `merge` and the like exit 2 because
+  `XPI_SG_SANDBOX` is set; a command that unsets it, or plain `git` with another `GIT_DIR`, is not stopped under
+  `policy`.
+- **A container may not allow the namespace backend.** Container runtimes mask parts of `/proc`, and then a fresh
+  `/proc` cannot be mounted: the probe fails and `auto` uses `policy`. Start the container with those paths unmasked
+  (and seccomp and AppArmor unconfined) to use `namespace` there.
 - **Writable submounts.** The read-only remount covers the mount at `primary`, not mounts inside the workspace
   (`--rbind` brings submounts along as they were), so a submount that is writable stays writable there.
 - **The global excludes file does not apply in a sandbox.** The sandbox's own `core.excludesFile` (the link list)

@@ -1,7 +1,18 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	lstatSync,
+	mkdirSync,
+	readFileSync,
+	readlinkSync,
+	realpathSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { namespaceCommand } from "../src/backend.ts";
 import { createContext, loadSandbox, namespaceScript, resolveRepo, sandboxPolicy } from "../src/index.ts";
 import { cleanup, initialised, type Lab, read, write } from "./helpers.ts";
 
@@ -453,5 +464,137 @@ describe("sbx run", () => {
 		}
 		expect((await l.sg(["status"], inside)).code).toBe(0);
 		expect((await l.sg(["sbx", "ls"], inside)).code).toBe(0);
+	});
+});
+
+describe("review fixes", () => {
+	it("creates the shadow repo's hooks directory, and keeps the user's commands from running a program named in a sandbox's config", async () => {
+		const l = await sandboxLab();
+		await create(l);
+		expect(existsSync(join(l.store, "demo.git", "hooks"))).toBe(true);
+		const marker = join(l.ws, "..", "fsmonitor-ran");
+		const hook = join(l.ws, "..", "fsmonitor.sh");
+		writeFileSync(hook, `#!/bin/sh\ntouch '${marker}'\n`, { mode: 0o755 });
+		writeFileSync(join(l.store, "demo.git", "worktrees", "a", "config.worktree"), `[core]\n\tfsmonitor = ${hook}\n`, {
+			flag: "a",
+		});
+		expect((await l.sg(["sbx", "ls"])).code).toBe(0);
+		expect((await l.sg(["status"])).code).toBe(0);
+		expect(existsSync(marker)).toBe(false);
+	});
+
+	it("refreshes under a per-sandbox lock: a held lock stops sbx run, and parallel runs all see their links", async () => {
+		const l = await sandboxLab();
+		await create(l);
+		const lock = join(sbxDir(l, "a"), "lock");
+		writeFileSync(lock, JSON.stringify({ pid: process.pid, at: Date.now() }));
+		const held = await l.sg(["sbx", "run", "a", "--", "true"], { lockTimeoutMs: 200 });
+		expect(held.code).toBe(2);
+		expect(held.err).toContain("is held");
+		rmSync(lock);
+
+		const runs = await Promise.all(
+			Array.from({ length: 6 }, () =>
+				l.sg(["sbx", "run", "a", "--", "sh", "-c", "cat vendor/y.txt docs/guide.txt"], { lockTimeoutMs: 20_000 }),
+			),
+		);
+		for (const run of runs) {
+			expect(run.err).toBe("");
+			expect(run.out).toBe("y\ng\n");
+			expect(run.code).toBe(0);
+		}
+		expect(existsSync(lock)).toBe(false);
+	});
+
+	it("keeps a link that is right, so a running command never loses it", async () => {
+		const l = await sandboxLab();
+		await create(l);
+		const link = join(sbxDir(l, "a"), "tree", "vendor");
+		const before = lstatSync(link).ino;
+		await l.sg(["sbx", "run", "a", "--", "true"]);
+		expect(lstatSync(link).ino).toBe(before);
+	});
+
+	it("lists a broken sandbox as broken instead of failing sbx ls and status for the repo", async () => {
+		const l = await sandboxLab();
+		await create(l, "a");
+		await create(l, "b");
+		await create(l, "c");
+		rmSync(join(sbxDir(l, "b"), "tree"), { recursive: true });
+		writeFileSync(join(sbxDir(l, "c"), "policy"), "[sandbox\n");
+		for (const args of [["sbx", "ls"], ["status"]]) {
+			const result = await l.sg(args);
+			expect(result.code, args.join(" ")).toBe(0);
+			expect(result.out).toContain("a  sbx/a  0 commit(s) ahead of main");
+			expect(result.out).toContain("b  broken: its tree is missing");
+			expect(result.out).toMatch(/c {2}broken: /);
+		}
+		// it is removed with --force only
+		expect((await l.sg(["sbx", "rm", "b"])).code).toBe(2);
+		expect((await l.sg(["sbx", "rm", "b", "--force"])).code).toBe(0);
+		expect(existsSync(sbxDir(l, "b"))).toBe(false);
+		expect(l.git("branch", "--list", "sbx/b")).toContain("sbx/b");
+	});
+
+	it("passes the store's real path to the command", async () => {
+		const l = await sandboxLab();
+		await create(l);
+		const link = `${l.store}-link`;
+		symlinkSync(l.store, link);
+		const ran = await l.sg(["sbx", "run", "a", "--", "sh", "-c", "echo $XPI_SG_STORE"], {
+			env: { XPI_SG_STORE: link },
+		});
+		expect(ran.out.trim()).toBe(realpathSync(l.store));
+		rmSync(link);
+	});
+
+	it("names host metadata that is tracked as such when a rule would hide it", async () => {
+		const l = await sandboxLab();
+		l.git("add", "-f", ".plainvcs/version");
+		l.git("commit", "-qm", "track metadata");
+		const result = await l.sg(["sbx", "create", "a"]);
+		expect(result.code).toBe(2);
+		expect(result.err).toContain(".plainvcs/version  (metadata path (hidden))");
+	});
+
+	it("refuses init and another --repo inside a sandbox", async () => {
+		const l = await sandboxLab();
+		await create(l);
+		const inside = { cwd: join(sbxDir(l, "a"), "tree"), env: { XPI_SG_SANDBOX: "demo/a", XPI_SG_BACKEND: "policy" } };
+		const init = await l.sg(["init", "other", "--adapter", "plain"], inside);
+		expect(init.code).toBe(2);
+		expect(init.err).toContain("inside a sandbox");
+		const other = await l.sg(["--repo", "other", "status"], inside);
+		expect(other.code).toBe(2);
+		expect(other.err).toContain("not available inside a sandbox");
+		expect((await l.sg(["--repo", "demo", "status"], inside)).code).toBe(0);
+	});
+
+	it("runs the namespace in a pid namespace with its own /proc, repeats strictatime, and fails a bad cd as a setup failure", async () => {
+		const l = await sandboxLab();
+		await create(l);
+		const sbx = sandboxOf(l);
+		const { args } = namespaceCommand(createContext({ cwd: l.ws, env: l.env }), sbx, ["true"]);
+		expect(args.slice(0, 6)).toEqual(["--user", "--map-root-user", "--mount", "--pid", "--fork", "--mount-proc"]);
+		const script = namespaceScript(sbx);
+		expect(script).toContain("strictatime");
+		expect(script).toContain(`step cd '${l.ws}'`);
+		// the git directory's config, hooks and info are made read-only last, before the command starts
+		const gitDir = join(l.store, "demo.git");
+		const guards = [
+			`${gitDir}/config`,
+			`${gitDir}/config.worktree`,
+			`${gitDir}/hooks`,
+			`${gitDir}/info`,
+			`${sbx.gitDir}/config.worktree`,
+		];
+		let at = script.indexOf("# 6.");
+		expect(at).toBeGreaterThan(script.indexOf("# 5."));
+		for (const guard of guards) {
+			const found = script.indexOf(`ro_remount '${guard}'`, at);
+			expect(found, guard).toBeGreaterThan(-1);
+			at = found;
+		}
+		expect(script.indexOf("step cd")).toBeGreaterThan(at);
 	});
 });

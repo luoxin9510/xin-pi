@@ -147,6 +147,38 @@ describe.skipIf(!probe.ok)("namespace backend", () => {
 		);
 	});
 
+	it("cannot reach the primary workspace through /proc of a process outside", async () => {
+		const l = await labWith([]);
+		// The test process is outside the sandbox; without a pid namespace, /proc/<pid>/root is the host's root.
+		const result = await inside(
+			l,
+			`ls /proc/${process.pid}/root${l.ws}/a.txt 2>/dev/null && echo reached; (echo x >> /proc/${process.pid}/root${l.ws}/a.txt) 2>/dev/null && echo wrote; test -e /proc/${process.pid} || echo no-such-process; ls /proc | grep -c '^[0-9][0-9]*$'`,
+		);
+		expect(result.out).toBe("no-such-process\n2\n".replace("2", result.out.trim().split("\n").at(-1) ?? "0"));
+		expect(Number(result.out.trim().split("\n").at(-1))).toBeLessThanOrEqual(4);
+		expect(read(l.ws, "a.txt")).toBe("a\n");
+	});
+
+	it("cannot change the shared git directory's config, hooks or info", async () => {
+		const l = await labWith([]);
+		const gitDir = join(realpathSync(l.store), "demo.git");
+		const result = await inside(
+			l,
+			[
+				`(git config --file '${gitDir}/config' x.y z) 2>/dev/null && echo config-written`,
+				`(echo x > '${gitDir}/hooks/pre-commit') 2>/dev/null && echo hook-written`,
+				`(echo x >> '${gitDir}/info/exclude') 2>/dev/null && echo info-written`,
+				`(echo x >> '${gitDir}/config.worktree') 2>/dev/null && echo main-worktree-config-written`,
+				`(echo x >> '${gitDir}/worktrees/a/config.worktree') 2>/dev/null && echo own-config-written`,
+				"echo n > new.txt; git add new.txt && git commit -qm ok && git log --format=%s -1",
+			].join("; "),
+		);
+		expect(result.err).toBe("");
+		expect(result.out).toBe("ok\n");
+		expect(readFileSync(join(gitDir, "config"), "utf8")).not.toContain("[x]");
+		expect(existsSync(join(gitDir, "hooks", "pre-commit"))).toBe(false);
+	});
+
 	it("returns the command's exit code", async () => {
 		const l = await labWith([]);
 		expect((await l.sg(["sbx", "run", "a", "--", "sh", "-c", "exit 3"])).code).toBe(3);

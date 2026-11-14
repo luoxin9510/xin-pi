@@ -413,10 +413,10 @@ sandboxes: `sbx create|run|ls|rm`, the path policy and the `namespace` and `poli
   git and the plain adapter; no model, no network). `test/namespace.test.ts` runs the `namespace` backend and skips where
   it is unavailable.
 - **Linux**: the reference platform, and the only one with the `namespace` sandbox backend. It needs
-  `unshare --user --map-root-user --mount` to work: some systems turn unprivileged user namespaces off with a sysctl or a
+  `unshare --user --map-root-user --mount --pid --fork --mount-proc` to work: some systems turn unprivileged user namespaces off with a sysctl or a
   security module, and some restrict them by default (check CI runners). The namespace tests skip, with the probe's
-  message, where it does not; run them in a container started with `--security-opt seccomp=unconfined` and
-  `--security-opt apparmor=unconfined`. The command runs as root in the namespace (other users' files show as `nobody`,
+  message, where it does not; a container needs seccomp and AppArmor unconfined and the masked `/proc` paths unconfined
+  (a fresh `/proc` is mounted in the pid namespace). The command runs as root in the namespace (other users' files show as `nobody`,
   setuid does not work). **macOS**: the same for the core; the system `sh` and `git` work, and `/var` and `/tmp` are
   links, so the registry stores real paths (`realpath`) and the cwd is resolved the same way. Sandboxes use the `policy`
   backend only, so `bash` in a sandbox is advisory.
