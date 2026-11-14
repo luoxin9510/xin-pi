@@ -108,9 +108,12 @@ Everything lives under one store directory. The workspace is referenced only by 
   overrides it.
 - **The lock** is a file created exclusively, holding the pid and time, taken over when stale. It uses the same rules
   as the team locks (`extensions/subagent/team-files.ts`). Node has no `flock`.
-- **Live sessions.** An xpi session in a workspace writes `<name>.sessions/<pid>` and removes it at exit. `import`,
-  `export --apply` and `merge` from the CLI exit 2 while a live session (by pid) is listed, since that session edits
-  the primary workspace without the lock. From inside the session, `/sg` runs them only while the agent is idle.
+- **Live sessions.** A top-level xpi session in the primary workspace writes `<name>.sessions/<pid>` and removes it at
+  exit. Sandboxed sessions and subagent processes do not, since they never write the primary. Entries whose pid is
+  not alive are dropped. `import`, `export --apply` and `merge` exit 2 while another live session is listed, since it
+  edits the primary without the lock. From inside a session, `/sg` runs them only when no other session is listed and
+  none of its own agents is working in the primary (the main agent, and subagents and teammates without a
+  sandbox).
 - **Environment.**
 
   | Variable | Default | Meaning |
@@ -161,8 +164,12 @@ host's state plus the local-only paths".
 2. `git switch host`. The workspace returns to the host state (local-only paths that were exported stay).
 3. Run the adapter's `update` with `XPI_SG_LOCAL_ONLY` set to the local-only globs, which it must leave alone. It
    prints a one-line label.
-4. Restore the local-only paths from `host` if the update touched them, then commit any change on `host` as
-   `sg: import <label>` (`git add -A -- <scope>` with a `:(exclude)` pathspec per local-only glob).
+4. Put the local-only paths back as they are on `host`: restore tracked ones the update changed or deleted. If the
+   update created a file at a local-only path that `host` does not track, stop (exit 1) on `host` and list those
+   paths: a host file collides with a local-only path, and the user renames one of them or changes
+   `shadow.localOnly`. Run again, `import` continues from this step when it finds itself on `host` with the update
+   done. Then commit any change on `host` as `sg: import <label>` (`git add -A -- <scope>` with a
+   `:(exclude,glob)<glob>` pathspec per local-only glob).
 5. `git switch main`. Print the files changed both in the new import and in `old host..main`.
 6. `git merge host`. A conflict stops the command (exit 1) with git's own message. The user resolves it with plain git.
 
@@ -304,9 +311,12 @@ Both backends start from the same tree:
      inside the workspace stay as they are; the docs say so.
   2. `hidden` paths are covered, inside `primary` too: an empty `tmpfs` over a directory, `/dev/null` over a file.
   3. `shared-rw` paths are bound read-write at their place in the tree.
-  4. The tree is bound over the workspace's own path. Inside the sandbox, `/proj/ws` shows the agent's files, so
+  4. The tree is bound (`--rbind`, so the binds from step 3 come with it) over the workspace's own path. Inside the sandbox, `/proj/ws` shows the agent's files, so
      scripts that hard-code the workspace path work unchanged.
   5. `shared-ro` rules for absolute paths outside the workspace are bound read-only over themselves.
+
+  In a user namespace a read-only remount fails unless it repeats the flags the original mount was locked with
+  (`nosuid`, `nodev`, `noexec` and so on). Steps 1 and 5 read them with `findmnt -no OPTIONS` and pass them again.
 - Outside the workspace and listed paths, the filesystem keeps its normal permissions. A fully read-only system would
   break xpi's own session files, the home directory and temp files. xpi's file tools still enforce the whole policy
   (see the policy backend).
@@ -428,7 +438,9 @@ Before each PR, a word list kept outside the repository is grepped over the diff
   - **Sync.**
     - import with no local work, with local work, and with a conflict (stops; the both-changed list is printed);
     - import after an export keeps the local-only paths, even when the adapter deletes them;
-    - CLI import refused while a session is live; `/sg import` refused while the agent runs;
+    - a host file colliding with an unexported local-only path stops import on `host`, and a second run continues;
+    - CLI import refused while a primary session is live (a sandboxed one does not count; a dead pid is dropped);
+      `/sg import` refused while one of its agents works in the primary;
     - local-only paths kept out of the plan;
     - export plan, out-of-scope paths refused, `--apply` success and adapter failure (git unchanged);
     - the invariant checks and exit codes.
@@ -443,7 +455,7 @@ Before each PR, a word list kept outside the repository is grepped over the diff
     - `auto` falling back with the message, and `require = namespace` failing.
   - **Namespace backend**: in a local Linux VM or container where unprivileged user namespaces work. Covers
     the path view at the workspace's own path, a read-only primary, a hidden directory and file (also under
-    `primary`), a scratch path, a `shared-rw` path, and a `git commit` inside. In CI the test skips with the probe's message when the runner forbids namespaces.
+    `primary`), a scratch path, a `shared-rw` path, a read-only bind of a `nosuid` mount, and a `git commit` inside. In CI the test skips with the probe's message when the runner forbids namespaces.
   - **xpi integration.**
     - nothing registered outside a workspace;
     - `GIT_DIR` reaching `bash` and subagents;
