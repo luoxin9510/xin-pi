@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { createContext, probeNamespace } from "../src/index.ts";
+import { createContext, prepareLaunch, probeNamespace, resolveRepo } from "../src/index.ts";
 import { cleanup, initialised, type Lab, read, tempDir, write } from "./helpers.ts";
 
 afterEach(cleanup);
@@ -211,5 +211,25 @@ describe.skipIf(!probe.ok)("namespace backend", () => {
 	it("returns the command's exit code", async () => {
 		const l = await labWith([]);
 		expect((await l.sg(["sbx", "run", "a", "--", "sh", "-c", "exit 3"])).code).toBe(3);
+	});
+	it("prepareLaunch starts a command in a subdirectory of the workspace's own path, with the sandbox's variables", async () => {
+		const l = await labWith([]);
+		const repo = resolveRepo(createContext({ cwd: l.ws, env: l.env }), undefined);
+		const launch = await prepareLaunch(repo, "a", false);
+		expect(launch.backend).toBe("namespace");
+		const command = launch.wrap(
+			[
+				"sh",
+				"-c",
+				'pwd -P; echo "$GIT_WORK_TREE|$XPI_SG_SANDBOX|$XPI_SG_BACKEND"; cat b.txt; git rev-parse --show-toplevel',
+			],
+			{
+				env: { PATH: process.env.PATH },
+				subdir: "src",
+			},
+		);
+		const run = spawnSync(command.file, command.args, { cwd: command.cwd, env: command.env, encoding: "utf8" });
+		expect(run.stderr).toBe("");
+		expect(run.stdout).toBe(`${join(l.ws, "src")}\n${l.ws}|demo/a|namespace\nb\n${l.ws}\n`);
 	});
 });

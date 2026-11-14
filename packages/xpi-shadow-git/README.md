@@ -28,7 +28,7 @@ precondition). `options.cwd` is required; `env`, `stdout`, `stderr`, `stdio`, `d
 `XPI_SG_ADAPTER_PATH` apply. The other exports (`initRepo`, `importHost`, `abortImport`, `exportMain`, `exportPlan`,
 `mergeBranch`, `resolveRepo`, `withLock`, `liveSessions`, `callAdapter`) are the steps the command is made of, and the
 sandbox API is `createSandbox`, `loadSandbox`, `sandboxFromEnv` (`XPI_SG_SANDBOX`), `listSandboxes`, `removeSandbox`,
-`refreshTree`, `runInSandbox`, `sandboxPolicy`, `probeNamespace`, `resolveBackend` and `namespaceScript`.
+`refreshTree`, `runInSandbox`, `prepareLaunch` (the program and environment that start a command in a sandbox, for a caller that spawns it itself), `sandboxPolicy`, `probeNamespace`, `resolveBackend` and `namespaceScript`.
 
 The commands, the sync model, the adapter contract and the limits are in
 [shadow-git.md](../xpi-coding-agent/docs/shadow-git.md).
