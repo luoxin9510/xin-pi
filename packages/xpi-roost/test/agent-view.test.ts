@@ -2589,4 +2589,18 @@ describe("spec 03: the stale-build line", () => {
 		expect(view.render(200).join("\n")).not.toContain("older build");
 		view.dispose();
 	});
+
+	it("a session restarted onto a build installed since the last resync is not called old", async () => {
+		builds.disk = "aaaaaaaaaaaaaaaa";
+		const rows = [row({ build: "aaaaaaaaaaaaaaaa" })];
+		const { view, client } = setup(rows);
+		await view.start();
+		expect(view.render(200).join("\n")).not.toContain("older build");
+		// xpi is installed again and the session restarted, before the hub's next resync
+		builds.disk = "bbbbbbbbbbbbbbbb";
+		client.rows = [{ ...rows[0]!, build: "bbbbbbbbbbbbbbbb" }];
+		client.emit({ event: "job", job: client.rows[0]! } as Event);
+		expect(view.render(200).join("\n")).not.toContain("1 session");
+		view.dispose();
+	});
 });

@@ -30,6 +30,16 @@ export function reloadNotice(o: {
 		: `${WHAT}. Quit and start xpi again to run the installed build.`;
 }
 
+/**
+ * The runner hands extensions the session's own SessionManager, typed read-only. A host that hands over less (a
+ * read-only stand-in) gets the notice without the command instead of a throw in the reload.
+ */
+function resumeCommandOf(ctx: ExtensionContext): string | undefined {
+	const sm = ctx.sessionManager as unknown as Partial<ResumableSession>;
+	if (typeof sm.isPersisted !== "function" || typeof sm.usesDefaultSessionDir !== "function") return undefined;
+	return formatResumeCommand(sm as ResumableSession);
+}
+
 /** The notice for this process now. */
 export function reloadNoticeFor(ctx: ExtensionContext): string | undefined {
 	const onDisk = buildOnDisk();
@@ -40,7 +50,6 @@ export function reloadNoticeFor(ctx: ExtensionContext): string | undefined {
 		running: ROOST_BUILD,
 		onDisk,
 		roostId,
-		// the runner hands extensions the session's own SessionManager, typed read-only
-		resume: roostId ? undefined : formatResumeCommand(ctx.sessionManager as unknown as ResumableSession),
+		resume: roostId ? undefined : resumeCommandOf(ctx),
 	});
 }

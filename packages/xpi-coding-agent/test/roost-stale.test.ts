@@ -69,7 +69,8 @@ async function sessionStart(event: { reason: string }, hasUI = true) {
 	const notes: { message: string; type: string }[] = [];
 	const ctx = {
 		hasUI,
-		sessionManager: { getSessionFile: () => undefined },
+		// the methods formatResumeCommand needs: without them the notice carries no command
+		sessionManager: { getSessionFile: () => undefined, isPersisted: () => false, usesDefaultSessionDir: () => true },
 		// the foreground role has its own session_start handler, which draws widgets: any other call does nothing
 		ui: new Proxy(
 			{ notify: (message: string, type: string) => notes.push({ message, type }) },

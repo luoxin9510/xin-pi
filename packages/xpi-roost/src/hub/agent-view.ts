@@ -631,10 +631,21 @@ export class AgentView implements Component {
 		}
 	}
 
+	/**
+	 * A session reporting a build the cache does not know was started from a newer install than the one read at the
+	 * last resync: read the disk now, or the line would call the new session old until then.
+	 */
+	private noteBuild(job: JobRow): void {
+		if (job.build && job.build !== this.installedBuild && job.build !== this.rows.get(job.id)?.build) {
+			this.installedBuild = buildOnDisk();
+		}
+	}
+
 	/** M22: a row event over a fresh list (no notifications: it was seen already). */
 	private applyRow(e: Event): void {
 		if (e.event === "job") {
 			if (this.o.cwdFilter && !within(e.job.cwd, this.o.cwdFilter)) return;
+			this.noteBuild(e.job);
 			this.rows.set(e.job.id, e.job);
 		} else if (e.event === "removed") this.rows.delete(e.id);
 	}
@@ -674,6 +685,7 @@ export class AgentView implements Component {
 	private onEvent(e: Event): void {
 		if (e.event === "job") {
 			if (this.o.cwdFilter && !within(e.job.cwd, this.o.cwdFilter)) return;
+			this.noteBuild(e.job);
 			this.rows.set(e.job.id, e.job);
 			this.checkSwitch(e.job);
 			const kind = observeJob(e.job);
