@@ -56,8 +56,10 @@ A `checks` block in settings:
 - The next request: a turn whose tool batch did not end the run has a next request, so the message reaches the model
   before it; no `continue` is needed. A batch can end the run (every result `terminate`s, as relay's `handback`
   does), and today an extension cannot see that at `turn_end`. **Core change:** `TurnEndEvent` gains
-  `terminated: boolean`, the loop's `executedToolBatch.terminate` passed through `finishTurn`'s turn; `docs/extensions.md`
-  (the turn_end section and the list of fields a host must provide) says so. When `terminated` is true no check is
+  `terminated: boolean` (required), filled with `turn.terminated ?? false`; `AgentTurnContext` gains an optional
+  `terminated` (the batch's results all terminate: the run ends), set from `executedToolBatch.terminate` on the normal
+  path (false without tool calls) and false on the error/abort path; `docs/extensions.md` (the turn_end example and
+  the list of fields a host must provide) says so. When `terminated` is true no check is
   run (the message would have no request to reach). A turn without tool calls ran no tool and triggers nothing.
 - Abort: `outcome` reflects the assistant message only, so Escape during tool execution still gives `completed`. A
   check is not started when `outcome` is not `completed` or `ctx.signal` is aborted, and a running check listens to
@@ -141,6 +143,6 @@ process group is killed on timeout or when the session ends.
 ## Docs
 
 A new `docs/checks.md`; `docs/settings.md` (the block, the trust rule, `builtin:checks` in the built-in list at line
-~180); `docs/porting.md` (a row in the units diagram and in the Pick table); `docs/subagent.md` (applies to subagents);
+~180); `docs/porting.md` (a row in the units diagram and in the Pick table, its "Host must have" naming the core change); `docs/subagent.md` (applies to subagents);
 `docs/xin-pi.md` (its built-in list); the root `README.md` and `packages/xpi-coding-agent/README.md` feature lists; the
 settings schema and defaults.
