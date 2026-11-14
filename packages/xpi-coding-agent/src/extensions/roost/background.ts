@@ -5,7 +5,7 @@
  * host gives it the agent directory and the state and runtime directories (decision 7).
  */
 
-import { buildLaunch, DaemonClient, fallbackName, ROOST_VERSION, requestOnce } from "xpi-roost";
+import { buildLaunch, buildOnDisk, DaemonClient, fallbackName, isStale, ROOST_VERSION, requestOnce } from "xpi-roost";
 import { parseArgs } from "../../cli/args.ts";
 import { getAgentDir, getRoostEntries, VERSION } from "../../config.ts";
 import type { ExtensionAPI, ExtensionContext } from "../../core/extensions/types.ts";
@@ -110,6 +110,10 @@ export async function backgroundAndExit(
 			if (status.version !== ROOST_VERSION)
 				notes.push(
 					`the background service is ${status.version}, this xpi is ${ROOST_VERSION}; restart it with: xpi roost daemon stop --keep-workers, then xpi roost respawn --all`,
+				);
+			else if (isStale(status.build, buildOnDisk()))
+				notes.push(
+					"the background service runs an older build of xpi; restart it with: xpi roost daemon stop --keep-workers, then xpi roost respawn --all",
 				);
 			if (status.ptyError) notes.push(`the background service cannot load node-pty: ${status.ptyError}`);
 		} catch {

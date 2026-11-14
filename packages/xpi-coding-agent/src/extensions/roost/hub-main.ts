@@ -115,6 +115,8 @@ export async function runHub(args: string[], o: { cwd: string; agentDir: string 
 			...options,
 			// a terminal of its own: always the whole screen
 			fullscreen: true,
+			// its own process: it can run older code than the xpi installed since
+			standalone: true,
 			setTitle: (title) => terminal.setTitle(title),
 			done: () => done(),
 		});

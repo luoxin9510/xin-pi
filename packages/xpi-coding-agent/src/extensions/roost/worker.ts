@@ -22,6 +22,7 @@ import {
 	jobIdentity,
 	PROTOCOL_VERSION,
 	Reporter,
+	ROOST_BUILD,
 	sessionUsage,
 	type UsageInfo,
 	WorkerTracker,
@@ -282,7 +283,7 @@ export function registerWorker(pi: ExtensionAPI, opts: WorkerOptions = {}): bool
 		// M31: xpi says what it can do, as any agent does
 		reporter = new Reporter(job, (item) => replies.add(item), opts.reportIntervalMs, {
 			protocol: PROTOCOL_VERSION,
-			agent: { name: "xpi", version: VERSION },
+			agent: { name: "xpi", version: VERSION, ...(ROOST_BUILD ? { build: ROOST_BUILD } : {}) },
 			capabilities: ["report", "replies", "steer", "usage", "context", "model-switch", "transcript"],
 		});
 		// M61: the session's slash commands, for the hub's peek menu (never breaks the worker)

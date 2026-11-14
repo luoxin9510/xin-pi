@@ -232,8 +232,11 @@ describe("an ordinary start", () => {
 			"./foreground.ts",
 			"./hub.lazy.ts",
 			"./messages.ts",
+			"./stale.ts",
 			"./view-state.ts",
 		]);
+		// spec 03: the reload notice reads files only
+		expect(local("stale.ts")).toEqual(["xpi-roost/session"]);
 		// every foreground session loads the foreground role: the client, the launch builder and the hub wait for use
 		expect(local("foreground.ts")).toEqual([
 			"xpi-roost/session",

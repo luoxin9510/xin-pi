@@ -36,6 +36,7 @@ import { normalizeWhen, parseScheduleInput, type ScheduleLaunchInput, untilText 
 import { commandsPath, readCommands, type SessionCommand, screenPath } from "../lib/store.ts";
 import { readTail, transcriptItems } from "../lib/transcript.ts";
 import { formatCost, totalUsage } from "../lib/usage.ts";
+import { buildOnDisk, isStale, ROOST_BUILD } from "../lib/version.ts";
 import {
 	ageOf,
 	counts,
@@ -167,6 +168,11 @@ export interface HubDisplay {
 	origin?: string;
 	/** Shown above the list until the user returns to the origin. */
 	banner?: string;
+	/**
+	 * Spec 03: this hub is a process of its own (`xpi roost hub`), so it can be older than the installed xpi, and says
+	 * so. The hub inside a session restarts with its session and leaves this out.
+	 */
+	standalone?: boolean;
 	/** Screen-reader mode: no animation (PRD accessibility). */
 	reducedMotion?: boolean;
 	/** Render exactly the terminal's height: list at the top, input and keys at the bottom. */
@@ -416,6 +422,9 @@ export class AgentView implements Component {
 	}
 
 	private origin: string | undefined;
+	/** Spec 03: the build the daemon said it runs, and the one installed now (read again on each resync). */
+	private daemonBuild: string | undefined;
+	private installedBuild: string | undefined;
 	/** Esc/Enter came before the moved conversation's worker was up: attach once it is. */
 	private attachWhenLive: string | undefined;
 
@@ -530,6 +539,8 @@ export class AgentView implements Component {
 			for (const e of after) this.applyRow(e);
 			for (const j of jobs) observeJob(j); // what is already there is not news
 			for (const j of jobs) this.checkSwitch(j); // a switch shown while we were away
+			await this.refreshBuilds(client);
+			if (this.closed) return client.close();
 			this.client = client;
 			this.connectError = undefined;
 			this.listed = true;
@@ -559,6 +570,41 @@ export class AgentView implements Component {
 		this.render0();
 	}
 
+	/** Spec 03: what the daemon runs against what is installed. The comparison is with the disk, never with the hub's own build. */
+	private async refreshBuilds(client: DaemonClient): Promise<void> {
+		this.installedBuild = buildOnDisk();
+		try {
+			this.daemonBuild = (await this.portFor(client).daemon.status()).build;
+		} catch {
+			// an older daemon, or one that went away: unknown is never stale
+			this.daemonBuild = undefined;
+		}
+	}
+
+	/**
+	 * Spec 03: the line that stays while the daemon, a running session or (standalone) this hub runs an older build
+	 * than the installed one. `/restart` does not exist yet: the two commands that do the same.
+	 */
+	private staleLine(): string | undefined {
+		const daemon = isStale(this.daemonBuild, this.installedBuild);
+		const sessions = [...this.rows.values()].filter(
+			(r) => r.pid !== null && isStale(r.build, this.installedBuild),
+		).length;
+		const self = !!this.o.standalone && isStale(ROOST_BUILD, this.installedBuild);
+		if (!daemon && sessions === 0 && !self) return undefined;
+		const parts = [
+			...(daemon ? ["the background service"] : []),
+			...(sessions > 0 ? [`${sessions} session${sessions === 1 ? "" : "s"}`] : []),
+			...(self ? ["this hub"] : []),
+		];
+		const fix =
+			daemon || sessions > 0
+				? "restart with: xpi roost daemon stop --keep-workers, then xpi roost respawn --all"
+				: "";
+		const hub = self ? "start the hub again for itself" : "";
+		return `an older build of xpi is running (${parts.join(", ")}); ${[fix, hub].filter(Boolean).join("; ")}`;
+	}
+
 	/** The first requests on a new connection: subscribe, then the first list. */
 	private async firstRequests(client: DaemonClient): Promise<{ jobs: JobRow[]; after: Event[] }> {
 		await this.portFor(client).subscribe((e) => this.onEvent(e));
@@ -585,10 +631,21 @@ export class AgentView implements Component {
 		}
 	}
 
+	/**
+	 * A session reporting a build the cache does not know was started from a newer install than the one read at the
+	 * last resync: read the disk now, or the line would call the new session old until then.
+	 */
+	private noteBuild(job: JobRow): void {
+		if (job.build && job.build !== this.installedBuild && job.build !== this.rows.get(job.id)?.build) {
+			this.installedBuild = buildOnDisk();
+		}
+	}
+
 	/** M22: a row event over a fresh list (no notifications: it was seen already). */
 	private applyRow(e: Event): void {
 		if (e.event === "job") {
 			if (this.o.cwdFilter && !within(e.job.cwd, this.o.cwdFilter)) return;
+			this.noteBuild(e.job);
 			this.rows.set(e.job.id, e.job);
 		} else if (e.event === "removed") this.rows.delete(e.id);
 	}
@@ -603,6 +660,8 @@ export class AgentView implements Component {
 		} catch {
 			return; // the close handler reconnects
 		}
+		if (this.closed || this.client !== client) return;
+		await this.refreshBuilds(client);
 		if (this.closed || this.client !== client) return;
 		const next = new Map(jobs.map((j) => [j.id, j]));
 		for (const e of after) {
@@ -626,6 +685,7 @@ export class AgentView implements Component {
 	private onEvent(e: Event): void {
 		if (e.event === "job") {
 			if (this.o.cwdFilter && !within(e.job.cwd, this.o.cwdFilter)) return;
+			this.noteBuild(e.job);
 			this.rows.set(e.job.id, e.job);
 			this.checkSwitch(e.job);
 			const kind = observeJob(e.job);
@@ -2754,6 +2814,8 @@ export class AgentView implements Component {
 		if (this.connectError)
 			out.push(t.fg("error", truncateToWidth(`background service: ${oneLine(this.connectError)}`, w)));
 
+		const stale = this.listed ? this.staleLine() : undefined;
+		if (stale) out.push(t.fg("warning", truncateToWidth(stale, w)));
 		if (this.origin && this.o.banner) out.push(t.fg("accent", truncateToWidth(this.o.banner, w)));
 		// M23: always says what a new session runs (Ctrl+L, Ctrl+P and Shift+Tab change it)
 		const def = this.o.defaultModel?.();

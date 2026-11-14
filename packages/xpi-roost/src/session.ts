@@ -4,9 +4,13 @@
 
 import { readJobEnv } from "./lib/identity.ts";
 
+export { readJobEnv };
+
 export { acquireWriterLock, readWriterLock, releaseWriterLock } from "./lib/locks.ts";
 // the hand-off sessions `/bg` passes through: never locked, never handed over
 export { isScratchSession, scratchDir } from "./lib/paths.ts";
+// the build this process runs and the one installed now (spec 03): files only, as the rest of this entry
+export { buildOnDisk, isStale, ROOST_BUILD } from "./lib/version.ts";
 
 const SEEN = Symbol.for("xpi-roost.job-session");
 

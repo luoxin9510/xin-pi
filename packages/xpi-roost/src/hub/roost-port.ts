@@ -15,6 +15,11 @@ export interface RoostPort {
 	/** The place in the stream of the line being handled now. */
 	position(): number;
 
+	/** Spec 03: what the daemon says about itself (its build, to compare with the installed one). */
+	daemon: {
+		status(): Promise<ResultOf<"status">>;
+	};
+
 	jobs: {
 		list(args: ArgsOf<"list">): Promise<ResultOf<"list">>;
 		/** The list and where its reply was in the stream (events with a higher `position()` came after). */
@@ -71,6 +76,8 @@ export function roostPort(
 		},
 		listen: (onEvent) => client.onEvent(onEvent),
 		position: () => client.position(),
+
+		daemon: { status: () => client.request("status", {}) },
 
 		jobs: {
 			list: (args) => client.request("list", args),
