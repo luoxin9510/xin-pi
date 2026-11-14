@@ -745,6 +745,16 @@ export class AgentSession {
 	private _installAgentToolHooks(): void {
 		this.agent.beforeToolCall = (context) => this._beforeToolCall(context);
 		this.agent.afterToolCall = (context) => this._afterToolCall(context);
+		// A call to a tool that scripts can reach but the model was not shown runs as a call from a script would.
+		this.agent.resolveUndeclaredTool = (name) => {
+			const exposure = this._getToolExposure(name);
+			const tool = this._toolRegistry.get(name);
+			if (!tool || (exposure !== "codemode" && exposure !== "deferred")) return undefined;
+			return {
+				tool,
+				note: `(Call ${name} from codemode next time: await tools.${name.replace(/[^A-Za-z0-9_$]/g, "_").replace(/^[0-9]/, "_")}(...).)`,
+			};
+		};
 	}
 
 	/** `tool_call` handlers. `parentToolCallId` is set for calls another tool made. */

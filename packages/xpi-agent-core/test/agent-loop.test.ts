@@ -1830,6 +1830,100 @@ describe("agentLoop with AgentMessage", () => {
 		expect(events.filter((event) => event.type === "turn_end")).toHaveLength(1);
 	});
 
+	describe("resolveUndeclaredTool", () => {
+		const schema = obj({ value: str() });
+		const hidden: AgentTool<typeof schema, { value: string }> = {
+			name: "hidden",
+			label: "Hidden",
+			description: "A tool the model was not shown",
+			parameters: schema,
+			async execute(_toolCallId, params) {
+				return {
+					content: [{ type: "text", text: `hidden: ${params.value}` }],
+					details: { value: params.value },
+					terminate: true,
+				};
+			},
+		};
+
+		async function runCall(name: string, args: AgentToolCall["arguments"], extra: Partial<AgentLoopConfig> = {}) {
+			const context: AgentContext = { messages: [], tools: [] };
+			const config: AgentLoopConfig = {
+				model: createModel(),
+				convertToLlm: identityConverter,
+				resolveUndeclaredTool: (toolName) =>
+					toolName === "hidden" ? { tool: hidden, note: "(Call hidden from codemode.)" } : undefined,
+				...extra,
+			};
+			let llmCalls = 0;
+			const stream = agentLoop([createUserMessage("go")], context, config, undefined, () => {
+				llmCalls++;
+				const first = llmCalls === 1;
+				const mockStream = createAssistantMessageEventStream();
+				queueMicrotask(() => {
+					const message = first
+						? createAssistantMessage([{ type: "toolCall", id: "tool-1", name, arguments: args }], "toolUse")
+						: createAssistantMessage([{ type: "text", text: "ok" }]);
+					mockStream.push({ type: "done", reason: first ? "toolUse" : "stop", message });
+				});
+				return mockStream;
+			});
+			const messages = await stream.result();
+			return { messages, llmCalls, result: messages.find((message) => message.role === "toolResult") };
+		}
+
+		it("runs a call to a tool the model was not shown, with the hooks, a first-line note and terminate", async () => {
+			const seen: string[] = [];
+			const { messages, llmCalls } = await runCall(
+				"hidden",
+				{ value: "x" },
+				{
+					beforeToolCall: async ({ toolCall, args }) => {
+						seen.push(`before ${toolCall.name} ${JSON.stringify(args)}`);
+						return undefined;
+					},
+					afterToolCall: async ({ toolCall }) => {
+						seen.push(`after ${toolCall.name}`);
+						return undefined;
+					},
+				},
+			);
+			const result = messages.at(-1);
+			expect(result).toMatchObject({
+				role: "toolResult",
+				toolName: "hidden",
+				isError: false,
+				content: [{ type: "text", text: "(Call hidden from codemode.)\nhidden: x" }],
+			});
+			// The result terminates the run: no second request.
+			expect(llmCalls).toBe(1);
+			expect(seen).toEqual(['before hidden {"value":"x"}', "after hidden"]);
+		});
+
+		it("validates the arguments and fails an unknown name as not found", async () => {
+			const invalid = await runCall("hidden", {});
+			expect(invalid.result).toMatchObject({ role: "toolResult", isError: true });
+			const text = JSON.stringify(invalid.result);
+			expect(text).not.toContain("Call hidden from codemode");
+			const unknown = await runCall("nothing", {});
+			expect(unknown.result).toMatchObject({
+				isError: true,
+				content: [{ type: "text", text: "Tool nothing not found" }],
+			});
+		});
+
+		it("can be blocked by beforeToolCall like any call", async () => {
+			const { result } = await runCall(
+				"hidden",
+				{ value: "x" },
+				{
+					beforeToolCall: async () => ({ block: true, reason: "no hidden tools" }),
+				},
+			);
+			expect(result).toMatchObject({ isError: true, content: [{ type: "text", text: "no hidden tools" }] });
+		});
+	});
+
 	it("should stop after a blocked tool call when beforeToolCall sets terminate=true", async () => {
 		const toolSchema = obj({ value: str() });
 		let executed = false;

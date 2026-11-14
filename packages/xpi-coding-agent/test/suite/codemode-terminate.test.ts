@@ -138,4 +138,32 @@ describe("codemode: nested terminate and unlisted tools", () => {
 		const description = harness.session.agent.state.tools.find((tool) => tool.name === "codemode")?.description ?? "";
 		expect(description).not.toContain("Stops the script");
 	});
+
+	it("runs a direct call of a codemode-only tool through the pipeline, with a note on the first line (seam C)", async () => {
+		const hooked: string[] = [];
+		const harness = await setup();
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("stop", { text: "STOP-MARKER" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("done"),
+		]);
+		const unsubscribe = harness.session.subscribe((event) => {
+			if (event.type === "tool_execution_end") hooked.push(event.toolName);
+		});
+		await harness.session.prompt("go");
+		unsubscribe();
+		const result = getToolResult(harness, "stop");
+		expect(lines(result)).toEqual(["(Call stop from codemode next time: await tools.stop(...).)", "STOP-MARKER"]);
+		expect(result.isError).toBe(false);
+		expect(calls).toEqual(["stop"]);
+		expect(hooked).toEqual(["stop"]);
+		// terminate: the run ended without a second request.
+		expect(harness.getPendingResponseCount()).toBe(1);
+		// An unknown name still fails.
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("nothing", {})], { stopReason: "toolUse" }),
+			fauxAssistantMessage("ok"),
+		]);
+		await harness.session.prompt("again");
+		expect(lines(getToolResult(harness, "nothing"))).toEqual(["Tool nothing not found"]);
+	});
 });

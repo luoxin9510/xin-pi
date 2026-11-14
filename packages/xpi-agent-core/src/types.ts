@@ -359,6 +359,14 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
 	 * The hook receives the agent abort signal and is responsible for honoring it.
 	 */
 	afterToolCall?: (context: AfterToolCallContext, signal?: AbortSignal) => Promise<AfterToolCallResult | undefined>;
+
+	/**
+	 * Finds a tool for a call whose name is not among the context's tools, for example a tool that another tool calls
+	 * but the model was never shown. The call then runs through the same steps as any other (validation, the hooks,
+	 * `terminate`), and the first line of its result text says `note`. Return undefined for an unknown name: the call
+	 * fails as "not found". Called for each such call, so it must be cheap.
+	 */
+	resolveUndeclaredTool?: (name: string) => { tool: AgentTool<any>; note: string } | undefined;
 }
 
 /**

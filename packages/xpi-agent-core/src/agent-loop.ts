@@ -566,7 +566,11 @@ async function executeToolCalls(
 ): Promise<ExecutedToolCallBatch> {
 	const toolCalls = assistantMessage.content.filter((c) => c.type === "toolCall");
 	const hasSequentialToolCall = toolCalls.some(
-		(tc) => currentContext.tools?.find((t) => t.name === tc.name)?.executionMode === "sequential",
+		(tc) =>
+			(
+				currentContext.tools?.find((t) => t.name === tc.name) ??
+				(config.resolveUndeclaredTool?.(tc.name)?.tool as AgentTool<any> | undefined)
+			)?.executionMode === "sequential",
 	);
 	if (config.toolExecution === "sequential" || hasSequentialToolCall) {
 		return executeToolCallsSequential(currentContext, assistantMessage, toolCalls, config, signal, emit);
@@ -716,6 +720,8 @@ type PreparedToolCall = {
 	toolCall: AgentToolCall;
 	tool: AgentTool<any>;
 	args: unknown;
+	/** First line of the result text, for a call to a tool the model was not shown. */
+	note?: string;
 };
 
 type ImmediateToolCallOutcome = {
@@ -733,7 +739,7 @@ type ExecutedToolCallOutcome = {
 type FinalizedToolCallOutcome = AgentToolCallOutcome;
 
 /** The `beforeToolCall` and `afterToolCall` hooks of {@link AgentLoopConfig}. */
-export type ToolCallHooks = Pick<AgentLoopConfig, "beforeToolCall" | "afterToolCall">;
+export type ToolCallHooks = Pick<AgentLoopConfig, "beforeToolCall" | "afterToolCall" | "resolveUndeclaredTool">;
 
 type ToolUpdateSink = (partialResult: AgentToolResult<any>) => Promise<void> | void;
 
@@ -765,7 +771,13 @@ async function prepareToolCall(
 	signal: AbortSignal | undefined,
 	tools: readonly AgentTool<any>[] = currentContext.tools ?? [],
 ): Promise<PreparedToolCall | ImmediateToolCallOutcome> {
-	const tool = tools.find((t) => t.name === toolCall.name);
+	let tool = tools.find((t) => t.name === toolCall.name);
+	let note: string | undefined;
+	if (!tool) {
+		const resolved = config.resolveUndeclaredTool?.(toolCall.name);
+		tool = resolved?.tool;
+		note = resolved?.note;
+	}
 	if (!tool) {
 		return {
 			kind: "immediate",
@@ -818,6 +830,7 @@ async function prepareToolCall(
 			toolCall,
 			tool,
 			args: validatedArgs,
+			...(note === undefined ? {} : { note }),
 		};
 	} catch (error) {
 		return {
@@ -918,6 +931,17 @@ async function finalizeExecutedToolCall(
 ): Promise<FinalizedToolCallOutcome> {
 	let result = executed.result;
 	let isError = executed.isError;
+	// The note is the first line the model reads, so a tool's own last line stays last.
+	if (prepared.note !== undefined) {
+		const [first, ...rest] = result.content ?? [];
+		result = {
+			...result,
+			content:
+				first?.type === "text"
+					? [{ ...first, text: `${prepared.note}\n${first.text}` }, ...rest]
+					: [{ type: "text", text: prepared.note }, ...(first ? [first, ...rest] : [])],
+		};
+	}
 
 	if (config.afterToolCall) {
 		try {
