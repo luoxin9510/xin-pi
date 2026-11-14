@@ -66,7 +66,8 @@ xpi sg import            # bring the host's changes in
 | `--agents-md` | Write the [AGENTS.md template](#the-agentsmd-template) into the workspace, add `AGENTS.md` to the local-only globs, and commit it on `main` (never on `host`). Refused when an `AGENTS.md` exists. Off by default. |
 
 `init` refuses (exit 2) a directory that is registered, or above or below a registered one, and a name already in use.
-If the adapter fails during `init`, the half-built repo is removed.
+If `init` fails (the adapter, or the store's own I/O), the half-built repo and its registry entry are removed, and so
+are the `AGENTS.md` and `.git` files it wrote, so a second try is not refused.
 
 Ignore build outputs and caches through the adapter's `excludes` or by editing `<store>/<name>.git/info/exclude`: an
 untracked file that is not ignored makes the tree "dirty" and stops `import`, `export` and `merge`.
