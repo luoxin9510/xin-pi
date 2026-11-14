@@ -132,3 +132,22 @@ login service runs once per login with no restart, `KillMode=process` on systemd
 `schedule list` does not start the daemon; the hub's `/schedule` works inside a roost session.
 
 The owner approved spec 02 as reviewed on 2026-11-12.
+
+## Grill 6: restart onto a rebuilt xpi (2026-11-14). Accepted by the owner on 2026-11-14
+
+The owner asked how a rebuilt xpi gets loaded when sessions run under the daemon. Asked three questions; the owner
+answered "do all three, and the agent may run it too".
+
+1. A build id, not only the version: the bundle build writes a content hash; a process knows the one it started with
+   and can read the one on disk. Unknown is never stale.
+2. The daemon and each running session report their build; clients compare with the disk, not with themselves.
+3. The notice appears in the CLI's warning, `ls`, `daemon status`, the hub's status line and after `/reload`.
+   `/reload` keeps its meaning (the owner agreed: a notice only).
+4. `xpi roost restart`: one command for the daemon and every running xpi session; `--if-stale`; one session by name.
+   The two older commands stay.
+5. `/restart` inside a roost session. Owner: yes.
+6. The agent may restart too (owner: "Agent 也可以跑"), through `xpi roost restart` in its shell tool. Its own session
+   goes last and its new process is told what happened.
+7. An attached terminal follows its session through a restart; the standalone hub says it is itself still old.
+8. A foreground session that is not a roost session gets no restart in this spec (the author's recommendation; the
+   owner did not ask for it): `/reload`'s notice and `/restart` there say how to do it by hand.
