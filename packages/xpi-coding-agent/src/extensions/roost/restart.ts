@@ -2,11 +2,11 @@
  * `/restart` in a session the daemon runs (spec 03). Loaded only when the command runs: it connects to the daemon.
  *
  * The daemon refuses `respawn` and `shutdown` on a worker's own connection, so this opens a new one. The restart is one
- * request that the daemon finishes after this process is gone; this session goes last, and carries on only when it
- * was working (the command was cut short), as `xpi roost restart` run by the agent does.
+ * request that the daemon finishes after this process is gone; this session goes last. A person typed the command, so
+ * nothing was cut short and no prompt is sent: the daemon's usual continue prompt carries a working session on.
  */
 
-import { buildOnDisk, DaemonClient, DaemonError, lastFor, readJobEnv, restartRoost } from "xpi-roost";
+import { buildOnDisk, DaemonClient, DaemonError, lastFor, readJobEnv, respawnOne, restartRoost } from "xpi-roost";
 import { getAgentDir, getRoostEntries } from "../../config.ts";
 
 type Notify = (text: string, kind: "info" | "warning" | "error") => void;
@@ -37,8 +37,7 @@ export async function restartFromSession(all: boolean, notify: Notify): Promise<
 			const { jobs } = await client.request("list", {});
 			const last = lastFor(self, jobs, [self]);
 			notify("restarting this session onto the installed build…", "info");
-			const { results } = await client.request("respawn", { ids: [self], ...(last ? { last } : {}) });
-			const r = results[0];
+			const r = await respawnOne((a) => client.request("respawn", a), self, last);
 			// normally this process is gone before the answer arrives
 			if (!r?.started) notify(`not restarted${r?.error ? `: ${r.error}` : ""}`, "error");
 		} finally {

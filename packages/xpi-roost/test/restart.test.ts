@@ -1,8 +1,16 @@
 // Spec 03: the order of `xpi roost restart`, with clients that answer from a script (no daemon): what is asked of the
 // daemon, in which order, what `--if-stale` leaves alone, what counts as a failure, and the caller-last rule.
 import { describe, expect, it } from "vitest";
+import { DaemonError } from "../src/lib/client.ts";
 import type { JobRow } from "../src/lib/protocol.ts";
-import { lastFor, RESTART_PROMPT, type RestartClient, restartRoost } from "../src/lib/restart.ts";
+import {
+	lastFor,
+	OLD_DAEMON,
+	RESTART_PROMPT,
+	type RestartClient,
+	respawnOne,
+	restartRoost,
+} from "../src/lib/restart.ts";
 
 const OLD = "aaaaaaaaaaaaaaaa";
 const NEW = "bbbbbbbbbbbbbbbb";
@@ -160,15 +168,15 @@ describe("restartRoost", () => {
 	});
 
 	describe("the caller", () => {
-		it("goes last, and carries on with the prompt when it was working", async () => {
+		it("goes last, and is told its command was cut short when its own tool call ran it while it was working", async () => {
 			const w = world({ rows: [row("a", { state: "working" }), row("b"), row("c")] });
-			expect(await restartRoost({ self: "a" }, w.deps)).toBe(0);
+			expect(await restartRoost({ self: "a", selfPrompt: true }, w.deps)).toBe(0);
 			expect(w.respawns()).toEqual([{ ids: ["a", "b", "c"], last: { id: "a", prompt: RESTART_PROMPT } }]);
 		});
 
 		it("sends no prompt when it was idle", async () => {
 			const w = world({ rows: [row("a", { state: "blocked" }), row("b")] });
-			await restartRoost({ self: "a" }, w.deps);
+			await restartRoost({ self: "a", selfPrompt: true }, w.deps);
 			expect(w.respawns()).toEqual([{ ids: ["a", "b"], last: { id: "a" } }]);
 		});
 
@@ -178,9 +186,19 @@ describe("restartRoost", () => {
 			expect(w.respawns()).toEqual([{ ids: ["a"] }]);
 		});
 
-		it("lastFor takes the state from the row", () => {
-			expect(lastFor("a", [row("a", { state: "working" })], ["a"])).toEqual({ id: "a", prompt: RESTART_PROMPT });
-			expect(lastFor("a", [row("a")], ["a"])).toEqual({ id: "a" });
+		it("sends no prompt when a person typed the command, working or not (selfPrompt off)", async () => {
+			const w = world({ rows: [row("a", { state: "working" }), row("b")] });
+			await restartRoost({ self: "a" }, w.deps);
+			expect(w.respawns()).toEqual([{ ids: ["a", "b"], last: { id: "a" } }]);
+		});
+
+		it("lastFor takes the state from the row, and the prompt only with selfPrompt", () => {
+			expect(lastFor("a", [row("a", { state: "working" })], ["a"], true)).toEqual({
+				id: "a",
+				prompt: RESTART_PROMPT,
+			});
+			expect(lastFor("a", [row("a", { state: "working" })], ["a"])).toEqual({ id: "a" });
+			expect(lastFor("a", [row("a")], ["a"], true)).toEqual({ id: "a" });
 			expect(lastFor(undefined, [row("a")], ["a"])).toBeUndefined();
 		});
 	});
@@ -216,12 +234,66 @@ describe("restart <id|name>", () => {
 
 	it("names the caller as last with the prompt when it restarts itself while working", async () => {
 		const w = world({ daemonBuild: NEW, rows: [row("a", { state: "working" })] });
-		await restartRoost({ query: "a", self: "a" }, w.deps);
+		await restartRoost({ query: "a", self: "a", selfPrompt: true }, w.deps);
 		expect(w.respawns()).toEqual([{ ids: ["a"], last: { id: "a", prompt: RESTART_PROMPT } }]);
 	});
 
 	it("exits 1 when the session does not restart", async () => {
 		const w = world({ rows: [row("a")], respawn: () => [{ id: "a", started: false, error: "locked" }] });
 		expect(await restartRoost({ query: "a" }, w.deps)).toBe(1);
+	});
+});
+
+describe("a daemon from before respawn took ids", () => {
+	const refusal = () => Object.assign(new DaemonError("id required", "bad_request"), { fromDaemon: true });
+	const answer = { results: [{ id: "a", started: true }] };
+
+	it("falls back to {id, restart} when there is no prompt to send", async () => {
+		const sent: unknown[] = [];
+		const r = await respawnOne(async (a) => {
+			sent.push(a);
+			if ("ids" in a) throw refusal();
+			return answer;
+		}, "a");
+		expect(r).toEqual({ id: "a", started: true });
+		expect(sent).toEqual([{ ids: ["a"] }, { id: "a", restart: true }]);
+	});
+
+	it("says the service is older when a prompt would be lost, or the fallback fails too", async () => {
+		await expect(
+			respawnOne(
+				async () => {
+					throw refusal();
+				},
+				"a",
+				{ id: "a", prompt: "p" },
+			),
+		).rejects.toThrow(OLD_DAEMON);
+		await expect(
+			respawnOne(async () => {
+				throw refusal();
+			}, "a"),
+		).rejects.toThrow(OLD_DAEMON);
+	});
+
+	it("passes other errors on, and restartRoost <name> reports it with exit 1", async () => {
+		await expect(
+			respawnOne(async () => {
+				throw new Error("boom");
+			}, "a"),
+		).rejects.toThrow("boom");
+		const w = world({ rows: [row("a", { state: "working" })] });
+		const base = w.deps.connect;
+		w.deps.connect = async () => {
+			const c = await base();
+			const req = c.request;
+			return {
+				...c,
+				request: ((op: string, a: Record<string, unknown>) =>
+					op === "respawn" ? Promise.reject(refusal()) : req(op as never, a as never)) as RestartClient["request"],
+			};
+		};
+		expect(await restartRoost({ query: "a", self: "a", selfPrompt: true }, w.deps)).toBe(1);
+		expect(w.log.at(-1)).toContain(OLD_DAEMON);
 	});
 });

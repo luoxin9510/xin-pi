@@ -1,9 +1,9 @@
 // Spec 03: `xpi roost restart`, as a function the command line, a session's `/restart all` and the hub's `/restart` all
 // call. It moves the daemon and every running xpi session onto the code installed now. Clients are injected, so the
 // order of the steps, `--if-stale`, the failures and the caller-last rule are tested without a daemon.
-import type { DaemonClient } from "./client.ts";
+import { type DaemonClient, DaemonError } from "./client.ts";
 import { isAlive } from "./proc.ts";
-import type { JobRow } from "./protocol.ts";
+import type { ArgsOf, JobRow, ResultOf } from "./protocol.ts";
 import { isStale } from "./version.ts";
 
 /**
@@ -23,6 +23,12 @@ export interface RestartOptions {
 	ifStale?: boolean;
 	/** The session that runs this restart (ROOST_JOB_ID): when it is among those restarted, it goes last. */
 	self?: string;
+	/**
+	 * Only for a command that a tool call of `self` ran (the CLI, run by the agent): its new process is told not to run
+	 * that command again. A person's `/restart` leaves this off: nothing was cut short, and the daemon's usual
+	 * continue prompt carries a working session on.
+	 */
+	selfPrompt?: boolean;
 }
 
 export interface RestartDeps {
@@ -43,15 +49,49 @@ export interface RestartDeps {
 const behind = (build: string | undefined, onDisk: string | undefined): boolean =>
 	!build || !onDisk || isStale(build, onDisk);
 
-/** The session that makes the request goes last, and says to carry on only when it was working (its tool call was cut). */
+/**
+ * The session that makes the request goes last. With `selfPrompt` (its own tool call ran the command) and while it was
+ * working, it gets the prompt that says the command was cut short.
+ */
 export function lastFor(
 	self: string | undefined,
 	rows: JobRow[],
 	ids: string[],
+	selfPrompt = false,
 ): { id: string; prompt?: string } | undefined {
 	if (!self || !ids.includes(self)) return undefined;
 	const row = rows.find((r) => r.id === self);
-	return row?.state === "working" ? { id: self, prompt: RESTART_PROMPT } : { id: self };
+	return selfPrompt && row?.state === "working" ? { id: self, prompt: RESTART_PROMPT } : { id: self };
+}
+
+export const OLD_DAEMON = "the background service is older than this command: run `xpi roost restart`";
+
+/**
+ * Restarts one running session. A daemon from before `ids` answers `id required`: with no prompt to send, the older
+ * `{id, restart}` does the same; otherwise (or if that fails too) the person is told to restart the service.
+ */
+export async function respawnOne(
+	request: (args: ArgsOf<"respawn">) => Promise<ResultOf<"respawn">>,
+	id: string,
+	last?: { id: string; prompt?: string },
+): Promise<ResultOf<"respawn">["results"][number] | undefined> {
+	try {
+		return (await request({ ids: [id], ...(last ? { last } : {}) })).results[0];
+	} catch (err) {
+		if (
+			!(err instanceof DaemonError) ||
+			!err.fromDaemon ||
+			err.code !== "bad_request" ||
+			err.message !== "id required"
+		)
+			throw err;
+		if (last?.prompt) throw new Error(OLD_DAEMON);
+		try {
+			return (await request({ id, restart: true })).results[0];
+		} catch {
+			throw new Error(OLD_DAEMON);
+		}
+	}
 }
 
 const running = (r: JobRow) => r.pid !== null && r.kind !== "shell";
@@ -124,7 +164,7 @@ export async function restartRoost(opts: RestartOptions, deps: RestartDeps): Pro
 				if (ids.length === 0) say(opts.ifStale ? "sessions · up to date" : "sessions · none running");
 				return code;
 			}
-			const last = lastFor(opts.self, jobs, go);
+			const last = lastFor(opts.self, jobs, go, opts.selfPrompt);
 			if (last)
 				say(
 					`session · this one restarts last · ${label(
@@ -171,9 +211,14 @@ async function restartOne(
 		deps.say(`session · up to date · ${label(row, id)}`);
 		return 0;
 	}
-	const last = lastFor(opts.self, jobs, [id]);
-	const { results } = await client.request("respawn", { ids: [id], ...(last ? { last } : {}) });
-	const r = results[0];
+	const last = lastFor(opts.self, jobs, [id], opts.selfPrompt);
+	let r: Awaited<ReturnType<typeof respawnOne>>;
+	try {
+		r = await respawnOne((a) => client.request("respawn", a), id, last);
+	} catch (err) {
+		deps.say(`session · failed: ${(err as Error).message} · ${label(row, id)}`);
+		return 1;
+	}
 	if (r?.started) {
 		deps.say(`session · restarted · ${label(row, id)}`);
 		return 0;

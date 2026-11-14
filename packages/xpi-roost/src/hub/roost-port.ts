@@ -4,6 +4,7 @@
 // and the event feed (no task board or concierge: decision 6); phase 2: the schedules.
 import { type DaemonClient, requestOnce } from "../lib/client.ts";
 import type { ArgsOf, Event, ResultOf } from "../lib/protocol.ts";
+import { respawnOne } from "../lib/restart.ts";
 
 type Once = { timeoutMs?: number; tag?: string };
 
@@ -30,8 +31,11 @@ export interface RoostPort {
 		rename(id: string, name: string): Promise<ResultOf<"rename">>;
 		reorder(ids: string[], key: string): Promise<ResultOf<"reorder">>;
 		respawn(id: string): Promise<ResultOf<"respawn">>;
-		/** Spec 03: restart these running sessions onto the installed build, `last` after the others. */
-		restart(ids: string[], last?: { id: string; prompt?: string }): Promise<ResultOf<"respawn">>;
+		/** Spec 03: restart this running session onto the installed build (an older daemon: its `restart`). */
+		restart(
+			id: string,
+			last?: { id: string; prompt?: string },
+		): Promise<ResultOf<"respawn">["results"][number] | undefined>;
 		/** M51: sent with a request id, again on the new connection while the daemon restarts. */
 		reply(args: ArgsOf<"reply">, opts?: Once): Promise<ResultOf<"reply">>;
 		dispatch(args: ArgsOf<"dispatch">, opts?: Once): Promise<ResultOf<"dispatch">>;
@@ -90,7 +94,7 @@ export function roostPort(
 			rename: (id, name) => client.request("rename", { id, name }),
 			reorder: (ids, key) => client.request("reorder", { ids, key }),
 			respawn: (id) => client.request("respawn", { id }),
-			restart: (ids, last) => client.request("respawn", { ids, ...(last ? { last } : {}) }),
+			restart: (id, last) => respawnOne((a) => client.request("respawn", a), id, last),
 			reply: once.reply,
 			dispatch: once.dispatch,
 		},

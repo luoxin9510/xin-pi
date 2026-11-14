@@ -8,6 +8,8 @@ const fake = vi.hoisted(() => ({
 	requests: [] as { op: string; args: unknown }[],
 	connects: 0,
 	closed: 0,
+	fail: undefined as undefined | (() => Error),
+	failAll: false,
 	respawn: (): { results: { id: string; started: boolean; error?: string }[] } => ({
 		results: [{ id: "j1", started: true }],
 	}),
@@ -26,6 +28,7 @@ vi.mock("xpi-roost", async (importOriginal) => {
 					},
 					request: async (op: string, args: unknown) => {
 						fake.requests.push({ op, args });
+						if (op === "respawn" && fake.fail && (fake.failAll || "ids" in (args as object))) throw fake.fail();
 						if (op === "list") return { jobs: [{ id: "j1", name: "n", state: fake.state, pid: 1, kind: "pi" }] };
 						return fake.respawn();
 					},
@@ -35,7 +38,7 @@ vi.mock("xpi-roost", async (importOriginal) => {
 	};
 });
 
-import { RESTART_PROMPT } from "xpi-roost";
+import { DaemonError } from "xpi-roost";
 import { restartFromSession } from "../src/extensions/roost/restart.ts";
 
 const saved = process.env.ROOST_JOB_ID;
@@ -47,6 +50,8 @@ beforeEach(() => {
 		connects: 0,
 		closed: 0,
 		respawn: () => ({ results: [{ id: "j1", started: true }] }),
+		fail: undefined,
+		failAll: false,
 	});
 });
 afterEach(() => {
@@ -55,13 +60,13 @@ afterEach(() => {
 });
 
 describe("/restart from a session", () => {
-	it("opens a new connection and restarts this session last, with the prompt, when it was working", async () => {
+	it("opens a new connection and restarts this session last, with no prompt even when it was working", async () => {
 		const notes: string[] = [];
 		await restartFromSession(false, (t) => notes.push(t));
 		expect(fake.connects).toBe(1);
 		expect(fake.requests.find((r) => r.op === "respawn")!.args).toEqual({
 			ids: ["j1"],
-			last: { id: "j1", prompt: RESTART_PROMPT },
+			last: { id: "j1" },
 		});
 		expect(fake.closed).toBe(1);
 		expect(notes).toEqual(["restarting this session onto the installed build…"]);
@@ -78,5 +83,21 @@ describe("/restart from a session", () => {
 		const notes: string[] = [];
 		await restartFromSession(false, (t) => notes.push(t));
 		expect(notes.at(-1)).toBe("not restarted: locked");
+	});
+
+	it("falls back to the older request on a daemon that does not know ids, and says when it cannot", async () => {
+		const refuse = () => Object.assign(new DaemonError("id required", "bad_request"), { fromDaemon: true });
+		fake.fail = refuse;
+		const notes: string[] = [];
+		await restartFromSession(false, (t) => notes.push(t));
+		expect(fake.requests.filter((r) => r.op === "respawn").map((r) => r.args)).toEqual([
+			{ ids: ["j1"], last: { id: "j1" } },
+			{ id: "j1", restart: true },
+		]);
+		// the fallback fails too
+		fake.requests = [];
+		fake.failAll = true;
+		await restartFromSession(false, (t) => notes.push(t));
+		expect(notes.at(-1)).toContain("the background service is older than this command");
 	});
 });

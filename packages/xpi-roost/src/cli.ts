@@ -207,9 +207,18 @@ export async function runRoostCli(argv: string[], opts: RoostCliOptions): Promis
 				attachToHost(
 					hostSocketPath(row.id),
 					{ stdin: process.stdin, stdout: process.stdout },
-					{ isDetachKey: opts.isDetachKey, onAttached },
+					{ isDetachKey: opts.isDetachKey, onAttached, keepTerminal: true },
 				),
 			{
+				io: { stdin: process.stdin, stdout: process.stdout, isDetachKey: opts.isDetachKey },
+				ended: async () => {
+					try {
+						const r = await withDaemon((c) => findRow(c, row.id));
+						return r.restarting !== true && r.endedAt !== null ? (r.error ?? `it is ${r.state}`) : undefined;
+					} catch {
+						return undefined;
+					}
+				},
 				restarting: async () => {
 					try {
 						return (await withDaemon((c) => findRow(c, row.id))).restarting === true;
@@ -316,7 +325,13 @@ export async function runRoostCli(argv: string[], opts: RoostCliOptions): Promis
 		for (const a of names) if (a.startsWith("--")) throw new UsageError(`restart: unknown option ${a}`);
 		needPty("restart");
 		return restartRoost(
-			{ query: names[0], ifStale: args.includes("--if-stale"), self: readJobEnv(process.env, "id") },
+			{
+				query: names[0],
+				ifStale: args.includes("--if-stale"),
+				self: readJobEnv(process.env, "id"),
+				// run by the agent in a tool call (or a person in its shell): that call is cut short
+				selfPrompt: true,
+			},
 			{ connect, buildOnDisk, say: (line) => stdout.write(`${line}\n`) },
 		);
 	}

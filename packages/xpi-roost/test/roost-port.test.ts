@@ -41,7 +41,6 @@ const table: [string, (p: RoostPort) => Promise<unknown>, string, unknown][] = [
 	["jobs.rename", (p) => p.jobs.rename("a", "n"), "rename", { id: "a", name: "n" }],
 	["jobs.reorder", (p) => p.jobs.reorder(["a", "b"], "k"), "reorder", { ids: ["a", "b"], key: "k" }],
 	["jobs.respawn", (p) => p.jobs.respawn("a"), "respawn", { id: "a" }],
-	["jobs.restart", (p) => p.jobs.restart(["a", "b"], { id: "b" }), "respawn", { ids: ["a", "b"], last: { id: "b" } }],
 	["events.list", (p) => p.events.list({ limit: 500 }), "events", { limit: 500 }],
 ];
 
@@ -53,6 +52,12 @@ describe("RoostPort adapter", () => {
 		expect(sent[0]!.op).toBe(op);
 		expect(sent[0]!.args).toEqual(args);
 		expect(result).toEqual({ answered: op });
+	});
+
+	it("jobs.restart sends ids and last, and returns the session's result", async () => {
+		const { client, sent } = recording(() => ({ results: [{ id: "a", started: true }] }));
+		expect(await roostPort(client).jobs.restart("a", { id: "a" })).toEqual({ id: "a", started: true });
+		expect(sent).toEqual([{ op: "respawn", args: { ids: ["a"], last: { id: "a" } } }]);
 	});
 
 	it("jobs.listAt returns the reply and its place in the stream", async () => {
