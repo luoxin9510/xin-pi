@@ -82,8 +82,21 @@ export async function initRepo(ctx: SgContext, options: InitOptions): Promise<Re
 		try {
 			return populate(repo, options);
 		} catch (error) {
-			rmSync(repo.gitDir, { recursive: true, force: true });
-			removeRegistry(ctx, repo.name);
+			// Each step on its own: one failing (the store's own I/O, say) must not keep the others from running.
+			const undo = (step: () => void): void => {
+				try {
+					step();
+				} catch {}
+			};
+			// validate() refused an existing AGENTS.md, so one holding the template now is this run's own
+			const agentsMd = join(workspace, AGENTS_MD_FILE);
+			undo(() => {
+				if (options.agentsMd && existsSync(agentsMd) && readFileSync(agentsMd, "utf8") === AGENTS_MD_TEMPLATE) {
+					rmSync(agentsMd, { force: true });
+				}
+			});
+			undo(() => rmSync(repo.gitDir, { recursive: true, force: true }));
+			undo(() => removeRegistry(ctx, repo.name));
 			throw error;
 		}
 	});
@@ -132,7 +145,8 @@ function populate(repo: Repo, options: InitOptions): Repo {
 	// The template lands on main only: host stays the host's state, and the file is local-only, so never exported.
 	if (options.agentsMd) {
 		writeFileSync(join(repo.workspace, AGENTS_MD_FILE), AGENTS_MD_TEMPLATE);
-		git(repo, ["add", "--", `:(literal)${AGENTS_MD_FILE}`]);
+		// -f: a workspace .gitignore or the adapter's excludes may match AGENTS.md
+		git(repo, ["add", "-f", "--", `:(literal)${AGENTS_MD_FILE}`]);
 		git(repo, ["commit", "-q", "-m", "sg: add AGENTS.md (local-only)"]);
 	}
 	if (options.gitfile) writeFileSync(join(repo.workspace, ".git"), `gitdir: ${repo.gitDir}\n`);

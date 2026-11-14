@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { chmodSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { AGENTS_MD_TEMPLATE } from "../src/agents-md.ts";
@@ -37,6 +37,57 @@ describe("AGENTS.md template", () => {
 		expect(plan.out).toContain("1 path(s) from 1 commit(s)");
 		expect(plan.out).toContain("Fix the greeting");
 		expect(plan.out).not.toContain("my notes");
+	});
+
+	it("init --agents-md works when AGENTS.md is ignored, and a failed init leaves no AGENTS.md behind", async () => {
+		const l = lab();
+		write(l.ws, ".gitignore", "AGENTS.md\n");
+		write(l.ws, ".plainvcs/version", "1\n");
+		const base = ["init", "demo", "--adapter", "plain", "--config", `shadow.plain.upstream=${l.upstream}`];
+		// ignored: still committed (git add -f)
+		const ok = await l.sg([...base, "--agents-md"]);
+		expect(ok.err).toBe("");
+		expect(ok.code).toBe(0);
+		expect(l.git("ls-tree", "--name-only", "main").split("\n")).toContain("AGENTS.md");
+
+		// a failure after the file is written (the registry cannot be appended to) rolls it back
+		const m = lab("other");
+		write(m.ws, ".plainvcs/version", "1\n");
+		write(m.store, "registry", "");
+		chmodSync(join(m.store, "registry"), 0o444);
+		const args = [
+			"init",
+			"other",
+			"--adapter",
+			"plain",
+			"--config",
+			`shadow.plain.upstream=${m.upstream}`,
+			"--agents-md",
+		];
+		// the store's own I/O error surfaces as a thrown error, not an exit code
+		await expect(m.sg(args)).rejects.toThrow(/EACCES/);
+		expect(existsSync(join(m.ws, "AGENTS.md"))).toBe(false);
+		expect(existsSync(join(m.store, "other.git"))).toBe(false);
+		// and a second try is not refused for an AGENTS.md left over
+		chmodSync(join(m.store, "registry"), 0o644);
+		expect((await m.sg(args)).code).toBe(0);
+	});
+
+	it("a merged branch that only changed local-only paths adds no subject to the check-in message", async () => {
+		const l = await initialised(undefined, ["--local-only", "notes/"]);
+		await l.sg(["checkout", "-q", "-b", "side"]);
+		write(l.ws, "notes/side.md", "n\n");
+		await l.sg(["add", "-A"]);
+		await l.sg(["commit", "-q", "-m", "Side notes"]);
+		await l.sg(["checkout", "-q", "main"]);
+		write(l.ws, "a.txt", "changed\n");
+		await l.sg(["commit", "-qam", "Fix the greeting"]);
+		l.git("merge", "-q", "--no-ff", "-m", "Merge side", "side");
+		const plan = await l.sg(["export"]);
+		expect(plan.code).toBe(0);
+		expect(plan.out).toContain("Fix the greeting");
+		expect(plan.out).not.toContain("Side notes");
+		expect(plan.out).not.toContain("Merge side");
 	});
 
 	it("does not add AGENTS.md to local-only twice", async () => {

@@ -173,9 +173,14 @@ export function exportPlan(repo: Repo): ExportPlan {
 		const code = raw[at][0];
 		entries.push({ status: code === "A" || code === "D" ? code : "M", path: raw[at + 1] });
 	}
-	const subjects = lines(
+	const touching = lines(
 		git(repo, ["log", "--reverse", "--format=%s", "host..main", "--", ...planSpecs(repo)]).stdout,
 	);
+	// a change that came in only through a merge has no commit of its own touching a path: fall back to all subjects
+	const subjects =
+		touching.length > 0 || entries.length === 0
+			? touching
+			: lines(git(repo, ["log", "--reverse", "--format=%s", "host..main"]).stdout);
 	return { entries, subjects };
 }
 

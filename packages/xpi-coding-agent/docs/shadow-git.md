@@ -387,10 +387,12 @@ say about a workspace, and how to work for the host:
 another tool's instructions file:
 
 ```bash
-xpi sg agents-md > AGENTS.md            # or > CLAUDE.md
+xpi sg agents-md > AGENTS.md
 xpi sg config --add shadow.localOnly AGENTS.md
-xpi sg add AGENTS.md && xpi sg commit -m "sg: add AGENTS.md (local-only)"
+xpi sg add -f AGENTS.md && xpi sg commit -m "sg: add AGENTS.md (local-only)"
 ```
+
+For another tool, write `CLAUDE.md` (or that tool's file) instead and use that name in all three lines.
 
 The file sits in the workspace, so the host VCS sees it as an unknown file. If that matters, ignore it on the host
 side. Other tools than xpi need `eval "$(xpi sg env)"` before git reaches the shadow repo; the template says so.
