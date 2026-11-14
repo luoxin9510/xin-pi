@@ -1,6 +1,6 @@
 {
 	"name": "xpi-roost",
-	"version": "1.12.1",
+	"version": "1.13.0",
 	"private": true,
 	"description": "Background sessions for xpi: the roost daemon, the PTY host and their shared library",
 	"type": "module",
@@ -51,7 +51,7 @@
 		"@xterm/addon-serialize": "0.14.0",
 		"@xterm/headless": "6.0.0",
 		"node-pty": "1.1.0",
-		"xpi-tui": "1.12.1"
+		"xpi-tui": "1.13.0"
 	},
 	"devDependencies": {
 		"@types/node": "22.19.19",
