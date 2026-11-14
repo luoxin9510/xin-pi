@@ -364,9 +364,35 @@ starts a session on a file another xpi has open.
   make and a C++ compiler. Without it `--bg`, `/bg`, `/bg-fork`, `xpi roost respawn` and attaching to a session that
   is not running say how to reinstall it.
 
-After an upgrade, a running daemon still has the old code: run `xpi roost daemon stop --keep-workers`, then
-`xpi roost respawn --all`. `xpi --bg` and the `xpi roost` commands other than `hub`, `daemon logs` and
-`daemon stop` say so when the versions differ.
+## After xpi is rebuilt or upgraded
+
+Three kinds of processes keep running the xpi they started with: the daemon, each session's host, and the xpi inside
+each session. `/reload` reads extensions, skills and settings again; it does not load xpi's own code or its built-in
+extensions.
+
+xpi tells a rebuilt install from the one a process runs by its **build id**, so a rebuild at the same version is
+noticed too. The bundle build writes it to `dist/bundle/build-id`: one line, the first 16 hex digits of a SHA-256
+over the bundle's files (their paths and contents), so the same sources give the same id in any checkout and building
+again without a change does not ask for a restart. A process reads its own id when it starts and the installed one
+again when it compares. When either is unknown (xpi run from the sources, or a daemon from before build ids) nothing
+is compared and nothing is reported.
+
+What it says:
+
+- **The command line**: `xpi --bg` and the `xpi roost` commands other than `hub`, `daemon logs` and `daemon stop`
+  warn once when the daemon's version or build is not the installed one. `xpi roost ls` adds a line on stderr when
+  running sessions run an older build (`2 sessions run an older build: ...`), and `xpi roost daemon status` prints the
+  daemon's `build` and marks an older one.
+- **The hub**: a line under the title, for as long as the daemon, a running session or (in `xpi roost hub`, which is a
+  process of its own) the hub itself runs an older build. The hub inside a session (`/agents`) restarts with its
+  session and leaves itself out.
+- **`/reload`**: in a session that runs an older build than the installed one it says that xpi's own code changed and
+  `/reload` does not load it. In a session the daemon runs it says to restart the session (`xpi roost respawn <id>`
+  from outside); in an ordinary session, to quit and start it again with the command it prints (the one that resumes
+  this session).
+
+To move everything to the installed code, run `xpi roost daemon stop --keep-workers`, then
+`xpi roost respawn --all`. Running only the second leaves the daemon on the old code.
 
 ## Not in this version
 
