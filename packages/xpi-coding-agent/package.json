@@ -1,6 +1,6 @@
 {
 	"name": "xpi-coding-agent",
-	"version": "1.13.0",
+	"version": "1.13.1",
 	"description": "xpi: a coding agent CLI from xin-pi, a fork of pi with built-in subagents",
 	"type": "module",
 	"piConfig": {
@@ -79,13 +79,13 @@
 		"protobufjs": "7.6.6"
 	},
 	"devDependencies": {
-		"xpi-agent-core": "1.13.0",
-		"xpi-ai": "1.13.0",
-		"xpi-codemode": "1.13.0",
-		"xpi-mcp": "1.13.0",
-		"xpi-roost": "1.13.0",
-		"xpi-shadow-git": "1.13.0",
-		"xpi-tui": "1.13.0",
+		"xpi-agent-core": "1.13.1",
+		"xpi-ai": "1.13.1",
+		"xpi-codemode": "1.13.1",
+		"xpi-mcp": "1.13.1",
+		"xpi-roost": "1.13.1",
+		"xpi-shadow-git": "1.13.1",
+		"xpi-tui": "1.13.1",
 		"@types/cross-spawn": "6.0.6",
 		"@types/hosted-git-info": "3.0.5",
 		"@types/node": "22.19.19",
