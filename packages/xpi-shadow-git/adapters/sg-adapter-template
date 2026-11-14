@@ -10,7 +10,11 @@
 #   XPI_SG_WORKSPACE   the workspace root, absolute
 #   XPI_SG_SCOPE       space-separated paths the adapter works on, relative to the root; empty is the whole workspace
 #   XPI_SG_LOCAL_ONLY  space-separated globs the adapter must never change or delete (paths git tracks, but are never
-#                      checked in; a glob that ends in / means everything below it)
+#                      checked in; a glob that ends in / means everything below it). They are git pathspec globs
+#                      (`:(glob)`): `*` does not cross a /, and `**/x` also matches a root `x`. Shell `case` patterns
+#                      differ, so do not match them with `case`; ask git, as sg-adapter-plain does: put the candidate
+#                      paths in a scratch index (GIT_INDEX_FILE, `update-index --add --info-only --index-info`) and run
+#                      `ls-files -- ':(glob)<glob>'` on it.
 #   XPI_SG_GIT_DIR     the shadow repo, for an adapter that wants to read its settings, such as
 #                      "$XPI_SG_GIT" --git-dir "$XPI_SG_GIT_DIR" config --get shadow.<yourname>.<key>
 #   XPI_SG_GIT         the git binary
@@ -32,14 +36,16 @@ todo() {
 
 case "$op" in
 metadata)
-	# Print the host VCS's own files and directories, one path per line, relative to the root.
-	# They are never tracked and are hidden in sandboxes.
-	# Questions: which names does your VCS put in the workspace (a directory at the root, files in each directory)?
-	# Does it keep metadata in directories below the root too? List every pattern you know of.
+	# Print the host VCS's own files and directories, one path per line, relative to the workspace root.
+	# They are never tracked and are hidden in sandboxes. Every line is anchored to the root (written as /<path> in
+	# info/exclude): only root-relative paths belong here. A name the VCS repeats in every directory (a metadata
+	# directory in each subdirectory, say) is not a root path: print it from `excludes` as a pattern instead.
+	# Questions: which names does your VCS put at the root of the workspace? Which does it put in every directory?
 	todo metadata
 	;;
 excludes)
-	# Print gitignore patterns, one per line, for other paths git must never track: build outputs, caches, editor files.
+	# Print gitignore patterns, one per line, for other paths git must never track: build outputs, caches, editor files, and host VCS
+	# names that repeat in every directory (patterns such as `.hostvcs-meta/`, not anchored to the root).
 	# An empty output is allowed.
 	todo excludes
 	;;

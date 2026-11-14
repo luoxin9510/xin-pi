@@ -22,7 +22,7 @@ import { withLock } from "./lock.ts";
 import type { Repo } from "./registry.ts";
 import { assertNoOtherSession } from "./sessions.ts";
 
-const lockOf = (repo: Repo): string => join(repo.ctx.store, `${repo.name}.lock`);
+export const lockOf = (repo: Repo): string => join(repo.ctx.store, `${repo.name}.lock`);
 
 const MERGE_STOPPED =
 	"the merge stopped. Resolve the conflicts with plain git, then xpi sg merge --continue (or xpi sg merge --abort).";
@@ -112,6 +112,12 @@ export async function importHost(repo: Repo): Promise<void> {
 			record = { old: revParse(repo, "host") };
 			writeImportRecord(repo, record);
 		} else if (currentBranch(repo) !== "host") {
+			// the user left host during the stop: their edits must not be committed into it
+			const dirty = dirtyPaths(repo);
+			if (dirty.length > 0)
+				throw precondition(
+					list("import cannot resume with changes in the tree; these paths have changes:", dirty).trimEnd(),
+				);
 			git(repo, ["checkout", "-q", "host", "--"]);
 		}
 		const label = record.label ?? runUpdate(repo);
@@ -128,15 +134,17 @@ export async function abortImport(repo: Repo): Promise<void> {
 			throw precondition("no import is stopped, nothing to abort (a conflicted merge: git merge --abort)");
 		git(repo, ["checkout", "-q", "-f", "host", "--"]);
 		const scope = scopeOf(repo);
+		// Local-only paths are cleaned too: a host file at one of them would block the checkout of main.
 		git(repo, [
 			"clean",
 			"-q",
 			"-fd",
 			"--",
 			...(scope.length === 0 ? ["."] : scope.map((path) => `:(literal)${path.replace(/\/+$/, "")}`)),
+			...localOnlySpecs(repo),
 		]);
-		removeImportRecord(repo);
 		git(repo, ["checkout", "-q", "main", "--"]);
+		removeImportRecord(repo);
 		repo.ctx.out("import aborted; the workspace is back at main\n");
 	});
 }
@@ -230,4 +238,10 @@ export async function mergeBranch(repo: Repo, branch: string): Promise<void> {
 		if (merged.stderr) repo.ctx.err(merged.stderr);
 		if (merged.status !== 0) throw failure(MERGE_STOPPED);
 	});
+}
+
+/** Run `fn` as a writer of the primary workspace: no other live session, and the lock held. */
+export async function asWriter<T>(repo: Repo, what: string, fn: () => T): Promise<T> {
+	assertNoOtherSession(repo, what);
+	return withLock(repo.ctx, lockOf(repo), fn);
 }

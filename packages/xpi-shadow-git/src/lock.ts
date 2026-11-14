@@ -96,8 +96,8 @@ export async function withLock<T>(ctx: SgContext, lock: string, fn: () => T | Pr
 		const seen = read(lock);
 		if (seen && stale(lock, seen)) {
 			takeOver(lock, seen);
-			continue;
 		}
+		// also after a takeover: a taker that keeps losing the guard must not spin past the deadline
 		if (Date.now() >= deadline) {
 			const holder = seen?.info ? ` (pid ${seen.info.pid})` : "";
 			throw precondition(`${lock} is held${holder}; another shadow-git command is writing the workspace`);

@@ -5,7 +5,7 @@ import { initRepo } from "./init.ts";
 import { run } from "./proc.ts";
 import { type Repo, readRegistry, resolveRepo } from "./registry.ts";
 import { status } from "./status.ts";
-import { abortImport, exportMain, importHost, mergeBranch } from "./sync.ts";
+import { abortImport, asWriter, exportMain, importHost, mergeBranch } from "./sync.ts";
 
 const HELP = `Usage: xpi sg [--repo <name>] <command>
 
@@ -64,6 +64,28 @@ function parseInit(args: string[]): Parameters<typeof initRepo>[1] {
 	return { name, adapter, scope, localOnly, config, gitfile };
 }
 
+// git's global options that take a separate value
+const GLOBAL_WITH_VALUE = new Set([
+	"-c",
+	"-C",
+	"--git-dir",
+	"--work-tree",
+	"--namespace",
+	"--exec-path",
+	"--config-env",
+	"--super-prefix",
+]);
+
+/** The git command in `args`, after git's global options (`-c k=v`, `-C dir`, `--git-dir=x`, ...). A guard rail, not enforcement. */
+export function gitCommandWord(args: string[]): string | undefined {
+	for (let at = 0; at < args.length; at++) {
+		const arg = args[at];
+		if (!arg.startsWith("-")) return arg;
+		if (GLOBAL_WITH_VALUE.has(arg)) at++;
+	}
+	return undefined;
+}
+
 const shellQuote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
 
 function passThrough(repo: Repo, args: string[]): number {
@@ -110,8 +132,9 @@ async function dispatch(ctx: SgContext, args: string[]): Promise<number> {
 			throw precondition("xpi sg sbx is not available yet");
 		default:
 	}
-	if (BLOCKED.has(command))
-		throw precondition(`xpi sg ${command} is not available: the shadow repo is local and never pushed`);
+	const blocked = gitCommandWord(rest);
+	if (blocked !== undefined && BLOCKED.has(blocked))
+		throw precondition(`xpi sg ${blocked} is not available: the shadow repo is local and never pushed`);
 
 	const repo = resolveRepo(ctx, repoName);
 	switch (command) {
@@ -131,8 +154,10 @@ async function dispatch(ctx: SgContext, args: string[]): Promise<number> {
 			ctx.out(`export GIT_DIR=${shellQuote(repo.gitDir)} GIT_WORK_TREE=${shellQuote(repo.workspace)}\n`);
 			return 0;
 		case "merge":
-			if (tail.length === 1 && (tail[0] === "--continue" || tail[0] === "--abort"))
-				return passThrough(repo, ["merge", tail[0]]);
+			if (tail.length === 1 && (tail[0] === "--continue" || tail[0] === "--abort")) {
+				const flag = tail[0];
+				return asWriter(repo, `merge ${flag}`, () => passThrough(repo, ["merge", flag]));
+			}
 			if (tail.length !== 1 || tail[0].startsWith("-"))
 				throw precondition("usage: xpi sg merge <branch> (or --continue, --abort)");
 			await mergeBranch(repo, tail[0]);

@@ -99,8 +99,11 @@ main:            work --- work --------- merge host --- work
 **A stopped import** (a collision, a failed adapter, a crash) leaves `SG_IMPORT`, like git's own `MERGE_HEAD`, and
 releases the lock. While it exists, `export` and `merge` refuse (exit 2) and `xpi sg status` shows it.
 `xpi sg import` resumes: if the adapter's update had finished it continues at the commit, otherwise it runs `update`
-again. `xpi sg import --abort` returns to the last host state (`git checkout -f host`, `git clean -fd` in the scope,
-with no `-x` so ignored build outputs stay) and goes back to `main`.
+again. If you left `host` during the stop, resuming needs a clean tree (exit 2 otherwise), so your edits are never
+committed into `host`. `xpi sg import --abort` returns to the last host state: `git checkout -f host`, then
+`git clean -fd` over the scope and the local-only paths, which **removes every untracked file created during the stop**
+(with no `-x`, so ignored build outputs stay), then `git checkout main`. The record is removed only after that
+checkout succeeds, so a failed abort can be run again.
 
 ### Export
 
@@ -118,7 +121,8 @@ After an export, `host` holds the local-only paths too, so `host` is "the host's
 ### Merge, lock and live sessions
 
 `xpi sg merge <branch>` merges a branch into `main` under the lock (`main` checked out, a clean tree). It is for
-branches that come from elsewhere, such as sandboxes later. `xpi sg merge --continue|--abort` go to `git merge`.
+branches that come from elsewhere, such as sandboxes later. `xpi sg merge --continue|--abort` go to `git merge`, under
+the same lock and live-session check.
 
 Writes to the primary workspace (`import`, `export --apply`, `merge`) take `<store>/<name>.lock`, a file created
 exclusively that holds the pid. A lock whose process is gone is taken over; a held one is waited for up to ten seconds
@@ -139,7 +143,9 @@ sessions do not write these entries yet.
 | `xpi sg merge <branch>` | Merge a branch into `main`. |
 | `xpi sg <git command> ...` | git on the shadow repo, with its exit code. |
 
-`push`, `fetch`, `pull`, `clone`, `remote` and `submodule` exit 2: the shadow repo is local. `xpi sg sbx ...` exits 2
+`push`, `fetch`, `pull`, `clone`, `remote` and `submodule` exit 2: the shadow repo is local. The check skips git's
+global options (`-c k=v`, `-C dir`, `--git-dir=...`) and looks at the command word. It is a guard rail, not
+enforcement: a git alias or `xpi sg env` plus plain git gets around it. `xpi sg sbx ...` exits 2
 ("not available yet").
 
 The repo is the registered workspace with the longest path that contains the current directory; no match is exit 2.
@@ -179,12 +185,14 @@ workspace root as its cwd and these variables set: `XPI_SG_WORKSPACE` (absolute 
 `XPI_SG_LOCAL_ONLY` (space-separated; the adapter must never change or delete a local-only path), `XPI_SG_GIT_DIR` (the
 shadow repo, for settings and the tracked file list) and `XPI_SG_GIT` (the git binary). `GIT_DIR` and `GIT_WORK_TREE`
 are not passed on. A non-zero exit is a failure and its stderr is shown unchanged. Paths are relative to the workspace
-root.
+root. The local-only globs are git pathspec globs (`:(glob)`): `*` does not cross a `/`, and `**/x` also matches a root
+`x`. Shell `case` patterns differ on both points, so an adapter should not match them itself; the plain adapter asks git
+(a scratch index of the candidate paths and `git ls-files -- ':(glob)<glob>'`).
 
 | Op | Input | Output (stdout) | Contract |
 |---|---|---|---|
-| `metadata` | | One path per line | The host VCS's own files and directories. Never tracked; hidden in sandboxes. |
-| `excludes` | | One gitignore pattern per line | Other paths git must never track: build outputs, caches. |
+| `metadata` | | One path per line | The host VCS's own files and directories, **relative to the workspace root only**: every line is anchored to the root. Never tracked; hidden in sandboxes. |
+| `excludes` | | One gitignore pattern per line | Other paths git must never track: build outputs, caches, and any host VCS name that repeats in every directory (a pattern such as `.hostvcs-meta/`, not a root path). |
 | `prepare` | | | Afterwards every in-scope file is a writable regular file. |
 | `update` | | A one-line label | Bring the workspace to the latest host state within the scope. |
 | `checkin` | stdin: `A\|M\|D<TAB>path` lines; `--message-file <f>` | | Check in exactly these changes as one host operation, or fail with no partial effect where the host allows it. |

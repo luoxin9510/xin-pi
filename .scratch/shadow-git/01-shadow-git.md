@@ -515,3 +515,11 @@ PR 1 (core) differs from the text above in these places.
   `--abort` go to `git merge`, because `merge` is an `xpi sg` command and plain git is not reachable through it.
 - **Registration order.** `init` appends the registry line after the baseline commit, not before the adapter's ops, and
   removes the half-built repo if any step fails.
+- **Local-only matching in adapters.** The spec says only that adapters must leave local-only paths alone. The globs are
+  git pathspec globs, which shell `case` patterns do not match the same way, so the plain adapter asks git, and the
+  docs and the template say so.
+- **`metadata` is root-relative.** Every `metadata` line is anchored to the workspace root in `info/exclude`. A host name
+  that repeats in every directory goes in `excludes`.
+- **`import --abort`** also cleans local-only paths, and removes the record only after `git checkout main` succeeds.
+  Resuming an import from a branch other than `host` needs a clean tree.
+- **`merge --continue|--abort`** take the lock and the live-session check.
