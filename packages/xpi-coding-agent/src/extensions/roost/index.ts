@@ -21,6 +21,7 @@ import type { ExtensionAPI, ExtensionContext } from "../../core/extensions/types
 import { registerForeground } from "./foreground.ts";
 import { loadOpenView } from "./hub.lazy.ts";
 import { NO_PTY_MESSAGE, ptyInstalled, roostUnavailable } from "./messages.ts";
+import { reloadNoticeFor } from "./stale.ts";
 import { hubContext, setHubApi } from "./view-state.ts";
 
 /**
@@ -76,6 +77,12 @@ export default async function roost(pi: ExtensionAPI): Promise<void> {
 	pi.registerFlag("bg-name", { type: "string", description: "Name of the session --bg starts" });
 
 	registerWriteLock(pi);
+	// spec 03: a reload does not load xpi's own code; say so when it changed (any session, roost or not)
+	pi.on("session_start", (event, ctx) => {
+		if (event.reason !== "reload" || !ctx.hasUI) return;
+		const notice = reloadNoticeFor(ctx);
+		if (notice) ctx.ui.notify(notice, "warning");
+	});
 	// the hub reads this runtime's commands and event bus (a /bg switch makes an earlier runtime's API stale)
 	setHubApi(pi);
 
