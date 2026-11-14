@@ -14,7 +14,7 @@ import { childInvocation } from "./invocation.ts";
 import { newAgentId, subagentSessionDir } from "./sessions.ts";
 import { findSkill } from "./skills.ts";
 import { TEAM_TOOL_NAMES, teammatePrompt } from "./team-text.ts";
-import type { WorktreeRef } from "./worktree.ts";
+import { type WorktreeRef, worktreeCwd } from "./worktree.ts";
 
 export interface CallInput {
 	description: string;
@@ -56,6 +56,13 @@ export interface ChildSpec {
 	warnings: string[];
 	shutdownGraceMs?: number; // time after SIGTERM before SIGKILL (subagent.shutdownGraceMs)
 	worktree?: WorktreeRef; // isolation: the child's cwd is its path; the exchange creates and settles it
+	// A shadow-git sandbox: what to start instead of `command` (the sandbox's wrapper). Set by the exchange once the
+	// sandbox exists; the runner calls it with the arguments it has built.
+	launch?: (
+		command: string,
+		args: string[],
+		env: NodeJS.ProcessEnv,
+	) => { command: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv };
 	teamPrompt?: string; // a teammate's frozen prompt section, to store in its meta file (team.ts)
 }
 
@@ -456,7 +463,7 @@ export function resolveChild(
 		options.team !== undefined,
 	);
 	const extensions = childExtensions(def, parent.trusted);
-	const cwd = options.worktree ? join(options.worktree.path, options.worktree.subdir ?? "") : parent.cwd;
+	const cwd = options.worktree ? worktreeCwd(options.worktree) : parent.cwd;
 	const memory = def.memory
 		? memorySection(memoryDir(def, parent, options), tools.memoryReadOnly, tools.warnings)
 		: undefined;

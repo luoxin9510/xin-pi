@@ -9,6 +9,7 @@ import type { Config } from "./config.ts";
 import { registry } from "./registry.ts";
 import type { ChildSpec, ParentContext } from "./resolve.ts";
 import { addUsage, type Progress, type RunResult, runChild } from "./runner.ts";
+import { sandboxLauncher } from "./sandbox-worktree.ts";
 import { subagentSessionDir } from "./sessions.ts";
 import { responded, stagger } from "./stagger.ts";
 import { teams } from "./team.ts";
@@ -201,6 +202,8 @@ function runExchange(
 			let run: RunResult;
 			const restarted: RunResult[] = []; // the runs a restart ended, oldest first
 			try {
+				// A shadow-git sandbox: the child starts through the sandbox's backend, as `xpi sg sbx run` would start it.
+				if (spec.worktree?.kind === "shadow-git") spec.launch = await sandboxLauncher(spec.worktree);
 				for (;;) {
 					const turnsBefore = restarted.reduce((sum, r) => sum + r.turns, 0);
 					run = await runChild(
