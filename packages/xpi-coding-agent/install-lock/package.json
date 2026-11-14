@@ -1,10 +1,10 @@
 {
 	"name": "xpi-coding-agent-install",
-	"version": "1.12.0",
+	"version": "1.12.1",
 	"private": true,
 	"description": "Lockfile root used by the Pi installer and updater.",
 	"dependencies": {
-		"xpi-coding-agent": "1.12.0"
+		"xpi-coding-agent": "1.12.1"
 	},
 	"overrides": {
 		"protobufjs": "7.6.6"
