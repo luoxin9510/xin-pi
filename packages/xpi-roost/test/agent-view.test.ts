@@ -105,6 +105,7 @@ class FakeClient {
 	log: RoostEvent[] = [];
 	/** Spec 03: the build the daemon says it runs. */
 	statusBuild: string | undefined;
+	shutdowns = 0;
 	/** Phase 2: what /schedule lists. */
 	schedules: ScheduleRow[] = [];
 	constructor(rows: JobRow[]) {
@@ -146,14 +147,23 @@ class FakeClient {
 		}
 		this.requests.push({ op, args });
 		if (op === "list") return { jobs: this.rows };
-		if (op === "status") return this.statusBuild ? { build: this.statusBuild } : {};
+		// the pid changes with each shutdown, as a restarted daemon's does (a number no process has)
+		if (op === "shutdown") {
+			this.shutdowns++;
+			return {};
+		}
+		if (op === "status")
+			return { pid: 2147483000 + this.shutdowns, ...(this.statusBuild ? { build: this.statusBuild } : {}) };
 		if (op === "dispatch") {
 			await new Promise((r) => setTimeout(r, this.dispatchDelay));
 			return { id: "new1", name: "new task" };
 		}
 		if (op === "reply") return this.replyResult;
 		// M48: a peek's commands
-		if (op === "respawn") return { results: [{ id: (args as { id: string }).id, started: true }] };
+		if (op === "respawn") {
+			const a = args as { id?: string; ids?: string[] };
+			return { results: (a.ids ?? [a.id as string]).map((id) => ({ id, started: true })) };
+		}
 		if (op === "rm") return { id: (args as { id: string }).id };
 		if (op === "rename") return args;
 		if (op === "pin") return { id: (args as { id: string }).id, pinned: (args as { pinned: boolean }).pinned };
@@ -2543,7 +2553,7 @@ describe("spec 03: the stale-build line", () => {
 		await view.start();
 		const screen = view.render(200).join("\n");
 		expect(line(screen)).toContain("(the background service, 2 sessions)");
-		expect(line(screen)).toContain("xpi roost daemon stop --keep-workers, then xpi roost respawn --all");
+		expect(line(screen)).toContain("restart with /restart");
 		view.dispose();
 	});
 
@@ -2601,6 +2611,81 @@ describe("spec 03: the stale-build line", () => {
 		client.rows = [{ ...rows[0]!, build: "bbbbbbbbbbbbbbbb" }];
 		client.emit({ event: "job", job: client.rows[0]! } as Event);
 		expect(view.render(200).join("\n")).not.toContain("1 session");
+		view.dispose();
+	});
+});
+
+describe("spec 03: /restart in the hub", () => {
+	afterEach(() => {
+		builds.disk = undefined;
+		builds.running = undefined;
+	});
+	const screenWith = async (view: AgentView, text: string): Promise<string> => {
+		let screen = "";
+		for (let i = 0; i < 200; i++) {
+			screen = view.render(200).join("\n");
+			if (screen.includes(text)) return screen;
+			await sleep(5);
+		}
+		return screen;
+	};
+	const ops = (client: FakeClient, op: string) => client.requests.filter((r) => r.op === op).map((r) => r.args);
+
+	it("in a peek it restarts that session, by its id, and in the menu it is listed once", async () => {
+		const { view, client } = setup([row({ id: "p1", name: "tests" }), row({ id: "p2", name: "other" })]);
+		await view.start();
+		view.handleInput(" ");
+		type(view, "/restart");
+		view.handleInput("\r");
+		expect(await screenWith(view, "restarting tests")).toContain("restarting tests onto the installed build");
+		expect(ops(client, "respawn")).toEqual([{ ids: ["p1"] }]);
+		view.dispose();
+	});
+
+	it("in the main input it restarts the service and every running xpi session, one request, the daemon first", async () => {
+		const { view, client } = setup([
+			row({ id: "p1", name: "tests" }),
+			row({ id: "p2", name: "other" }),
+			row({ id: "p3", name: "done", pid: null, state: "done", status: null, endedAt: Date.now() }),
+			row({ id: "sh", name: "! tail", kind: "shell" }),
+		]);
+		await view.start();
+		type(view, "/restart");
+		view.handleInput("\r");
+		await screenWith(view, "restarted onto the installed build");
+		const asked = client.requests.map((r) => r.op).filter((o) => ["shutdown", "respawn"].includes(o));
+		expect(asked).toEqual(["shutdown", "respawn"]);
+		expect(ops(client, "shutdown")).toEqual([{ keepWorkers: true }]);
+		expect(ops(client, "respawn")).toEqual([{ ids: ["p1", "p2"] }]);
+		view.dispose();
+	});
+
+	it("a hub inside a session names its own session last", async () => {
+		// idle: the person who opened the hub is not in the middle of a tool call, so no prompt is sent
+		const { view, client } = setup(
+			[row({ id: "p1", name: "tests", state: "done" }), row({ id: "p2", name: "other" })],
+			{
+				extra: { selfId: "p1" },
+			},
+		);
+		await view.start();
+		type(view, "/restart");
+		view.handleInput("\r");
+		await screenWith(view, "restarted onto the installed build");
+		expect(ops(client, "respawn")).toEqual([{ ids: ["p1", "p2"], last: { id: "p1" } }]);
+		view.dispose();
+	});
+
+	it("the standalone hub says it still runs the old build; the stale line stays", async () => {
+		builds.disk = "bbbbbbbbbbbbbbbb";
+		builds.running = "aaaaaaaaaaaaaaaa";
+		const { view } = setup([row({ id: "p1", build: "bbbbbbbbbbbbbbbb" })], { extra: { standalone: true } });
+		await view.start();
+		type(view, "/restart");
+		view.handleInput("\r");
+		const screen = await screenWith(view, "still runs the old build");
+		expect(screen).toContain("this hub itself still runs the old build until it is started again");
+		expect(screen).toContain("older build of xpi is running (this hub)");
 		view.dispose();
 	});
 });

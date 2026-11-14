@@ -417,24 +417,25 @@ exports[`M79: views and layers, pinned > help over the list and over a peek; any
 xpi agents  1 needs input · 1 working · 0 completed
 ────────────────────────────────────────────────────────────────────────────────────────────────────
 
-  ↑ ↓ PgUp PgDn Home End  move                      Alt+1…9                 attach to row N of th[0m...[0m
-  Enter                   attach · start the t[0m...[0m   Ctrl+F                  find by name (n:)
-  →                       attach                    Ctrl+G                  write the task in $VI[0m...[0m
-  Space                   peek and reply            s: n: o:                filter by state, name[0m...[0m
-  Ctrl+Enter              start the typed task[0m...[0m   @dir task               start the task in tha[0m...[0m
-  Ctrl+X                  stop; again within 2[0m...[0m   ! command               run a shell command a[0m...[0m
-  Ctrl+S                  group by state / dir[0m...[0m   /model /thinking        defaults for new sess[0m...[0m
-  Ctrl+T                  pin / unpin (pinned [0m...[0m   Ctrl+L                  pick the model for ne[0m...[0m
-  Ctrl+O                  mark the row (on a h[0m...[0m   Ctrl+P Shift+Ctrl+P     next / previous enabl[0m...[0m
-  marked: type, Enter     send it to every mar[0m...[0m   Shift+Tab               next thinking level f[0m...[0m
-  in a peek: Alt+Enter    send after its curre[0m...[0m   in a peek: /model       switch that session's[0m...[0m
-  in a peek: /…           that session: /stop [0m...[0m   /resume                 open a past session ([0m...[0m
-  Tab · /                 complete: / the comm[0m...[0m   /usage                  what the sessions spe[0m...[0m
-  Ctrl+G · Ctrl+J         edit the task or rep[0m...[0m   /log                    what happened lately:[0m...[0m
+  ↑ ↓ PgUp PgDn Home End  move                      Ctrl+F                  find by name (n:)
+  Enter                   attach · start the t[0m...[0m   Ctrl+G                  write the task in $VI[0m...[0m
+  →                       attach                    s: n: o:                filter by state, name[0m...[0m
+  Space                   peek and reply            @dir task               start the task in tha[0m...[0m
+  Ctrl+Enter              start the typed task[0m...[0m   ! command               run a shell command a[0m...[0m
+  Ctrl+X                  stop; again within 2[0m...[0m   /model /thinking        defaults for new sess[0m...[0m
+  Ctrl+S                  group by state / dir[0m...[0m   Ctrl+L                  pick the model for ne[0m...[0m
+  Ctrl+T                  pin / unpin (pinned [0m...[0m   Ctrl+P Shift+Ctrl+P     next / previous enabl[0m...[0m
+  Ctrl+O                  mark the row (on a h[0m...[0m   Shift+Tab               next thinking level f[0m...[0m
+  marked: type, Enter     send it to every mar[0m...[0m   in a peek: /model       switch that session's[0m...[0m
+  in a peek: Alt+Enter    send after its curre[0m...[0m   /resume                 open a past session ([0m...[0m
+  in a peek: /…           that session: /stop [0m...[0m   /usage                  what the sessions spe[0m...[0m
+  Tab · /                 complete: / the comm[0m...[0m   /log                    what happened lately:[0m...[0m
+  Ctrl+G · Ctrl+J         edit the task or rep[0m...[0m   /restart                the service and every[0m...[0m
   marked: Ctrl+X Ctrl+T   stop / delete, pin /[0m...[0m   /preset [name]          saved choices for new[0m...[0m
   Ctrl+R                  rename                    Esc                     close peek · clear in[0m...[0m
   Shift+↑ Shift+↓         move the row within [0m...[0m   Ctrl+C                  clear input; twice to[0m...[0m
   Alt+↑ Alt+↓             previous / next group     in a session            ← on an empty prompt,[0m...[0m
+  Alt+1…9                 attach to row N of t[0m...[0m
 
 any key to close
 --- "x"
@@ -483,24 +484,25 @@ Enter send · Alt+Enter after work · 1-9 pick · / commands · Esc close · ? k
 xpi agents  1 needs input · 1 working · 0 completed
 ────────────────────────────────────────────────────────────────────────────────────────────────────
 
-  ↑ ↓ PgUp PgDn Home End  move                      Alt+1…9                 attach to row N of th[0m...[0m
-  Enter                   attach · start the t[0m...[0m   Ctrl+F                  find by name (n:)
-  →                       attach                    Ctrl+G                  write the task in $VI[0m...[0m
-  Space                   peek and reply            s: n: o:                filter by state, name[0m...[0m
-  Ctrl+Enter              start the typed task[0m...[0m   @dir task               start the task in tha[0m...[0m
-  Ctrl+X                  stop; again within 2[0m...[0m   ! command               run a shell command a[0m...[0m
-  Ctrl+S                  group by state / dir[0m...[0m   /model /thinking        defaults for new sess[0m...[0m
-  Ctrl+T                  pin / unpin (pinned [0m...[0m   Ctrl+L                  pick the model for ne[0m...[0m
-  Ctrl+O                  mark the row (on a h[0m...[0m   Ctrl+P Shift+Ctrl+P     next / previous enabl[0m...[0m
-  marked: type, Enter     send it to every mar[0m...[0m   Shift+Tab               next thinking level f[0m...[0m
-  in a peek: Alt+Enter    send after its curre[0m...[0m   in a peek: /model       switch that session's[0m...[0m
-  in a peek: /…           that session: /stop [0m...[0m   /resume                 open a past session ([0m...[0m
-  Tab · /                 complete: / the comm[0m...[0m   /usage                  what the sessions spe[0m...[0m
-  Ctrl+G · Ctrl+J         edit the task or rep[0m...[0m   /log                    what happened lately:[0m...[0m
+  ↑ ↓ PgUp PgDn Home End  move                      Ctrl+F                  find by name (n:)
+  Enter                   attach · start the t[0m...[0m   Ctrl+G                  write the task in $VI[0m...[0m
+  →                       attach                    s: n: o:                filter by state, name[0m...[0m
+  Space                   peek and reply            @dir task               start the task in tha[0m...[0m
+  Ctrl+Enter              start the typed task[0m...[0m   ! command               run a shell command a[0m...[0m
+  Ctrl+X                  stop; again within 2[0m...[0m   /model /thinking        defaults for new sess[0m...[0m
+  Ctrl+S                  group by state / dir[0m...[0m   Ctrl+L                  pick the model for ne[0m...[0m
+  Ctrl+T                  pin / unpin (pinned [0m...[0m   Ctrl+P Shift+Ctrl+P     next / previous enabl[0m...[0m
+  Ctrl+O                  mark the row (on a h[0m...[0m   Shift+Tab               next thinking level f[0m...[0m
+  marked: type, Enter     send it to every mar[0m...[0m   in a peek: /model       switch that session's[0m...[0m
+  in a peek: Alt+Enter    send after its curre[0m...[0m   /resume                 open a past session ([0m...[0m
+  in a peek: /…           that session: /stop [0m...[0m   /usage                  what the sessions spe[0m...[0m
+  Tab · /                 complete: / the comm[0m...[0m   /log                    what happened lately:[0m...[0m
+  Ctrl+G · Ctrl+J         edit the task or rep[0m...[0m   /restart                the service and every[0m...[0m
   marked: Ctrl+X Ctrl+T   stop / delete, pin /[0m...[0m   /preset [name]          saved choices for new[0m...[0m
   Ctrl+R                  rename                    Esc                     close peek · clear in[0m...[0m
   Shift+↑ Shift+↓         move the row within [0m...[0m   Ctrl+C                  clear input; twice to[0m...[0m
   Alt+↑ Alt+↓             previous / next group     in a session            ← on an empty prompt,[0m...[0m
+  Alt+1…9                 attach to row N of t[0m...[0m
 
 any key to close
 --- "j"

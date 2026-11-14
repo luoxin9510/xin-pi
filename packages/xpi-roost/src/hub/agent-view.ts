@@ -21,7 +21,7 @@ import {
 	truncateToWidth,
 	visibleWidth,
 } from "xpi-tui";
-import { attachToHost, type DetachKeyMatcher, type DetachReason } from "../lib/attach.ts";
+import { attachFollowingRestart, attachToHost, type DetachKeyMatcher, type DetachReason } from "../lib/attach.ts";
 import { type DaemonClient, DaemonError, GiveUp } from "../lib/client.ts";
 import { type Preset, presetFrom } from "../lib/config.ts";
 import { atCandidates, atPrefix, parseInput, THINKING_LEVELS } from "../lib/dispatch-input.ts";
@@ -31,6 +31,7 @@ import { hostControl } from "../lib/hostclient.ts";
 import { forgetJob, observeJob } from "../lib/job-events.ts";
 import { hostSocketPath } from "../lib/paths.ts";
 import type { DispatchArgs, Event, JobRow, ReplyMode } from "../lib/protocol.ts";
+import { restartRoost } from "../lib/restart.ts";
 import { ensureLive } from "../lib/resume.ts";
 import { normalizeWhen, parseScheduleInput, type ScheduleLaunchInput, untilText } from "../lib/schedule.ts";
 import { commandsPath, readCommands, type SessionCommand, screenPath } from "../lib/store.ts";
@@ -79,6 +80,7 @@ const TAIL_READ_MAX = 256 * 1024;
 const PEEK_COMMANDS: { name: string; description: string; argumentHint?: string }[] = [
 	{ name: "stop", description: "stop it" },
 	{ name: "respawn", description: "start it again" },
+	{ name: "restart", description: "restart it onto the installed build of xpi" },
 	{ name: "rm", description: "delete it (twice within 2 s)" },
 	{ name: "pin", description: "pin / unpin (a pinned session keeps running)" },
 	{ name: "rename", description: "rename it (bare: edit the name)", argumentHint: "name" },
@@ -583,7 +585,7 @@ export class AgentView implements Component {
 
 	/**
 	 * Spec 03: the line that stays while the daemon, a running session or (standalone) this hub runs an older build
-	 * than the installed one. `/restart` does not exist yet: the two commands that do the same.
+	 * than the installed one, and what restarts them (`/restart`).
 	 */
 	private staleLine(): string | undefined {
 		const daemon = isStale(this.daemonBuild, this.installedBuild);
@@ -597,10 +599,7 @@ export class AgentView implements Component {
 			...(sessions > 0 ? [`${sessions} session${sessions === 1 ? "" : "s"}`] : []),
 			...(self ? ["this hub"] : []),
 		];
-		const fix =
-			daemon || sessions > 0
-				? "restart with: xpi roost daemon stop --keep-workers, then xpi roost respawn --all"
-				: "";
+		const fix = daemon || sessions > 0 ? "restart with /restart" : "";
 		const hub = self ? "start the hub again for itself" : "";
 		return `an older build of xpi is running (${parts.join(", ")}); ${[fix, hub].filter(Boolean).join("; ")}`;
 	}
@@ -1181,6 +1180,16 @@ export class AgentView implements Component {
 			}
 			case "resume":
 				this.resume();
+				return done();
+			case "restart":
+				if (arg) {
+					this.say(
+						"/restart takes no argument here: it restarts the service and every running session",
+						"warning",
+					);
+					return true;
+				}
+				void this.restartEverything();
 				return done();
 			case "usage":
 				this.showUsage();
@@ -1840,6 +1849,17 @@ export class AgentView implements Component {
 					? this.say(`starting ${row.name} again`, "success")
 					: this.say(first?.error ?? `${row.name} was not started`, "warning");
 			}
+			case "restart": {
+				// spec 03: a running xpi session only; the hub inside this very session names it last (it goes with it)
+				done();
+				if (row.pid === null || row.kind === "shell")
+					return this.say(`${row.name} is not running as an xpi session`, "warning");
+				const r = await port.jobs.restart([row.id], row.id === this.o.selfId ? { id: row.id } : undefined);
+				const first = r.results[0];
+				return first?.started
+					? this.say(`restarting ${row.name} onto the installed build`, "success")
+					: this.say(first?.error ?? `${row.name} was not restarted`, "warning");
+			}
 			case "rm": {
 				// twice within 2 s, as Ctrl+X Ctrl+X
 				done();
@@ -2016,6 +2036,7 @@ export class AgentView implements Component {
 			{ name: "resume", description: "pick a session to resume in the background" },
 			{ name: "usage", description: "what the sessions spent" },
 			{ name: "log", description: "what happened lately" },
+			{ name: "restart", description: "restart the service and every running session onto the installed xpi" },
 			{
 				name: "preset",
 				description: "launch presets",
@@ -2710,6 +2731,45 @@ export class AgentView implements Component {
 		}
 	}
 
+	/** Spec 03: `/restart` in the main input: the service and every running xpi session, as `xpi roost restart`. */
+	private restarting = false;
+	private async restartEverything(): Promise<void> {
+		if (this.restarting) return this.say("already restarting", "warning");
+		this.restarting = true;
+		try {
+			const lines: string[] = [];
+			const code = await restartRoost(
+				// the hub inside a session is one of those restarted: its session goes last
+				{ self: this.o.selfId },
+				{
+					connect: () => this.o.connect(),
+					buildOnDisk,
+					say: (line) => {
+						lines.push(line);
+						this.say(line, "warning");
+					},
+				},
+			);
+			const failed = lines.filter((l) => l.includes("failed") || l.includes("ended while") || l.includes("did not"));
+			// the hub cannot replace its own code: unless its build is known to be the installed one, it says so
+			const onDisk = buildOnDisk();
+			const own =
+				this.o.standalone && !(ROOST_BUILD && onDisk && ROOST_BUILD === onDisk)
+					? " · this hub itself still runs the old build until it is started again"
+					: "";
+			this.say(
+				code === 0
+					? `restarted onto the installed build${own}`
+					: `restart finished with problems: ${failed.length ? oneLine(failed.join("; ")) : "see xpi roost restart"}${own}`,
+				code === 0 ? "success" : "error",
+			);
+		} catch (err) {
+			this.say(`restart failed: ${oneLine((err as Error).message)}`, "error");
+		} finally {
+			this.restarting = false;
+		}
+	}
+
 	/** AT-1/AT-2: hand the terminal to the job's PTY host, then repaint. */
 	private async attachTo(id: string): Promise<void> {
 		// M22: one attach at a time: a second one would share the terminal with the first,
@@ -2741,10 +2801,18 @@ export class AgentView implements Component {
 			// M14: leave the screen as it is (fullscreen xpi would print its transcript first)
 			tui.stop({ preserveScreen: true });
 			if (row.pid === null) await ensureLive(this.client!, row, process.stdout);
-			reason = await attachToHost(
-				hostSocketPath(id),
-				{ stdin: process.stdin, stdout: process.stdout },
-				{ isDetachKey: this.o.isDetachKey },
+			// spec 03: a restart of the session (by anyone) is not an end: attach to its new process
+			reason = await attachFollowingRestart(
+				(onAttached) =>
+					attachToHost(
+						hostSocketPath(id),
+						{ stdin: process.stdin, stdout: process.stdout },
+						{ isDetachKey: this.o.isDetachKey, onAttached },
+					),
+				{
+					restarting: () => this.rows.get(id)?.restarting === true,
+					say: (text) => process.stdout.write(`\r\n${text}\r\n`),
+				},
 			);
 		} catch (err) {
 			reason = "error";
@@ -2758,7 +2826,7 @@ export class AgentView implements Component {
 		this.cursor = { kind: "row", id };
 		if (failure) this.say(`could not start ${row.name}: ${oneLine(failure)}`, "error");
 		else if (reason === "takeover") this.say("Attached elsewhere", "warning");
-		else if (reason === "exit") this.say(`${row.name} ended`);
+		else if (reason === "exit" || reason === "restart") this.say(`${row.name} ended`);
 		else if (reason === "error" || reason === "closed") this.say(`lost the connection to ${row.name}`, "error");
 	}
 
@@ -3199,7 +3267,7 @@ export class AgentView implements Component {
 			["in a peek: Alt+Enter", "send after its current work (Enter: joins it, as in xpi)"],
 			[
 				"in a peek: /…",
-				"that session: /stop /respawn /rm /pin /rename /attach /model /thinking /name /compact /continue /log /transcript",
+				"that session: /stop /respawn /restart /rm /pin /rename /attach /model /thinking /name /compact /continue /log /transcript",
 			],
 			["Tab · /", "complete: / the commands, @ paths (xpi's menu: ↑↓ choose, Enter or Tab take)"],
 			["Ctrl+G · Ctrl+J", "edit the task or reply in $VISUAL · a new line"],
@@ -3221,6 +3289,7 @@ export class AgentView implements Component {
 			["/resume", "open a past session (search; Tab: this directory or all)"],
 			["/usage", "what the sessions spent: today, all, by model, by session"],
 			["/log", "what happened lately: starts, questions, results, replies (newest first)"],
+			["/restart", "the service and every running session onto the installed xpi (xpi roost restart)"],
 			["/preset [name]", "saved choices for new sessions (save <name>, rm <name>, off)"],
 			...(this.o.scheduleLaunch
 				? ([

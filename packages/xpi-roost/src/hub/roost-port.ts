@@ -30,6 +30,8 @@ export interface RoostPort {
 		rename(id: string, name: string): Promise<ResultOf<"rename">>;
 		reorder(ids: string[], key: string): Promise<ResultOf<"reorder">>;
 		respawn(id: string): Promise<ResultOf<"respawn">>;
+		/** Spec 03: restart these running sessions onto the installed build, `last` after the others. */
+		restart(ids: string[], last?: { id: string; prompt?: string }): Promise<ResultOf<"respawn">>;
 		/** M51: sent with a request id, again on the new connection while the daemon restarts. */
 		reply(args: ArgsOf<"reply">, opts?: Once): Promise<ResultOf<"reply">>;
 		dispatch(args: ArgsOf<"dispatch">, opts?: Once): Promise<ResultOf<"dispatch">>;
@@ -88,6 +90,7 @@ export function roostPort(
 			rename: (id, name) => client.request("rename", { id, name }),
 			reorder: (ids, key) => client.request("reorder", { ids, key }),
 			respawn: (id) => client.request("respawn", { id }),
+			restart: (ids, last) => client.request("respawn", { ids, ...(last ? { last } : {}) }),
 			reply: once.reply,
 			dispatch: once.dispatch,
 		},

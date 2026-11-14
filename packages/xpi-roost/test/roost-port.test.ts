@@ -41,6 +41,7 @@ const table: [string, (p: RoostPort) => Promise<unknown>, string, unknown][] = [
 	["jobs.rename", (p) => p.jobs.rename("a", "n"), "rename", { id: "a", name: "n" }],
 	["jobs.reorder", (p) => p.jobs.reorder(["a", "b"], "k"), "reorder", { ids: ["a", "b"], key: "k" }],
 	["jobs.respawn", (p) => p.jobs.respawn("a"), "respawn", { id: "a" }],
+	["jobs.restart", (p) => p.jobs.restart(["a", "b"], { id: "b" }), "respawn", { ids: ["a", "b"], last: { id: "b" } }],
 	["events.list", (p) => p.events.list({ limit: 500 }), "events", { limit: 500 }],
 ];
 
