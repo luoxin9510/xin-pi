@@ -7,11 +7,20 @@ import type { CodemodeWasmModule } from "../wasm.ts";
  * out of the QuickJS VM as strings and never builds structured values itself.
  */
 
+/** The tag that marks an exit request, so two loaded copies of this package still agree. */
+export const CODEMODE_EXIT_TAG: unique symbol = Symbol.for("xpi.codemode.exit") as never;
+
 /**
  * Returned by a tool's `execute` to end the script like `exit()` right after the call: the script keeps its output and
  * its `store()` writes, and the call's own promise never settles. Only for tools of `execute()` runs.
  */
-export class CodemodeExit {}
+export class CodemodeExit {
+	readonly [CODEMODE_EXIT_TAG] = true;
+}
+
+export function isCodemodeExit(value: unknown): boolean {
+	return typeof value === "object" && value !== null && (value as Record<symbol, unknown>)[CODEMODE_EXIT_TAG] === true;
+}
 
 /**
  * Everything a VM needs to run one script, independent of where it runs. Plain data, so it can

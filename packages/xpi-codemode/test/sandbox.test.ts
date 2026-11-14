@@ -350,6 +350,14 @@ describe.each(Object.keys(BACKENDS))("%s backend", (name) => {
 			});
 		});
 
+		it("takes any object carrying the exit tag as an exit request, as another copy of the package would make it", async () => {
+			const sandbox = createSandbox([
+				{ name: "stop", execute: () => ({ [Symbol.for("xpi.codemode.exit")]: true }) },
+			]);
+			const result = await sandbox.execute(`text("before"); await tools.stop(); text("after");`);
+			expect(result).toMatchObject({ ok: true, output: [{ type: "text", text: "before" }] });
+		});
+
 		it("passes undefined arguments and results through", async () => {
 			const sandbox = createSandbox([{ name: "noop", execute: (args) => args }]);
 			const result = await sandbox.execute("return [await tools.noop(), await tools.noop(null)]");

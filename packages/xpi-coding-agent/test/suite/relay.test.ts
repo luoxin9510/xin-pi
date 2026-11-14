@@ -523,6 +523,32 @@ describe("relay", () => {
 		expect(review).not.toContain("failed (exit 9)");
 	});
 
+	it("keeps a blocked hand back blocked when a user message arrives before the run ends: no acceptance", async () => {
+		const { harness, seen, parallel, call, say } = await createRelayHarness({ codemode: true });
+		harness.setResponses([
+			call("codemode", { code: `await tools.handover({ plan: "P", acceptance: ["exit 9"] });` }),
+			// The hand back is in a batch with another call, so the run goes on.
+			parallel(`await tools.handback({ status: "blocked", report: "STUCK-REPORT" });`, `text("side")`),
+			(context, _options, _state, model): ReturnType<typeof fauxAssistantMessage> => {
+				// A user message arrives while the worker answers; it is queued behind this response.
+				void harness.session.steer("USER-FOLLOWUP");
+				seen.push({ model: model.id, text: textOf(context) });
+				return fauxAssistantMessage("worker waits");
+			},
+			say("worker answers the follow-up"),
+			say("reviewed"),
+		]);
+		await harness.session.prompt("build it");
+		await harness.session.waitForIdle();
+		// The follow-up reached the worker after its hand back, before the run ended.
+		expect(seen.some((request) => request.model === "small" && request.text.includes("USER-FOLLOWUP"))).toBe(true);
+		const review = seen.at(-1)?.text ?? "";
+		expect(review).toContain("status: blocked");
+		expect(review).toContain("STUCK-REPORT");
+		expect(review).not.toContain("failed (exit 9)");
+		expect(review).not.toContain("did not all pass");
+	});
+
 	it("/handover gives the work to the worker without a plan from the lead", async () => {
 		const { harness, seen, system, entries, say } = await createRelayHarness({ codemode: true });
 		harness.setResponses([say("worker did it"), say("reviewed")]);
