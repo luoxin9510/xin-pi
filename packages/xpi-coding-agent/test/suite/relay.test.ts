@@ -274,7 +274,7 @@ describe("relay", () => {
 	});
 
 	it("corrects a hand tool of the other role; a second mix-up by the worker hands back as blocked", async () => {
-		const { harness, seen, notes, entries, script, say } = await createRelayHarness({ codemode: true });
+		const { harness, seen, notes, entries, script, say, call } = await createRelayHarness({ codemode: true });
 		harness.setResponses([
 			// The lead calls the worker's tool: an error, then it answers the user.
 			script(`await tools.handback({ status: "done", report: "x" });`),
@@ -313,11 +313,12 @@ describe("relay", () => {
 		// A second round starts from the record and counts on.
 		harness.appendResponses([
 			script(`await tools.handover({ plan: "ROUND-TWO-PLAN" });`),
+			call("echo", { text: "work" }),
 			say("worker again"),
 			say("fine"),
 		]);
 		await harness.session.prompt("one more thing");
-		expect(seen.slice(5).map((request) => request.model)).toEqual(["large", "small", "large"]);
+		expect(seen.slice(5).map((request) => request.model)).toEqual(["large", "small", "small", "large"]);
 		expect(seen.at(-1)?.text).toContain('round="2"');
 		expect(seen.at(-1)?.text).toContain("Round 1: do it (blocked)");
 		expect(seen.at(-1)?.text).toContain("ROUND-TWO-PLAN");
@@ -343,6 +344,51 @@ describe("relay", () => {
 		// It then ends normally: the last message is the report and the acceptance has nothing to run.
 		expect(seen[4].text).toContain("WORKER-FINAL-WORDS");
 		expect(seen[4].text).toContain("The worker stopped after a relay error; it was continued.");
+	});
+
+	it("continues a worker that answers with text only after a handover, instead of verifying it", async () => {
+		const { harness, seen, system, notes, entries, script, call, say } = await createRelayHarness({
+			codemode: true,
+		});
+		harness.setResponses([
+			script(`await tools.handover({ plan: "PLAN-X", acceptance: ["true"] });`),
+			// The worker takes the lead's messages for its own and stops.
+			say("I have handed the work to the worker and wait for it."),
+			call("echo", { text: "real work" }),
+			call("handback", { status: "done", report: "REAL-REPORT" }),
+			say("reviewed"),
+		]);
+		await harness.session.prompt("build it");
+		await harness.session.waitForIdle();
+		expect(seen.map((request) => request.model)).toEqual(["large", "small", "small", "small", "large"]);
+		// The first worker request already says the handover happened and who wrote the earlier messages.
+		expect(system[1]).toContain("The handover has already happened");
+		expect(system[1]).toContain("written by the lead");
+		// The text-only stop was continued with a reminder, and the acceptance commands did not run for it.
+		expect(seen[2].text).toContain("You answered without doing any work");
+		expect(entries("relay.stall")).toMatchObject([{ role: "worker", reason: "idle" }]);
+		expect(notes).toContain("relay: worker stopped without working, continued (1 of 2)");
+		// Had it been verified, the passing command would have ended the phase after the text-only answer.
+		expect(seen[4].text).toContain("`true`: passed (exit 0)");
+		expect(seen[4].text).toContain("REAL-REPORT");
+		expect(seen[4].text).toContain("The worker stopped without doing any work; it was continued.");
+	});
+
+	it("hands back as blocked a worker that keeps answering with text only", async () => {
+		const { harness, seen, script, say } = await createRelayHarness({ codemode: true });
+		harness.setResponses([
+			script(`await tools.handover({ plan: "P", acceptance: ["exit 9"] });`),
+			say("waiting 1"),
+			say("waiting 2"),
+			say("waiting 3"),
+			say("reviewed"),
+		]);
+		await harness.session.prompt("build it");
+		await harness.session.waitForIdle();
+		expect(seen.map((request) => request.model)).toEqual(["large", "small", "small", "small", "large"]);
+		expect(seen[4].text).toContain("status: blocked");
+		expect(seen[4].text).toContain("The worker stopped without doing any work");
+		expect(seen[4].text).not.toContain("failed (exit 9)");
 	});
 
 	it("continues a lead that stops after a wrong-role error at most twice, then lets it end", async () => {
@@ -380,8 +426,9 @@ describe("relay", () => {
 		expect(seen.map((request) => request.model)).toEqual(["large", "small", "large"]);
 		// The result as the worker reads it: the note first, the marker as the last line.
 		expect(seen[1].text).toContain(
-			`(Call handover from codemode next time: await tools.handover(...).)\n${handoverMarker(1)}`,
+			"(Call handover from codemode next time: await tools.handover(...).)\nHanded over to the worker model (round 1)",
 		);
+		expect(seen[1].text).toContain(`the messages above were written by the lead.\n${handoverMarker(1)}`);
 		// The role is the stored phase: a hand tool called by the worker is labelled the worker's.
 		expect(entries("relay.direct")).toMatchObject([
 			{ tool: "handover", role: "lead" },
@@ -393,12 +440,13 @@ describe("relay", () => {
 	});
 
 	it("does not start the worker after an unawaited handover whose script ended first", async () => {
-		const { harness, seen, entries, script, say } = await createRelayHarness({ codemode: true });
+		const { harness, seen, entries, script, say, call } = await createRelayHarness({ codemode: true });
 		harness.setResponses([
 			script(`tools.handover({ plan: "UNAWAITED" }); text("script ended");`),
 			say("the lead goes on"),
 			// A later, real handover works: the voided one did not leave "already handed over" behind.
 			script(`await tools.handover({ plan: "REAL" });`),
+			call("echo", { text: "work" }),
 			say("worker done"),
 			say("review"),
 		]);
@@ -406,7 +454,7 @@ describe("relay", () => {
 		expect(seen.map((request) => request.model)).toEqual(["large", "large"]);
 		expect(entries("relay.transition")).toHaveLength(0);
 		await harness.session.prompt("again");
-		expect(seen.slice(2).map((request) => request.model)).toEqual(["large", "small", "large"]);
+		expect(seen.slice(2).map((request) => request.model)).toEqual(["large", "small", "small", "large"]);
 		expect(entries("relay.transition")).toMatchObject([{ to: "worker" }, { to: "lead" }]);
 	});
 
@@ -429,21 +477,23 @@ describe("relay", () => {
 	});
 
 	it("ends the script at the first handover: the second call never runs", async () => {
-		const { harness, seen, entries, script, say } = await createRelayHarness({ codemode: true });
+		const { harness, seen, entries, script, say, call } = await createRelayHarness({ codemode: true });
 		harness.setResponses([
 			script(`await tools.handover({ plan: "FIRST" }); await tools.handover({ plan: "SECOND" });`),
+			call("echo", { text: "work" }),
 			say("worker done"),
 			say("review"),
 		]);
 		await harness.session.prompt("go");
 		expect(entries("relay.handover")).toMatchObject([{ plan: "FIRST" }]);
-		expect(seen.map((request) => request.model)).toEqual(["large", "small", "large"]);
+		expect(seen.map((request) => request.model)).toEqual(["large", "small", "small", "large"]);
 	});
 
 	it("answers 'already handed over' to a second handover in a parallel codemode call", async () => {
-		const { harness, seen, entries, parallel, say } = await createRelayHarness({ codemode: true });
+		const { harness, seen, entries, parallel, say, call } = await createRelayHarness({ codemode: true });
 		harness.setResponses([
 			parallel(`text(await tools.handover({ plan: "FIRST" }));`, `text(await tools.handover({ plan: "SECOND" }));`),
+			call("echo", { text: "work" }),
 			say("worker done"),
 			say("review"),
 		]);
@@ -454,11 +504,11 @@ describe("relay", () => {
 		expect(seen[1].text.split(handoverMarker(1))).toHaveLength(2);
 		expect(seen[1].text.split("Already handed over.")).toHaveLength(2);
 		// One handover took effect: the worker answered next, once.
-		expect(seen.map((request) => request.model)).toEqual(["large", "small", "large"]);
+		expect(seen.map((request) => request.model)).toEqual(["large", "small", "small", "large"]);
 	});
 
 	it("pauses the worker's phase when another model is selected and resumes it on relay/auto", async () => {
-		const { harness, seen, system, notes, entries, script, say, abort } = await createRelayHarness({
+		const { harness, seen, system, notes, entries, script, say, abort, call } = await createRelayHarness({
 			codemode: true,
 		});
 		harness.setResponses([script(HAND_OVER), abort()]);
@@ -479,10 +529,10 @@ describe("relay", () => {
 		await harness.session.setModel(harness.session.modelRuntime.getModel(RELAY_PROVIDER, RELAY_MODEL)!);
 		expect(notes).toContain("relay resumed (worker phase, round 1)");
 		expect(entries("relay.resume")).toHaveLength(1);
-		harness.appendResponses([say("worker continues"), say("review")]);
+		harness.appendResponses([call("echo", { text: "work" }), say("worker continues"), say("review")]);
 		await harness.session.prompt("carry on");
-		expect(seen.slice(-2).map((request) => request.model)).toEqual(["small", "large"]);
-		expect(system.at(-2)).toContain('<relay role="worker">');
+		expect(seen.slice(-3).map((request) => request.model)).toEqual(["small", "small", "large"]);
+		expect(system.at(-3)).toContain('<relay role="worker">');
 	});
 
 	it("/handback while the worker has the work: one hand back, with the worker's own report and no acceptance run", async () => {
@@ -550,18 +600,18 @@ describe("relay", () => {
 	});
 
 	it("/handover gives the work to the worker without a plan from the lead", async () => {
-		const { harness, seen, system, entries, say } = await createRelayHarness({ codemode: true });
-		harness.setResponses([say("worker did it"), say("reviewed")]);
+		const { harness, seen, system, entries, say, call } = await createRelayHarness({ codemode: true });
+		harness.setResponses([call("echo", { text: "work" }), say("worker did it"), say("reviewed")]);
 		await harness.session.prompt("/handover do the thing");
 		await harness.session.waitForIdle();
-		expect(seen.map((request) => request.model)).toEqual(["small", "large"]);
+		expect(seen.map((request) => request.model)).toEqual(["small", "small", "large"]);
 		expect(system[0]).toContain("given by the user");
 		expect(system[0]).toContain("do the thing");
 		expect(entries("relay.transition")).toMatchObject([
 			{ from: "lead", to: "worker" },
 			{ from: "worker", to: "lead" },
 		]);
-		expect(seen[1].text).toContain("Handover (given by the user with /handover)");
+		expect(seen[2].text).toContain("Handover (given by the user with /handover)");
 		// A second /handover while the worker has the work is refused; the lead has it again now, so it goes through.
 	});
 

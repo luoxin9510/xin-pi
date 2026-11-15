@@ -80,7 +80,14 @@ describe("relay machine", () => {
 			expect(next.pending).toBe("handover");
 			expect(effectiveState(next)).toEqual({ phase: "worker", round: 2 });
 			expect(kinds(effects)).toEqual(["entry:relay.handover", "result"]);
-			expect(result(effects)).toEqual({ type: "result", text: '<relay-handover round="2"/>', terminate: true });
+			// One neutral line, then the marker as the very last line.
+			expect(result(effects)).toEqual({
+				type: "result",
+				text: expect.stringMatching(
+					/^Handed over to the worker model \(round 2\).*\n<relay-handover round="2"\/>$/,
+				),
+				terminate: true,
+			});
 		});
 
 		it("lead | handover by the user: the same row without a tool result", () => {
@@ -235,8 +242,42 @@ describe("relay machine", () => {
 				const { next, effects } = transition(view, EVENTS["run_end after relay error"], config);
 				expect(next.stalls).toBe(view.stalls + 1);
 				expect(kinds(effects)).toEqual(["entry:relay.stall", "notify", "continue_with"]);
-				expect(effects.at(-1)).toEqual({ type: "continue_with", kind: "role_reminder" });
+				expect(effects.at(-1)).toEqual({ type: "continue_with", kind: "role_reminder", reason: "error" });
 			}
+		});
+
+		it("worker | run_end with no tool call in the phase and no hand back: a stall like a relay error", () => {
+			const idle: RelayEvent = { type: "run_end", afterRelayError: false, workerIdle: true };
+			for (const name of ["worker", "worker, stalls 1"]) {
+				const view = VIEWS[name];
+				const { next, effects } = transition(view, idle, config);
+				expect(next.stalls).toBe(view.stalls + 1);
+				expect(kinds(effects)).toEqual(["entry:relay.stall", "notify", "continue_with"]);
+				expect(effects[0]).toMatchObject({ data: { role: "worker", reason: "idle" } });
+				expect(effects.at(-1)).toEqual({ type: "continue_with", kind: "role_reminder", reason: "idle" });
+			}
+			// stalls = 2: a blocked hand back and the record.
+			const last = transition(VIEWS["worker, stalls 2"], idle, config);
+			expect(kinds(last.effects)).toEqual([
+				"entry:relay.handback",
+				"notify",
+				"compact_record",
+				"entry:relay.transition",
+			]);
+			expect(last.effects[0]).toMatchObject({
+				data: { status: "blocked", report: "The worker stopped without doing any work" },
+			});
+			// Not when a hand back is pending, the user asked for one, or the worker did work.
+			expect(kinds(transition(VIEWS["worker, pending handback"], idle, config).effects)).toEqual(["run_acceptance"]);
+			expect(kinds(transition(VIEWS["worker, user asked"], idle, config).effects)).toEqual([
+				"compact_record",
+				"entry:relay.transition",
+			]);
+			expect(
+				kinds(transition(worker(), { type: "run_end", afterRelayError: false, workerIdle: false }, config).effects),
+			).toEqual(["run_acceptance"]);
+			// The lead is never continued for being idle.
+			expect(transition(lead(), idle, config).effects).toEqual([]);
 		});
 
 		it("worker | run_end after a relay error, stalls = 2: a blocked hand back and the record", () => {

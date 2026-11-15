@@ -74,12 +74,14 @@ export interface Phase {
 }
 
 function repairLine(entry: SessionEntry & { type: "custom" }): string | undefined {
-	const data = (entry.data ?? {}) as { tool?: string; role?: string };
+	const data = (entry.data ?? {}) as { tool?: string; role?: string; reason?: string };
 	switch (entry.customType) {
 		case MIXUP_ENTRY:
 			return `The ${data.role ?? "model"} called ${data.tool ?? "a hand tool"} of the other role; it was corrected.`;
 		case STALL_ENTRY:
-			return `The ${data.role ?? "model"} stopped after a relay error; it was continued.`;
+			return data.reason === "idle"
+				? `The ${data.role ?? "model"} stopped without doing any work; it was continued.`
+				: `The ${data.role ?? "model"} stopped after a relay error; it was continued.`;
 		case DIRECT_ENTRY:
 			return `The ${data.role ?? "model"} called ${data.tool ?? "a hand tool"} directly; it was run through codemode.`;
 		default:
@@ -276,4 +278,18 @@ export function handoverLanded(branch: readonly SessionEntry[], round: number): 
 		const text = message.content.map((block) => (block.type === "text" ? block.text : "")).join("\n");
 		return lastLineHandoverRound(text) === round;
 	});
+}
+
+/** Whether the worker has made no tool call since the latest handover: it answered with text only. */
+export function workerMadeNoCalls(branch: readonly SessionEntry[]): boolean {
+	const handover = branch.findLastIndex((entry) => entry.type === "custom" && entry.customType === HANDOVER_ENTRY);
+	if (handover < 0) return false;
+	return !branch
+		.slice(handover + 1)
+		.some(
+			(entry) =>
+				entry.type === "message" &&
+				entry.message.role === "assistant" &&
+				entry.message.content.some((block) => block.type === "toolCall"),
+		);
 }

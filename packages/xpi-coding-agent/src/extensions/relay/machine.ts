@@ -53,8 +53,9 @@ export type RelayEvent =
 	/**
 	 * A run settles. `afterRelayError`: its last turn ended right after a `relay.mixup`. `handoverLanded` (default true):
 	 * the handover's marker really ended a tool result; false when the call was cut off after its entry was written.
+	 * `workerIdle`: the worker has made no tool call since the handover (it answered with text only).
 	 */
-	| { type: "run_end"; afterRelayError: boolean; handoverLanded?: boolean }
+	| { type: "run_end"; afterRelayError: boolean; handoverLanded?: boolean; workerIdle?: boolean }
 	/** The acceptance commands ran. `attempt`: how many times they failed before this run. */
 	| { type: "acceptance"; passed: boolean; attempt: number }
 	| { type: "model_away" }
@@ -83,7 +84,12 @@ export type Effect =
 	/** Compact the conversation to the hand-back record, and wake the lead. */
 	| { type: "compact_record" }
 	/** Go on with the same role: after a relay error (`role_reminder`) or a failed acceptance run (`acceptance_failure`). */
-	| { type: "continue_with"; kind: "role_reminder" | "acceptance_failure" | "worker_starts" }
+	| {
+			type: "continue_with";
+			kind: "role_reminder" | "acceptance_failure" | "worker_starts";
+			/** For `role_reminder`: why the role is continued. */
+			reason?: StallReason;
+	  }
 	/** Tell the user: a line in the TUI. */
 	| { type: "notify"; text: string; level?: "info" | "warning" }
 	/** `/handback`: ask the worker to stop and report. */
@@ -100,7 +106,12 @@ export interface Transition {
 }
 
 const BLOCKED_BY_MIXUP = "The worker mixed up its role twice";
-const BLOCKED_BY_STALL = "The worker stopped after relay errors";
+export type StallReason = "error" | "idle";
+
+const BLOCKED_BY_STALL: Record<StallReason, string> = {
+	error: "The worker stopped after relay errors",
+	idle: "The worker stopped without doing any work",
+};
 
 function refuse(view: RelayView, text: string): Transition {
 	return { next: view, effects: [{ type: "result", text, isError: true }] };
@@ -167,7 +178,14 @@ export function transition(view: RelayView, event: RelayEvent, config: MachineCo
 						{ type: "append_entry", entry: "relay.handover" },
 						...(event.byUser
 							? []
-							: [{ type: "result", text: handoverMarker(view.round + 1), terminate: true } as const]),
+							: [
+									{
+										type: "result",
+										// One neutral line, then the marker, which stays the last line of the result.
+										text: `Handed over to the worker model (round ${view.round + 1}): from the next message on the worker answers; the messages above were written by the lead.\n${handoverMarker(view.round + 1)}`,
+										terminate: true,
+									} as const,
+								]),
 					],
 				};
 			}
@@ -261,9 +279,16 @@ export function transition(view: RelayView, event: RelayEvent, config: MachineCo
 			}
 			// The worker's run.
 			if (view.pending === "handback") return endWorkerRun(view);
-			if (event.afterRelayError) {
-				if (view.stalls < MAX_REPAIRS) return stall(view, "worker");
-				const blocked = handBackBlocked(view, BLOCKED_BY_STALL);
+			// A worker that answered with text only, without a tool call and without a hand back, took the lead's
+			// messages for its own: it counts as a stall too, unless the user asked it to stop.
+			const reason: StallReason | undefined = event.afterRelayError
+				? "error"
+				: event.workerIdle === true && !view.userAsked && !view.blocked
+					? "idle"
+					: undefined;
+			if (reason) {
+				if (view.stalls < MAX_REPAIRS) return stall(view, "worker", reason);
+				const blocked = handBackBlocked(view, BLOCKED_BY_STALL[reason]);
 				const ended = endWorkerRun(blocked.next);
 				return {
 					next: ended.next,
@@ -271,7 +296,10 @@ export function transition(view: RelayView, event: RelayEvent, config: MachineCo
 						...blocked.effects,
 						{
 							type: "notify",
-							text: "relay: worker stopped after errors, handed back as blocked",
+							text:
+								reason === "idle"
+									? "relay: worker stopped without working, handed back as blocked"
+									: "relay: worker stopped after errors, handed back as blocked",
 							level: "warning",
 						},
 						...ended.effects,
@@ -327,17 +355,18 @@ export function transition(view: RelayView, event: RelayEvent, config: MachineCo
 	}
 }
 
-function stall(view: RelayView, role: "lead" | "worker"): Transition {
+function stall(view: RelayView, role: "lead" | "worker", reason: StallReason = "error"): Transition {
+	const what = reason === "idle" ? "stopped without working" : "stopped after an error";
 	return {
 		next: { ...view, stalls: view.stalls + 1 },
 		effects: [
-			{ type: "append_entry", entry: "relay.stall", data: { role } },
+			{ type: "append_entry", entry: "relay.stall", data: { role, reason } },
 			{
 				type: "notify",
-				text: `relay: ${role} stopped after an error, continued (${view.stalls + 1} of ${MAX_REPAIRS})`,
+				text: `relay: ${role} ${what}, continued (${view.stalls + 1} of ${MAX_REPAIRS})`,
 				level: "warning",
 			},
-			{ type: "continue_with", kind: "role_reminder" },
+			{ type: "continue_with", kind: "role_reminder", reason },
 		],
 	};
 }

@@ -45,6 +45,7 @@ import {
 	storedState,
 	TRANSITION_ENTRY,
 	VERIFY_ENTRY,
+	workerMadeNoCalls,
 } from "./view.ts";
 import { describeChanges, runAcceptance, snapshot } from "./workspace.ts";
 
@@ -369,6 +370,7 @@ export default function relay(pi: ExtensionAPI) {
 					type: "run_end",
 					afterRelayError: endedAfterRelayError(branch),
 					handoverLanded: view.pending !== "handover" || handoverLanded(branch, view.round + 1),
+					workerIdle: view.phase === "worker" && !view.pending && workerMadeNoCalls(branch),
 				},
 				machine,
 			).effects,
@@ -430,7 +432,7 @@ export default function relay(pi: ExtensionAPI) {
 							type: "custom_message",
 							customType: "relay.stall",
 							display: true,
-							content: reminder(view.phase, registeredDirect),
+							content: reminder(view.phase, registeredDirect, effect.reason),
 						});
 					} else if (effect.kind === "acceptance_failure") {
 						const attempt = phase.failedRounds + 1;

@@ -75,3 +75,20 @@ the docs, the real Haiku runs before merge.
 - The blocked flag comes from the latest `relay.handback` entry even after a user message cleared the pending state.
 - `endedAfterRelayError` ignores custom entries (such as `codemode-store`) between the mixup and the end of the turn.
 - `agent-session.ts` imports `toCodemodeIdentifier`. The real-model prompt names `tools.handover`; it was not run.
+
+## Real-run evidence (Haiku, built bundle)
+
+A real run reproduced the owner's bug: after a successful `tools.handover` (marker written, `relay.transition`
+lead -> worker) the worker's first response was text only ("I handed the task to the worker and wait for its result"):
+it took the lead's earlier assistant messages for its own and stopped, then the run settled, the acceptance commands
+failed, and only the failure message got it working. Changes:
+
+- The worker's section says right after its first line that the handover has happened, that the earlier assistant
+  messages were the lead's, and that it starts on the plan.
+- The `handover` result is one neutral factual line, then the marker as the very last line (the router, seam B and seam C
+  read the last line, so they still accept it).
+- A worker run that ends with no tool call since the handover and no hand back is a stall (`relay.stall`, reason `idle`,
+  at most 2, then blocked), not a candidate for acceptance. This is a row the spec's table does not have; it is skipped
+  after `/handback`, and the lead is never continued for it. `run_end` gets a `workerIdle` field.
+- Tests that had the worker answer with text only now have it call a tool first.
+

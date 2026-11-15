@@ -62,7 +62,9 @@ cached prefix stays stable. When another model is selected the section is remove
   tools.handover({...}) from codemode.`), `handover`'s fields, and the decision facts below. It names no way to call
   `handback`.
 - **The worker's section**: one line (`You are the worker in relay mode. When done or stuck, call tools.handback({...})
-  from codemode.`), `handback`'s fields, the handover as the lead wrote it (plan, criteria, findings, when to stop, the
+  from codemode.`), a statement that the handover has already happened, that the assistant messages before the
+  `<relay-handover round="N"/>` line were written by the lead (a different model) and not by the worker, that it must
+  not continue them or wait for a worker, and that it starts on the plan now, `handback`'s fields, the handover as the lead wrote it (plan, criteria, findings, when to stop, the
   acceptance commands), and its duties. The plan is here, not only in the lead's script, so a compaction cannot
   summarize it away. It names no way to call `handover`, and no message is inserted into the conversation at a handover
   to tell the worker its role.
@@ -103,7 +105,9 @@ Both are `deferred`, [unlisted](codemode.md#unlisted-tools) tools: they are not 
 codemode listing, `ALL_TOOLS` or `searchTools()`. A script calls them by name (`await tools.handover({...})`), and each
 role learns only its own tool from its prompt. They refuse to run unless `relay/auto` is selected. Both end the turn:
 the script stops at the call and the loop stops after the response; other tool calls of the same response finish. The
-result of `handover` is its marker line `<relay-handover round="N"/>` and nothing else; because a codemode result ends
+result of `handover` is one neutral line (`Handed over to the worker model (round N): from the next message on the
+worker answers; the messages above were written by the lead.`) and then its marker line `<relay-handover round="N"/>`,
+which is always the last line; because a codemode result ends
 with the text of the call that ended the script, the marker is the last line of the result, and the router takes a
 handover only from the last line of a `handover` or `codemode` result that names the next round (a file the worker
 reads that contains the string does not count).
@@ -175,6 +179,8 @@ every other pair changes nothing and answers with a refusal.
 | worker | run ends after a relay error, stalls = 2 | hand back, blocked | a blocked hand back ("The worker stopped after relay errors") and the record |
 | lead | run ends after a relay error, stalls < 2 | stalls + 1 | `relay.stall`; continue with a role reminder |
 | lead | run ends after a relay error, stalls = 2 | unchanged | the run ends; you see it |
+| worker | run ends with no tool call since the handover and no hand back (text only), stalls < 2 | stalls + 1 | `relay.stall` (reason `idle`); continue with a reminder that the handover happened |
+| worker | the same, stalls = 2 | hand back, blocked | a blocked hand back ("The worker stopped without doing any work") and the record |
 | worker | run ends (otherwise) | acceptance | acceptance commands, unless the user asked |
 | worker | acceptance failed, failures so far < `maxRounds` | unchanged | `relay.verify`; continue with the failure output |
 | worker | acceptance passed, failed at `maxRounds`, or nothing to run | lead, mixups 0, stalls 0 | compact to the record; `relay.transition` |
@@ -206,6 +212,10 @@ lines go to stderr with `--verbose`.
 - **A wrong-role call** (the worker calls `handover`, the lead calls `handback`): a `relay.mixup` entry and
   `relay: worker called handover, corrected (1 of 2)`. The error names the caller's own tool. The worker's second one
   hands back as `blocked`: `relay: roles mixed up twice, handed back as blocked`.
+- **A text-only answer after a handover**: a worker that ends its run without any tool call since the handover and
+  without a hand back took the lead's earlier messages for its own. It is not verified: it is continued with a reminder,
+  as after an error, at most twice, then handed back as `blocked`: a `relay.stall` entry (reason `idle`) and
+  `relay: worker stopped without working, continued (1 of 2)`. Not applied after `/handback`.
 - **A stop after such an error**: continued with a short role reminder, at most twice: a `relay.stall` entry and
   `relay: worker stopped after an error, continued (1 of 2)`. The correction or reminder goes to the model that erred.
 - **A pause**: `relay paused (worker phase, round N)` and `relay resumed (worker phase, round N)`.
