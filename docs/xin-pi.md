@@ -11,7 +11,7 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
   stays the shared `~/.pi/agent` (and `.pi/` in projects); override the agent dir with `XPI_CODING_AGENT_DIR` and the
   session dir with `XPI_CODING_AGENT_SESSION_DIR`.
 - Packages are unscoped `xpi-*`, directory name equal to package name: `xpi-ai`, `xpi-agent-core`, `xpi-tui`,
-  `xpi-coding-agent`, `xpi-codemode`, `xpi-mcp`, `xpi-schema`, `xpi-telemetry`, `xpi-evals`, `xpi-roost`, `xpi-shadow-git`. All share one
+  `xpi-coding-agent`, `xpi-codemode`, `xpi-mcp`, `xpi-schema`, `xpi-telemetry`, `xpi-evals`, `xpi-roost`, `xpi-shadow-git`, `xpi-relay`. All share one
   version. Only `xpi-coding-agent` (the CLI, a self-contained bundle) is published to npm; see [Releasing](#releasing).
 - `xpi-roost` (private) is pi-roost's daemon, PTY host and library, ported for background sessions (specs:
   `.scratch/xpi-roost/01-roost-core.md`, and `02-schedules.md` for schedules and the login service). It imports nothing
@@ -43,6 +43,11 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
   (`allowedInstallScriptPackages` in `scripts/generate-coding-agent-install-lock.mjs`, with the reason: no Linux
   prebuild), and the generator marks packages reached only through `optionalDependencies` (node-pty, node-addon-api)
   `optional: true`.
+- `xpi-relay` (private, built into `xpi-coding-agent`) holds relay's control flow, records and prompts behind a host
+  interface (spec: `.scratch/xpi-relay/01-package.md`; user docs: [relay.md](../packages/xpi-coding-agent/docs/relay.md);
+  `packages/xpi-relay/README.md`). It builds after `xpi-ai` and `xpi-agent-core`, whose types it reads. The state
+  diagram and the transition table in `relay.md` are generated from its rows (`npm run generate:relay-docs` in the
+  coding agent; a test fails when they are stale).
 - `xpi-shadow-git` is a private git history over a workspace that a non-git VCS owns (spec:
   `.scratch/shadow-git/01-shadow-git.md`; user docs: [shadow-git.md](../packages/xpi-coding-agent/docs/shadow-git.md)).
   `xpi sg <subcommand>` is dispatched in `coding-agent/src/main.ts` next to `xpi roost`, through
@@ -68,11 +73,13 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
     extension pi-pipipi. User docs: [subagent.md](../packages/xpi-coding-agent/docs/subagent.md); porting contracts:
     [subagent-porting.md](../packages/xpi-coding-agent/docs/subagent-porting.md), reached from the component menu
     [porting.md](../packages/xpi-coding-agent/docs/porting.md).
-  - `relay` (`src/extensions/relay/`, off with `-builtin:relay`): the virtual model `relay/auto` (a lead model plans and
-    reviews, a worker model builds), the `handover` and `handback` tools, `/handover`, `/handback`, `/relay`. Settings
-    namespace `relay.*`. The hand tools are `deferred`, unlisted tools that each role calls from codemode; every phase
-    change is a row of the pure table in `machine.ts`, and every transition and repair is a `relay.*` entry and a
-    notification. It uses the extension API (a virtual model, the `agent_before_settle` boundary with a compaction
+  - `relay` (`src/extensions/relay/index.ts`, off with `-builtin:relay`): the virtual model `relay/auto` (a lead model
+    plans and reviews, a worker model builds), the `handover` and `handback` tools, `/handover`, `/handback`, `/relay`.
+    Settings namespace `relay.*`. The logic is the private package `xpi-relay` (`packages/xpi-relay`; it imports nothing
+    of the coding agent); the built-in is the adapter that implements the package's `RelayHost` on the extension API.
+    The hand tools are `deferred`, unlisted tools that each role calls from codemode; every phase change is a row of
+    the pure table in `xpi-relay/src/definition.ts`, on a small internal graph engine, and every transition and repair
+    is a `relay.*` entry and a notification. It uses the extension API (a virtual model, the `agent_before_settle` boundary with a compaction
     draft, `context_with_system`) and three core changes made for it, each general: `ToolDefinition.listed: false`
     (unlisted tools), a nested `terminate` that ends a codemode script (`extensions/codemode/execute.ts`), and
     `AgentLoopConfig.resolveUndeclaredTool` (a direct call of a tool only scripts can reach runs as a nested call, with a

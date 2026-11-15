@@ -89,6 +89,7 @@ published to npm (it bundles the others).
 | **[xpi-schema](packages/xpi-schema)** | JSON Schema validation without eval (drafts 2020-12 and 7) |
 | **[xpi-evals](packages/xpi-evals)** | Real-model evals (private, not published) |
 | **[xpi-shadow-git](packages/xpi-shadow-git)** | A private git history over a workspace owned by another version control system, with `import` and `export` as the sync point (`xpi sg`; see [shadow-git](packages/xpi-coding-agent/docs/shadow-git.md)) |
+| **[xpi-relay](packages/xpi-relay)** | Relay: a lead model plans and reviews, a worker model builds, in one session; the control flow, records and host interface (private, ships inside `xpi-coding-agent`; see [relay](packages/xpi-coding-agent/docs/relay.md)) |
 | **[xpi-roost](packages/xpi-roost)** | Background sessions: the roost daemon, PTY host, the hub, schedules and their library (private, ships inside `xpi-coding-agent`) |
 
 ## Permissions & Containerization

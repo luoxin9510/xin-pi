@@ -5,18 +5,25 @@ real Haiku runs (the lead runs them) before merge.
 
 ## PR A: the move (no change of behaviour)
 
-- [ ] A1 the package skeleton, registered in each place the spec lists; build order after `xpi-ai` and
+- [x] A1 the package skeleton, registered in each place the spec lists; build order after `xpi-ai` and
       `xpi-agent-core`; a devDependency of the coding agent; `build:binary` checked
-- [ ] A2 the graph engine in `src/graph/`: `defineGraph` with its refusals, `transition`, `toMermaid`, `pairs`; tests
-- [ ] A3 relay's definition as rows; the machine's exports kept; the 33 machine tests moved (import paths only); the
+      Done: `packages/xpi-relay` (package.json, tsconfig.build.json, vitest.config.ts) registered in root `package.json` (both builds, after `xpi-agent-core`), `tsconfig.json`, `vitest.base.ts`, `check-entry-graphs.mjs`, the coding agent's `package.json` (devDependency, and `build:binary` builds it after `xpi-agent-core`), `tsconfig.build.json`, `examples/tsconfig.json`, the lockfile; the install lock needed no change. `npm run build` of the coding agent bundles the package.
+- [x] A2 the graph engine in `src/graph/`: `defineGraph` with its refusals, `transition`, `toMermaid`, `pairs`; tests
+      Done: `src/graph/graph.ts` (`defineGraph`, `transition`, `toMermaid`, `pairs`), internal; `test/graph.test.ts`, 14 tests.
+- [x] A3 relay's definition as rows; the machine's exports kept; the 33 machine tests moved (import paths only); the
       exhaustive test (overlays and event payloads) against the reference copy of `machine.ts`; at the end of this
       PR the copy and the comparison go, the enumeration stays
-- [ ] A4 the pure modules moved (`view`, `router`, `prompts`, `record`, `facts`, `config`, `workspace`) on
+      Done: `src/definition.ts` has 26 rows; the 33 machine tests moved (import path only); the exhaustive comparison against the reference copy passed on 31104 combinations (432 views x 34 events x 2 `maxRounds`); the reference copy and the comparison are deleted, the enumeration stays as a no-reference test.
+- [x] A4 the pure modules moved (`view`, `router`, `prompts`, `record`, `facts`, `config`, `workspace`) on
       `RelayEntry`
-- [ ] A5 `RelayHost`, `RelayCall` and `createRelay`; the built-in as the adapter; `host.test.ts`; the 29 suite tests
+      Done: `view`, `router`, `prompts`, `record`, `facts`, `config`, `workspace` moved with `git mv`; `view.ts` and `facts.ts` read `RelayEntry` (`src/entry.ts`); `view.ts` keeps its own `VIRTUAL_MODEL_STATE_ENTRY`.
+- [x] A5 `RelayHost`, `RelayCall` and `createRelay`; the built-in as the adapter; `host.test.ts`; the 29 suite tests
       with unchanged assertions (imports point at the package); the state-entry constant pinned
-- [ ] A6 `relayDiagram()` and `relayTable()`; `generate:relay-docs` and its staleness test in the coding agent
-- [ ] A7 docs: the package README, `relay.md`, `porting.md`, `xin-pi.md`, the READMEs
+      Done: `src/host.ts`, `src/relay.ts` (`createRelay`); `extensions/relay/index.ts` is the adapter (151 lines, no decision); `test/host.test.ts` (16 tests); the 29 suite tests pass with unchanged assertions (only imports changed); `test/relay-package.test.ts` pins the constant.
+- [x] A6 `relayDiagram()` and `relayTable()`; `generate:relay-docs` and its staleness test in the coding agent
+      Done: `src/docs.ts` (`relayDiagram`, `relayTable`), `scripts/generate-relay-docs.ts`, `npm run generate:relay-docs`, `test/relay-docs.test.ts`; `docs/relay.md` holds the generated blocks between marker comments.
+- [x] A7 docs: the package README, `relay.md`, `porting.md`, `xin-pi.md`, the READMEs
+      Done: `packages/xpi-relay/README.md`, `relay.md`, `porting.md`, `docs/xin-pi.md`, the root and coding-agent READMEs.
 - [ ] A8 real Haiku runs
 
 ## PR B: the commit point
@@ -33,3 +40,28 @@ real Haiku runs (the lead runs them) before merge.
       result drops the marker line; `handoverLanded` and the worker's section follow; the changed suite and
       machine-test assertions listed here
 - [ ] C3 docs (`extensions.md`, `codemode.md`, `relay.md`, `porting.md`) and real Haiku runs
+
+## Deviations (PR A)
+
+- `RelayEntry`'s catch-all is `OtherEntry`, which lists the entry types relay does not read, instead of an open
+  `type: string`: an open member stops `type` from narrowing the other members. A new core entry type makes the
+  adapter fail to compile until it is added.
+- `ToolSpec` carries `execute(params, signal, call)`, so the adapter registers every spec the same way and holds no
+  name-to-handler switch. `createRelay`'s result still has `handover` and `handback`.
+- `section(call)` returns `{ text } | undefined`: `undefined` leaves the prompt alone (wrong settings, as today),
+  `{ text: undefined }` removes the section. The plain `string | undefined` could not tell the two apart.
+- `SettleEvent` is `{ outcome, contextMessages }` without `entries`: relay only copied them back. `SettleResult`
+  holds relay's own drafts, and the adapter writes `[...event.entries, ...result.entries]`, the order of today.
+- `onDirectCall(tool, call)` takes `{ name, parentToolCallId }` and filters itself, so the adapter filters nothing.
+- `commands.status(call)` returns `{ text, level }` (`info`, or `error` for wrong settings) instead of a string, so the
+  error line of today needs no decision in the adapter.
+- `RelayCall.entries`, `model` and `signal` are getters on the adapter side: the handover tool reads the branch twice
+  around an await and must see what was appended in between.
+- The docs table has one row per branch of `machine.ts`, so it is longer than the table of #117 (a refusal row for a
+  paused relay, the `/handover` and `/handback` commands, the voided and continued handover, the first and second wrong
+  role call). The diagram labels its edges with event names and draws the pending-hand-off row as a note.
+- `toMermaid` draws a `from: "*"` row as a note beside the first state (the spec said "drawn once as a note"); the
+  `paused` note is added by `relayDiagram()`.
+- The package index re-exports every module, not only the names the spec lists; the graph engine stays out.
+- A5 and A6 are one commit: the pre-commit check runs on the working tree, and the generator needs `relayDiagram`.
+  The lockfile commit needed `PI_ALLOW_LOCKFILE_CHANGE=1` (a new workspace package, intended).

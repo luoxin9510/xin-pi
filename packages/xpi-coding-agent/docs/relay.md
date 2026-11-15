@@ -166,9 +166,12 @@ commands.
 
 ## The transition table
 
-One pure function, `transition(view, event, config)` in `extensions/relay/machine.ts`, decides every phase change; the
-code in `index.ts` reads the session into a view, calls it, and carries out the effects it returns (a tool result, an
-entry, the acceptance commands, the compaction, a continuation, a notification). The view is the router state stored on
+One pure function, `transition(view, event, config)` in `packages/xpi-relay/src/definition.ts`, decides every phase
+change. It is a list of rows on a small internal graph engine (`src/graph/`): the engine refuses a definition that
+names an undeclared state or event or holds a row that can never match, and the table and the diagram above are
+generated from the rows (`npm run generate:relay-docs` in `packages/xpi-coding-agent`; a test fails when they are
+stale). The code in `relay.ts` reads the session into a view, calls it, and carries out the effects it returns (a tool
+result, an entry, the acceptance commands, the compaction, a continuation, a notification). The view is the router state stored on
 the branch plus what relay's entries add: wrong-role calls and continuations so far in the round, a pause, and a
 pending hand-off (a `relay.handover` or `relay.handback` entry written after the latest router-state, `relay.transition`
 or `relay.verify` entry: the stored state changes only at the next request). Where two rows match, the earlier wins;
@@ -357,7 +360,7 @@ error that names the key. The thinking level selected for `relay/auto` itself is
   handover whose response was cut short (Esc, an error before its result was written) leaves the phase as it was.
 - A worker run that ends in a provider error is not handed back. Send a message to let the worker continue.
 - Subagents do not get the relay model or its tools.
-- Tests: `test/relay-machine.test.ts` (every row of the table), `test/suite/relay.test.ts` (faux provider), `npm run test:relay:real` (real models; both roles are Haiku
+- Tests: `packages/xpi-relay/test/` (every row of the table, every combination of overlays and events, the host interface against a fake host), `test/suite/relay.test.ts` (faux provider), `npm run test:relay:real` (real models; both roles are Haiku
   unless `RELAY_TEST_LEAD` names another model).
 - `npm run eval:delegation -- --long` runs long tasks (features of this repository built again from their spec) three
   ways: the main model alone, with the `Agent` tool, and as the lead of `relay/auto`. It reports the result, each
@@ -369,6 +372,8 @@ error that names the key. The thinking level selected for `relay/auto` itself is
 
 ## Porting
 
-The relay is one entry of [Porting xpi features](porting.md#relay): what it needs from the host (a virtual model, the
+The relay is the private package `xpi-relay` (`packages/xpi-relay`), which imports nothing of the coding agent; the
+built-in extension is the adapter that implements the package's `RelayHost`. It is one entry of
+[Porting xpi features](porting.md#relay): what it needs from the host (a virtual model, the
 `agent_before_settle` boundary with a compaction draft, codemode with nested `terminate`, unlisted tools and the
 direct-call repair of the agent loop), what to copy and rename, and how to verify it.
