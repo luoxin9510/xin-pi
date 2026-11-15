@@ -78,6 +78,14 @@ export interface RelayRoute {
 	state?: RelayState;
 }
 
+/** What relay reads of the host's `request_start` event: the router states around one request. */
+export interface RelayRequestStart {
+	/** The state stored for this request. */
+	routerState?: unknown;
+	/** The state stored before it. */
+	previousRouterState?: unknown;
+}
+
 /** What relay reads of the end of a run. */
 export interface SettleEvent {
 	outcome: string;
