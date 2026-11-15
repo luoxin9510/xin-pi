@@ -330,7 +330,7 @@ const AgentTeamsSettingsSchema = Type.Union(
 const RelayThinkingLevel = () =>
 	Type.Union(["off", "minimal", "low", "medium", "high", "xhigh", "max"].map((level) => Type.Literal(level)));
 
-// The built-in relay extension's block (src/extensions/relay/config.ts validates it). Defaults are in the descriptions.
+// The built-in relay extension's block (packages/xpi-relay/src/config.ts validates it). Defaults are in the descriptions.
 const RelaySettingsSchema = Type.Object(
 	{
 		lead: Type.Optional(

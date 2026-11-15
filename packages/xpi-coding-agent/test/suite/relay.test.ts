@@ -2,13 +2,21 @@ import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentTool } from "xpi-agent-core";
 import { type Context, type FauxResponseStep, fauxAssistantMessage, fauxToolCall, type Message } from "xpi-ai";
+import {
+	handoverMarker,
+	leadFacts,
+	nextState,
+	objectiveFact,
+	priceFact,
+	RECORD_MARKER,
+	readRelayConfig,
+	renderConversation,
+	roundTimeFact,
+	USER_HANDOVER_MARKER,
+} from "xpi-relay";
 import type { Settings } from "../../src/core/settings-manager.ts";
 import { createCodemodeExtension } from "../../src/extensions/codemode/index.ts";
-import { readRelayConfig } from "../../src/extensions/relay/config.ts";
-import { leadFacts, objectiveFact, priceFact, roundTimeFact } from "../../src/extensions/relay/facts.ts";
 import relayExtension, { RELAY_MODEL, RELAY_PROVIDER } from "../../src/extensions/relay/index.ts";
-import { renderConversation } from "../../src/extensions/relay/record.ts";
-import { handoverMarker, nextState, RECORD_MARKER, USER_HANDOVER_MARKER } from "../../src/extensions/relay/router.ts";
 import { createHarness, createTestUiContext, type Harness } from "./harness.ts";
 
 const echoTool: AgentTool = {

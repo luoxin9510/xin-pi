@@ -4,7 +4,7 @@ This page is a menu for taking xpi's features into another agent harness, read l
 components you want, follow each one's dependencies, and port only that set. Two levels, as in a kernel:
 
 - A **unit** is what you copy. Its files import each other, so a unit comes whole: you cannot copy half of it and build.
-  There are eight: [codemode](#codemode), [subagents](#subagents) (which needs codemode), [relay](#relay),
+  There are eight: [codemode](#codemode), [subagents](#subagents) (which needs codemode), [relay](#relay) (the `xpi-relay` package),
   [roost](#roost) (the `xpi-roost` package), the [roost adapter](#roost-adapter) (which needs roost) and
   [shadow-git](#shadow-git) (the `xpi-shadow-git` package; its isolation option needs subagents) and
   [checks](#checks) and [protect](#protect).
@@ -67,7 +67,7 @@ graph TD
 | [protect](#protect) | protect | tool effects and `input` on `tool_call` with `{ block, reason }`, `pi.getSettings()`, `pi.registerCommand`, `ctx.ui.notify`; a settings layer merge that concatenates the two `protect` lists (core change, see the entry) | the two `protect` lists emptied, or the wiring line left out |
 | [roost session side](#roost-session-side), [hub](#roost-hub) | roost, roost adapter | extension events, flags and commands; a TUI library like `xpi-tui` for the hub | `/agents` and the hub, by removing their registrations |
 
-A pick never needs a unit outside its row: the import graphs of `extensions/relay/index.ts`,
+A pick never needs a unit outside its row: the import graphs of `extensions/relay/index.ts` (with the `xpi-relay` package),
 `extensions/codemode/index.ts`, `extensions/subagent/index.ts`, `extensions/roost/index.ts`, `extensions/checks/index.ts`, `extensions/protect/index.ts` and xpi-roost's three
 process entries reach only the files listed in their units (plus the host's own `core/`, `modes/`, `utils/`,
 `cli/args.ts` and `config.ts`, and, for subagents, the MCP built-in's `config.ts` named in its entry).
@@ -278,8 +278,14 @@ The options below come with the unit. Each says how to turn it off.
   `handback` tools (called from codemode scripts) and `/handover`, `/handback`, `/relay`. Every phase change and repair
   is a `relay.*` entry and a notification. See [Relay](relay.md).
 - **Depends on**: the codemode unit for the hand tools (without it, or with codemode not active, they fall back to
-  direct tools, so the unit is a soft dependency). The extension API plus one core module: `getVirtualModelState` and
-  `VIRTUAL_MODEL_STATE_ENTRY` are imported from `src/core/virtual-models.ts`. It uses `pi.registerVirtualModel` (a
+  direct tools, so the unit is a soft dependency). The package `xpi-relay` imports nothing of the host: it needs
+  `xpi-ai` (message and model types), `typebox`, and a type-only `xpi-agent-core` (`AgentMessage`). The host implements
+  `RelayHost` (append an entry, read the `relay` settings, send a message, read and set the active tools, register the
+  two tools) and builds a `RelayCall` per handler call (the branch as `RelayEntry[]`, the selected model, the cwd, the
+  abort signal, a model lookup, a notification line, whether the session is idle); `extensions/relay/index.ts` is that
+  adapter. The package keeps its own copy of the virtual-model state entry's name (`"pi.virtual-model-state"`), so the
+  host's router state must be stored under it, as `core/virtual-models.ts` does (a test pins the two). The adapter uses
+  `pi.registerVirtualModel` (a
   `route` that picks the physical model per request; it also appends a `relay.transition` entry when the phase
   changes); `pi.on("agent_before_settle")` returning `{ entries, continue: true }` with a compaction draft (the
   hand-back record); `context_with_system` (it sets the `relay` section of the leading system message, from the stored
@@ -297,11 +303,16 @@ The options below come with the unit. Each says how to turn it off.
     call's text last (`extensions/codemode/execute.ts`), through `CodemodeExit` in `packages/xpi-codemode` (a tool's `execute` returns it and the VM ends the script like `exit()`, keeping `store()` writes);
   - *direct-call repair*: `AgentLoopConfig.resolveUndeclaredTool` and the note on the result
     (`packages/xpi-agent-core/src/agent-loop.ts`, `agent.ts`), set by `AgentSession` for `codemode` and `deferred` tools.
-- **Copy (one unit)**: `coding-agent/src/extensions/relay/` (nine files: `index.ts`, `machine.ts`, `view.ts`,
-  `router.ts`, `prompts.ts`, `facts.ts`, `record.ts`, `workspace.ts`, `config.ts`; no import from other extensions).
-- **Rewrite**: the provider and model ids (`relay`, `auto`), the settings namespace `relay.*` (`config.ts`).
-- **Verify**: `test/relay-machine.test.ts` (every row of the transition table), `test/suite/relay.test.ts` (vitest,
-  offline), `test/suite/codemode-terminate.test.ts` (the codemode seams) and the `resolveUndeclaredTool` tests in
+- **Copy (one unit)**: the package `packages/xpi-relay/` whole (`src/`: `relay.ts`, `host.ts`, `definition.ts`,
+  `graph/`, `view.ts`, `entry.ts`, `router.ts`, `prompts.ts`, `facts.ts`, `record.ts`, `workspace.ts`, `config.ts`,
+  `docs.ts`, `index.ts`), then write the adapter after `coding-agent/src/extensions/relay/index.ts` (the one file of
+  the extension; no import from other extensions). The state diagram and table of the docs come from
+  `relayDiagram()` and `relayTable()`.
+- **Rewrite**: the provider and model ids (`relay`, `auto`), the settings namespace `relay.*` (`config.ts`), the
+  adapter.
+- **Verify**: `packages/xpi-relay/test/` (`machine.test.ts`: every row of the transition table; `exhaustive.test.ts`:
+  every combination of overlays and events; `graph.test.ts`; `host.test.ts`: `createRelay` against a fake host),
+  `test/suite/relay.test.ts` (vitest, offline), `test/suite/codemode-terminate.test.ts` (the codemode seams) and the `resolveUndeclaredTool` tests in
   `packages/xpi-agent-core/test/agent-loop.test.ts`; `npm run test:relay:real` (real models).
 - **Linux**: the acceptance commands run with `shell: true` in their own process group, which is killed on timeout or
   abort. **macOS**: the same.
