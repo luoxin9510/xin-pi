@@ -912,8 +912,8 @@ export class AgentSession {
 
 	/**
 	 * Whether the request routed to `model` must compact first, and the route limit when that limit is what
-	 * triggers it. The limit applies only when it is below the model's usual threshold; above that, or when
-	 * the context also exceeds the threshold, the compaction is an ordinary threshold one.
+	 * triggers it. The limit applies only when it is below the model's usual threshold; a limit at or above
+	 * the threshold leaves an ordinary threshold compaction.
 	 */
 	private _routeCompactionTrigger(
 		model: Model<any>,
@@ -926,8 +926,10 @@ export class AgentSession {
 		const branch = this.sessionManager.getBranch();
 		const tokens = estimateProjectedContextTokens(projection, branch).tokens;
 		const threshold = model.contextWindow > 0 ? model.contextWindow - settings.reserveTokens : Infinity;
-		if (tokens > threshold) return { compact: true };
-		if (contextLimit >= threshold || tokens <= contextLimit) return { compact: false };
+		if (contextLimit >= threshold || tokens <= contextLimit) return { compact: tokens > threshold };
+		// Above both: the limit is the smaller one and also triggers, so the entry records it. The guard below
+		// does not apply, as the ordinary threshold would compact anyway.
+		if (tokens > threshold) return { compact: true, limit: contextLimit };
 		// A compaction no assistant response has followed would repeat on every request.
 		for (let i = branch.length - 1; i >= 0; i--) {
 			const entry = branch[i];

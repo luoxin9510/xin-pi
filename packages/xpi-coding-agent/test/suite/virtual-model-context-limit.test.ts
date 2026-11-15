@@ -24,16 +24,29 @@ describe("route context limit", () => {
 
 	/** A virtual model that routes to "large" (50k window) and returns `limit` as the route limit. */
 	async function setup(
-		options: { limit?: unknown; reserveTokens?: number; supplySummary?: boolean; prune?: boolean } = {},
+		options: {
+			limit?: unknown;
+			reserveTokens?: number;
+			supplySummary?: boolean;
+			prune?: boolean;
+			enabled?: boolean;
+			minSavings?: number;
+			seedUsage?: number;
+		} = {},
 	) {
 		const events: SessionBeforeCompactEvent[] = [];
 		const harness = await createHarness({
 			models: [{ id: "large", contextWindow: 50_000, maxTokens: 4000 }],
 			settings: {
 				compaction: {
+					enabled: options.enabled ?? true,
 					reserveTokens: options.reserveTokens ?? 0,
 					keepRecentTokens: 1,
-					prune: { enabled: options.prune ?? true, protectTokens: 1000, minSavingsTokens: 500 },
+					prune: {
+						enabled: options.prune ?? true,
+						protectTokens: 1000,
+						minSavingsTokens: options.minSavings ?? 500,
+					},
 				},
 			},
 			extensionFactories: [
@@ -61,12 +74,12 @@ describe("route context limit", () => {
 		const runtime = harness.session.modelRuntime;
 		harness.session.agent.streamFunction = (model, context, opts) => runtime.streamSimple(model, context, opts);
 		await harness.session.setModel(runtime.getModel("router", "auto")!);
-		seed(harness, 6);
+		seed(harness, 6, options.seedUsage);
 		return { harness, events };
 	}
 
 	/** `turns` user turns, each with a read call whose output is about 1000 tokens, and no usage. */
-	function seed(harness: Harness, turns: number): void {
+	function seed(harness: Harness, turns: number, seedUsage?: number): void {
 		const model = harness.getModel();
 		let now = Date.now() - 10_000;
 		for (let n = 1; n <= turns; n++) {
@@ -79,7 +92,7 @@ describe("route context limit", () => {
 				api: model.api,
 				provider: model.provider,
 				model: model.id,
-				usage: NO_USAGE,
+				usage: seedUsage ? { ...NO_USAGE, input: seedUsage, totalTokens: seedUsage } : NO_USAGE,
 			});
 			harness.sessionManager.appendMessage({
 				role: "toolResult",
@@ -140,6 +153,14 @@ describe("route context limit", () => {
 		expect(compactions(low.harness).every((c) => c.contextLimit === undefined)).toBe(true);
 		expect(compactions(low.harness)[0].contextLimit).toBeUndefined();
 		expect(low.events[0].contextLimit).toBeUndefined();
+
+		// Above both, with the limit the smaller one: the limit is recorded too (checked through prepareRequest, as the check before a prompt does not know the route limit).
+		const both = await setup({ limit: 400, reserveTokens: 49_500, prune: false });
+		await both.harness.session.agent.prepareRequest?.(
+			{ context: { messages: [], tools: [] }, model: both.harness.session.model!, thinkingLevel: "off" } as never,
+			undefined as never,
+		);
+		expect(compactions(both.harness).map((c) => c.contextLimit)).toEqual([400]);
 
 		// A limit above the threshold does not delay it.
 		const high = await setup({ limit: 40_000, reserveTokens: 49_000, prune: false });
@@ -223,5 +244,69 @@ describe("route context limit", () => {
 		await prepare();
 		expect(compactions(harness)).toHaveLength(2);
 		expect(compactions(harness)[1].contextLimit).toBe(3000);
+	});
+
+	it("decides the prune on the re-estimate when seeded usage is above the limit, and does not repeat", async () => {
+		// The provider's count (20000) is above the limit; after the prune the estimate is characters/4 (about 1100).
+		const { harness, events } = await setup({ limit: 3000, seedUsage: 20_000 });
+		await run(harness);
+		expect(edits(harness)).toHaveLength(5);
+		expect(compactions(harness)).toHaveLength(0);
+		expect(events).toHaveLength(0);
+
+		// The next request follows a response and has no new tool output: nothing to prune or compact.
+		await run(harness);
+		expect(edits(harness)).toHaveLength(5);
+		expect(compactions(harness)).toHaveLength(0);
+	});
+
+	it("compacts nothing above the ordinary threshold's reach without a limit, and nothing when compaction is disabled", async () => {
+		// Without a limit the ordinary threshold applies as before (1000 tokens here).
+		const plain = await setup({ reserveTokens: 49_000, prune: false });
+		await run(plain.harness);
+		expect(compactions(plain.harness).length).toBeGreaterThan(0);
+		expect(compactions(plain.harness).every((c) => c.contextLimit === undefined)).toBe(true);
+
+		const off = await setup({ limit: 3000, enabled: false });
+		await run(off.harness);
+		expect(compactions(off.harness)).toHaveLength(0);
+		expect(edits(off.harness)).toHaveLength(0);
+	});
+
+	it("goes on to the summary when the prune saves less than the minimum", async () => {
+		const { harness, events } = await setup({ limit: 3000, minSavings: 100_000 });
+		await run(harness);
+		expect(edits(harness)).toHaveLength(0);
+		expect(compactions(harness).map((c) => c.contextLimit)).toEqual([3000]);
+		expect(events).toHaveLength(1);
+	});
+
+	it("sends the request when the summary fails, and tries again on the next request after a response", async () => {
+		const { harness } = await setup({ limit: 3000, prune: false, supplySummary: false });
+		harness.setResponses([
+			fauxAssistantMessage("", { stopReason: "error", errorMessage: "boom" }),
+			fauxAssistantMessage("ok"),
+		]);
+		await expect(harness.session.prompt("go")).resolves.toBeUndefined();
+		expect(compactions(harness)).toHaveLength(0);
+		const ends = harness.eventsOfType("compaction_end");
+		expect(ends).toHaveLength(1);
+		expect(ends[0].errorMessage).toContain("Auto-compaction failed");
+		expect(harness.session.messages.at(-1)).toMatchObject({ role: "assistant", stopReason: "stop" });
+
+		harness.setResponses([
+			fauxAssistantMessage("", { stopReason: "error", errorMessage: "boom" }),
+			fauxAssistantMessage("ok"),
+		]);
+		await harness.session.prompt("again");
+		expect(harness.eventsOfType("compaction_start").length).toBeGreaterThan(1);
+	});
+
+	it("rejects null and 0 as limits", async () => {
+		for (const bad of [null, 0]) {
+			const { harness } = await setup({ limit: bad });
+			await run(harness);
+			expect(harness.session.messages.at(-1)).toMatchObject({ role: "assistant", stopReason: "error" });
+		}
 	});
 });

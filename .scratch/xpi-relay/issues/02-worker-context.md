@@ -19,8 +19,9 @@ the real-model runs (the lead runs them, budget $10) before the second merges.
 
 ### Deviations (PR D)
 
-- A context above the usual threshold as well as the limit compacts as an ordinary threshold compaction (no
-  `contextLimit` on the entry, no 90 percent prune target), since the limit is then not what triggered it.
+- A limit at or above the usual threshold leaves an ordinary threshold compaction (no `contextLimit`). When the
+  limit is the smaller one, the entry carries it even if the context is above the threshold as well; the "no
+  response in between" guard does not apply in that case.
 - "Newest context-changing entry" is read as the newest message, custom message, branch summary or compaction entry;
   context edits, custom state entries and labels are skipped.
 - With compaction disabled (`compaction.enabled: false`) a route limit does not compact either.
