@@ -40,6 +40,7 @@ relay.onRequestStart({ routerState, previousRouterState }, call);
 | `appendEntry(type, data)` | Append a custom entry to the session branch. |
 | `settings()` | The `relay` block of the settings, read at each use (the package validates it). |
 | `keepRecentTokens()` | `compaction.keepRecentTokens` as resolved for the relay model, read at each use. A context limit below this plus 20,000 tokens is refused with an error that names its key. |
+| (context limits) | `relay.workerContext.limit` and `relay.leadContext.limit` are `"tier"`, `"off"`, a number of prompt tokens, or a percentage string such as `"30%"` (that share of the model's `contextWindow` from `findModel`, rounded down; no model or no window, no limit). Defaults: `"tier"` for the worker, `"30%"` for the lead. |
 | `sendMessage(message, options)` | `/handover` and `/handback` send a message for the model. |
 | `activeTools()`, `setActiveTools(names)` | The direct fallback adds the hand tools to the active set while relay is selected. |
 | `registerTools(specs)` | Called at the start and again when the exposure changes (codemode switched on or off). A `ToolSpec` carries the tool's name, description, typebox parameters, exposure and an `execute(params, signal, call)`. |

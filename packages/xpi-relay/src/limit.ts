@@ -6,7 +6,7 @@ import type { ContextConfig } from "./config.ts";
 /** What a compaction needs beyond `compaction.keepRecentTokens`: the system prompt, the summary and the next turn. */
 export const LIMIT_ROOM = 20_000;
 
-type Tiered = Pick<Model<string>, "cost"> | undefined;
+type Tiered = Partial<Pick<Model<string>, "cost" | "contextWindow">> | undefined;
 
 /** The lowest `inputTokensAbove` of a model's price tiers (the catalog promises no order); undefined without tiers. */
 export function firstTier(model: Tiered): number | undefined {
@@ -33,6 +33,11 @@ export function contextLimitOf(
 		if (tier === undefined) return undefined;
 		limit = Math.floor(tier * config.tierFraction);
 		source = `relay.${key}.tierFraction ${config.tierFraction} of the first price tier (${tier} tokens), set by relay.${key}.limit "tier"`;
+	} else if (typeof config.limit === "object") {
+		const window = model?.contextWindow;
+		if (window === undefined || !(window > 0)) return undefined;
+		limit = Math.floor((window * config.limit.percent) / 100);
+		source = `relay.${key}.limit "${config.limit.percent}%" of the context window (${window} tokens)`;
 	} else {
 		limit = config.limit;
 		source = `relay.${key}.limit`;

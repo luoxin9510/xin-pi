@@ -71,13 +71,14 @@ describe("relay", () => {
 			relay?: Record<string, unknown>;
 			settings?: Partial<Settings>;
 			smallWindow?: number;
+			largeWindow?: number;
 			extensions?: ((pi: ExtensionAPI) => void)[];
 		} = {},
 	) {
 		const harness = await createHarness({
 			models: [
 				{ id: "small", contextWindow: options.smallWindow ?? 50_000 },
-				{ id: "large", contextWindow: 50_000, maxTokens: 4000, reasoning: true },
+				{ id: "large", contextWindow: options.largeWindow ?? 1_000_000, maxTokens: 4000, reasoning: true },
 			],
 			tools: [echoTool],
 			...(options.codemode ? { initialActiveToolNames: ["echo", "codemode"] } : {}),
@@ -913,6 +914,26 @@ describe("relay", () => {
 				.getEntries()
 				.find((entry) => entry.type === "compaction" && (entry.details as { relay?: boolean })?.relay);
 			expect(record?.type === "compaction" && record.summary).toContain("the limit was lifted");
+		});
+
+		it("compacts a lead phase that crosses its own limit, a percentage of its window, and continues", async () => {
+			const { harness, seen, say } = await createRelayHarness({
+				...limitOptions(),
+				relay: { workerContext: { limit: "off" }, leadContext: { limit: "4%" } }, // 40,000 of 1,000,000 tokens
+			});
+			harness.setResponses([say("first answer"), say("second answer"), say("third answer")]);
+			await harness.session.prompt(`USER-MESSAGE ${"z".repeat(100_000)}`);
+			await harness.session.prompt(`second ${"z".repeat(100_000)}`);
+			await harness.session.prompt("third");
+			const compactions = limitSummaries(harness);
+			expect(compactions.length).toBeGreaterThan(0);
+			for (const entry of compactions) expect(entry).toMatchObject({ contextLimit: 40_000 });
+			// Every request was the lead's, none was handed over, and the last prompt was answered.
+			expect(seen.every((request) => request.model === "large")).toBe(true);
+			expect(seen.at(-1)).toBeDefined();
+			const last = harness.session.messages.at(-1);
+			expect(last?.role).toBe("assistant");
+			expect(JSON.stringify(last)).toContain("third answer");
 		});
 
 		it("applies a change of the settings to the next request", async () => {

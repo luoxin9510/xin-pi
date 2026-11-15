@@ -4,11 +4,11 @@ Spec: `../03-lead-cache.md`. Two PRs.
 
 ## PR F: a limit as a share of the window
 
-- [ ] F1 the percentage form of `limit` for both roles (the share of the model's `contextWindow`); wrong strings
+- [x] F1 the percentage form of `limit` for both roles (the share of the model's `contextWindow`); wrong strings
       name the key; the minimum applies; tests
-- [ ] F2 the default of `relay.leadContext.limit` is `"30%"`; the lead's fact; a suite test of a lead phase crossing
+- [x] F2 the default of `relay.leadContext.limit` is `"30%"`; the lead's fact; a suite test of a lead phase crossing
       its limit
-- [ ] F3 docs: `relay.md`, `settings.md`, the settings schema, the package README
+- [x] F3 docs: `relay.md`, `settings.md`, the settings schema, the package README
 
 ## PR G: a held cache entry
 

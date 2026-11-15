@@ -27,8 +27,12 @@ import {
 } from "../src/index.ts";
 
 const tier = (inputTokensAbove: number) => ({ inputTokensAbove, input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6 });
-const priced = (id: string, tiers?: ReturnType<typeof tier>[]) =>
-	({ id, cost: { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25, ...(tiers ? { tiers } : {}) } }) as Model<Api>;
+const priced = (id: string, tiers?: ReturnType<typeof tier>[], contextWindow?: number) =>
+	({
+		id,
+		...(contextWindow ? { contextWindow } : {}),
+		cost: { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25, ...(tiers ? { tiers } : {}) },
+	}) as Model<Api>;
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -58,8 +62,8 @@ function make(settings: Record<string, unknown> = {}, keep = 20_000) {
 		registerTools: () => {},
 	};
 	const models = new Map<string, Model<Api>>([
-		["faux/large", priced("large", [tier(200_000)])],
-		["faux/small", priced("small", [tier(100_000)])],
+		["faux/large", priced("large", [tier(200_000)], 1_000_000)],
+		["faux/small", priced("small", [tier(100_000)], 200_000)],
 	]);
 	const call: RelayCall = {
 		entries,
@@ -101,10 +105,10 @@ function make(settings: Record<string, unknown> = {}, keep = 20_000) {
 const request = (state: RelayState | undefined): RelayRouteRequest => ({ reason: "continuation", state, messages: [] });
 
 describe("the context limit settings", () => {
-	it("defaults to the tier for the worker and no limit for the lead", () => {
+	it("defaults to the tier for the worker and 30 percent of the window for the lead", () => {
 		const cfg = readRelayConfig({});
 		expect(cfg.workerContext).toEqual({ limit: "tier", tierFraction: 0.95, maxCompactions: 4, whenStuck: "lift" });
-		expect(cfg.leadContext).toEqual({ limit: "off", tierFraction: 0.95, maxCompactions: 4 });
+		expect(cfg.leadContext).toEqual({ limit: { percent: 30 }, tierFraction: 0.95, maxCompactions: 4 });
 	});
 
 	it("reads every form of a limit", () => {
@@ -113,6 +117,9 @@ describe("the context limit settings", () => {
 			limit: "off",
 			whenStuck: "handback",
 		});
+		expect(readRelayConfig({ workerContext: { limit: "12.5%" } }).workerContext.limit).toEqual({ percent: 12.5 });
+		expect(readRelayConfig({ leadContext: { limit: "100%" } }).leadContext.limit).toEqual({ percent: 100 });
+		expect(readRelayConfig({ leadContext: { limit: "off" } }).leadContext.limit).toBe("off");
 		expect(
 			readRelayConfig({ leadContext: { limit: "tier", tierFraction: 0.5, maxCompactions: 0 } }).leadContext,
 		).toEqual({
@@ -132,6 +139,13 @@ describe("the context limit settings", () => {
 		[{ workerContext: { maxCompactions: -1 } }, "relay.workerContext.maxCompactions"],
 		[{ workerContext: { whenStuck: "stop" } }, "relay.workerContext.whenStuck"],
 		[{ leadContext: { limit: true } }, "relay.leadContext.limit"],
+		[{ leadContext: { limit: "30" } }, "relay.leadContext.limit"],
+		[{ leadContext: { limit: "0%" } }, "relay.leadContext.limit"],
+		[{ leadContext: { limit: "0.0%" } }, "relay.leadContext.limit"],
+		[{ leadContext: { limit: "101%" } }, "relay.leadContext.limit"],
+		[{ leadContext: { limit: "abc%" } }, "relay.leadContext.limit"],
+		[{ leadContext: { limit: "-5%" } }, "relay.leadContext.limit"],
+		[{ workerContext: { limit: "30 %" } }, "relay.workerContext.limit"],
 		[{ leadContext: { tierFraction: "a" } }, "relay.leadContext.tierFraction"],
 		[{ leadContext: { maxCompactions: 1.5 } }, "relay.leadContext.maxCompactions"],
 	])("rejects %j naming its key", (raw, key) => {
@@ -159,6 +173,36 @@ describe("contextLimitOf", () => {
 	it("takes a number as it is", () => {
 		expect(contextLimitOf({ ...cfg, limit: 70_000 }, "workerContext", priced("m"), 20_000)).toBe(70_000);
 	});
+	it("takes a share of the context window, rounded down", () => {
+		const model = priced("m", undefined, 1_000_000);
+		expect(contextLimitOf({ ...cfg, limit: { percent: 30 } }, "leadContext", model, 20_000)).toBe(300_000);
+		expect(contextLimitOf({ ...cfg, limit: { percent: 12.5 } }, "workerContext", model, 20_000)).toBe(125_000);
+		expect(
+			contextLimitOf(
+				{ ...cfg, limit: { percent: 33.3333 } },
+				"leadContext",
+				priced("m", undefined, 300_001),
+				20_000,
+			),
+		).toBe(100_000);
+	});
+	it("has no limit for a percentage without a window or outside the catalog", () => {
+		expect(contextLimitOf({ ...cfg, limit: { percent: 30 } }, "leadContext", priced("m"), 20_000)).toBeUndefined();
+		expect(contextLimitOf({ ...cfg, limit: { percent: 30 } }, "leadContext", undefined, 20_000)).toBeUndefined();
+	});
+	it("applies the minimum to a small percentage, naming the key", () => {
+		const model = priced("m", undefined, 1_000_000);
+		expect(() => contextLimitOf({ ...cfg, limit: { percent: 4 } }, "leadContext", model, 20_000)).not.toThrow();
+		expect(() => contextLimitOf({ ...cfg, limit: { percent: 3.9 } }, "leadContext", model, 20_000)).toThrow(
+			"relay.leadContext.limit",
+		);
+		expect(() => contextLimitOf({ ...cfg, limit: { percent: 5 } }, "leadContext", model, 40_000)).toThrow(
+			"relay.leadContext.limit",
+		);
+		expect(() => contextLimitOf({ ...cfg, limit: { percent: 1 } }, "workerContext", model, 20_000)).toThrow(
+			"relay.workerContext.limit",
+		);
+	});
 	it("refuses a limit below keepRecentTokens + 20000, naming its key, also from a small tierFraction", () => {
 		expect(() => contextLimitOf({ ...cfg, limit: 39_999 }, "workerContext", undefined, 20_000)).toThrow(
 			"relay.workerContext.limit",
@@ -174,13 +218,32 @@ describe("contextLimitOf", () => {
 });
 
 describe("route() and the limit", () => {
-	it("returns the worker's limit in the worker phase and none in the lead phase", () => {
+	it("returns the worker's limit in the worker phase and the lead's, 30 percent of its window, in the lead phase", () => {
 		const { relay, call } = make();
 		expect(relay.route(request({ phase: "worker", round: 1 }), call)).toMatchObject({ contextLimit: 95_000 });
-		expect(relay.route(request({ phase: "lead", round: 0 }), call).contextLimit).toBeUndefined();
+		expect(relay.route(request({ phase: "lead", round: 0 }), call).contextLimit).toBe(300_000);
 	});
 
-	it("limits the lead only when asked to", () => {
+	it("takes a percentage for either role, and none for a lead that is off", () => {
+		const pct = make({ workerContext: { limit: "25%" }, leadContext: { limit: "10.5%" } });
+		expect(pct.relay.route(request({ phase: "worker", round: 1 }), pct.call).contextLimit).toBe(50_000);
+		expect(pct.relay.route(request({ phase: "lead", round: 0 }), pct.call).contextLimit).toBe(105_000);
+		const off = make({ leadContext: { limit: "off" } });
+		expect(off.relay.route(request({ phase: "lead", round: 0 }), off.call).contextLimit).toBeUndefined();
+	});
+
+	it("gives no percentage limit to a model without a window", () => {
+		const f = make();
+		f.models.set("faux/large", priced("large", [tier(200_000)]));
+		expect(f.relay.route(request({ phase: "lead", round: 0 }), f.call).contextLimit).toBeUndefined();
+	});
+
+	it("checks a worker's percentage in the lead phase, before the handover", () => {
+		const f = make({ workerContext: { limit: "5%" } }); // 10,000 of 200,000, below the minimum of 40,000
+		expect(() => f.relay.route(request({ phase: "lead", round: 0 }), f.call)).toThrow("relay.workerContext.limit");
+	});
+
+	it("limits the lead by tier or by a number when asked to", () => {
 		const { relay, call } = make({ leadContext: { limit: "tier" } });
 		expect(relay.route(request({ phase: "lead", round: 0 }), call).contextLimit).toBe(190_000);
 		const fixed = make({ leadContext: { limit: 50_000 } });
@@ -436,7 +499,7 @@ describe("the record and the prompts", () => {
 		expect(text).toContain("its input tokens cost 5 times as much there");
 		expect(text).toContain("starts again after a hand back");
 		expect(text).toContain("Worker context limit: 95,000 tokens; after 4 compactions in a round it is lifted");
-		expect(text).not.toContain("Your own context limit");
+		expect(text).toContain("Your own context limit: 300,000 tokens");
 		const asked = make({ workerContext: { whenStuck: "handback" }, leadContext: { limit: 60_000 } });
 		asked.state({ phase: "lead", round: 0 });
 		const other = asked.relay.section(asked.call)?.text ?? "";

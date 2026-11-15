@@ -99,7 +99,7 @@ No rule says when to hand over. The lead's section gives it what a decision need
   how many times dearer its input tokens are above it), that its context grows with what it reads and writes in one
   round and starts again after a hand back, and the limit in force with what happens when the worker is stuck (for
   example `Worker context limit: 95,000 tokens; after 4 compactions in a round it is lifted`; `none` when there is
-  no limit). When the lead has a limit of its own, that is told too. See [The worker's context limit](#the-workers-context-limit).
+  no limit). The lead's own limit is told too (`Your own context limit: 300,000 tokens; ...`), in tokens, not as a percentage; it is there unless the lead's limit is `"off"` or its model has no window. See [The worker's context limit](#the-workers-context-limit).
 - **Time**: what a round adds (the worker's first read of the conversation, its work, the acceptance commands, the
   lead's reading of the record). Time is part of the objective only when `relay.minuteCost` is set: the lead is then
   told what one minute of your waiting is worth in dollars of tokens, and can weigh it against the prices.
@@ -193,8 +193,14 @@ Relay therefore limits the worker's context to its model's first price tier by d
 
 - **The limit** is read from `relay.workerContext`: `"tier"` (default) is `tierFraction` (0.95) of the lowest
   `cost.tiers[].inputTokensAbove` of the worker model in the catalog, so 95,000 tokens for Haiku 5.5; a model without
-  tiers, or one that is not in the catalog, has no limit. A number is that many prompt tokens, `"off"` is none. The
-  lead has the same three forms under `relay.leadContext`, off by default: its context is small in every measured task.
+  tiers, or one that is not in the catalog, has no limit. A number is that many prompt tokens, `"off"` is none. A
+  percentage string such as `"30%"` or `"12.5%"` (above 0, at most 100) is that share of the model's `contextWindow`
+  in the catalog, rounded down; a model outside the catalog or without a window has no limit. Any other string
+  (`"30"`, `"0%"`, `"101%"`, `"abc%"`) is an error that names the key and lists these forms. The lead has the same
+  four forms under `relay.leadContext`, and its default is `"30%"`: 300,000 tokens for Opus 5.5 (window 1,000,000).
+  In the measured tasks the lead peaks at about 2.4 percent of its window (22,000 to 24,000 tokens), because the
+  hand-back record replaces the conversation, so the default is a backstop for a lead that does not hand over or for
+  a long conversation with the user in a lead phase. The lead's section states its limit in tokens.
 - **How it works**: `route()` returns the limit as `contextLimit` on the route of a worker (or lead) request. The
   agent core compacts before the request when the context exceeds the smaller of that limit and its usual threshold,
   and writes it on the compaction entry. Old tool output is pruned first, and a summary is written only when pruning
@@ -202,8 +208,8 @@ Relay therefore limits the worker's context to its model's first price tier by d
   [Virtual models](virtual-models.md#limit-the-context)). The summary replaces the worker's conversation; the
   handover itself is in the worker's system prompt, so it is not lost.
 - **A limit must be reachable**: a computed limit below `compaction.keepRecentTokens` plus 20,000 tokens (40,000 with
-  the defaults; the value resolved for `relay/auto`) is an error that names the key, for a number and for a small
-  `tierFraction` alike. A limit a compaction cannot get under would compact on every request. The worker's limit is
+  the defaults; the value resolved for `relay/auto`) is an error that names the key, for a number, for a small
+  percentage (`relay.<key>.limit`) and for a small `tierFraction` alike. A limit a compaction cannot get under would compact on every request. The worker's limit is
   checked in the lead phase too, so the error comes before the first handover; the lead's own limit is checked only
   in the lead phase.
 - **The stuck guard**: relay counts the summaries written under the limit in the current phase, from the compaction
@@ -231,7 +237,7 @@ Relay therefore limits the worker's context to its model's first price tier by d
   10 percent of headroom; the eval counts the worker's requests above the tier, so the size of the effect is measured.
 
 ```json
-{ "relay": { "workerContext": { "limit": 60000, "whenStuck": "handback" }, "leadContext": { "limit": "tier" } } }
+{ "relay": { "workerContext": { "limit": 60000, "whenStuck": "handback" }, "leadContext": { "limit": "20%" } } }
 ```
 
 ## The transition table
@@ -467,7 +473,7 @@ rounds, not the size of the diff, so the default stays 20000.
     "acceptanceTimeoutMs": 600000,
     "diffChars": 20000,
     "workerContext": { "limit": "tier", "tierFraction": 0.95, "maxCompactions": 4, "whenStuck": "lift" },
-    "leadContext": { "limit": "off" },
+    "leadContext": { "limit": "30%" },
     "objective": "the user wants a correct result for as few of your (lead) tokens as possible. Worker tokens are not counted."
   }
 }
@@ -486,11 +492,11 @@ rounds, not the size of the diff, so the default stays 20000.
 | `objective` | see above | What the user optimizes for, told to the lead. Change it to weigh time, or to count worker tokens. |
 | `workerRecord` | unset | What is known about the worker's ability, told to the lead. |
 | `minuteCost` | unset | What one minute of your waiting is worth, in dollars of tokens. Unset: time is not part of the objective. |
-| `workerContext.limit` | `"tier"` | The worker's context limit: `"tier"` (`tierFraction` of its model's first price tier; none without tiers), a number of prompt tokens, or `"off"`. |
+| `workerContext.limit` | `"tier"` | The worker's context limit: `"tier"` (`tierFraction` of its model's first price tier; none without tiers), a number of prompt tokens, a percentage of the model's context window such as `"30%"` (none without a window), or `"off"`. |
 | `workerContext.tierFraction` | `0.95` | The part of the tier used with `"tier"`, above 0 and at most 1. |
 | `workerContext.maxCompactions` | `4` | Summaries under the limit in one round before `whenStuck` applies. `0`: the guard is off. |
 | `workerContext.whenStuck` | `"lift"` | `"lift"`: lift the limit for the rest of the round. `"handback"`: ask the worker to hand back with a progress report; the limit is lifted after two more summaries. |
-| `leadContext.limit` | `"off"` | The same three forms, for the lead's own context. |
+| `leadContext.limit` | `"30%"` | The same four forms, for the lead's own context. The default is 300,000 tokens for Opus 5.5; the lead peaks at about 2.4 percent of its window in the measured tasks, so it is a backstop. |
 | `leadContext.tierFraction`, `leadContext.maxCompactions` | `0.95`, `4` | As for the worker. A stuck lead always has its limit lifted, until the next handover. |
 
 The values are read at each request, so a change applies to the next one. A wrong value ends the request with an

@@ -331,9 +331,17 @@ const RelayThinkingLevel = () =>
 	Type.Union(["off", "minimal", "low", "medium", "high", "xhigh", "max"].map((level) => Type.Literal(level)));
 
 const RelayContextLimit = (fallback: string) =>
-	Type.Union([Type.Literal("tier"), Type.Literal("off"), Type.Integer({ minimum: 1 })], {
-		description: `Prompt tokens the context stays under: "tier" (tierFraction of the model's first price tier; no tiers, no limit), a number of tokens, or "off". ${fallback}`,
-	});
+	Type.Union(
+		[
+			Type.Literal("tier"),
+			Type.Literal("off"),
+			Type.Integer({ minimum: 1 }),
+			Type.String({ pattern: "^[0-9]+(\\.[0-9]+)?%$" }),
+		],
+		{
+			description: `Prompt tokens the context stays under: "tier" (tierFraction of the model's first price tier; no tiers, no limit), a number of tokens, a percentage string above 0 and at most 100 such as "30%" (that share of the model's context window; no window, no limit), or "off". ${fallback}`,
+		},
+	);
 const RelayTierFraction = () =>
 	Type.Number({
 		exclusiveMinimum: 0,
@@ -427,7 +435,7 @@ const RelaySettingsSchema = Type.Object(
 		leadContext: Type.Optional(
 			Type.Object(
 				{
-					limit: Type.Optional(RelayContextLimit('Default "off".')),
+					limit: Type.Optional(RelayContextLimit('Default "30%".')),
 					tierFraction: Type.Optional(RelayTierFraction()),
 					maxCompactions: Type.Optional(RelayMaxCompactions()),
 				},
