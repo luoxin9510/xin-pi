@@ -13,7 +13,32 @@ export interface RelayConfig {
 	objective: string; // what the user optimizes for; the lead decides with it
 	workerRecord?: string; // what is known about the worker's ability, told to the lead
 	minuteCost?: number; // what a minute of the user's waiting is worth, in dollars of tokens; unset: time is not counted
+	workerContext: WorkerContextConfig;
+	leadContext: ContextConfig;
 }
+
+/** A limit on the prompt tokens of one role's context. */
+export interface ContextConfig {
+	/** `"tier"`: `tierFraction` of the model's first price tier; a number: that many tokens; `"off"`: no limit. */
+	limit: "tier" | "off" | number;
+	/** The part of the tier used with `"tier"`, above 0 and at most 1. */
+	tierFraction: number;
+	/** Summaries written under the limit in one phase before the stuck guard acts. 0: the guard is off. */
+	maxCompactions: number;
+}
+
+export interface WorkerContextConfig extends ContextConfig {
+	/** `"lift"`: the limit is lifted for the rest of the round; `"handback"`: the worker is asked to hand back. */
+	whenStuck: "lift" | "handback";
+}
+
+export const DEFAULT_WORKER_CONTEXT: WorkerContextConfig = {
+	limit: "tier",
+	tierFraction: 0.95,
+	maxCompactions: 4,
+	whenStuck: "lift",
+};
+export const DEFAULT_LEAD_CONTEXT: ContextConfig = { limit: "off", tierFraction: 0.95, maxCompactions: 4 };
 
 export const DEFAULT_OBJECTIVE =
 	"the user wants a correct result for as few of your (lead) tokens as possible. Worker tokens are not counted.";
@@ -61,6 +86,51 @@ function minuteCost(value: unknown): number | undefined {
 	return value;
 }
 
+function block(value: unknown, key: string): Record<string, unknown> {
+	if (value === undefined) return {};
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		throw new Error(`relay.${key} must be an object`);
+	}
+	return value as Record<string, unknown>;
+}
+
+function contextConfig(raw: unknown, key: string, defaults: ContextConfig): ContextConfig {
+	const r = block(raw, key);
+	let limit = defaults.limit;
+	if (r.limit !== undefined) {
+		if (r.limit === "tier" || r.limit === "off") limit = r.limit;
+		else if (typeof r.limit === "number" && Number.isInteger(r.limit) && r.limit > 0) limit = r.limit;
+		else
+			throw new Error(
+				`relay.${key}.limit must be "tier", "off" or a positive integer of tokens, got ${JSON.stringify(r.limit)}`,
+			);
+	}
+	let tierFraction = defaults.tierFraction;
+	if (r.tierFraction !== undefined) {
+		const fraction = r.tierFraction;
+		if (typeof fraction !== "number" || !Number.isFinite(fraction) || fraction <= 0 || fraction > 1) {
+			throw new Error(
+				`relay.${key}.tierFraction must be a number above 0 and at most 1, got ${JSON.stringify(fraction)}`,
+			);
+		}
+		tierFraction = fraction;
+	}
+	return {
+		limit,
+		tierFraction,
+		maxCompactions: count(r.maxCompactions, `${key}.maxCompactions`, defaults.maxCompactions, 0),
+	};
+}
+
+function workerContextConfig(raw: unknown): WorkerContextConfig {
+	const base = contextConfig(raw, "workerContext", DEFAULT_WORKER_CONTEXT);
+	const whenStuck = block(raw, "workerContext").whenStuck;
+	if (whenStuck !== undefined && whenStuck !== "lift" && whenStuck !== "handback") {
+		throw new Error(`relay.workerContext.whenStuck must be "lift" or "handback", got ${JSON.stringify(whenStuck)}`);
+	}
+	return { ...base, whenStuck: whenStuck ?? DEFAULT_WORKER_CONTEXT.whenStuck };
+}
+
 export function readRelayConfig(raw: unknown): RelayConfig {
 	if (raw === undefined) raw = {};
 	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
@@ -86,6 +156,8 @@ export function readRelayConfig(raw: unknown): RelayConfig {
 		objective: text(r.objective, "objective") ?? DEFAULT_OBJECTIVE,
 		workerRecord: text(r.workerRecord, "workerRecord"),
 		minuteCost: minuteCost(r.minuteCost),
+		workerContext: workerContextConfig(r.workerContext),
+		leadContext: contextConfig(r.leadContext, "leadContext", DEFAULT_LEAD_CONTEXT),
 	};
 }
 

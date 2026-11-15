@@ -47,6 +47,8 @@ export interface RecordInput {
 	failedRounds: number;
 	/** One line per repair of this round (a corrected call, a continuation), so the lead knows when the worker needed help. */
 	repairs?: readonly string[];
+	/** What the round did to the worker's context (peak, summaries under the limit, lifted or asked); omitted when empty. */
+	contextLine?: string;
 }
 
 const USER_CHARS = 12_000;
@@ -141,6 +143,7 @@ export function buildRecord(input: RecordInput): string {
 	if (input.repairs && input.repairs.length > 0) {
 		lines.push("## Repairs in this round", ...input.repairs.map((line) => `- ${line}`), "");
 	}
+	if (input.contextLine?.trim()) lines.push("## Worker context", input.contextLine.trim(), "");
 	lines.push("</relay-hand-back>");
 	return lines.join("\n");
 }

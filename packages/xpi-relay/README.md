@@ -25,6 +25,9 @@ const relay = createRelay(host); // registers the two hand tools through host.re
 
 // A virtual model: pick the physical model and the next stored router state for each request.
 const route = relay.route(request, call); // no side effects: a retry may call it again
+// route.contextLimit: prompt tokens the request's context should stay under (absent: no limit). Pass it on to the host's
+// route, or the limit is dropped; a host that compacts by it writes the limit on its compaction entry
+// (`RelayEntry` `contextLimit`), which relay counts for its stuck guard.
 
 // The commit point: after the routed state is stored on the branch, once per request.
 relay.onRequestStart({ routerState, previousRouterState }, call);
@@ -36,6 +39,7 @@ relay.onRequestStart({ routerState, previousRouterState }, call);
 |---|---|
 | `appendEntry(type, data)` | Append a custom entry to the session branch. |
 | `settings()` | The `relay` block of the settings, read at each use (the package validates it). |
+| `keepRecentTokens()` | `compaction.keepRecentTokens` as resolved for the relay model, read at each use. A context limit below this plus 20,000 tokens is refused with an error that names its key. |
 | `sendMessage(message, options)` | `/handover` and `/handback` send a message for the model. |
 | `activeTools()`, `setActiveTools(names)` | The direct fallback adds the hand tools to the active set while relay is selected. |
 | `registerTools(specs)` | Called at the start and again when the exposure changes (codemode switched on or off). A `ToolSpec` carries the tool's name, description, typebox parameters, exposure and an `execute(params, signal, call)`. |
@@ -61,7 +65,7 @@ What `createRelay` returns, and which host event feeds it:
 | Method | Fed by |
 |---|---|
 | `route(request, call)` | the virtual model's router; it has no side effects |
-| `onRequestStart(event, call)` | the commit point of a request, after the router state is stored (`request_start` in xpi); writes the `relay.transition` entry of a handover and its notice. Call it once per request, not when routing or resolving the model failed; a retry may call it again, since it writes nothing when the state did not change |
+| `onRequestStart(event, call)` | the commit point of a request, after the router state is stored (`request_start` in xpi); writes the `relay.transition` entry of a handover and its notice, and, when `route()` raised the stuck guard of a context limit (`limit` in the state), the `relay.limit` entry, a notice and, for `whenStuck: "handback"`, a steering message through `sendMessage`. Call it once per request, not when routing or resolving the model failed; a retry may call it again, since it writes nothing when the state did not change |
 | `section(call)` | the system prompt build (the `relay` section; `undefined` leaves the prompt alone) |
 | `handover`, `handback` | the two tools (`ToolSpec.execute` calls them) |
 | `onDirectCall(tool, call)` | every `tool_call` (it ignores all but top-level hand-tool calls made while codemode is on) |

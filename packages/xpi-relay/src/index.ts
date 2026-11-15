@@ -17,6 +17,7 @@ export * from "./docs.ts";
 export * from "./entry.ts";
 export * from "./facts.ts";
 export * from "./host.ts";
+export * from "./limit.ts";
 export * from "./prompts.ts";
 export * from "./record.ts";
 export * from "./relay.ts";

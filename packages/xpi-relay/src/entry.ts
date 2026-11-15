@@ -30,6 +30,8 @@ export interface CompactionEntry extends EntryBase {
 	type: "compaction";
 	summary: string;
 	details?: unknown;
+	/** The route context limit that triggered this compaction, written by the core. */
+	contextLimit?: number;
 }
 
 /** Entry types relay does not read. Listed so that every one is a member of the union and `type` still narrows. */

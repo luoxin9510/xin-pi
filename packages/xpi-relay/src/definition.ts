@@ -33,6 +33,7 @@ export function initialView(state?: RelayState): RelayView {
 	return {
 		phase: state?.phase ?? "lead",
 		round: state?.round ?? 0,
+		...(state?.limit ? { limit: state.limit } : {}),
 		blocked: false,
 		mixups: 0,
 		stalls: 0,
@@ -45,7 +46,7 @@ export function initialView(state?: RelayState): RelayView {
 export function effectiveState(view: RelayView): RelayState {
 	if (view.pending === "handover") return { phase: "worker", round: view.round + 1 };
 	if (view.pending === "handback") return { phase: "lead", round: view.round };
-	return { phase: view.phase, round: view.round };
+	return { phase: view.phase, round: view.round, ...(view.limit ? { limit: view.limit } : {}) };
 }
 
 export type RelayEvent =
@@ -64,7 +65,12 @@ export type RelayEvent =
 	| { type: "model_away" }
 	| { type: "model_back" }
 	/** A tool of the other role was called. */
-	| { type: "wrong_role"; tool: "handover" | "handback" };
+	| { type: "wrong_role"; tool: "handover" | "handback" }
+	/**
+	 * The router raised the stuck guard: the phase has written `compactions` summaries under its context limit, and the
+	 * state it stored now says `to` (`lifted`: the limit is gone; `asked`: the worker is asked to hand back).
+	 */
+	| { type: "limit_reached"; compactions: number; to: "lifted" | "asked" };
 
 export type EntryKind =
 	| "relay.handover"
@@ -75,6 +81,8 @@ export type EntryKind =
 	| "relay.resume"
 	| "relay.transition"
 	| "relay.verify"
+	/** The stuck guard acted on a context limit. */
+	| "relay.limit"
 	/** A pending hand-off that never took effect is voided. */
 	| "relay.void";
 
@@ -96,11 +104,13 @@ export type Effect =
 	/** Tell the user: a line in the TUI. */
 	| { type: "notify"; text: string; level?: "info" | "warning" }
 	/** `/handback`: ask the worker to stop and report. */
-	| { type: "steer"; kind: "report" };
+	| { type: "steer"; kind: "report" | "limit" };
 
 export interface MachineConfig {
 	/** Times failed acceptance commands go back to the worker. */
 	maxRounds: number;
+	/** What the stuck guard does to the worker; `"lift"` when absent. */
+	whenStuck?: "lift" | "handback";
 }
 
 export interface Transition {
@@ -132,7 +142,8 @@ function transitionEntry(from: string, to: string, event: string, round: number)
 
 /** The lead has the work again: the view after a hand back is processed. */
 function leadAgain(view: RelayView): RelayView {
-	return { ...view, phase: "lead", pending: undefined, blocked: false, mixups: 0, stalls: 0, userAsked: false };
+	const { limit: _limit, ...rest } = view;
+	return { ...rest, phase: "lead", pending: undefined, blocked: false, mixups: 0, stalls: 0, userAsked: false };
 }
 
 function handBackBlocked(view: RelayView, report: string): Transition {
@@ -200,7 +211,8 @@ function stallReason(view: RelayView, event: EventOf<"run_end">): StallReason | 
 }
 
 function handedOver(view: RelayView): RelayView {
-	return { ...view, pending: "handover", blocked: false, mixups: 0, stalls: 0, userAsked: false };
+	const { limit: _limit, ...rest } = view;
+	return { ...rest, pending: "handover", blocked: false, mixups: 0, stalls: 0, userAsked: false };
 }
 
 const ROWS: readonly RelayRow[] = [
@@ -622,6 +634,59 @@ const ROWS: readonly RelayRow[] = [
 		}),
 	}),
 
+	// ---- The stuck guard of a context limit ----
+	row({
+		from: "worker",
+		on: "limit_reached",
+		when: (_view, event) => event.to === "asked",
+		label: "limit reached, the worker is asked to hand back",
+		doc: {
+			view: "worker",
+			event: "stuck guard: the worker's context limit compacted `maxCompactions` times, `whenStuck` is `handback`",
+			next: "limit asked (the limit stays; lifted after two more summaries)",
+			effects:
+				"`relay.limit` entry (`handback`); notification; steer: ask the worker to hand back `blocked` with what is done and left",
+		},
+		step: (view, event) => ({
+			next: { ...view, limit: "asked" },
+			effects: [
+				{
+					type: "append_entry",
+					entry: "relay.limit",
+					data: { action: "handback", compactions: event.compactions },
+				},
+				{
+					type: "notify",
+					text: `relay: worker compacted ${event.compactions} times in round ${view.round}, asked to hand back`,
+					level: "warning",
+				},
+				{ type: "steer", kind: "limit" },
+			],
+		}),
+	}),
+	row({
+		from: "*",
+		on: "limit_reached",
+		label: "limit reached, the limit is lifted",
+		doc: {
+			view: "any",
+			event: "stuck guard: `maxCompactions` summaries under the limit (worker: `whenStuck` is `lift`, or two more after the ask)",
+			next: "limit lifted until the next handover",
+			effects: "`relay.limit` entry (`lifted`); notification",
+		},
+		step: (view, event) => ({
+			next: { ...view, limit: "lifted" },
+			effects: [
+				{ type: "append_entry", entry: "relay.limit", data: { action: "lifted", compactions: event.compactions } },
+				{
+					type: "notify",
+					text: `relay: ${view.phase} compacted ${event.compactions} times in round ${view.round}, limit lifted`,
+					level: "warning",
+				},
+			],
+		}),
+	}),
+
 	// ---- The selected model changes ----
 	row({
 		from: "worker",
@@ -666,7 +731,7 @@ export const relayGraph = defineGraph<RelayView, RelayEvent, Effect, MachineConf
 	name: "relay",
 	stateOf: (view) => view.phase,
 	states: ["lead", "worker"],
-	events: ["handover", "handback", "run_end", "acceptance", "model_away", "model_back", "wrong_role"],
+	events: ["handover", "handback", "run_end", "acceptance", "model_away", "model_back", "wrong_role", "limit_reached"],
 	rows: ROWS,
 	otherwise: {
 		// `handover` and `handback` are answered by a row in every phase, so those two are never reached. The rest:
@@ -680,6 +745,7 @@ export const relayGraph = defineGraph<RelayView, RelayEvent, Effect, MachineConf
 		acceptance: nothing,
 		model_away: nothing,
 		model_back: nothing,
+		limit_reached: nothing,
 	},
 });
 

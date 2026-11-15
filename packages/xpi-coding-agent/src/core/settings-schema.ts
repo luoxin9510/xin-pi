@@ -330,6 +330,23 @@ const AgentTeamsSettingsSchema = Type.Union(
 const RelayThinkingLevel = () =>
 	Type.Union(["off", "minimal", "low", "medium", "high", "xhigh", "max"].map((level) => Type.Literal(level)));
 
+const RelayContextLimit = (fallback: string) =>
+	Type.Union([Type.Literal("tier"), Type.Literal("off"), Type.Integer({ minimum: 1 })], {
+		description: `Prompt tokens the context stays under: "tier" (tierFraction of the model's first price tier; no tiers, no limit), a number of tokens, or "off". ${fallback}`,
+	});
+const RelayTierFraction = () =>
+	Type.Number({
+		exclusiveMinimum: 0,
+		maximum: 1,
+		description: 'The part of the first price tier used with "tier". Default 0.95.',
+	});
+const RelayMaxCompactions = () =>
+	Type.Integer({
+		minimum: 0,
+		description:
+			"Summaries written under the limit in one phase before the stuck guard acts. 0: no guard. Default 4.",
+	});
+
 // The built-in relay extension's block (packages/xpi-relay/src/config.ts validates it). Defaults are in the descriptions.
 const RelaySettingsSchema = Type.Object(
 	{
@@ -390,6 +407,35 @@ const RelaySettingsSchema = Type.Object(
 				description:
 					"What one minute of the user's waiting is worth, in dollars of tokens, told to the lead next to the objective. Unset: time is not part of the objective.",
 			}),
+		),
+		workerContext: Type.Optional(
+			Type.Object(
+				{
+					limit: Type.Optional(RelayContextLimit('Default "tier".')),
+					tierFraction: Type.Optional(RelayTierFraction()),
+					maxCompactions: Type.Optional(RelayMaxCompactions()),
+					whenStuck: Type.Optional(
+						Type.Union([Type.Literal("lift"), Type.Literal("handback")], {
+							description:
+								'What happens after `maxCompactions` summaries in one round: "lift" (default) lifts the limit for the rest of the round; "handback" asks the worker to hand back with a progress report, and lifts the limit after two more summaries.',
+						}),
+					),
+				},
+				{ description: "The worker's context limit and the stuck guard." },
+			),
+		),
+		leadContext: Type.Optional(
+			Type.Object(
+				{
+					limit: Type.Optional(RelayContextLimit('Default "off".')),
+					tierFraction: Type.Optional(RelayTierFraction()),
+					maxCompactions: Type.Optional(RelayMaxCompactions()),
+				},
+				{
+					description:
+						"The lead's own context limit. When the lead is stuck the limit is lifted until the next handover.",
+				},
+			),
 		),
 	},
 	{ additionalProperties: true, description: "Settings of the built-in relay extension (the relay/auto model)." },

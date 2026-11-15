@@ -50,8 +50,10 @@ stateDiagram-v2
     worker --> lead: run ends after repeated stalls, blocked hand back and the record
     worker --> worker: acceptance failed, below maxRounds, back to the worker
     worker --> lead: acceptance passed, or no retries left, the record
+    worker --> worker: limit reached, the worker is asked to hand back
     note right of lead
         any with a pending hand-off: handover / handback
+        any: limit_reached
     end note
     note right of worker
         paused while another model is selected: model_away / model_back
@@ -73,9 +75,10 @@ cached prefix stays stable. When another model is selected the section is remove
   tools.handover({...}) from codemode.`), `handover`'s fields, and the decision facts below. It names no way to call
   `handback`.
 - **The worker's section**: one line (`You are the worker in relay mode. When done or stuck, call tools.handback({...})
-  from codemode.`), a statement that the handover has already happened, that the assistant messages before the tool
-  result that contains `Handed over to the worker model (round N)` were written by the lead (a different model) and not
-  by the worker (after a `/handover` by the user, before the `<relay-handover-by-user>` line), that it must
+  from codemode.`), a statement that the handover has already happened, that the assistant messages before the handover
+  (a tool result that contains `Handed over to the worker model (round N)`, or its mention in a summary of this
+  conversation; after a `/handover` by the user, the `<relay-handover-by-user>` line) were written by the lead (a
+  different model) and not by the worker, that it must
   not continue them or wait for a worker, and that it starts on the plan now, `handback`'s fields, the handover as the lead wrote it (plan, criteria, findings, when to stop, the
   acceptance commands), and its duties. The plan is here, not only in the lead's script, so a compaction cannot
   summarize it away. It names no way to call `handover`, and no message is inserted into the conversation at a handover
@@ -92,6 +95,11 @@ No rule says when to hand over. The lead's section gives it what a decision need
   from the model catalog, so they follow the models you configure. For example, with Opus 5.5 as lead and Haiku 5.5 as
   worker: input $4 against $0.1, output $20 against $0.5, 40 times each. With a pair of models whose prices are not
   known, it says so.
+- **The worker's context**: where the worker's price rises (its first price tier, with the number of prompt tokens and
+  how many times dearer its input tokens are above it), that its context grows with what it reads and writes in one
+  round and starts again after a hand back, and the limit in force with what happens when the worker is stuck (for
+  example `Worker context limit: 95,000 tokens; after 4 compactions in a round it is lifted`; `none` when there is
+  no limit). When the lead has a limit of its own, that is told too. See [The worker's context limit](#the-workers-context-limit).
 - **Time**: what a round adds (the worker's first read of the conversation, its work, the acceptance commands, the
   lead's reading of the record). Time is part of the objective only when `relay.minuteCost` is set: the lead is then
   told what one minute of your waiting is worth in dollars of tokens, and can weigh it against the prices.
@@ -106,7 +114,10 @@ No rule says when to hand over. The lead's section gives it what a decision need
 After each hand back the lead is also told what was measured: how long the round took from the handover to the hand
 back, how much of that the acceptance commands took, and what each model has used in the session so far (requests,
 tokens by kind, cost, time in requests and output tokens per second). So from the second decision on, the lead
-knows the cost and the speed of a round in this very session.
+knows the cost and the speed of a round in this very session. It is also told what the round did to the worker's
+context: the peak prompt, how many summaries were written under the limit, and whether the limit was lifted or the
+worker was asked to hand back (a line such as `The worker's context peaked at 92,000 prompt tokens (limit 95,000); 2
+summaries were written under the limit; the limit was lifted.`).
 
 A stronger model needs no more than this; a setup where the lead decides badly is corrected by changing these facts,
 not by adding rules. `npm run eval:delegation` measures the decisions (see [Limits](#limits)).
@@ -165,12 +176,63 @@ The record replaces the conversation. It holds, in this order:
 - the worker's report;
 - one line for each repair of the round (a corrected call, a continuation, a direct call), so the lead knows when the
   worker needed help;
+- the worker's context line under `## Worker context` (the same line the review message carries), when it has
+  something to say;
 - the changes since the handover: `git diff --stat`, files git does not track, and the diff up to `diffChars`
   characters (beyond that the lead is told how to read the rest). Outside a git repository this part is empty;
 - each acceptance command with its exit status and the end of its output.
 
 The lead's own judgement is kept in its own words; the worker summarizes only its own work; the rest is output of
 commands.
+
+## The worker's context limit
+
+Measured on eight long tasks (see [Measured](#measured)), 71 percent of a session's cost was the worker's, and 92
+percent of that came from requests above 100,000 prompt tokens, where Haiku 5.5 costs five times as much per token.
+Relay therefore limits the worker's context to its model's first price tier by default.
+
+- **The limit** is read from `relay.workerContext`: `"tier"` (default) is `tierFraction` (0.95) of the lowest
+  `cost.tiers[].inputTokensAbove` of the worker model in the catalog, so 95,000 tokens for Haiku 5.5; a model without
+  tiers, or one that is not in the catalog, has no limit. A number is that many prompt tokens, `"off"` is none. The
+  lead has the same three forms under `relay.leadContext`, off by default: its context is small in every measured task.
+- **How it works**: `route()` returns the limit as `contextLimit` on the route of a worker (or lead) request. The
+  agent core compacts before the request when the context exceeds the smaller of that limit and its usual threshold,
+  and writes it on the compaction entry. Old tool output is pruned first, and a summary is written only when pruning
+  does not get the context to 90 percent of the limit (see [Compaction](compaction.md#a-route-context-limit) and
+  [Virtual models](virtual-models.md#limit-the-context)). The summary replaces the worker's conversation; the
+  handover itself is in the worker's system prompt, so it is not lost.
+- **A limit must be reachable**: a computed limit below `compaction.keepRecentTokens` plus 20,000 tokens (40,000 with
+  the defaults; the value resolved for `relay/auto`) is an error that names the key, for a number and for a small
+  `tierFraction` alike. A limit a compaction cannot get under would compact on every request. The worker's limit is
+  checked in the lead phase too, so the error comes before the first handover; the lead's own limit is checked only
+  in the lead phase.
+- **The stuck guard**: relay counts the summaries written under the limit in the current phase, from the compaction
+  entries that carry `contextLimit`: after the latest handover for the worker, after the latest hand back or from the
+  start of the branch for the lead. The count follows the branch, so a failed acceptance run (which starts no new
+  round) carries it across. When it reaches `maxCompactions` (default 4; `0` turns the guard off), `route()` returns
+  a state with `limit: "lifted"` (or `"asked"`, below) and no limit for that request; `onRequestStart` sees the change
+  and runs the `limit_reached` row of the [table](#the-transition-table): a `relay.limit` entry
+  (`{ round, phase, action, compactions }`) and a notification. `route()` writes nothing itself.
+  - `whenStuck: "lift"` (default): the limit is lifted for the rest of the round, one entry and the line `relay:
+    worker compacted 4 times in round N, limit lifted`.
+  - `whenStuck: "handback"` (worker only): the worker gets one steering message that asks it to hand back `blocked`
+    with what is done and what is left, so the lead can split the rest; the limit stays. It is no stall or mix-up, and
+    a `/handback` by you in the same round takes precedence (no message is sent). If the worker has not handed back
+    after two more summaries, the limit is lifted as above.
+  - The lead is never asked to hand back: its limit is lifted, until the next handover.
+  - A new handover resets the count and the lift. A state stored before this field existed reads as limited.
+- **Pruning alone** is not counted and not capped: each pass needs `compaction.prune.minSavingsTokens` of old tool
+  output, so it cannot repeat without new output.
+- **The record**: a summary written under a limit in a worker phase is the worker's working memory, not the lead's.
+  When the hand-back record is built, such summaries are not carried into it as the lead's earlier summary; a summary
+  under the lead's own limit is kept, as an ordinary compaction is.
+- **The estimate** right after a prune or a compaction is characters divided by 4 for the whole context, which tends
+  to undercount code and JSON, so a request just after one can still go out above the tier. The prune shortcut leaves
+  10 percent of headroom; the eval counts the worker's requests above the tier, so the size of the effect is measured.
+
+```json
+{ "relay": { "workerContext": { "limit": 60000, "whenStuck": "handback" }, "leadContext": { "limit": "tier" } } }
+```
 
 ## The transition table
 
@@ -213,6 +275,8 @@ every other pair changes nothing and answers with a refusal.
 | worker | run ends (otherwise) | acceptance | run the acceptance commands |
 | worker | acceptance failed, failures so far < `maxRounds` | unchanged | `relay.verify`; continue with the failure output |
 | worker | acceptance passed, failed at `maxRounds`, or nothing to run | lead, mixups 0, stalls 0 | compact to the record; `relay.transition` |
+| worker | stuck guard: the worker's context limit compacted `maxCompactions` times, `whenStuck` is `handback` | limit asked (the limit stays; lifted after two more summaries) | `relay.limit` entry (`handback`); notification; steer: ask the worker to hand back `blocked` with what is done and left |
+| any | stuck guard: `maxCompactions` summaries under the limit (worker: `whenStuck` is `lift`, or two more after the ask) | limit lifted until the next handover | `relay.limit` entry (`lifted`); notification |
 | worker | another model selected | paused | `relay.pause`; notification |
 | paused | `relay/auto` selected | worker | `relay.resume`; notification |
 <!-- relay-table:end -->
@@ -325,6 +389,63 @@ when the offline subagent suite passes). One run per cell, so differences of 10 
   six long ones, with or without prices and an objective in the tool's description. The small tasks meant for
   delegation (a search over 40 files, a 3,000-line log) were done with one codemode script for a few cents.
 
+### Measured: the worker's context
+
+`npm run eval:delegation -- --long --arms relay`, 2026-11-15, Opus 5.5 as lead and Haiku 5.5 as worker, one run per
+task, so only differences of 50 percent and more mean something. First round, no limit: all eight tasks passed
+($4.59 in 3,752 s); the lead cost $1.33 (29 percent) and the worker $3.25 (71 percent). 203 of the worker's 345
+requests had more than 100,000 prompt tokens and made up $3.00 of its cost (92 percent). No compaction happened in
+any worker phase; the worker's peak context reached 294,308 tokens (`workflows`).
+
+| Task | Worker requests above 100k / all | Worker cost below / above 100k | Worker peak context |
+|---|---|---|---|
+| fork agent type | 38 / 55 | $0.03 / $0.45 | 179,879 |
+| workflows | 73 / 90 | $0.03 / $1.28 | 294,308 |
+| relaunch and pause | 56 / 70 | $0.03 / $0.94 | 263,795 |
+| agent file fields | 25 / 49 | $0.04 / $0.21 | 134,558 |
+| structured output | 8 / 31 | $0.04 / $0.08 | 128,886 |
+| names and SendMessage | 3 / 21 | $0.04 / $0.03 | 104,532 |
+| audit three packages | 0 / 21 | $0.02 / $0.00 | 47,833 |
+| three libraries from specs | 0 / 8 | $0.02 / $0.00 | 46,824 |
+
+The lead handed over after one or two requests, with 7,000 to 12,000 tokens of context, so appending the record to its
+conversation instead of replacing it would have changed nothing. Second round, the worker limited to 95,000 tokens (a
+compaction override on `relay/auto`, which was the only way before the route limit existed):
+
+| Task | No limit | Limit 95,000 | Compactions | Result |
+|---|---|---|---|---|
+| fork agent type | $0.71, 590 s | $0.33, 523 s | 2 | passes, 53 percent cheaper |
+| relaunch and pause | $1.16, 778 s | $0.42, 1,165 s | 6 | passes, 64 percent cheaper, 50 percent slower |
+| workflows (2,600 lines) | $1.47, 1,014 s, passes | $0.66, 2,700 s | 6, then 10 | times out |
+
+In the task that timed out, a compaction happened every two to three minutes: each keeps the latest 20,000 tokens
+and a summary, and the worker reads its way back to the limit. That run wrote a summary after every prune; the
+default now prunes first and writes a summary only when pruning is not enough, and the stuck guard lifts the limit
+after four summaries. The numbers above are from before those two changes. With them, at the default settings, two
+runs per task (Opus 5.5 as the lead, Haiku 5.5 as the worker):
+
+| Task | No limit (1 run) | Default limit (mean of 2) | The two runs | Limit summaries | Guard |
+|---|---|---|---|---|---|
+| fork agent type | $0.71, 590 s | $0.34, 598 s | $0.28 and $0.39 | 2 and 3 | not reached |
+| relaunch and pause | $1.16, 778 s | $0.53, 1,208 s | $0.37 and $0.69 | 4 and 4 | lifted in both |
+| workflows (2,600 lines) | $1.47, 1,014 s | $0.61, 1,433 s | $0.52 and $0.70 | 4 and 6, over 3 and 4 rounds | not reached |
+
+- All six runs pass; `workflows` does not time out. The cost is 53, 54 and 58 percent lower, and the last two tasks
+  take 40 to 55 percent longer.
+- In `workflows` the lead split the work itself, into three and four handovers; no worker round passed 100,000
+  tokens. With one handover (the two `diffChars` runs below) the guard lifts the limit, the worker grows to 228,000
+  and 278,000 tokens and the run costs $1.12 and $1.27: 14 to 24 percent below the unlimited run, not 58.
+- In `relaunch and pause` the limit was lifted after four summaries in both runs. In one the worker stayed below the
+  tier afterwards ($0.37); in the other it grew to 153,000 tokens with 35 requests above the tier ($0.69).
+- In the seven runs where the limit was never lifted (four of these six and three of the `diffChars` runs), no
+  request went above the tier: the worker's peak was 93,000 to 99,000 tokens against a tier of 100,000 and a limit of
+  95,000, so the estimate's error stayed inside the headroom there.
+- One of the two `fork agent type` runs was flagged by the eval for reading this checkout's source; it is the dearer
+  of the two ($0.39), and the other costs $0.28.
+
+`relay.diffChars` at 5000 and 0 was tried once per task. The lead's cost after the hand backs followed the number of
+rounds, not the size of the diff, so the default stays 20000.
+
 ## Commands
 
 | Command | Description |
@@ -345,6 +466,8 @@ when the offline subagent suite passes). One run per cell, so differences of 10 
     "maxRounds": 3,
     "acceptanceTimeoutMs": 600000,
     "diffChars": 20000,
+    "workerContext": { "limit": "tier", "tierFraction": 0.95, "maxCompactions": 4, "whenStuck": "lift" },
+    "leadContext": { "limit": "off" },
     "objective": "the user wants a correct result for as few of your (lead) tokens as possible. Worker tokens are not counted."
   }
 }
@@ -363,9 +486,15 @@ when the offline subagent suite passes). One run per cell, so differences of 10 
 | `objective` | see above | What the user optimizes for, told to the lead. Change it to weigh time, or to count worker tokens. |
 | `workerRecord` | unset | What is known about the worker's ability, told to the lead. |
 | `minuteCost` | unset | What one minute of your waiting is worth, in dollars of tokens. Unset: time is not part of the objective. |
+| `workerContext.limit` | `"tier"` | The worker's context limit: `"tier"` (`tierFraction` of its model's first price tier; none without tiers), a number of prompt tokens, or `"off"`. |
+| `workerContext.tierFraction` | `0.95` | The part of the tier used with `"tier"`, above 0 and at most 1. |
+| `workerContext.maxCompactions` | `4` | Summaries under the limit in one round before `whenStuck` applies. `0`: the guard is off. |
+| `workerContext.whenStuck` | `"lift"` | `"lift"`: lift the limit for the rest of the round. `"handback"`: ask the worker to hand back with a progress report; the limit is lifted after two more summaries. |
+| `leadContext.limit` | `"off"` | The same three forms, for the lead's own context. |
+| `leadContext.tierFraction`, `leadContext.maxCompactions` | `0.95`, `4` | As for the worker. A stuck lead always has its limit lifted, until the next handover. |
 
 The values are read at each request, so a change applies to the next one. A wrong value ends the request with an
-error that names the key. The thinking level selected for `relay/auto` itself is not used.
+error that names the key; a context limit below `compaction.keepRecentTokens` plus 20,000 is one too. The thinking level selected for `relay/auto` itself is not used.
 
 ## Limits
 
@@ -384,6 +513,9 @@ error that names the key. The thinking level selected for `relay/auto` itself is
   tasks run through `xpi --mode rpc`, where scripts can run in the background, and also report how main waited for
   its agents (see [Subagents: Waiting for agents](subagent.md#waiting-for-agents)); `--cli <path>` runs another build.
   A failing run keeps its directory (repository and sessions); `EVAL_KEEP=1` keeps those of passing runs too.
+  `EVAL_SETTINGS=<json>` merges settings into every run, one level deep (`{"relay":{"workerContext":{"limit":"off"}}}`
+  keeps the arm's models and thinking levels). For the relay arm the report adds the worker's peak context, its
+  requests above its first price tier and the summaries written under its limit.
 
 ## Porting
 

@@ -55,3 +55,45 @@ In the failing task a compaction happened every two to three minutes: each keeps
 summary, the worker reads its way back to the limit, and it does not finish. Under a virtual model a threshold
 compaction always writes a summary after pruning; whether pruning alone would have been enough in these runs was not
 measured.
+
+## Round 3: the worker's limit as shipped (after the limit and the stuck guard)
+
+The build of the branch `relay-worker-context` at 9afaf5dcb, default settings (`workerContext.limit: "tier"`, 95,000
+tokens for Haiku 5.5; four summaries, then the limit is lifted). Two runs per task, $2.95 together.
+
+| Task | No limit (1 run) | Default limit (mean of 2) | The two runs | Limit summaries | Guard |
+|---|---|---|---|---|---|
+| fork agent type | $0.71, 590 s | $0.34, 598 s | $0.28 and $0.39 | 2 and 3 | not reached |
+| relaunch and pause | $1.16, 778 s | $0.53, 1,208 s | $0.37 and $0.69 | 4 and 4 | lifted in both |
+| workflows (2,600 lines) | $1.47, 1,014 s | $0.61, 1,433 s | $0.52 and $0.70 | 4 and 6, over 3 and 4 rounds | not reached |
+
+- All six runs pass; `workflows` does not time out. The cost is 53, 54 and 58 percent lower, and the last two tasks
+  take 40 to 55 percent longer.
+- In `workflows` the lead split the work itself, into three and four handovers; no worker round passed 100,000
+  tokens. With one handover (the two `diffChars` runs below) the guard lifts the limit, the worker grows to 228,000
+  and 278,000 tokens and the run costs $1.12 and $1.27: 14 to 24 percent below the unlimited run, not 58.
+- In `relaunch and pause` the limit was lifted after four summaries in both runs. In one the worker stayed below the
+  tier afterwards ($0.37); in the other it grew to 153,000 tokens with 35 requests above the tier ($0.69).
+- In the seven runs where the limit was never lifted (four of these six and three of the `diffChars` runs), no
+  request went above the tier: the worker's peak was 93,000 to 99,000 tokens against a tier of 100,000 and a limit of
+  95,000, so the estimate's error stayed inside the headroom there.
+- One of the two `fork agent type` runs was flagged by the eval for reading this checkout's source; it is the dearer
+  of the two ($0.39), and the other costs $0.28.
+
+## Round 4: the diff in the record
+
+`relay.diffChars` at 5000 and 0, one run per task, $4.01 together; the runs at 20000 are round 3.
+
+| Task | `diffChars` 20000 (the two runs above) | 5000 (1 run) | 0 (1 run) |
+|---|---|---|---|
+| fork agent type: lead after the hand backs | $0.15 in 5 requests, $0.20 in 9 | $0.12 in 3 | $0.11 in 3 |
+| relaunch and pause | $0.17 in 5, $0.12 in 1 | $0.12 in 3 | $0.15 in 6 |
+| workflows | $0.25 in 3, $0.29 in 4 | $0.09 in 1 | $0.11 in 4 |
+| Whole run: fork / relaunch / workflows | $0.34 / $0.53 / $0.61 (means) | $0.27 / $0.73 / $1.12 | $0.28 / $0.33 / $1.27 |
+
+All six pass. The lead's cost after the hand backs follows the number of rounds and requests, not the size of the
+diff: the `workflows` runs at 5000 and 0 had one round where the runs at 20000 had three and four. One run per cell
+cannot separate a saving of a few cents from that, and the whole-run cost is decided by whether the lead splits the
+work. The default stays 20000.
+
+Rounds 3 and 4 together cost $6.96.
