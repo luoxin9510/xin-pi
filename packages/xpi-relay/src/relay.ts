@@ -13,7 +13,7 @@ import {
 	type RelayView,
 	transition,
 } from "./definition.ts";
-import { type ContextLimits, roundContextFact, roundTimeFact, spendFact } from "./facts.ts";
+import { type ContextLimits, leadRefreshes, roundContextFact, roundTimeFact, spendFact } from "./facts.ts";
 import type {
 	HandbackParams,
 	HandoverParams,
@@ -374,8 +374,12 @@ export function createRelay(host: RelayHost): Relay {
 				}
 			} else if (state.limit === "lifted") contextLimit = undefined;
 			const limited = contextLimit === undefined ? {} : { contextLimit };
-			if (worker) return { model, thinkingLevel: cfg.workerThinking, state: next, ...limited };
+			if (worker) {
+				const cache = cfg.warmLead ? { key: "worker", holdPrefix: "lead" } : { key: "worker" };
+				return { model, thinkingLevel: cfg.workerThinking, state: next, ...limited, cache };
+			}
 			return {
+				cache: { key: "lead" },
 				model,
 				thinkingLevel: state.round === 0 ? cfg.leadThinking.plan : cfg.leadThinking.review,
 				state: next,
@@ -711,6 +715,12 @@ export function createRelay(host: RelayHost): Relay {
 					if (history.length > 0) lines.push("this round:", ...history.map((line) => `  ${line}`));
 					const spend = spendFact(branch, cfg);
 					if (spend) lines.push(spend);
+					if (cfg.warmLead) {
+						const refreshes = leadRefreshes(branch);
+						lines.push(
+							`lead prefix kept warm during worker phases: ${refreshes.count} refresh${refreshes.count === 1 ? "" : "es"}, $${Number(refreshes.cost.toFixed(4))}`,
+						);
+					} else lines.push("lead prefix is not kept warm (relay.warmLead is false)");
 					return { text: lines.join("\n"), level: "info" };
 				} catch (error) {
 					return { text: `relay: ${(error as Error).message}`, level: "error" };

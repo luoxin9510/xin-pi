@@ -371,6 +371,20 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			);
 		};
 	};
+	// A held prefix (`ModelRoute.cache`) belongs to the selection, which stays the virtual model while the routed
+	// models change, and to the branch the request was sent on.
+	const heldContextIsCurrent = () => {
+		const selection = agent.state.model;
+		const leafId = sessionManager.getLeafId();
+		return () => {
+			const current = agent.state.model;
+			return (
+				current.provider === selection.provider &&
+				current.id === selection.id &&
+				(leafId === null || sessionManager.getBranch().some((entry) => entry.id === leafId))
+			);
+		};
+	};
 	const transformProviderPayload = async (payload: unknown) => {
 		const runner = extensionRunnerRef.current;
 		if (!runner?.hasHandlers("before_provider_request")) return payload;
@@ -417,7 +431,11 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			// shallow-copy the messages array or refresh the model object without changing
 			// the provider request, so top-level object identity is not a valid cache key.
 			if (options?.sessionId === sessionManager.getSessionId()) {
-				cacheWarmer.start({ model, context, options: requestOptions }, cacheContextIsCurrent(model));
+				cacheWarmer.start(
+					{ model, context, options: requestOptions },
+					cacheContextIsCurrent(model),
+					heldContextIsCurrent(),
+				);
 			}
 			return modelRuntime.streamSimple(model, context, requestOptions);
 		},

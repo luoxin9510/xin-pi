@@ -76,7 +76,7 @@ import {
 	computeCacheWaste,
 	detectCacheMiss,
 } from "../../core/cache-stats.ts";
-import { formatCacheWarmingStatus, formatCacheWarmingUsage } from "../../core/cache-warmer.ts";
+import { formatCacheWarmingStatus, formatCacheWarmingUsage, formatHeldPrefixStatus } from "../../core/cache-warmer.ts";
 import { findExtensionStackMatches, recordCrash, takeUnnotifiedCrash } from "../../core/crash-log.ts";
 import { DEFAULT_THINKING_LEVEL, THINKING_LEVEL_OPTIONS } from "../../core/defaults.ts";
 import type {
@@ -6881,6 +6881,7 @@ export class InteractiveMode {
 		// Snapshot the stats; the text is built on demand so it follows theme changes.
 		const cacheWarmingStatus = this.session.cacheWarmingStatus;
 		const cacheWarmingMode = this.settingsManager.getCacheWarmingMode();
+		const heldPrefixStatus = this.session.heldPrefixStatus;
 		const model = this.session.model;
 		const selectedModelKey = `${model?.provider}/${model?.id}`;
 		const renderInfo = (): string => {
@@ -6916,6 +6917,9 @@ export class InteractiveMode {
 			info += `\n${theme.bold("Cache Warming")}\n`;
 			info += `${theme.fg("dim", "Mode:")} ${cacheWarmingMode}\n`;
 			info += `${theme.fg("dim", "Status:")} ${cacheWarmingStatus ? formatCacheWarmingStatus(cacheWarmingStatus) : "Inactive (cache warming unavailable)"}\n`;
+			if (heldPrefixStatus) {
+				info += `${theme.fg("dim", "Held prefix:")} ${formatHeldPrefixStatus(heldPrefixStatus)}\n`;
+			}
 			const decision = cacheWarmingStatus?.decision;
 			if (decision?.economicsAvailable) {
 				info += `${theme.fg("dim", "Cache miss penalty:")} $${decision.missCost.toFixed(3)}\n`;

@@ -354,9 +354,57 @@ and the worker answers the next request.
 | Exploring and planning | Its own reading and thinking. Wide searches can go to cheap scouts with the [`Agent`](subagent.md) tool. |
 | `handover` | The note it writes. |
 | Worker phase, acceptance rounds | None. |
-| Hand back | The system prompt and tools from the prompt cache while it lasts (5 minutes by default), plus a cache write of the record. |
+| Worker phase, prefix refreshes | With `relay.warmLead` (default), short refresh requests that keep the lead's cached prefix alive, while that costs less than writing it again (see [The lead's cached prefix](#the-leads-cached-prefix)). |
+| Hand back | The system prompt and tools from the prompt cache while it is alive (5 minutes by default), plus a cache write of the record. |
 
 After a hand back every later lead request reads the record, not the conversation it replaced.
+
+### The lead's cached prefix
+
+A worker phase can last longer than the prompt cache lifetime (5 minutes by default), so the lead's cached prefix, its
+tools and system prompt (about 10,900 tokens in the measured tasks), would be written again on the first request after
+the hand back. The record replaces the lead's conversation, so the prefix is all the next lead request reads again.
+
+With `relay.warmLead` (default `true`), `route()` labels the lead's requests `lead` and the worker's requests `worker`,
+and the worker's label asks the core to hold the `lead` prefix (`ModelRoute.cache`, see [Virtual models](virtual-models.md#keep-a-prefix-cached)).
+The core then sends a short refresh request with the lead's tools and system prompt and one short user message before
+the entry expires, as long as the refreshes cost, in all, less than writing the prefix again would add to reading it.
+Each refresh is a `cache_warm` usage entry on the branch with the note `held prefix: lead`. It counts toward the
+session cost and never enters the context. `/relay` shows how many refreshes there have been and what they cost, and
+the delegation eval prints the same per task, with the lead's cache read and cache write on its first request after
+each hand back.
+
+Measured with Opus 5.5 as the lead and Haiku 5.5 as the worker, on four runs of two long tasks (all pass):
+
+| Worker phase | Refreshes | Their cost | The lead's first request after the hand back |
+|---|---|---|---|
+| 251 s | 0 | $0 | reads 10,827 tokens from the cache |
+| 560 s, then 900 s (two rounds) | 2, then 3 | $0.0114 | reads 10,828 tokens from the cache, both times |
+| 1,397 s | 5 | $0.0115 | reads 10,915 tokens from the cache |
+| 1,414 s | 5 | $0.0115 | reads 10,914 tokens from the cache |
+
+- Every refresh was a cache read of the prefix (10,800 to 11,000 tokens, $0.0022 each); the first one of a hold also
+  writes the 73 tokens of its short message.
+- After each worker phase longer than five minutes the lead's first request read the prefix from the cache (and wrote
+  2,500 to 12,700 tokens after it: the record).
+- What a refresh saves is what would have been written again without it. That was not measured side by side. The
+  upper bound is the whole prefix, 10,900 tokens at the difference between the cache write and the cache read price
+  of Opus 5.5: $0.052. The earlier runs without refreshes showed about 6,000 tokens written again after a long
+  worker phase: $0.029. Five refreshes cost $0.011, so a hand back after 23 minutes keeps between $0.018 and $0.04.
+- The lead's cost shows no difference at two runs per task: with the refreshes included it was $0.199 for `relaunch
+  and pause` and $0.274 for `workflows`, against $0.20 and $0.34 without them, and the lead handed over fewer times
+  in `workflows` this time (1.5 against 3.5 on average), so that pair is not comparable.
+
+The hold ends when the lead sends its next request, when the run settles (a session you leave idle holds nothing; if
+you interrupt the worker and resume later, nothing is held until the next lead request), when another model is
+selected, when the session branch changes, and when the session is disposed. `cacheWarming: "off"` disables it, as for
+the ordinary warmer.
+
+The refresh pays only if the first lead request after the hand back sends the same tools and system prompt as the
+lead's last request before the handover. A suite test pins that for a session that starts under `relay/auto`. It does
+not hold, and the refreshes are wasted, in these cases: relay selected in the middle of a session, tools added during
+the lead phase, and a codemode switch during the round. The waste is bounded by the economics rule: at most one cache
+write of the prefix.
 
 ### Measured
 
@@ -467,7 +515,7 @@ rounds, not the size of the diff, so the default stays 20000.
 |---|---|
 | `/handover [instructions]` | Give the work to the worker now, without a plan from the lead. |
 | `/handback` | Wake the lead now: the worker is told to stop and report, and the acceptance commands are not run. |
-| `/relay` | Show who has the work, the round, the two models, this round's transitions and repairs, and the spend of each model. |
+| `/relay` | Show who has the work, the round, the two models, this round's transitions and repairs, the spend of each model, and the refreshes that kept the lead's prefix warm. |
 
 ## Settings
 
@@ -483,6 +531,7 @@ rounds, not the size of the diff, so the default stays 20000.
     "diffChars": 20000,
     "workerContext": { "limit": "tier", "tierFraction": 0.95, "maxCompactions": 4, "whenStuck": "lift" },
     "leadContext": { "limit": "30%" },
+    "warmLead": true,
     "objective": "the user wants a correct result for as few of your (lead) tokens as possible. Worker tokens are not counted."
   }
 }
@@ -507,6 +556,7 @@ rounds, not the size of the diff, so the default stays 20000.
 | `workerContext.whenStuck` | `"lift"` | `"lift"`: lift the limit for the rest of the round. `"handback"`: ask the worker to hand back with a progress report; the limit is lifted after two more summaries. |
 | `leadContext.limit` | `"30%"` | The same four forms, for the lead's own context. The default is 300,000 tokens for Opus 5.5; the lead peaks at about 2.4 percent of its window in the measured tasks, so it is a backstop. Where 30 percent of the window is under 100,000 tokens the lead has no default limit. |
 | `leadContext.tierFraction`, `leadContext.maxCompactions` | `0.95`, `4` | As for the worker. A stuck lead always has its limit lifted, until the next handover or your next message. |
+| `warmLead` | `true` | Keep the lead's cached prefix warm with short refresh requests during a worker phase, while that costs less than writing it again. Must be `true` or `false`. |
 
 The values are read at each request, so a change applies to the next one. A wrong value ends the request with an
 error that names the key; a context limit below `compaction.keepRecentTokens` plus 20,000 is one too. The thinking level selected for `relay/auto` itself is not used.

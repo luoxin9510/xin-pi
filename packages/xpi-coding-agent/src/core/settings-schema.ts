@@ -445,6 +445,12 @@ const RelaySettingsSchema = Type.Object(
 				},
 			),
 		),
+		warmLead: Type.Optional(
+			Type.Boolean({
+				description:
+					"Keep the lead's cached prefix (tools and system prompt) warm with short refresh requests while the worker has the work, as long as that costs less than writing the prefix again. Default true.",
+			}),
+		),
 	},
 	{ additionalProperties: true, description: "Settings of the built-in relay extension (the relay/auto model)." },
 );

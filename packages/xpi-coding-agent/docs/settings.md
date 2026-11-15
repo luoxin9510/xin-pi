@@ -21,7 +21,7 @@ Add `"$schema": "https://pi.dev/schemas/settings.schema.json"` to `settings.json
 | `showCacheMissNotices` | boolean | `false` | Show notices for significant cache misses, successful cache warming, compaction usage, and provider recovery. |
 | `cacheWarming` | `"off" \| "streaming" \| "idle"` | `"streaming"` | Keep eligible provider prompt caches warm during active runs or, with `"idle"`, between runs. Global setting only. |
 
-Cache warming runs only when the model declares a cache lifetime and Pi estimates at least $0.05 in avoided cache-miss cost. Refresh usage counts toward session totals but does not enter model context. `/session` shows the next decision; extensions can override it with `cache_warming_decision`. See [Prompt Cache Lifetimes](models.md#describe-model-input-and-caching).
+Cache warming runs only when the model declares a cache lifetime and Pi estimates at least $0.05 in avoided cache-miss cost. Refresh usage counts toward session totals but does not enter model context. `/session` shows the next decision; extensions can override it with `cache_warming_decision`. A virtual model can also ask for the cached prefix of one of its roles to be held while another role has the work; `cacheWarming: "off"` disables that too, and it ends with the agent run in every mode (see [Virtual models](virtual-models.md#keep-a-prefix-cached)). See [Prompt Cache Lifetimes](models.md#describe-model-input-and-caching).
 
 See [Choose a Model](models.md) for model selection and thinking controls.
 
@@ -203,7 +203,7 @@ Read at session start and on `/reload`; only in the interactive TUI, in a saved 
 ## Relay
 
 The built-in `relay` extension reads a `relay` block (`lead`, `worker`, `leadThinking`, `workerThinking`, `maxRounds`,
-`acceptanceTimeoutMs`, `diffChars`, `objective`, `workerRecord`, `minuteCost`, `workerContext`, `leadContext`), listed with defaults in [Relay: Settings](relay.md#settings). `workerContext` and `leadContext` limit the context of each role (see [Relay: The worker's context limit](relay.md#the-workers-context-limit)); `limit` is `"tier"`, `"off"`, a number of prompt tokens, or a percentage of the model's context window such as `"30%"` (default `"tier"` for the worker, `"30%"` for the lead); a limit below `compaction.keepRecentTokens` plus 20,000 tokens is an error. The settings schema
+`acceptanceTimeoutMs`, `diffChars`, `objective`, `workerRecord`, `minuteCost`, `workerContext`, `leadContext`, `warmLead`), listed with defaults in [Relay: Settings](relay.md#settings). `workerContext` and `leadContext` limit the context of each role (see [Relay: The worker's context limit](relay.md#the-workers-context-limit)); `limit` is `"tier"`, `"off"`, a number of prompt tokens, or a percentage of the model's context window such as `"30%"` (default `"tier"` for the worker, `"30%"` for the lead); a limit below `compaction.keepRecentTokens` plus 20,000 tokens is an error. `warmLead` (default `true`; must be a boolean) keeps the lead's cached prefix warm during a worker phase (see [Relay: The lead's cached prefix](relay.md#the-leads-cached-prefix)). The settings schema
 describes the block.
 
 ## Commit

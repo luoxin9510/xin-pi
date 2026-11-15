@@ -23,7 +23,9 @@
 // EVAL_SETTINGS=<json>        settings merged into every run's project settings (object-valued keys one level deep),
 //                             to compare a setting across runs
 //                             Per task the report also shows, for the relay arm, the worker's peak context, its
-//                             requests above its first price tier and the summaries written under its context limit.
+//                             requests above its first price tier and the summaries written under its context limit,
+//                             the refreshes that kept the lead's prefix warm and their cost (included in `cost`), and
+//                             the cache read and write of the lead's first request after each hand back (mean).
 // EVAL_KEEP=1                 keep the directory (repository and sessions) of a passing run too; a failing run's is
 //                             always kept, and listed with the failures
 // Results: test/delegation/results/<stamp>.json (ignored by git).
@@ -117,6 +119,11 @@ interface Row {
 	workerPeak: number;
 	workerAboveTier: number;
 	workerCompactions: number;
+	/** The refreshes that kept the lead's prefix warm in worker phases, and what they cost (included in `cost`). */
+	leadRefreshes: number;
+	leadRefreshCost: number;
+	/** The lead's first request after each hand back: its cache read and cache write, in tokens. */
+	afterHandBack: { cacheRead: number; cacheWrite: number }[];
 	cost: number;
 	/** A session mentions this checkout's source of the feature: the run may have read the solution. */
 	leak: boolean;
@@ -161,6 +168,9 @@ interface Entry {
 	customType?: string;
 	/** On a compaction: the route context limit that triggered it. */
 	contextLimit?: number;
+	kind?: string;
+	note?: string;
+	usage?: { cost?: { total?: number } };
 	message?: {
 		role: string;
 		provider?: string;
@@ -180,11 +190,16 @@ function readUsage(file: string): {
 	handovers: number;
 	peak: number;
 	worker: WorkerStats;
+	refreshes: { count: number; cost: number };
+	afterHandBack: { cacheRead: number; cacheWrite: number }[];
 } {
 	const byModel: Record<string, Usage> = {};
 	let handovers = 0;
 	let peak = 0;
 	const worker: WorkerStats = { peak: 0, aboveTier: 0, compactions: 0 };
+	const refreshes = { count: 0, cost: 0 };
+	const afterHandBack: { cacheRead: number; cacheWrite: number }[] = [];
+	let awaitingLead = false;
 	// A worker phase runs from a `relay.handover` entry to the hand-back record.
 	let inWorker = false;
 	for (const line of readFileSync(file, "utf8").split("\n")) {
@@ -196,9 +211,14 @@ function readUsage(file: string): {
 			continue;
 		}
 		if (entry.type === "custom" && entry.customType === "relay.handover") inWorker = true;
+		if (entry.type === "usage" && entry.kind === "cache_warm" && entry.note === "held prefix: lead") {
+			refreshes.count++;
+			refreshes.cost += entry.usage?.cost?.total ?? 0;
+		}
 		if (entry.type === "compaction" && entry.details?.relay) {
 			handovers++;
 			inWorker = false;
+			awaitingLead = true;
 		} else if (entry.type === "compaction" && inWorker && entry.contextLimit !== undefined) worker.compactions++;
 		const message = entry.message;
 		if (entry.type !== "message" || message?.role !== "assistant" || !message.usage) continue;
@@ -208,6 +228,10 @@ function readUsage(file: string): {
 			if (WORKER_TIER !== undefined && prompt > WORKER_TIER) worker.aboveTier++;
 		}
 		const model = `${message.provider}/${message.model}`;
+		if (awaitingLead && model === MAIN) {
+			afterHandBack.push({ cacheRead: message.usage.cacheRead, cacheWrite: message.usage.cacheWrite });
+			awaitingLead = false;
+		}
 		byModel[model] ??= noUsage();
 		const usage = byModel[model];
 		usage.requests++;
@@ -219,7 +243,7 @@ function readUsage(file: string): {
 		if (model === MAIN)
 			peak = Math.max(peak, message.usage.input + message.usage.cacheRead + message.usage.cacheWrite);
 	}
-	return { byModel, handovers, peak, worker };
+	return { byModel, handovers, peak, worker, refreshes, afterHandBack };
 }
 
 function merge(into: Record<string, Usage>, from: Record<string, Usage>): void {
@@ -325,6 +349,8 @@ async function runOne(task: Task, arm: Arm, run: number): Promise<Row> {
 	let handovers = 0;
 	let peakContext = 0;
 	const workerStats: WorkerStats = { peak: 0, aboveTier: 0, compactions: 0 };
+	const leadRefreshes = { count: 0, cost: 0 };
+	const afterHandBack: { cacheRead: number; cacheWrite: number }[] = [];
 	let leak = false;
 	const metrics: WaitMetrics = { timeoutMsSet: 0, agentsStoppedByDeadline: 0, released: 0 };
 	for (const file of sessionFiles(sessionDir)) {
@@ -342,6 +368,9 @@ async function runOne(task: Task, arm: Arm, run: number): Promise<Row> {
 			workerStats.peak = Math.max(workerStats.peak, usage.worker.peak);
 			workerStats.aboveTier += usage.worker.aboveTier;
 			workerStats.compactions += usage.worker.compactions;
+			leadRefreshes.count += usage.refreshes.count;
+			leadRefreshes.cost += usage.refreshes.cost;
+			afterHandBack.push(...usage.afterHandBack);
 		}
 	}
 	const why = exit ?? task.check(repo);
@@ -361,7 +390,10 @@ async function runOne(task: Task, arm: Arm, run: number): Promise<Row> {
 		workerPeak: workerStats.peak,
 		workerAboveTier: workerStats.aboveTier,
 		workerCompactions: workerStats.compactions,
-		cost: sumCost(main) + sumCost(children),
+		leadRefreshes: leadRefreshes.count,
+		leadRefreshCost: leadRefreshes.cost,
+		afterHandBack,
+		cost: sumCost(main) + sumCost(children) + leadRefreshes.cost,
 		leak,
 		dir,
 		...(rpc ? { wait: { ...metrics, wakes: rpc.wakes, endedBy: rpc.endedBy, sawStatus: rpc.sawStatus } } : {}),
@@ -408,7 +440,17 @@ function report(rows: Row[]): void {
 		"peak ctx",
 		"agents",
 		"handovers",
-		...(relayRows ? ["worker peak", ">tier reqs", "worker compactions"] : []),
+		...(relayRows
+			? [
+					"worker peak",
+					">tier reqs",
+					"worker compactions",
+					"refreshes",
+					"refresh $",
+					"hand back read",
+					"hand back write",
+				]
+			: []),
 		...(rows.some((row) => row.wait) ? ["wakes", "timeout_ms", "deadline stops", "released"] : []),
 	];
 	const table: string[][] = [header];
@@ -434,6 +476,11 @@ function report(rows: Row[]): void {
 							k(avg(cell.map((row) => row.workerPeak))),
 							WORKER_TIER === undefined ? "n/a" : avg(cell.map((row) => row.workerAboveTier)).toFixed(1),
 							avg(cell.map((row) => row.workerCompactions)).toFixed(1),
+							avg(cell.map((row) => row.leadRefreshes)).toFixed(1),
+							`$${avg(cell.map((row) => row.leadRefreshCost)).toFixed(4)}`,
+							// The lead's first request after each hand back: what it read from the cache and what it wrote.
+							k(avg(cell.flatMap((row) => row.afterHandBack.map((request) => request.cacheRead)))),
+							k(avg(cell.flatMap((row) => row.afterHandBack.map((request) => request.cacheWrite)))),
 						]
 					: []),
 				...(rows.some((row) => row.wait)

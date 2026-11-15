@@ -85,6 +85,14 @@ export interface ModelRoute<TState = unknown> {
 	 * model's usual threshold. Ignored for `direct` requests.
 	 */
 	contextLimit?: number;
+	/**
+	 * Labels this request for the prompt cache. `key` names the role of the request: the core remembers the latest session
+	 * request sent under each key. `holdPrefix` names another key: while requests carrying it keep coming and the agent
+	 * run is active, the cached prefix (tools and system prompt) of that key's latest request is kept warm by short
+	 * refresh requests, as long as that costs less than writing it again. Both are non-empty strings and `holdPrefix`
+	 * differs from `key`. Ignored for `direct` requests.
+	 */
+	cache?: { key: string; holdPrefix?: string };
 }
 
 export interface VirtualModelDefinition<TState = unknown> {

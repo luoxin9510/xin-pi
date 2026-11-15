@@ -246,6 +246,62 @@ describe("relay", () => {
 		expect(seen.at(-1)?.text).not.toContain("WORKER-NOISE");
 	});
 
+	it("sends the lead the same tools and system prompt after a hand back as before the handover", async () => {
+		for (const codemode of [true, false]) {
+			const { harness, call, script, say } = await createRelayHarness({ codemode });
+			const prefixes: { model: string; system: string }[] = [];
+			const spy =
+				(step: FauxResponseStep): FauxResponseStep =>
+				(context, options, state, model) => {
+					prefixes.push({
+						model: model.id,
+						// The system messages carry the system prompt and declare the tools (`toolsAdded`). Their timestamp is
+						// not part of what the provider is sent.
+						system: JSON.stringify(
+							context.messages.flatMap((message) =>
+								message.role === "system" ? [{ ...message, timestamp: undefined }] : [],
+							),
+						),
+					});
+					return typeof step === "function" ? step(context, options, state, model) : step;
+				};
+			harness.setResponses(
+				(codemode
+					? [
+							say("I looked around."),
+							script(HAND_OVER),
+							call("echo", { text: "WORKER-NOISE" }),
+							script(`await tools.handback({ status: "done", report: "WORKER-REPORT-TEXT" });`),
+							say("The work is fine."),
+						]
+					: [
+							say("I looked around."),
+							call("handover", { plan: "PLAN-ONE", acceptance: ["true"] }),
+							call("echo", { text: "WORKER-NOISE" }),
+							call("handback", { status: "done", report: "WORKER-REPORT-TEXT" }),
+							say("The work is fine."),
+							say("Done."),
+						]
+				).map(spy),
+			);
+			await harness.session.prompt("USER-FIRST-MESSAGE");
+			await harness.session.prompt("USER-SECOND-MESSAGE please build it");
+
+			const lead = prefixes.filter((request) => request.model === "large");
+			const worker = prefixes.filter((request) => request.model === "small");
+			expect(worker.length).toBeGreaterThan(0);
+			// The last lead request before the handover and the first one after the hand back.
+			const handover = prefixes.findIndex((request) => request.model === "small");
+			const before = prefixes.slice(0, handover).at(-1);
+			const after = prefixes.slice(handover).find((request) => request.model === "large");
+			expect(lead.length).toBeGreaterThanOrEqual(2);
+			expect(before?.system).toContain("toolsAdded");
+			expect(after?.system).toBe(before?.system);
+			// The worker's prefix is another one.
+			expect(worker[0].system).not.toBe(before?.system);
+		}
+	});
+
 	it("falls back to direct hand tools when codemode is off, says so, and names the tools without tools.", async () => {
 		const { harness, seen, system, notes, call, say } = await createRelayHarness();
 		harness.setResponses([

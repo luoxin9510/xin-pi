@@ -121,3 +121,34 @@ function price(
 	};
 	return calculateCost(model, usage).total;
 }
+
+/** Inputs and outcome of one decision about a held prefix. */
+export interface HeldPrefixDecision {
+	/** Price of the next refresh: a cache read of the prefix plus one output token. */
+	warmCost: number;
+	/** What the prefix costs to write again instead of reading it: the write price minus the read price. */
+	saving: number;
+	/** False when the model's prices are unknown or the prefix is empty. */
+	economicsAvailable: boolean;
+	/** "warm" while what the refreshes have cost so far plus the next one stays below `saving`. */
+	action: CacheWarmingAction;
+}
+
+/**
+ * Decide whether the next refresh of a `prefixTokens`-token held prefix pays for itself. The saving is one known cache
+ * write avoided, so the minimum of `evaluateCacheWarming` does not apply: the refreshes are sent while they cost, in all,
+ * less than that one write would add to a read.
+ */
+export function evaluateHeldPrefix(model: Model<Api>, prefixTokens: number, spentSoFar: number): HeldPrefixDecision {
+	const readCost = price(model, { cacheRead: prefixTokens });
+	const writeCost = price(model, model.cost.cacheWrite > 0 ? { cacheWrite: prefixTokens } : { input: prefixTokens });
+	const warmCost = price(model, { cacheRead: prefixTokens, output: 1 });
+	const saving = Math.max(0, writeCost - readCost);
+	const economicsAvailable = prefixTokens > 0 && saving > 0;
+	return {
+		warmCost,
+		saving,
+		economicsAvailable,
+		action: economicsAvailable && spentSoFar + warmCost < saving ? "warm" : "stop",
+	};
+}

@@ -222,3 +222,18 @@ export function roundTimeFact(
 	const acceptance = acceptanceMs >= 1000 ? `, ${clock(acceptanceMs)} of it in the acceptance commands` : "";
 	return `Round ${round} took ${clock(now - startedAt)} from the handover to this hand back${acceptance}.`;
 }
+
+/** The note on the usage entry of a refresh that kept the lead's prefix warm (the host's `held prefix: <key>`). */
+export const LEAD_REFRESH_NOTE = "held prefix: lead";
+
+/** How many refreshes kept the lead's cached prefix warm on this branch, and what they cost. */
+export function leadRefreshes(branch: readonly RelayEntry[]): { count: number; cost: number } {
+	let count = 0;
+	let cost = 0;
+	for (const entry of branch) {
+		if (entry.type !== "usage" || entry.kind !== "cache_warm" || entry.note !== LEAD_REFRESH_NOTE) continue;
+		count++;
+		cost += entry.usage.cost?.total ?? 0;
+	}
+	return { count, cost };
+}

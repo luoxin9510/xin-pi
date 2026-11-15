@@ -308,6 +308,18 @@ The options below come with the unit. Each says how to turn it off.
   `compaction.modelOverrides` entry first), so that relay can refuse a limit a compaction cannot get under. The stuck
   guard needs nothing more of the host: it counts compaction entries with `contextLimit` on the branch, and it steers
   the worker through `sendMessage` with `deliverAs: "steer"`.
+- **Core change for a held prefix** (relay uses it to keep the lead's prefix warm during a worker phase):
+  `ModelRoute.cache` (`key`, `holdPrefix`) in `src/core/virtual-models.ts`, validated in `ModelRuntime.resolveModel`
+  and ignored for `direct`. `AgentSession.prepareRequest` hands the route's `cache` to the warmer after the route is
+  committed (`CacheWarmer.setRouteCache`); the stream function in `sdk.ts` passes the session request to
+  `CacheWarmer.start`, which consumes the label, remembers the request under its key and begins or ends the hold. The
+  hold is a slot of its own in `src/core/cache-warmer.ts` (`evaluateHeldPrefix` in `xpi-ai` has the economics), ended
+  by `onAgentSettled`, `setModel`, a branch that no longer holds the request, and `cancel` on dispose. The refresh is a
+  new request with the remembered leading system message (which declares the tools) and one short user message, a
+  `cache_warm` usage entry with the note `held prefix: <key>`, and a `cache_warming_decision` event with `key`. The
+  host must put `cache` on the route it returns (leaving it out drops the label) and set `RelayHost.settings()`'s
+  `relay.warmLead`; relay's `route()` returns `RelayRoute.cache`, and `/relay` counts the usage entries with the note.
+  A host without a prompt cache lifetime for the lead's model, or with `cacheWarming` off, simply holds nothing.
 - **Core changes for codemode-only tools** (the hand tools need all four; each also works for MCP tools):
   - *unlisted tools*: `ToolDefinition.listed: false` (`src/core/extensions/types.ts`, `ToolInfo.listed`,
     `ToolLoadout.isListed` in `agent-session.ts`), honored by codemode (`execute.ts`: `searchTools()`, `describeTool()`,

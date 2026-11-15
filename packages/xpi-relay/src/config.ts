@@ -15,6 +15,8 @@ export interface RelayConfig {
 	minuteCost?: number; // what a minute of the user's waiting is worth, in dollars of tokens; unset: time is not counted
 	workerContext: WorkerContextConfig;
 	leadContext: ContextConfig;
+	/** Keep the lead's cached prefix (tools and system prompt) warm during a worker phase. */
+	warmLead: boolean;
 }
 
 /** A limit on the prompt tokens of one role's context. */
@@ -100,6 +102,12 @@ function minuteCost(value: unknown): number | undefined {
 	return value;
 }
 
+function flag(value: unknown, key: string, fallback: boolean): boolean {
+	if (value === undefined) return fallback;
+	if (typeof value !== "boolean") throw new Error(`relay.${key} must be true or false, got ${JSON.stringify(value)}`);
+	return value;
+}
+
 function block(value: unknown, key: string): Record<string, unknown> {
 	if (value === undefined) return {};
 	if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -180,6 +188,7 @@ export function readRelayConfig(raw: unknown): RelayConfig {
 		minuteCost: minuteCost(r.minuteCost),
 		workerContext: workerContextConfig(r.workerContext),
 		leadContext: contextConfig(r.leadContext, "leadContext", DEFAULT_LEAD_CONTEXT),
+		warmLead: flag(r.warmLead, "warmLead", true),
 	};
 }
 
