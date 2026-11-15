@@ -34,14 +34,19 @@ lead's cache (about 9 percent of the lead's cost; later), more than one worker.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `workerContext.limit` | `"tier"` | `"tier"`: `tierFraction` of the worker model's first price tier (`cost.tiers[0].inputTokensAbove` in the catalog); a model without tiers has no limit. A number: that many prompt tokens. `"off"`: no limit. |
+| `workerContext.limit` | `"tier"` | `"tier"`: `tierFraction` of the worker model's first price tier, the lowest `cost.tiers[].inputTokensAbove` in the catalog (the list has no promised order); a model without tiers, or one that is not in the catalog, has no limit. A number: that many prompt tokens. `"off"`: no limit. |
 | `workerContext.tierFraction` | `0.95` | The part of the tier used with `"tier"`, above 0 and at most 1. |
-| `workerContext.maxCompactions` | `4` | Limit-triggered compactions in one round before `whenStuck` applies. `0`: never. |
+| `workerContext.maxCompactions` | `4` | Summaries written under the limit in one round before `whenStuck` applies. `0`: the guard is off. |
 | `workerContext.whenStuck` | `"lift"` | `"lift"`: the limit is lifted for the rest of the round. `"handback"`: the worker is told to hand back with a progress report, so the lead can split what is left. |
 | `leadContext.limit` | `"off"` | The same three forms, for the lead's own context. Off by default: the lead's context is small in every measured task. |
+| `leadContext.tierFraction`, `leadContext.maxCompactions` | `0.95`, `4` | As for the worker. When the lead is stuck the limit is always lifted, until the next handover. |
 
 Read with the other relay settings at each request, so a change applies to the next one; a wrong value ends the
 request with an error that names the key, as today. With Haiku 5.5 as the worker the default limit is 95,000 tokens.
+
+A numeric limit must leave room for what a compaction keeps: a value below `compaction.keepRecentTokens` plus 20,000
+(40,000 with the defaults) is an error that names the key. A limit that a compaction cannot get under would compact
+on every request.
 
 ### 2. Core seam: a context limit on the route (decision 2)
 
@@ -50,39 +55,67 @@ compaction settings of the *selected* model (`_exceedsCompactionThreshold(route.
 `getCompactionSettings(this.model)`), so a per-model override names `relay/auto` and cannot tell the worker from the
 lead.
 
-- `ModelRoute` gains an optional `contextLimit?: number` (prompt tokens). When it is set, the request compacts when
-  the estimated context exceeds it; when it is absent, today's rule applies unchanged.
-- The compaction that follows is a `threshold` compaction with `details.limit` naming the limit, so extensions and
-  the session show why it happened. `session_before_compact` fires as for any threshold compaction.
+- `ModelRoute` gains an optional `contextLimit?: number` (prompt tokens). `resolveModel` in `model-runtime.ts`
+  rebuilds the route object, so the field is carried there and validated there: a positive finite integer, else the
+  request fails naming the virtual model. It is ignored for `reason: "direct"` (summary requests and `ctx.complete`).
+- The request compacts when the estimated context exceeds **the smaller of** the route limit and today's threshold
+  (the routed model's window minus the reserve). Without a route limit nothing changes.
+- No compaction on every request: a limit-triggered compaction is skipped when the newest context-changing entry on
+  the branch is a compaction with no assistant response after it. Within one request there is no loop already (after
+  compacting, the request is prepared again but not routed again).
+- The compaction entry records the limit in a field the core owns, `contextLimit` on the entry, written whoever
+  supplied the summary (an extension answering `session_before_compact` replaces `details`, so `details` cannot carry
+  it). It is set only when the route limit is what triggered the compaction. `session_before_compact` fires as for
+  any threshold compaction, with the limit on the event.
 - Relay's `route()` returns the worker's limit in the worker phase and the lead's in the lead phase, each `undefined`
   when off or lifted.
+- The estimate: it is the provider's own count up to the latest response, plus characters/4 for what came after;
+  right after a compaction or a prune it is characters/4 for the whole context, which tends to undercount code and
+  JSON. So a request shortly after a prune can still go out above the tier. Section 3 leaves headroom for that, and
+  the eval counts the worker's requests above the tier (7), so the size of the effect is measured, not assumed.
 - Docs: `docs/virtual-models.md`, `docs/compaction.md`, `docs/extensions.md`, `docs/porting.md`.
 
 ### 3. Prune first under a route limit (decision 3)
 
-Today, under a virtual model, a threshold compaction prunes old tool output and then always writes a summary; under
-a physical model it stops after pruning when that was enough.
+Today, under a virtual model, a threshold compaction prunes old tool output and then always writes a summary
+(`_pruneToolOutputBeforeCompaction` returns false for any virtual model and measures against `this.model`); under a
+physical model it stops after pruning when that was enough.
 
-- When the trigger is a route's `contextLimit`, the limit is known and comparable, so the same shortcut applies:
-  after pruning, if the estimate is at or below the limit, no summary is written and the conversation's messages
-  stay. Without a route limit a virtual model behaves as today.
-- A prune-only pass counts as a compaction for `maxCompactions` only when it writes a summary: pruning alone loses no
-  reasoning and is cheap.
+- The limit is passed down (`_runAutoCompaction(reason, willRetry, limit)` to the prune step). When the trigger is a
+  route's `contextLimit`, the limit is known and comparable, so the shortcut applies: after pruning, if the estimate
+  is at or below **90 percent of the limit**, no summary is written and the conversation's messages stay. The 10
+  percent is headroom for the estimate's error after a prune. Without a route limit a virtual model behaves as
+  today.
+- Pruning rewrites the cached prefix from the first pruned tool result on. That is one cache write of the context at
+  the worker's price, and still cheaper than a summary request followed by the same rewrite.
+- Only a summary counts for `maxCompactions`: pruning alone loses no reasoning.
 
 ### 4. The stuck guard (decision 4)
 
-- Relay counts the summaries written under the worker's limit since the handover (from the compaction entries on the
-  branch after the latest `relay.handover`, so the count follows the branch).
-- When the count reaches `maxCompactions`:
-  - `"lift"`: `route()` returns no limit for the rest of the round. One `relay.limit` entry
-    (`{ round, action: "lifted", compactions }`) and one notification: `relay: worker compacted 4 times in round N,
-    limit lifted`.
-  - `"handback"`: the worker gets one steering message asking it to hand back `blocked` with what is done and what
-    is left; the limit stays. One `relay.limit` entry with `action: "handback"` and a notification. If the worker
-    has not handed back after two more compactions, the limit is lifted as with `"lift"`.
+- Relay counts the summaries written under a limit in the current phase: the compaction entries with `contextLimit`
+  on the branch after the latest `relay.handover` (worker) or the latest hand back (lead). Compaction entries stay on
+  the branch, so the count follows the branch. A failed acceptance run starts no new round, so the count carries
+  across it.
+- The guard is raised in `route()`, for a non-direct request, when the count has reached `maxCompactions` and no
+  `relay.limit` entry of this round says so yet. `route()` stays free of side effects: it returns the route (without
+  a limit when lifted), and the event is handled where `request_start` is, as the transition is since PR B.
+  - `"lift"`: no limit for the rest of the round. One `relay.limit` entry (`{ round, phase, action: "lifted",
+    compactions }`) and one notification: `relay: worker compacted 4 times in round N, limit lifted`.
+  - `"handback"` (worker only): one steering message (`sendMessage` with `deliverAs: "steer"`, which reaches the
+    worker after the request in flight) asking it to hand back `blocked` with what is done and what is left; the
+    limit stays. One `relay.limit` entry with `action: "handback"` and a notification. It does not count as a stall
+    or a mix-up, and a `/handback` by the user in the same round takes precedence. If the worker has not handed back
+    after two more summaries, the limit is lifted as with `"lift"`.
 - A new handover resets the count and the lift.
-- This is a row of relay's graph: event `limit_reached` in the worker phase, with the two actions as effects, so the
+- It is a row of relay's graph: event `limit_reached` (`{ phase, compactions }`) with the actions as effects, so the
   generated table and diagram show it and the enumeration covers it.
+- The record: `view.ts` treats every compaction without `details.relay` as the lead's "earlier summary" today. A
+  summary written under a limit in a worker phase is the worker's working memory, not the lead's: `readPhase` skips
+  compactions with `contextLimit` after the latest handover when it picks the earlier summary. A summary under the
+  lead's own limit is the lead's and is kept as the earlier summary, as an ordinary compaction is.
+- The worker's section: once a summary has replaced the handover's tool result, "the tool result that contains
+  `Handed over...`" points at nothing. The sentence becomes "the handover (a tool result that contains `Handed
+  over...`, or its mention in a summary of this conversation)". The plan is in the section itself, so nothing is lost.
 
 ### 5. What the lead is told (decision 5)
 
@@ -98,29 +131,38 @@ Facts, no rule about splitting:
 
 ### 6. The diff in the record (decision 6)
 
-Measure before changing the default: `relay.diffChars` at 20000 (today), 5000 and 0 on three tasks, with the lead's
-cost and the number of lead requests after the hand back. The default changes only if the lead's cost drops clearly
+Measure before changing the default: `relay.diffChars` at 20000 (today), 5000 and 0 on the three tasks of the
+validation (`fork agent type`, `relaunch and pause`, `workflows`), with the lead's cost and the number of lead
+requests after the hand back. The 20000 runs are the validation runs themselves. The default changes only if the
+lead's cost drops clearly
 and the tasks still pass; the result is recorded in `measurements-2026-11-15.md` (or a new dated file) either way.
 
 ### 7. The eval
 
-`EVAL_SETTINGS=<json>` (added with this spec) merges settings into every run's project settings. The delegation
+`EVAL_SETTINGS=<json>` (added with this spec) merges settings into every run's project settings, one level deep:
+an object-valued key such as `relay` is merged with the arm's own, so `{"relay":{"workerContext":{...}}}` keeps the
+arm's lead, worker and thinking levels and the runs stay comparable with the baseline. The delegation
 eval's per-task output gains the worker's peak context, the number of worker requests above the first price tier and
 the compactions in the worker phase, so a run shows what this spec is about without a separate script.
 
 ## Tests
 
 - Core: a route with `contextLimit` compacts at the limit and not before; without it nothing changes; prune-only when
-  pruning is enough (no summary entry, the messages stay), a summary when it is not; `details.limit` on the entry.
+  pruning is enough (no summary entry, the messages stay), a summary when it is not; `contextLimit` on the entry.
 - `xpi-relay`: the limit from a catalog tier, from a number, `"off"`, a model without tiers, `tierFraction`; wrong
   values name their key; the count from branch entries; `lift` and `handback` (including the fall-back lift); reset at
   a new handover; the facts and the record line; the new graph row, the regenerated docs and the enumeration digest
   (it changes on purpose).
 - Suite (faux provider): a worker phase that crosses the limit is compacted and continues; the fifth summary lifts
   the limit; the lead phase is not limited by default; a settings change applies to the next request.
-- Real models (the lead runs them, budget $10): the three most expensive tasks twice each with the defaults, and the
-  diff comparison of 6. Pass: all three tasks pass, their total cost is below the unlimited runs, and `workflows`
-  does not time out.
+- Core, more: the smaller of the two thresholds wins; `contextLimit` survives `resolveModel` and is rejected when it
+  is not a positive integer; ignored for `direct`; no second limit-triggered compaction without a response in
+  between; the entry's `contextLimit` is written when an extension supplied the summary.
+- `xpi-relay`, more: a limit below the minimum names its key; the lead's guard lifts; the earlier summary skips the
+  worker's limit summaries; the worker's section wording.
+- Real models (the lead runs them, budget $10): `fork agent type`, `relaunch and pause` and `workflows` twice each
+  with the defaults, then once each with `diffChars` 5000 and 0. Pass: all six default runs pass, the mean cost of
+  the two runs of each task is below its unlimited run ($0.71, $1.16, $1.47), and `workflows` does not time out.
 
 ## Docs
 

@@ -53,4 +53,5 @@ the limit).
 
 In the failing task a compaction happened every two to three minutes: each keeps the latest 20,000 tokens and a
 summary, the worker reads its way back to the limit, and it does not finish. Under a virtual model a threshold
-compaction always writes a summary, even when pruning old tool output would have been enough.
+compaction always writes a summary after pruning; whether pruning alone would have been enough in these runs was not
+measured.

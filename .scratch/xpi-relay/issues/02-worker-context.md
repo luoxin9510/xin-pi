@@ -5,9 +5,11 @@ the real-model runs (the lead runs them, budget $10) before the second merges.
 
 ## PR D: the core seam
 
-- [ ] D1 `ModelRoute.contextLimit`: the request compacts when the estimate exceeds it; absent, nothing changes;
-      `details.limit` on the compaction entry; tests
-- [ ] D2 prune first under a route limit: no summary when pruning is enough; tests
+- [ ] D1 `ModelRoute.contextLimit`, carried and validated in `resolveModel`, ignored for `direct`: the request
+      compacts at the smaller of the limit and today's threshold; no second limit compaction without a response in
+      between; `contextLimit` on the compaction entry, written by the core; tests
+- [ ] D2 prune first under a route limit, with the limit passed down: no summary when pruning gets to 90 percent
+      of the limit; tests
 - [ ] D3 docs: `virtual-models.md`, `compaction.md`, `extensions.md`, `porting.md`
 
 ## PR E: relay
@@ -18,7 +20,8 @@ the real-model runs (the lead runs them, budget $10) before the second merges.
       row (`limit_reached`) with `lift` and `handback`; `relay.limit` entries and notifications; the regenerated
       table, diagram and enumeration digest; tests
 - [ ] E3 the facts for the lead, the per-round line after a hand back, the record line; tests
-- [ ] E4 the eval prints the worker's peak context, requests above the tier and compactions per task
+- [ ] E4 the eval prints the worker's peak context, requests above the tier and compactions per task;
+      `EVAL_SETTINGS` merges one level deep
 - [ ] E5 docs: `relay.md` (with the measured numbers), `settings.md`, `porting.md`, the package README
 - [ ] E6 real-model validation: three tasks twice each with the defaults
 - [ ] E7 the diff comparison (`relay.diffChars` 20000, 5000, 0) and the decision on the default, recorded in the
