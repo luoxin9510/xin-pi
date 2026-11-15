@@ -107,8 +107,14 @@ const request = (state: RelayState | undefined): RelayRouteRequest => ({ reason:
 describe("the context limit settings", () => {
 	it("defaults to the tier for the worker and 30 percent of the window for the lead", () => {
 		const cfg = readRelayConfig({});
-		expect(cfg.workerContext).toEqual({ limit: "tier", tierFraction: 0.95, maxCompactions: 4, whenStuck: "lift" });
-		expect(cfg.leadContext).toEqual({ limit: { percent: 30 }, tierFraction: 0.95, maxCompactions: 4 });
+		expect(cfg.workerContext).toEqual({
+			limit: "tier",
+			chosen: false,
+			tierFraction: 0.95,
+			maxCompactions: 4,
+			whenStuck: "lift",
+		});
+		expect(cfg.leadContext).toEqual({ limit: { percent: 30 }, chosen: false, tierFraction: 0.95, maxCompactions: 4 });
 	});
 
 	it("reads every form of a limit", () => {
@@ -124,6 +130,7 @@ describe("the context limit settings", () => {
 			readRelayConfig({ leadContext: { limit: "tier", tierFraction: 0.5, maxCompactions: 0 } }).leadContext,
 		).toEqual({
 			limit: "tier",
+			chosen: true,
 			tierFraction: 0.5,
 			maxCompactions: 0,
 		});
@@ -154,7 +161,8 @@ describe("the context limit settings", () => {
 });
 
 describe("contextLimitOf", () => {
-	const cfg = readRelayConfig({}).workerContext;
+	// As if the settings chose each limit below: a chosen limit that does not fit is an error.
+	const cfg = { ...readRelayConfig({}).workerContext, chosen: true };
 	it("takes the fraction of the lowest tier, whatever the order of the list", () => {
 		expect(
 			contextLimitOf(cfg, "workerContext", priced("m", [tier(300_000), tier(100_000), tier(200_000)]), 20_000),
@@ -279,14 +287,28 @@ describe("route() and the limit", () => {
 		expect(() => small.relay.route(request({ phase: "lead", round: 0 }), small.call)).toThrow(
 			"relay.workerContext.limit",
 		);
-		// The default tier limit (95,000 with the faux worker's tier) under a large keepRecentTokens.
-		const keep = make({}, 80_000);
+		// A chosen tier fraction that does not fit under a large keepRecentTokens.
+		const keep = make({ workerContext: { tierFraction: 0.9 } }, 80_000);
 		expect(() => keep.relay.route(request({ phase: "lead", round: 0 }), keep.call)).toThrow(
 			"relay.workerContext.tierFraction",
 		);
 		// Off: nothing to report.
 		const off = make({ workerContext: { limit: "off" } }, 80_000);
 		expect(() => off.relay.route(request({ phase: "lead", round: 0 }), off.call)).not.toThrow();
+	});
+
+	it("drops a built-in default that does not fit instead of ending the request", () => {
+		// Nothing chosen: the worker's tier default (95,000) and the lead's 30% (300,000) under a minimum of 320,000.
+		const f = make({}, 300_000);
+		const lead = f.relay.route(request({ phase: "lead", round: 0 }), f.call);
+		expect(lead.contextLimit).toBeUndefined();
+		const worker = f.relay.route(request({ phase: "worker", round: 1 }), f.call);
+		expect(worker.contextLimit).toBeUndefined();
+		// The same values chosen in the settings are an error that names the key.
+		const chosen = make({ leadContext: { limit: "30%" } }, 300_000);
+		expect(() => chosen.relay.route(request({ phase: "lead", round: 0 }), chosen.call)).toThrow(
+			"relay.leadContext.limit",
+		);
 	});
 
 	it("reads the settings at each request", () => {

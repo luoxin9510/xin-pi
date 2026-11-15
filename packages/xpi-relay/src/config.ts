@@ -24,6 +24,11 @@ export interface ContextConfig {
 	 * the model's context window (written `"30%"`); `"off"`: no limit.
 	 */
 	limit: "tier" | "off" | number | { percent: number };
+	/**
+	 * Whether the settings chose the limit (`limit`, or `tierFraction` for a tier). A built-in default that a compaction
+	 * cannot get under means no limit; a chosen one is an error.
+	 */
+	chosen: boolean;
 	/** The part of the tier used with `"tier"`, above 0 and at most 1. */
 	tierFraction: number;
 	/** Summaries written under the limit in one phase before the stuck guard acts. 0: the guard is off. */
@@ -37,11 +42,17 @@ export interface WorkerContextConfig extends ContextConfig {
 
 export const DEFAULT_WORKER_CONTEXT: WorkerContextConfig = {
 	limit: "tier",
+	chosen: false,
 	tierFraction: 0.95,
 	maxCompactions: 4,
 	whenStuck: "lift",
 };
-export const DEFAULT_LEAD_CONTEXT: ContextConfig = { limit: { percent: 30 }, tierFraction: 0.95, maxCompactions: 4 };
+export const DEFAULT_LEAD_CONTEXT: ContextConfig = {
+	limit: { percent: 30 },
+	chosen: false,
+	tierFraction: 0.95,
+	maxCompactions: 4,
+};
 
 export const DEFAULT_OBJECTIVE =
 	"the user wants a correct result for as few of your (lead) tokens as possible. Worker tokens are not counted.";
@@ -127,6 +138,7 @@ function contextConfig(raw: unknown, key: string, defaults: ContextConfig): Cont
 	}
 	return {
 		limit,
+		chosen: r.limit !== undefined || (limit === "tier" && r.tierFraction !== undefined),
 		tierFraction,
 		maxCompactions: count(r.maxCompactions, `${key}.maxCompactions`, defaults.maxCompactions, 0),
 	};

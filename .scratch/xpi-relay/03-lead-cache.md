@@ -37,6 +37,10 @@ each round); warming the ordinary (non-held) request under a virtual model.
 - Everything else is as for the other forms: the minimum (`compaction.keepRecentTokens` + 20,000) with an error that
   names the key, the stuck guard (`leadContext.maxCompactions`, then lifted until the next handover), the core taking
   the smaller of the limit and the ordinary threshold, the summary request going to the worker model.
+- A built-in default that does not fit is no limit, not an error: the lead's 30 percent of a small window (38,400
+  tokens of a 128,000 window, below the minimum of 40,000), or the worker's tier under a large `keepRecentTokens`.
+  Nobody chose it, and relay must work with any lead model. A limit the settings chose (`limit`, or `tierFraction`
+  for a tier) that does not fit stays an error. This changes step 2 for the worker's default, which was an error.
 - A wrong string (`"30"`, `"0%"`, `"101%"`, `"abc%"`) is an error that names the key and lists the forms.
 - The lead's section already states the lead's own limit when it has one; with the new default it is always there.
   The fact names the tokens, not the percentage.

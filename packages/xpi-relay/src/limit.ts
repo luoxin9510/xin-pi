@@ -17,7 +17,7 @@ export function firstTier(model: Tiered): number | undefined {
 /**
  * The limit in prompt tokens for a model, or undefined for no limit: `"off"`, a model without tiers or outside the
  * catalog under `"tier"`. A limit a compaction cannot get under (below `keepRecentTokens` plus room) is an error that
- * names the key.
+ * names the key when the settings chose it, and no limit when it is the built-in default.
  */
 export function contextLimitOf(
 	config: ContextConfig,
@@ -44,6 +44,9 @@ export function contextLimitOf(
 	}
 	const minimum = keepRecentTokens + LIMIT_ROOM;
 	if (limit < minimum) {
+		// A built-in default that does not fit this model and these compaction settings is no limit, not an error:
+		// nobody chose it. The ordinary threshold still applies.
+		if (!config.chosen) return undefined;
 		throw new Error(
 			`${source} gives a context limit of ${limit} tokens, below the minimum of ${minimum} (compaction.keepRecentTokens ${keepRecentTokens} + ${LIMIT_ROOM}): a compaction could not get under it`,
 		);

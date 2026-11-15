@@ -209,7 +209,10 @@ Relay therefore limits the worker's context to its model's first price tier by d
   handover itself is in the worker's system prompt, so it is not lost.
 - **A limit must be reachable**: a computed limit below `compaction.keepRecentTokens` plus 20,000 tokens (40,000 with
   the defaults; the value resolved for `relay/auto`) is an error that names the key, for a number, for a small
-  percentage (`relay.<key>.limit`) and for a small `tierFraction` alike. A limit a compaction cannot get under would compact on every request. The worker's limit is
+  percentage (`relay.<key>.limit`) and for a small `tierFraction` alike. A limit a compaction cannot get under would
+  compact on every request. That is for a limit the settings chose: a built-in default that does not fit (the lead's
+  30 percent of a small window, or the worker's tier under a large `keepRecentTokens`) means no limit for that role,
+  and the ordinary compaction threshold applies. The worker's limit is
   checked in the lead phase too, so the error comes before the first handover; the lead's own limit is checked only
   in the lead phase.
 - **The stuck guard**: relay counts the summaries written under the limit in the current phase, from the compaction
