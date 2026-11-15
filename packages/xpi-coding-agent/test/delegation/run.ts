@@ -20,6 +20,8 @@
 //
 // EVAL_MAIN=<provider/model>  the main model (default: haiku, which tests the harness for cents)
 // EVAL_BUDGET=<dollars>       stop starting runs once this much is spent (default 20)
+// EVAL_SETTINGS=<json>        settings merged into every run's project settings (object-valued keys one level deep),
+//                             to compare a setting across runs
 // EVAL_KEEP=1                 keep the directory (repository and sessions) of a passing run too; a failing run's is
 //                             always kept, and listed with the failures
 // Results: test/delegation/results/<stamp>.json (ignored by git).
@@ -41,6 +43,19 @@ const PI = resolve(flag("--cli") ?? join(ROOT, "dist", "bundle", "cli.js"));
 const HAIKU = "anthropic/claude-haiku-5-5";
 const MAIN = process.env.EVAL_MAIN ?? HAIKU;
 const BUDGET = Number(process.env.EVAL_BUDGET ?? 20);
+// Settings added to every run's project settings, as JSON, for comparing a setting. Merged one level deep: an
+// object-valued key such as `relay` is merged with the arm's own, so the arm's models and thinking levels stay.
+const EXTRA_SETTINGS: Record<string, unknown> = JSON.parse(process.env.EVAL_SETTINGS ?? "{}");
+const isObject = (value: unknown): value is Record<string, unknown> =>
+	typeof value === "object" && value !== null && !Array.isArray(value);
+function withExtraSettings(settings: Record<string, unknown>): Record<string, unknown> {
+	const merged = { ...settings };
+	for (const [key, value] of Object.entries(EXTRA_SETTINGS)) {
+		const own = merged[key];
+		merged[key] = isObject(own) && isObject(value) ? { ...own, ...value } : value;
+	}
+	return merged;
+}
 const USER_AUTH = join(process.env.HOME ?? "", ".pi", "agent", "auth.json");
 const RUN_TIMEOUT_MS = 900_000;
 const tasks = process.argv.includes("--long") ? longTasks : smallTasks;
@@ -201,7 +216,7 @@ async function runOne(task: Task, arm: Arm, run: number): Promise<Row> {
 		});
 	if (!existsSync(join(repo, ".git"))) git("init", "-q");
 	mkdirSync(join(repo, ".pi"), { recursive: true });
-	writeFileSync(join(repo, ".pi", "settings.json"), JSON.stringify(settingsFor(arm)));
+	writeFileSync(join(repo, ".pi", "settings.json"), JSON.stringify(withExtraSettings(settingsFor(arm))));
 	// The start state is one commit, so the work shows as a diff against it.
 	git("add", "-A");
 	git("commit", "-q", "--no-verify", "-m", "start");

@@ -38,3 +38,34 @@ Author's notes while writing the spec:
   implementing that interface.
 - "Pass unchanged" means the assertions: the machine tests move with the code, so their import paths change and
   nothing else.
+
+## Step 2: measured first (2026-11-15)
+
+The owner asked for measurement before any cost decision. `measurements-2026-11-15.md` has the numbers. What they
+settled: the money is in the worker's requests above its model's first price tier; the lead hands over after one or
+two requests, so appending the record instead of replacing the conversation changes nothing and is not built;
+warming the lead's cache is worth about 9 percent of the lead's cost and waits.
+
+The owner on the scope (2026-11-15, "我觉得可以做，不着急发布"): do the worker's context limit with a stuck guard,
+tell the lead the facts, and measure the record's diff size; no release yet.
+
+## Grill 2 (2026-11-15). Accepted by the owner on 2026-11-15 ("上限可以用户在 settings 里面灵活配置，其他我觉得按照推荐就可以了")
+
+1. The worker's limit comes from the catalog: a fraction (95 percent) of the worker model's first price tier; no tier,
+   no limit. **The owner: the limit must be freely configurable in settings.** So every part is a setting: the limit
+   as `"tier"`, a number or `"off"`, the fraction, the number of compactions, what happens when the worker is stuck,
+   and the same limit forms for the lead (off by default).
+2. A core seam: a route may carry a context limit for its request, and the core compacts by it. This also closes the
+   gap found while measuring (the compaction override is looked up by the selected virtual model, not by the model
+   that answers).
+3. At the limit, prune old tool output first and write a summary only when pruning is not enough, as a physical
+   model already does.
+4. A stuck guard: after 4 limit-triggered compactions in one round the limit is lifted for the rest of the round
+   (the default), with an entry, a notification and a line in the record. The other behaviour, asking the worker to
+   hand back with a progress report, is a setting.
+5. The lead is told facts, not rules: the worker's price tier and that its context starts again after a hand back;
+   after each hand back the round's peak context, compactions and whether the limit was lifted.
+6. The record's diff size is measured (20000, 5000, 0) before any change of the default.
+7. Validation: the three most expensive tasks twice each with the new logic, plus the diff comparison; budget $10.
+   Pass: all three pass, their total cost is below the unlimited runs, and `workflows` does not time out.
+
