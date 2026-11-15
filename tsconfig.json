@@ -32,6 +32,7 @@
 			"xpi-roost/session": ["./packages/xpi-roost/src/session.ts"],
 			"xpi-roost/hub": ["./packages/xpi-roost/src/hub/index.ts"],
 			"xpi-shadow-git": ["./packages/xpi-shadow-git/src/index.ts"],
+			"xpi-relay": ["./packages/xpi-relay/src/index.ts"],
 			"xpi-tui": ["./packages/xpi-tui/src/index.ts"],
 			"xpi-tui/*": ["./packages/xpi-tui/src/*"]
 		}

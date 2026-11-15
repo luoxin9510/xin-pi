@@ -7,6 +7,7 @@
 			"xpi-agent-core/*": ["../xpi-agent-core/dist/*.d.ts"],
 			"xpi-ai": ["../xpi-ai/dist/index.d.ts"],
 			"xpi-ai/*": ["../xpi-ai/dist/*.d.ts", "../xpi-ai/dist/providers/*.d.ts"],
+			"xpi-relay": ["../xpi-relay/dist/index.d.ts"],
 			"xpi-roost": ["../xpi-roost/dist/index.d.ts"],
 			"xpi-roost/session": ["../xpi-roost/dist/session.d.ts"],
 			"xpi-roost/hub": ["../xpi-roost/dist/hub/index.d.ts"],
