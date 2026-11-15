@@ -10,14 +10,15 @@ Spec: `../03-lead-cache.md`. Two PRs.
       its limit
 - [x] F3 docs: `relay.md`, `settings.md`, the settings schema, the package README
 
-## PR G: a held cache entry
+## PR G: a held prefix
 
-- [ ] G1 core: `ModelRoute.cache` (`key`, `hold`), validated in `resolveModel`, ignored for `direct`; the warmer
-      remembers the latest request per key and refreshes the held one; the ending conditions; tests
-- [ ] G2 core: the economics of a held entry (`"prefix"`, `"all"`, stop when the refreshes cost more than the
-      saving); `cache_warming_decision` with `key`; the `/session` line; tests
-- [ ] G3 relay: `relay.warmLead`; `route()` returns `cache`; `RelayRoute.cache` passed on by the adapter; the
-      section is identical across a round; tests
+- [ ] G1 core: `ModelRoute.cache` (`key`, `holdPrefix`), validated in `resolveModel`, ignored for `direct`; the
+      label handed from `prepareRequest` to the warmer and consumed by the stream function; the warmer remembers the
+      latest request per key and refreshes the held prefix in a slot of its own; the ending conditions; tests
+- [ ] G2 core: the refresh request (tools, system prompt, one short message, one output token); the economics;
+      `cache_warming_decision` with `key`; the `/session` line; tests
+- [ ] G3 relay: `relay.warmLead`; `route()` returns `cache`; `RelayRoute.cache` passed on by the adapter; the suite
+      test that the prefix is the same before a handover and after the hand back; tests
 - [ ] G4 `/relay` and the eval show the refreshes and their cost, and the lead's cache read and write after each
       hand back
 - [ ] G5 docs: `relay.md`, `settings.md`, `virtual-models.md`, `extensions.md`, `porting.md`, the package README

@@ -1,4 +1,4 @@
-# Spec 03: the lead's context limit by window, and keeping the lead's cache warm (step 3)
+# Spec 03: the lead's context limit by window, and keeping the lead's cached prefix warm (step 3)
 
 Status: approved by the owner on 2026-11-15 (Grill 3 in `decisions.md`).
 
@@ -52,51 +52,76 @@ each round); warming the ordinary (non-held) request under a virtual model.
 - Docs: `docs/relay.md` (the settings table, the limit section), `docs/settings.md`, the settings schema,
   `packages/xpi-relay/README.md`.
 
-### 2. Core seam: a held cache entry (PR G)
+### 2. Core seam: a held prefix (PR G)
+
+Revised after the review of PR F, which read this section: replaying the whole request is not known to refresh the
+shorter cache entry at the system prompt's breakpoint, the route does not reach the warmer today, and the ending
+conditions were incomplete.
 
 Today `CacheWarmer` keeps one entry: the latest session request, and only while the selected model is the request's
 model, so a request routed by a virtual model is never warmed. That stays.
 
-- `ModelRoute` gains an optional `cache?: { key: string; hold?: { key: string; reuse: "prefix" | "all" } }`.
-  - `key` labels the cache entry this request writes. The core remembers the latest request sent under each key
-    (the model, the context and the options, as sent) with the prompt tokens of its response.
-  - `hold` names another key whose entry is kept warm while requests carrying this `hold` keep coming and the agent
-    run is active. `reuse` says what of the held prompt the next request under that key will read: `"prefix"` (the
-    tools and the system prompt only) or `"all"`.
-  - Ignored for `reason: "direct"`. Validated in `resolveModel`: non-empty strings, `hold.key` different from `key`.
-- The held entry is refreshed like the ordinary one: the same request with a one-token output cap, at 90 percent of
-  the cache lifetime, recorded as a `cache_warm` usage entry (with the key as its note), never entering the context.
-  The rules of the ordinary entry apply: `cacheWarming: "off"` disables it, a request that cannot be replayed safely
-  is not held, the one-hour limit, the missed-deadline rule.
-- The hold ends when: a request is sent under the held key (it replaces the entry), a request arrives whose route
-  does not hold it, the agent run settles (an idle session holds nothing, in every warming mode), the selected model
-  changes, the session is disposed.
-- Economics, decided at each refresh: the saving is the reused tokens times (cache write price minus cache read
-  price) of the held model, where the reused tokens are the held request's prompt tokens for `"all"` and an estimate
-  of its tools and system prompt (characters / 4) for `"prefix"`. A refresh costs the held request's prompt tokens at
-  the cache read price plus one output token. The entry is refreshed while what the refreshes have cost so far plus
-  the next one stays below the saving; then it is left to expire. The $0.05 minimum of the ordinary entry does not
-  apply: the saving here is known, not estimated from a probability.
-- `cache_warming_decision` fires for the held entry too, with a new optional `key` on the event; an extension can
+- `ModelRoute` gains an optional `cache?: { key: string; holdPrefix?: string }`.
+  - `key` labels the requests of one role. The core remembers the latest session request sent under each key: the
+    physical model, the tools and the system prompt of its context, and its options, as sent.
+  - `holdPrefix` names another key. While requests carrying it keep coming and the agent run is active, the cached
+    prefix (tools and system prompt) of that key's remembered request is kept warm.
+  - Validated in `resolveModel`: non-empty strings, `holdPrefix` different from `key`; else the request fails naming
+    the virtual model. Ignored for `reason: "direct"`.
+- How the label reaches the warmer: `prepareRequest` in `agent-session.ts` has the route and the stream function in
+  `sdk.ts` has the request. `prepareRequest` hands the route's `cache` to the warmer for the next session request
+  (after the route is committed, before it returns); the stream function's existing call for a session request
+  (`options.sessionId` is the session's) consumes it. A request without a pending label changes nothing about held
+  prefixes: summary requests, `ctx.complete`, subagents, the refreshes themselves. A retry is routed again and
+  carries its own label.
+- The refresh is a new request, not a replay of the conversation: the remembered tools and system prompt, one short
+  user message (`.`), the remembered options with a one-token output cap, no retries, no continuation. It goes
+  through the same request building as the original, so the serialized tools and system prompt are the same bytes
+  and the lookup hits the cache breakpoint at the end of the system prompt (`anthropic-messages.ts` puts breakpoints
+  on the last tool, the system blocks and the last user message). It costs a cache read of the prefix; the short
+  message adds a few tokens.
+- Timing and the other rules are the ordinary entry's: at 90 percent of the cache lifetime of the held model for the
+  retention the request used, `cacheWarming: "off"` disables it, a request that cannot be replayed safely
+  (`isCacheWarmingReplayable`) is not held, the one-hour limit from the remembered request, the missed-deadline rule.
+  The refresh is recorded as a `cache_warm` usage entry with the note `held prefix: <key>`, and never enters the
+  context.
+- The hold ends when:
+  - a session request is sent under the held key (it reads the prefix itself; a refresh in flight is aborted);
+  - a labelled session request arrives that does not hold it;
+  - the agent run settles, in every warming mode (an idle session holds nothing; a user who interrupts the worker and
+    resumes later starts without a hold until the next lead request is remembered and held again, which is accepted);
+  - the selected model changes away from the virtual model, the session branch changes (`/tree`, fork, switch), the
+    session is disposed.
+  The held slot is separate from the ordinary run: `start()` for the ordinary entry must not clear it.
+- Economics, decided at each refresh from the held model's prices. The prefix tokens are estimated as characters / 4
+  of the remembered system prompt and tool definitions. The saving is the prefix tokens times (cache write price
+  minus cache read price); a refresh costs the prefix tokens at the cache read price plus one output token. The
+  prefix is refreshed while what the refreshes have cost so far plus the next one stays below the saving; then it is
+  left to expire. The $0.05 minimum of the ordinary entry does not apply: the saving is one known cache write, not
+  an estimate from a probability. Unknown prices: no refresh.
+- `cache_warming_decision` fires for a held prefix too, with a new optional `key` on the event; an extension can
   override the action as for the ordinary entry.
-- `/session` shows the held entry on its own line when there is one.
+- `/session` shows a held prefix on its own line when there is one.
 - Docs: `docs/virtual-models.md`, `docs/extensions.md` (the event's `key`), `docs/settings.md` (`cacheWarming`),
   `docs/session-format.md` if the usage entry's note is described there, `docs/porting.md`.
 
-### 3. Relay holds the lead's entry (PR G)
+### 3. Relay holds the lead's prefix (PR G)
 
 - A setting `relay.warmLead`, `true` by default. A value that is not a boolean is an error that names the key.
 - `route()` returns `cache: { key: "lead" }` in the lead phase and `cache: { key: "worker" }` in the worker phase,
-  with `hold: { key: "lead", reuse: "prefix" }` in the worker phase when `warmLead` is on. `RelayRoute` gains the
-  field and the adapter passes it on. `route()` stays free of side effects.
-- `"prefix"` because the hand-back record replaces the lead's conversation: only the tools and the system prompt are
-  read again.
-- The lead's section must not change between the handover and the hand back, or the held prefix is useless. The
-  section's text depends on settings and the catalog only; a test pins that it is the same string before and after a
-  round.
-- `/relay` shows, for the session, how many refreshes kept the lead's entry warm and what they cost (from the
-  `cache_warm` usage entries with the note `lead`). The eval prints the same per task, and the lead's cache read and
-  cache write of the first request after each hand back.
+  with `holdPrefix: "lead"` in the worker phase when `warmLead` is on. `RelayRoute` gains the field and the adapter
+  passes it on. `route()` stays free of side effects.
+- Only the prefix, because the hand-back record replaces the lead's conversation: the tools and the system prompt
+  are all the next lead request reads again.
+- The saving exists only if the first lead request after a hand back sends the same tools and system prompt as the
+  lead's last request before the handover. A suite test pins that on the faux provider's captured requests (the
+  serialized tools and system prompt of the two requests are equal), for a session that starts under `relay/auto`.
+  Known cases where they differ, and the refresh is wasted: relay selected in the middle of a session, tools added
+  during the lead phase, a codemode switch during the round. They are listed in the docs; the cost is bounded by the
+  economics rule (at most one cache write of the prefix).
+- `/relay` shows, for the session, how many refreshes kept the lead's prefix warm and what they cost (from the
+  `cache_warm` usage entries with that note). The eval prints the same per task, and the lead's cache read and cache
+  write of the first request after each hand back.
 
 ## Tests
 
@@ -104,12 +129,15 @@ model, so a request routed by a virtual model is never warmed. That stays.
   the window for the lead and for the worker; no window, no limit; the minimum applies to a small percentage; the
   default for the lead; the lead's fact.
 - Suite, faux provider (PR F): a lead phase that crosses its limit is compacted and continues.
-- Core (PR G): a held entry is refreshed while the holding requests continue and stops at each of the ending
-  conditions; the refresh is the held request as sent with one output token; the economics (`"prefix"` and `"all"`,
-  the stop when the refreshes would cost more than the saving); `cacheWarming: "off"`; `direct` ignores `cache`;
-  validation; the event's `key`; the ordinary entry behaves as before, with and without a held one.
-- `xpi-relay` (PR G): the route's `cache` per phase, with and without `warmLead`; a wrong `warmLead` names its key;
-  the lead's section is identical across a round.
+- Core (PR G): a held prefix is refreshed while the holding requests continue, and stops at each of the ending
+  conditions; the refresh carries the remembered tools and system prompt, one short user message and a one-token cap;
+  an unlabelled request (a summary, a refresh) neither sets nor ends a hold; the ordinary entry and the held slot do
+  not clear each other; the economics (the stop when the refreshes would cost more than the saving, unknown prices);
+  `cacheWarming: "off"`; `direct` ignores `cache`; validation; the event's `key`; the ordinary entry behaves as before.
+- `xpi-relay` (PR G): the route's `cache` per phase, with and without `warmLead`; a wrong `warmLead` names its key.
+- Suite, faux provider (PR G): the tools and system prompt of the first lead request after a hand back equal those
+  of the last lead request before the handover; a refresh is sent during a long worker phase (fake timers) and is on
+  the branch as a usage entry.
 - Real models (the lead runs them, budget $3): `relaunch and pause` and `workflows` twice each with the defaults.
   Pass: all pass; the first lead request after a hand back reads its prefix from the cache in the rounds longer than
   five minutes; the mean of the lead's cost plus the refreshes is not above the lead's cost in round 3 of the
