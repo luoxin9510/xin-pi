@@ -928,7 +928,8 @@ export class AgentSession {
 		const threshold = model.contextWindow > 0 ? model.contextWindow - settings.reserveTokens : Infinity;
 		if (contextLimit >= threshold || tokens <= contextLimit) return { compact: tokens > threshold };
 		// Above both: the limit is the smaller one and also triggers, so the entry records it. The guard below
-		// does not apply, as the ordinary threshold would compact anyway.
+		// does not apply, as the ordinary threshold would compact anyway. Nothing can loop here: preparing a
+		// compaction already refuses when the newest entry is a compaction.
 		if (tokens > threshold) return { compact: true, limit: contextLimit };
 		// A compaction no assistant response has followed would repeat on every request.
 		for (let i = branch.length - 1; i >= 0; i--) {
