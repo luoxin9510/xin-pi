@@ -28,9 +28,17 @@ real Haiku runs (the lead runs them) before merge.
 
 ## PR B: the commit point
 
-- [ ] B1 core: the `request_start` event; tests; `docs/extensions.md`
-- [ ] B2 `onRequestStart`: relay records committed transitions there; `route()` without side effects; suite tests unchanged
+- [x] B1 core: the `request_start` event; tests; `docs/extensions.md`
+      Done: `RequestStartEvent` in `extensions/types.ts` (typed in `ExtensionAPI.on`, exported), emitted from
+      `prepareRequest` in `agent-session.ts` through the runner's generic `emit`; four tests in
+      `test/suite/virtual-models.test.ts` (order, failed route, retry, physical model).
+- [x] B2 `onRequestStart`: relay records committed transitions there; `route()` without side effects; suite tests unchanged
+      Done: `onRequestStart(event, call)` in `relay.ts`, `RelayRequestStart` in `host.ts`, the adapter subscribes
+      `request_start`. No assertion of `test/suite/relay.test.ts` changed. One assertion of
+      `xpi-relay/test/host.test.ts` changed (see below). `exhaustive.test.ts` untouched.
 - [ ] B3 docs (`relay.md`, `porting.md`) and real Haiku runs
+      Done (docs): `relay.md`, `porting.md`, `xpi-relay/README.md`, `extensions.md`, `virtual-models.md`. The real
+      Haiku runs are left to the lead.
 
 ## PR C: the hand-off signal
 
@@ -40,6 +48,25 @@ real Haiku runs (the lead runs them) before merge.
       result drops the marker line; `handoverLanded` and the worker's section follow; the changed suite and
       machine-test assertions listed here
 - [ ] C3 docs (`extensions.md`, `codemode.md`, `relay.md`, `porting.md`) and real Haiku runs
+
+## Changed assertions (PR B)
+
+- `xpi-relay/test/host.test.ts`, "makes the worker answer the next request, and writes the transition then": it
+  expected `route()` to append `relay.transition` and notify. It now expects `route()` to write nothing, then
+  `onRequestStart` to write the entry and the notice, and a second `onRequestStart` with equal states (a retry) to
+  write nothing.
+- New, not changed: `host.test.ts` "reads the same view whether relay.transition precedes or follows the state entry".
+- `test/suite/relay.test.ts`: none. Its "writes no transition when the worker model cannot be resolved" already held
+  (the old `route()` resolved the model before writing).
+
+## Deviations (PR B)
+
+- `onRequestStart` records only a lead-to-worker change (previous phase lead or absent, current phase worker), not
+  every `previousRouterState.phase !== routerState.phase`: the hand back is written by `beforeSettle` and the next
+  request's state change would otherwise record it twice.
+- `RelayRequestStart` is a package type with the two state fields only (the package does not depend on the core's
+  event type); the core event's `routerState` is `route.state ?? previous state` when the router returns no state.
+- For a physical model, `reason` is computed the same way as for a virtual one (`user`, `continuation`, `retry`).
 
 ## Deviations (PR A)
 

@@ -286,8 +286,11 @@ The options below come with the unit. Each says how to turn it off.
   adapter. The package keeps its own copy of the virtual-model state entry's name (`"pi.virtual-model-state"`), so the
   host's router state must be stored under it, as `core/virtual-models.ts` does (a test pins the two). The adapter uses
   `pi.registerVirtualModel` (a
-  `route` that picks the physical model per request; it also appends a `relay.transition` entry when the phase
-  changes); `pi.on("agent_before_settle")` returning `{ entries, continue: true }` with a compaction draft (the
+  `route` that picks the physical model per request and has no side effects); `pi.on("request_start")` (the commit
+  point of a request, fired after the routed state is stored on the branch and before compaction and the context
+  transforms, with the router states; relay appends its `relay.transition` entry there, so a host must fire it once
+  per request, not when routing or resolving the physical model fails, and again on a retry);
+  `pi.on("agent_before_settle")` returning `{ entries, continue: true }` with a compaction draft (the
   hand-back record); `context_with_system` (it sets the `relay` section of the leading system message, from the stored
   router state; the host must run it after routing, as `prepareRequest` does); `model_select`, `session_start`,
   `before_agent_start`, `tool_call` (`parentToolCallId` tells a direct call from a nested one); `pi.registerTool` at

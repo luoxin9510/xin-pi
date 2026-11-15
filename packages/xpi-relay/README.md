@@ -24,7 +24,10 @@ import { createRelay, type RelayCall, type RelayHost } from "xpi-relay";
 const relay = createRelay(host); // registers the two hand tools through host.registerTools
 
 // A virtual model: pick the physical model and the next stored router state for each request.
-const route = relay.route(request, call);
+const route = relay.route(request, call); // no side effects: a retry may call it again
+
+// The commit point: after the routed state is stored on the branch, once per request.
+relay.onRequestStart({ routerState, previousRouterState }, call);
 ```
 
 `RelayHost` is what lives as long as the extension:
@@ -50,7 +53,8 @@ What `createRelay` returns, and which host event feeds it:
 
 | Method | Fed by |
 |---|---|
-| `route(request, call)` | the virtual model's router |
+| `route(request, call)` | the virtual model's router; it has no side effects |
+| `onRequestStart(event, call)` | the commit point of a request, after the router state is stored (`request_start` in xpi); writes the `relay.transition` entry of a handover and its notice. Call it once per request, not when routing or resolving the model failed; a retry may call it again, since it writes nothing when the state did not change |
 | `section(call)` | the system prompt build (the `relay` section; `undefined` leaves the prompt alone) |
 | `handover`, `handback` | the two tools (`ToolSpec.execute` calls them) |
 | `onDirectCall(tool, call)` | every `tool_call` (it ignores all but top-level hand-tool calls made while codemode is on) |

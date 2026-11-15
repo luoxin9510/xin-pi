@@ -231,7 +231,10 @@ entries on the branch (they cost no tokens and do not touch the cached prefix) a
 lines go to stderr with `--verbose`.
 
 - **A phase change**: a `relay.transition` entry (`from`, `to`, `event`, `round`, `at`) and one line, for example
-  `relay: lead → worker (round 2)`.
+  `relay: lead → worker (round 2)`. A handover is recorded at the `request_start` event of the request the worker
+  answers, so the entry follows the router-state entry of that request; the router itself (`route`) writes nothing, and
+  nothing is written when the worker model cannot be resolved. A retry of that request writes no second entry. The
+  hand back is recorded where its record is made, at the end of the worker's run.
 - **A direct call** of `handover` or `handback` while codemode is on is run as a codemode call by the agent loop, with a
   note on the first line of its result (see [Codemode](codemode.md#a-direct-call-of-a-tool-only-scripts-can-reach)): a
   `relay.direct` entry and `relay: direct handover(...) run as a codemode call`. The result still ends with the marker,
