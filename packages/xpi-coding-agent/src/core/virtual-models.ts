@@ -79,6 +79,12 @@ export interface ModelRoute<TState = unknown> {
 	 * `direct` requests.
 	 */
 	state?: TState;
+	/**
+	 * Prompt tokens the context of this request should stay under, a positive integer. The core compacts
+	 * before the request when the estimated context exceeds the smaller of this limit and the routed
+	 * model's usual threshold. Ignored for `direct` requests.
+	 */
+	contextLimit?: number;
 }
 
 export interface VirtualModelDefinition<TState = unknown> {

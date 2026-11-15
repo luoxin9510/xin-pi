@@ -858,6 +858,8 @@ export interface SessionBeforeCompactEvent {
 	reason: "manual" | "threshold" | "overflow";
 	/** True when the aborted turn is retried after this compaction (overflow recovery) */
 	willRetry: boolean;
+	/** The route context limit that triggered this compaction. Absent when the threshold or the user did. */
+	contextLimit?: number;
 	signal: AbortSignal;
 }
 
