@@ -6,6 +6,12 @@ import type { ContextConfig } from "./config.ts";
 /** What a compaction needs beyond `compaction.keepRecentTokens`: the system prompt, the summary and the next turn. */
 export const LIMIT_ROOM = 20_000;
 
+/**
+ * The lead's built-in default (a share of its window) applies only where it leaves this much: under it a lead with a
+ * small window would compact every few turns, with nobody having asked for a limit.
+ */
+export const LEAD_DEFAULT_FLOOR = 100_000;
+
 type Tiered = Partial<Pick<Model<string>, "cost" | "contextWindow">> | undefined;
 
 /** The lowest `inputTokensAbove` of a model's price tiers (the catalog promises no order); undefined without tiers. */
@@ -43,6 +49,7 @@ export function contextLimitOf(
 		source = `relay.${key}.limit`;
 	}
 	const minimum = keepRecentTokens + LIMIT_ROOM;
+	if (!config.chosen && key === "leadContext" && limit < LEAD_DEFAULT_FLOOR) return undefined;
 	if (limit < minimum) {
 		// A built-in default that does not fit this model and these compaction settings is no limit, not an error:
 		// nobody chose it. The ordinary threshold still applies.

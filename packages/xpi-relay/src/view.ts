@@ -306,18 +306,26 @@ export function workerMadeNoCalls(branch: readonly RelayEntry[]): boolean {
 }
 
 /**
- * The summaries written under a context limit in the current phase of `role`: the compaction entries with
- * `contextLimit` after the latest handover (worker) or the latest hand-back record, or the start of the branch (lead).
- * They stay on the branch, so the count follows it.
+ * The summaries written under a context limit in the current stretch of `role`: the compaction entries with
+ * `contextLimit` after the latest handover (worker), or after the later of the latest hand-back record and the latest
+ * user message (lead). A lead that compacts over hours of conversation is not stuck; one that compacts again and again
+ * without a word from the user is. They stay on the branch, so the count follows it.
  */
 export function limitSummaries(branch: readonly RelayEntry[], role: "lead" | "worker"): number {
 	const boundary = branch.findLastIndex((entry) =>
 		role === "worker"
 			? entry.type === "custom" && entry.customType === HANDOVER_ENTRY
-			: entry.type === "compaction" && (entry.details as { relay?: boolean } | undefined)?.relay === true,
+			: (entry.type === "compaction" && (entry.details as { relay?: boolean } | undefined)?.relay === true) ||
+				(entry.type === "message" && entry.message.role === "user"),
 	);
 	return branch.slice(boundary + 1).filter((entry) => entry.type === "compaction" && entry.contextLimit !== undefined)
 		.length;
+}
+
+/** Whether the user has spoken since the stuck guard last acted: a lead's lifted limit ends there. */
+export function userSpokeSinceLimit(branch: readonly RelayEntry[]): boolean {
+	const acted = branch.findLastIndex((entry) => entry.type === "custom" && entry.customType === LIMIT_ENTRY);
+	return branch.slice(acted + 1).some((entry) => entry.type === "message" && entry.message.role === "user");
 }
 
 /** What the latest worker round did to its context, read from the branch after the latest handover. */

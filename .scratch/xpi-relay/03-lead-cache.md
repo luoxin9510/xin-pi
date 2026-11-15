@@ -41,6 +41,11 @@ each round); warming the ordinary (non-held) request under a virtual model.
   tokens of a 128,000 window, below the minimum of 40,000), or the worker's tier under a large `keepRecentTokens`.
   Nobody chose it, and relay must work with any lead model. A limit the settings chose (`limit`, or `tierFraction`
   for a tier) that does not fit stays an error. This changes step 2 for the worker's default, which was an error.
+- The lead's default applies only where it is at least 100,000 tokens (found in review: 30 percent of a 200,000
+  window is 60,000, and the lead would compact every few turns). Below that the lead has no default limit.
+- The lead's stuck guard counts from the later of the latest hand back and the latest user message, and its lift
+  ends at the next user message (found in review: counted from the start of the branch, a long conversation lost
+  the limit for good after four summaries).
 - A wrong string (`"30"`, `"0%"`, `"101%"`, `"abc%"`) is an error that names the key and lists the forms.
 - The lead's section already states the lead's own limit when it has one; with the new default it is always there.
   The fact names the tokens, not the percentage.

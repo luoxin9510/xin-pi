@@ -336,7 +336,7 @@ const RelayContextLimit = (fallback: string) =>
 			Type.Literal("tier"),
 			Type.Literal("off"),
 			Type.Integer({ minimum: 1 }),
-			Type.String({ pattern: "^[0-9]+(\\.[0-9]+)?%$" }),
+			Type.String({ pattern: "^(100(\\.0+)?|[1-9][0-9]?(\\.[0-9]+)?|0\\.[0-9]*[1-9][0-9]*)%$" }),
 		],
 		{
 			description: `Prompt tokens the context stays under: "tier" (tierFraction of the model's first price tier; no tiers, no limit), a number of tokens, a percentage string above 0 and at most 100 such as "30%" (that share of the model's context window; no window, no limit), or "off". ${fallback}`,
@@ -441,7 +441,7 @@ const RelaySettingsSchema = Type.Object(
 				},
 				{
 					description:
-						"The lead's own context limit. When the lead is stuck the limit is lifted until the next handover.",
+						"The lead's own context limit. The default applies only where it is at least 100,000 tokens. When the lead is stuck the limit is lifted until the next handover or the next user message.",
 				},
 			),
 		),

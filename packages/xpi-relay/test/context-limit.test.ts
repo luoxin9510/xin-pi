@@ -473,6 +473,38 @@ describe("the stuck guard", () => {
 		expect(f.sent).toHaveLength(0);
 	});
 
+	it("counts the lead's summaries since the user last spoke, and ends a lift there", () => {
+		const f = make({ leadContext: { limit: 50_000, maxCompactions: 2 } });
+		const lead = { phase: "lead", round: 0 } as const;
+		f.state(lead);
+		f.summary(50_000);
+		f.message({ role: "user", content: "next question" });
+		f.summary(50_000);
+		// Two summaries on the branch, one since the user spoke: a long conversation is not a stuck lead.
+		expect(limitSummaries(f.entries, "lead")).toBe(1);
+		expect(f.relay.route(request(lead), f.call).contextLimit).toBe(50_000);
+		f.summary(50_000);
+		const lifted = f.relay.route(request(lead), f.call);
+		expect(lifted.state).toEqual({ ...lead, limit: "lifted" });
+		f.relay.onRequestStart({ previousRouterState: lead, routerState: lifted.state }, f.call);
+		// Lifted for this stretch of work only.
+		expect(f.relay.route(request(lifted.state as RelayState), f.call).contextLimit).toBeUndefined();
+		f.message({ role: "user", content: "and another" });
+		const again = f.relay.route(request(lifted.state as RelayState), f.call);
+		expect(again.contextLimit).toBe(50_000);
+		expect(again.state).toEqual(lead);
+	});
+
+	it("leaves the lead without a default limit where 30% of its window is under 100,000 tokens", () => {
+		const f = make();
+		f.models.set("faux/large", priced("large", [], 200_000));
+		expect(f.relay.route(request({ phase: "lead", round: 0 }), f.call).contextLimit).toBeUndefined();
+		// Chosen in the settings, the same share is in force.
+		const chosen = make({ leadContext: { limit: "30%" } });
+		chosen.models.set("faux/large", priced("large", [], 200_000));
+		expect(chosen.relay.route(request({ phase: "lead", round: 0 }), chosen.call).contextLimit).toBe(60_000);
+	});
+
 	it("counts the lead's summaries from the latest hand back, not the worker's", () => {
 		const f = make({ leadContext: { limit: 50_000, maxCompactions: 2 } });
 		f.handover(1);

@@ -116,7 +116,7 @@ function contextConfig(raw: unknown, key: string, defaults: ContextConfig): Cont
 		else if (typeof r.limit === "number" && Number.isInteger(r.limit) && r.limit > 0) limit = r.limit;
 		else if (
 			typeof r.limit === "string" &&
-			/^\d+(\.\d+)?%$/.test(r.limit) &&
+			/^(100(\.0+)?|[1-9]\d?(\.\d+)?|0\.\d*[1-9]\d*)%$/.test(r.limit) &&
 			Number.parseFloat(r.limit) > 0 &&
 			Number.parseFloat(r.limit) <= 100
 		) {
