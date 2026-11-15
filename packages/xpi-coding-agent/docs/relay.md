@@ -73,8 +73,9 @@ cached prefix stays stable. When another model is selected the section is remove
   tools.handover({...}) from codemode.`), `handover`'s fields, and the decision facts below. It names no way to call
   `handback`.
 - **The worker's section**: one line (`You are the worker in relay mode. When done or stuck, call tools.handback({...})
-  from codemode.`), a statement that the handover has already happened, that the assistant messages before the
-  `<relay-handover round="N"/>` line were written by the lead (a different model) and not by the worker, that it must
+  from codemode.`), a statement that the handover has already happened, that the assistant messages before the tool
+  result that contains `Handed over to the worker model (round N)` were written by the lead (a different model) and not
+  by the worker (after a `/handover` by the user, before the `<relay-handover-by-user>` line), that it must
   not continue them or wait for a worker, and that it starts on the plan now, `handback`'s fields, the handover as the lead wrote it (plan, criteria, findings, when to stop, the
   acceptance commands), and its duties. The plan is here, not only in the lead's script, so a compaction cannot
   summarize it away. It names no way to call `handover`, and no message is inserted into the conversation at a handover
@@ -117,11 +118,15 @@ codemode listing, `ALL_TOOLS` or `searchTools()`. A script calls them by name (`
 role learns only its own tool from its prompt. They refuse to run unless `relay/auto` is selected. Both end the turn:
 the script stops at the call and the loop stops after the response; other tool calls of the same response finish. The
 result of `handover` is one neutral line (`Handed over to the worker model (round N): from the next message on the
-worker answers; the messages above were written by the lead.`) and then its marker line `<relay-handover round="N"/>`,
-which is always the last line; because a codemode result ends
-with the text of the call that ended the script, the marker is the last line of the result, and the router takes a
-handover only from the last line of a `handover` or `codemode` result that names the next round (a file the worker
-reads that contains the string does not count).
+worker answers; the messages above were written by the lead.`) and nothing else: the model sees no marker. The
+handover itself is the structured `signal: { type: "relay.handover", data: { round: N } }` of the result, which the
+session keeps on the tool result message and never sends to a model (see
+[Extensions](extensions.md#custom-tools)). A codemode result takes the signal of the call that ended the script, and a
+direct call that the agent loop runs as a codemode call keeps it, so the router takes a handover from the signal of a
+`handover` or `codemode` result that names the next round (a file the worker reads that contains a marker string
+carries no signal and does not count). Sessions written before the signal ended such a result with the line
+`<relay-handover round="N"/>`; the router and the landing check still accept that line as the last line of a `handover`
+or `codemode` result, so those sessions continue.
 
 **With codemode off** (`-codemode`, or the tool not active) both roles see both tools, because they are ordinary
 direct tools (the one-tool-per-role rule needs codemode); they are registered as `direct` tools and the
@@ -186,7 +191,7 @@ every other pair changes nothing and answers with a refusal.
 | any with a pending hand-off | handover / handback | unchanged | result "Already handed over/back." (no error, not counted) |
 | any, paused | handover / handback | unchanged | refusal "The relay is paused: select relay/auto again." |
 | worker | handover | unchanged | refusal "The worker already has the work." |
-| lead | handover | pending worker, round + 1 | `relay.handover` entry; the marker as the result; the turn ends |
+| lead | handover | pending worker, round + 1 | `relay.handover` entry; a `relay.handover` signal on the result; the turn ends |
 | lead | `/handover` (by the user) | pending worker, round + 1 | `relay.handover` entry; the host sends the user's message that starts the worker |
 | lead | handback | unchanged | refusal "The lead already has the work." |
 | worker | `/handback` (by the user) | user asked: the acceptance commands are skipped | steer: ask the worker to stop and report |
@@ -196,7 +201,7 @@ every other pair changes nothing and answers with a refusal.
 | worker | wrong role (handover), second time | pending hand back, blocked | `relay.mixup` and a blocked `relay.handback` ("The worker mixed up its role twice"); the turn ends |
 | lead | wrong role (handback) | mixups + 1 | `relay.mixup`; an error with the correction (the lead is never handed back for) |
 | any, paused | run ends | unchanged | none |
-| lead, run ends with a pending handover whose result did not end with the marker | run ends | pending voided | `relay.void`; a line; the lead goes on |
+| lead, run ends with a pending handover whose result did not carry the signal | run ends | pending voided | `relay.void`; a line; the lead goes on |
 | lead, run ends with a pending handover | run ends | unchanged | continue: the worker answers next |
 | lead | run ends after a relay error, stalls < 2 | stalls + 1 | `relay.stall`; continue with a role reminder |
 | lead | run ends after a relay error, stalls = 2 | unchanged | none: the run ends; you see it |
@@ -219,7 +224,7 @@ Notes: a handover resets mixups and stalls. Whether a run "ends after a relay er
 entry (inside a script the error is a nested result): only a wrong-role call counts, so a lead that stops after another
 relay error, such as an empty plan, is not continued: that is its call. One row is not in the lead's request path:
 after a `handover` ends the lead's turn, the run ends with a pending handover and relay continues it, so the worker
-answers next. Relay continues it only when a tool result really ends with the marker of the next round; a handover whose call
+answers next. Relay continues it only when a tool result really carries the signal of the next round (or, in an older session, ends with its marker line); a handover whose call
 was cut off (an unawaited call, Esc) is voided with a `relay.void` entry and a line, and the lead goes on. `/handback` sets a flag and asks the worker to report; the worker's own `handback` in the same phase
 supplies the report, and the flag skips the acceptance commands, so racing the two is one hand back.
 
@@ -237,7 +242,7 @@ lines go to stderr with `--verbose`.
   hand back is recorded where its record is made, at the end of the worker's run.
 - **A direct call** of `handover` or `handback` while codemode is on is run as a codemode call by the agent loop, with a
   note on the first line of its result (see [Codemode](codemode.md#a-direct-call-of-a-tool-only-scripts-can-reach)): a
-  `relay.direct` entry and `relay: direct handover(...) run as a codemode call`. The result still ends with the marker,
+  `relay.direct` entry and `relay: direct handover(...) run as a codemode call`. The result still carries the signal,
   so the handover counts.
 - **A wrong-role call** (the worker calls `handover`, the lead calls `handback`): a `relay.mixup` entry and
   `relay: worker called handover, corrected (1 of 2)`. The error names the caller's own tool. The worker's second one

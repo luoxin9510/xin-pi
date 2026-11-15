@@ -673,6 +673,12 @@ export interface NestedToolCalls {
 	complete: boolean;
 }
 
+/** A machine-readable signal a tool raises for its host; see `ToolResultMessage.signal`. */
+export interface ToolResultSignal {
+	type: string;
+	data?: JsonValue;
+}
+
 export type ToolResultMessage<TDetails = JsonValue> = IsJsonCompatible<TDetails> extends true
 	? {
 			role: "toolResult";
@@ -684,6 +690,12 @@ export type ToolResultMessage<TDetails = JsonValue> = IsJsonCompatible<TDetails>
 			usage?: Usage;
 			/** Calls this tool made to other tools. Kept for the session record; not sent to the model. */
 			nestedCalls?: NestedToolCalls;
+			/**
+			 * Machine-readable signal the tool raised for its host (`type` namespaced by the owner, `data` its payload).
+			 * Kept for the session record; not sent to the model. The native provider converters build payloads from
+			 * named fields and leave it out; the pi-messages and proxy backends receive the message as stored.
+			 */
+			signal?: ToolResultSignal;
 			isError: boolean;
 			/** Unix timestamp in milliseconds when the result was created. */
 			timestamp: number;

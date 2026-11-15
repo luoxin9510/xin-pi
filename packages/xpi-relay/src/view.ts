@@ -5,7 +5,7 @@ import type { AgentMessage } from "xpi-agent-core";
 import { initialView, type RelayView } from "./definition.ts";
 import type { CustomEntry, RelayEntry } from "./entry.ts";
 import type { Handover, Spoken } from "./record.ts";
-import { lastLineHandoverRound, type RelayState } from "./router.ts";
+import { handoverRoundOf, type RelayState } from "./router.ts";
 
 /**
  * The name of the entry that holds a virtual model's router state. It is the host's constant
@@ -272,7 +272,7 @@ export function describeHistory(branch: readonly RelayEntry[], now = Date.now())
 	return lines;
 }
 
-/** Whether the latest tool results end with the marker of the handover that made round `round`. */
+/** Whether the latest tool results carry the handover that made round `round` (its signal, or the marker line of an older session). */
 export function handoverLanded(branch: readonly RelayEntry[], round: number): boolean {
 	const lastAssistant = branch.findLastIndex(
 		(entry) => entry.type === "message" && entry.message.role === "assistant",
@@ -281,8 +281,7 @@ export function handoverLanded(branch: readonly RelayEntry[], round: number): bo
 		if (entry.type !== "message" || entry.message.role !== "toolResult") return false;
 		const message = entry.message;
 		if (message.isError || (message.toolName !== "handover" && message.toolName !== "codemode")) return false;
-		const text = message.content.map((block) => (block.type === "text" ? block.text : "")).join("\n");
-		return lastLineHandoverRound(text) === round;
+		return handoverRoundOf(message) === round;
 	});
 }
 

@@ -49,6 +49,13 @@ types relay does not read) that the host's session entry must be assignable to. 
 `custom` entry named `pi.virtual-model-state`, the name the agent core uses for virtual models (the package keeps its
 own copy of the constant).
 
+A hand tool's `execute` returns a `ToolOutcome`: the result `text`, `terminate`, and a `signal`. The handover is the
+signal `{ type: "relay.handover", data: { round } }`, not a line of text: the result text is one neutral sentence. The
+host must put the signal on the tool result message it records (kept in the session, never sent to the model, though a backend that posts the stored message whole, such as xpi's pi-messages and proxy backends, carries it like `details`; xpi's
+core carries it from the tool result, and codemode copies it from the call that ended a script), because the router
+(`nextState`) and `handoverLanded` read it there. Both still accept the older marker line `<relay-handover round="N"/>`
+as the last line of a `handover` or `codemode` result, so that sessions written before the signal continue.
+
 What `createRelay` returns, and which host event feeds it:
 
 | Method | Fed by |

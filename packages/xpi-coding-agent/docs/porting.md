@@ -60,7 +60,7 @@ graph TD
 | [codemode](#codemode) | codemode | tool registration, worker threads (Node or Bun), WebAssembly | nothing to turn off |
 | [Agent tool](#subagents-agent-tool) | codemode, subagents | rpc mode with xpi's flags, child processes, session files, the core changes listed under [subagents](#subagents) | the other subagent options, by settings or wiring lines |
 | [names and SendMessage](#subagents-names-and-sendmessage), [background](#subagents-background), [panel and screens](#subagents-panel-and-screens), [workflows](#workflows) | codemode, subagents | as the Agent tool, plus what each option lists | the options you do not want |
-| [relay](#relay) | relay, codemode | virtual models (`core/virtual-models.ts`), the `agent_before_settle` boundary with compaction drafts, `context_with_system`, and three core changes for codemode-only tools (unlisted tools, a nested `terminate`, repair of a direct call) | `-builtin:relay`; with codemode off its tools fall back to direct tools |
+| [relay](#relay) | relay, codemode | virtual models (`core/virtual-models.ts`), the `agent_before_settle` boundary with compaction drafts, `context_with_system`, and four core changes for codemode-only tools (unlisted tools, a nested `terminate`, repair of a direct call, the hand-off signal) | `-builtin:relay`; with codemode off its tools fall back to direct tools |
 | [roost core](#roost-core) | roost | node-pty, unix sockets, detached child processes, a CLI that starts a session from argv with a session file | [schedules](#schedules) (no `scheduleLaunch`), [login service](#login-service) (remove its `cmdDaemon` branch); the hub is a separate entry point, unused unless wired |
 | [shadow-git](#shadow-git) | shadow-git | Node and git 2.20 or newer; a `sh` for the shipped adapters | `--gitfile`, local-only paths and the scope are settings; the xpi integration (the extension, [isolation](#shadow-git-isolation)) by leaving its wiring out |
 | [checks](#checks) | checks | tool effects on `tool_call`, the `turn_end` boundary with `custom_message` drafts and its `terminated` field (core change, see the entry), `registerMessageRenderer`, `ctx.signal`, `ui.setStatus` | nothing to turn off but the `checks.commands` setting |
@@ -297,13 +297,14 @@ The options below come with the unit. Each says how to turn it off.
   runtime with `exposure` and `listed`; `pi.setActiveTools` / `getActiveTools`; `pi.appendEntry`; `pi.sendMessage`;
   `ctx.ui.notify`; `ctx.modelRegistry.find`. It runs the acceptance commands through a shell and reads `git` for the
   diff the lead sees (optional: outside a repository, or in one without commits, there is no snapshot to diff against).
-- **Core changes for codemode-only tools** (the hand tools need all three; each also works for MCP tools):
+- **Core changes for codemode-only tools** (the hand tools need all four; each also works for MCP tools):
   - *unlisted tools*: `ToolDefinition.listed: false` (`src/core/extensions/types.ts`, `ToolInfo.listed`,
     `ToolLoadout.isListed` in `agent-session.ts`), honored by codemode (`execute.ts`: `searchTools()`, `describeTool()`,
     the `unlisted` flag of `CodemodeTool` in `packages/xpi-codemode`, which keeps a tool out of `ALL_TOOLS`) and by
     `tool_search`;
   - *a nested `terminate`* ends the codemode script and the codemode result asks to terminate, with the terminating
     call's text last (`extensions/codemode/execute.ts`), through `CodemodeExit` in `packages/xpi-codemode` (a tool's `execute` returns it and the VM ends the script like `exit()`, keeping `store()` writes);
+  - *the hand-off signal*: `AgentToolResult.signal` and `ToolResultMessage.signal` (`{ type, data? }`, in `packages/xpi-agent-core/src/types.ts` and `packages/xpi-ai/src/types.ts`), kept on the tool result message in the session and never sent to the model: the native provider converters build payloads from named fields and leave it out, while the pi-messages and proxy backends receive the message as stored, like `details` and `nestedCalls`. The host must carry it from a tool result to the router: `createToolResultMessage` in `agent-loop.ts` copies it onto the message (the `afterToolCall` merge spreads the result, so it stays), the `tool_result` event shows it read-only and `emitToolResult` returns no `signal` so a handler cannot drop it, codemode copies the signal of the call that ended the script onto its result (`execute.ts`), the direct-call repair keeps it, and the adapter passes `ToolOutcome.signal` on from `execute`. Without it a handover is never seen (a host that cannot carry it must instead put a marker line last in the result, as sessions before this change did; the router still reads that line);
   - *direct-call repair*: `AgentLoopConfig.resolveUndeclaredTool` and the note on the result
     (`packages/xpi-agent-core/src/agent-loop.ts`, `agent.ts`), set by `AgentSession` for `codemode` and `deferred` tools.
 - **Copy (one unit)**: the package `packages/xpi-relay/` whole (`src/`: `relay.ts`, `host.ts`, `definition.ts`,
@@ -315,7 +316,7 @@ The options below come with the unit. Each says how to turn it off.
   adapter.
 - **Verify**: `packages/xpi-relay/test/` (`machine.test.ts`: every row of the transition table; `exhaustive.test.ts`:
   every combination of overlays and events; `graph.test.ts`; `host.test.ts`: `createRelay` against a fake host),
-  `test/suite/relay.test.ts` (vitest, offline), `test/suite/codemode-terminate.test.ts` (the codemode seams) and the `resolveUndeclaredTool` tests in
+  `test/suite/relay.test.ts` (vitest, offline), `test/suite/codemode-terminate.test.ts` and `test/suite/tool-result-signal.test.ts` (the codemode seams and the signal) and the `resolveUndeclaredTool` tests in
   `packages/xpi-agent-core/test/agent-loop.test.ts`; `npm run test:relay:real` (real models).
 - **Linux**: the acceptance commands run with `shell: true` in their own process group, which is killed on timeout or
   abort. **macOS**: the same.

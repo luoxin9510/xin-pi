@@ -75,18 +75,17 @@ describe("relay machine", () => {
 	});
 
 	describe("hand tools", () => {
-		it("lead | handover: pending worker, round + 1; the result is the marker and ends the turn", () => {
+		it("lead | handover: pending worker, round + 1; the result carries the handover signal and ends the turn", () => {
 			const { next, effects } = transition(lead(), EVENTS["handover (tool)"], config);
 			expect(next.pending).toBe("handover");
 			expect(effectiveState(next)).toEqual({ phase: "worker", round: 2 });
 			expect(kinds(effects)).toEqual(["entry:relay.handover", "result"]);
-			// One neutral line, then the marker as the very last line.
+			// One neutral line without a marker; the handover is the signal.
 			expect(result(effects)).toEqual({
 				type: "result",
-				text: expect.stringMatching(
-					/^Handed over to the worker model \(round 2\).*\n<relay-handover round="2"\/>$/,
-				),
+				text: expect.stringMatching(/^Handed over to the worker model \(round 2\)[^\n]*$/),
 				terminate: true,
+				signal: { type: "relay.handover", data: { round: 2 } },
 			});
 		});
 

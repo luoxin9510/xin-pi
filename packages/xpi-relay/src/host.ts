@@ -3,7 +3,7 @@
 
 import type { TSchema } from "typebox";
 import type { AgentMessage } from "xpi-agent-core";
-import type { Api, Message, Model, ModelThinkingLevel } from "xpi-ai";
+import type { Api, Message, Model, ModelThinkingLevel, ToolResultSignal } from "xpi-ai";
 import type { RelayEntry } from "./entry.ts";
 import type { RelayState } from "./router.ts";
 
@@ -14,6 +14,11 @@ export interface ToolOutcome {
 	text: string;
 	/** The result ends the script and the turn. */
 	terminate?: boolean;
+	/**
+	 * Machine-readable signal of the call (a handover is `relay.handover` with its round). The host must put it on the
+	 * tool result message, where the router reads it; it is never shown to the model.
+	 */
+	signal?: ToolResultSignal;
 }
 
 /** A tool the host registers for relay. */

@@ -4,7 +4,7 @@
 import type { RelayConfig } from "./config.ts";
 import { leadFacts } from "./facts.ts";
 import type { Handover } from "./record.ts";
-import { HANDBACK_TOOL, HANDOVER_TOOL } from "./router.ts";
+import { HANDBACK_TOOL, HANDOVER_TOOL, handoverResultStart } from "./router.ts";
 
 /** The section name in the leading system message. */
 export const RELAY_SECTION = "relay";
@@ -60,7 +60,11 @@ export function workerSection(handover: Handover | undefined, config: RelayConfi
 	const lines = [
 		`<relay role="worker">`,
 		`You are the worker in relay mode. When done or stuck, call ${invoke(HANDBACK_TOOL, isDirect)}.`,
-		`The handover has already happened. The assistant messages before the \`${handover?.byUser ? "<relay-handover-by-user>" : `<relay-handover round="${handover?.round ?? "N"}"/>`}\` line were written by the lead, a different model, not by you: do not continue them, and do not wait for a worker, because you are the worker. Start on the plan now.`,
+		`The handover has already happened. The assistant messages before ${
+			handover?.byUser
+				? "the `<relay-handover-by-user>` line"
+				: `the tool result that contains \`${handoverResultStart(handover?.round)}\``
+		} were written by the lead, a different model, not by you: do not continue them, and do not wait for a worker, because you are the worker. Start on the plan now.`,
 		...fieldLines(HANDBACK_FIELDS, []),
 	];
 	if (handover) {

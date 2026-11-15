@@ -1013,6 +1013,7 @@ function createToolResultMessage(finalized: FinalizedToolCallOutcome): ToolResul
 		content: finalized.result.content ?? [],
 		details: finalized.result.details,
 		usage: finalized.result.usage,
+		...(finalized.result.signal ? { signal: finalized.result.signal } : {}),
 		isError: finalized.isError,
 		...(finalized.durationMs === undefined ? {} : { durationMs: finalized.durationMs }),
 		timestamp: Date.now(),

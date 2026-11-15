@@ -1,7 +1,7 @@
 // Which role answers the next request. The decision is read from the conversation, so it follows the session branch
 // the same way the router state does: a fork or a /tree jump sees the phase of its own branch.
 
-import type { Message } from "xpi-ai";
+import type { Message, ToolResultMessage } from "xpi-ai";
 
 export interface RelayState {
 	phase: "lead" | "worker";
@@ -19,7 +19,23 @@ export const RECORD_MARKER = "<relay-hand-back";
 /** In the message `/handover` sends: the user gives the work to the worker without a `handover` call. */
 export const USER_HANDOVER_MARKER = "<relay-handover-by-user>";
 
-/** The text of a successful `handover` result, and the last line of the codemode result that made the call. */
+/** The `signal.type` of a successful `handover` result, and of the codemode result that made the call. */
+export const HANDOVER_SIGNAL = "relay.handover";
+
+/** The start of a handover's result text, which the worker's prompt quotes to name the handover. */
+export function handoverResultStart(round: number | undefined): string {
+	return `Handed over to the worker model (round ${round ?? "N"})`;
+}
+
+/** The result text of a handover: a neutral sentence. The handover itself is the `relay.handover` signal. */
+export function handoverResult(round: number): string {
+	return `${handoverResultStart(round)}: from the next message on the worker answers; the messages above were written by the lead.`;
+}
+
+/**
+ * The marker line that sessions written before the signal carry as the last line of a `handover` or `codemode` result.
+ * Nothing writes it any more; it is still read, so that such a session continues.
+ */
 export function handoverMarker(round: number): string {
 	return `<relay-handover round="${round}"/>`;
 }
@@ -41,12 +57,27 @@ export function lastLineHandoverRound(text: string): number | undefined {
 }
 
 /**
+ * The round a tool result hands over to: `signal.data.round` when its signal is a handover, else the round of the
+ * marker line that ends a result of an older session. Undefined for a result that is no handover.
+ */
+export function handoverRoundOf(message: Pick<ToolResultMessage, "content" | "signal">): number | undefined {
+	const { signal } = message;
+	if (signal?.type === HANDOVER_SIGNAL) {
+		const round = (signal.data as { round?: unknown } | undefined)?.round;
+		return typeof round === "number" ? round : undefined;
+	}
+	const text = message.content.map((block) => (block.type === "text" ? block.text : "")).join("\n");
+	return lastLineHandoverRound(text);
+}
+
+/**
  * The state for the next request. Only what follows the latest response counts: a handover or a hand back takes
  * effect once, on the request right after it.
  *
- * A handover is the last line of the result of `handover` or `codemode` (the script that called it) when it names the
- * next round: a file the worker reads that contains the string does not end a result with it, and a marker of another
- * round is not this branch's.
+ * A handover is a `relay.handover` signal on the result of `handover` or `codemode` (the script that called it) that
+ * names the next round; a result of an older session ends with the marker line instead. A file the worker reads that
+ * contains the marker does not carry a signal or end a result with it, and a handover of another round is not this
+ * branch's.
  */
 export function nextState(state: RelayState | undefined, messages: readonly Message[]): RelayState {
 	const current = state ?? { phase: "lead", round: 0 };
@@ -56,7 +87,7 @@ export function nextState(state: RelayState | undefined, messages: readonly Mess
 	tail.forEach((message, index) => {
 		if (message.role === "toolResult") {
 			if ((message.toolName === HANDOVER_TOOL || message.toolName === CODEMODE_TOOL) && !message.isError) {
-				if (lastLineHandoverRound(textOf(message)) === current.round + 1) handover = index;
+				if (handoverRoundOf(message) === current.round + 1) handover = index;
 			}
 			return;
 		}

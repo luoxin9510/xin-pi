@@ -106,9 +106,9 @@ describe("the relay graph, exhaustively", () => {
 			}
 		}
 		// A digest of every output of the enumeration: it pins behaviour now that the reference copy of the old machine is
-		// gone. A change of a text or a decision changes it; PR C (the handover result drops its marker line) updates it
+		// gone. A change of a text or a decision changes it; PR C (the handover result drops its marker line and gains a signal) updated it
 		// on purpose. The old machine produced the same outputs (31104 combinations compared before it was deleted).
-		expect(digest.digest("hex")).toBe("32fa6292ea78d9eec3f548f51838ec1e5d751f484f1979436d0f6a6a9409b790");
+		expect(digest.digest("hex")).toBe("dded78713973bfde0149cd5fcb96b597a3902fbd0b2fbded0305a070fac698a3");
 		expect(combinations).toBe(MAX_ROUNDS.length * views().length * events().length);
 	});
 });

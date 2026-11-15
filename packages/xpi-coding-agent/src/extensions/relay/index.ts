@@ -68,6 +68,7 @@ export default function relay(pi: ExtensionAPI) {
 					content: [{ type: "text" as const, text: outcome.text }],
 					details: {},
 					...(outcome.terminate ? { terminate: true } : {}),
+					...(outcome.signal ? { signal: outcome.signal } : {}),
 				};
 			},
 		});
