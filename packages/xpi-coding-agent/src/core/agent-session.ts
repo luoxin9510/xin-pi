@@ -910,6 +910,36 @@ export class AgentSession {
 		);
 	}
 
+	/**
+	 * Whether the request routed to `model` must compact first, and the route limit when that limit is what
+	 * triggers it. The limit applies only when it is below the model's usual threshold; a limit at or above
+	 * the threshold leaves an ordinary threshold compaction.
+	 */
+	private _routeCompactionTrigger(
+		model: Model<any>,
+		projection: SessionProjection,
+		contextLimit: number | undefined,
+	): { compact: boolean; limit?: number } {
+		if (contextLimit === undefined) return { compact: this._exceedsCompactionThreshold(model, projection) };
+		const settings = this.settingsManager.getCompactionSettings(this.model);
+		if (!settings.enabled) return { compact: false };
+		const branch = this.sessionManager.getBranch();
+		const tokens = estimateProjectedContextTokens(projection, branch).tokens;
+		const threshold = model.contextWindow > 0 ? model.contextWindow - settings.reserveTokens : Infinity;
+		if (contextLimit >= threshold || tokens <= contextLimit) return { compact: tokens > threshold };
+		// Above both: the limit is the smaller one and also triggers, so the entry records it. The guard below
+		// does not apply, as the ordinary threshold would compact anyway. Nothing can loop here: preparing a
+		// compaction already refuses when the newest entry is a compaction.
+		if (tokens > threshold) return { compact: true, limit: contextLimit };
+		// A compaction no assistant response has followed would repeat on every request.
+		for (let i = branch.length - 1; i >= 0; i--) {
+			const entry = branch[i];
+			if (entry.type === "compaction") return { compact: false };
+			if (entry.type === "message" || entry.type === "custom_message" || entry.type === "branch_summary") break;
+		}
+		return { compact: true, limit: contextLimit };
+	}
+
 	private async _compactBeforeNextAssistantResponse(context: AgentContext): Promise<AgentContext> {
 		const projection = this.sessionManager.buildSessionProjection();
 		// A virtual selection is checked in prepareRequest, against the model the request is routed to.
@@ -989,8 +1019,9 @@ export class AgentSession {
 				previousRouterState: state,
 			});
 			// The route stands: the router already decided this request.
-			if (this._exceedsCompactionThreshold(route.model, projection)) {
-				await this._runAutoCompaction("threshold", false);
+			const trigger = this._routeCompactionTrigger(route.model, projection, route.contextLimit);
+			if (trigger.compact) {
+				await this._runAutoCompaction("threshold", false, trigger.limit);
 				({ previous, context } = await prepare());
 			}
 			return { ...previous, context, model: route.model, thinkingLevel: route.thinkingLevel };
@@ -3482,10 +3513,15 @@ export class AgentSession {
 
 	/**
 	 * Replace old tool output with a placeholder before a summary is made, one `context_edit`
-	 * per result. Returns true only for a threshold trigger on a non-virtual model whose pruned
-	 * context is back under the threshold, in which case no summary is needed.
+	 * per result. Returns true only for a threshold trigger whose pruned context is back under the
+	 * threshold (a non-virtual model) or at most 90 percent of the route limit, in which case no
+	 * summary is needed.
 	 */
-	private _pruneToolOutputBeforeCompaction(reason: "overflow" | "threshold", model: Model<any> | undefined): boolean {
+	private _pruneToolOutputBeforeCompaction(
+		reason: "overflow" | "threshold",
+		model: Model<any> | undefined,
+		limit?: number,
+	): boolean {
 		const prune = this.settingsManager.getCompactionPruneSettings();
 		if (!prune.enabled) return false;
 		const cwd = this._cwd;
@@ -3509,7 +3545,16 @@ export class AgentSession {
 		this._refreshFinalizedContext();
 		// Only a plain threshold trigger may skip the summary. After an overflow the provider has just
 		// rejected the request, so the estimate is not trustworthy and recovery is single-shot. Under a
-		// virtual model the trigger measured the routed model's window, not this one's.
+		// virtual model the trigger measured the routed model's window, not this one's, unless a route limit
+		// triggered it: that limit is known and comparable. The 10 percent below it is headroom for the
+		// estimate's error right after a prune, when it is characters/4 for the whole context.
+		if (reason === "threshold" && limit !== undefined) {
+			const { tokens } = estimateProjectedContextTokens(
+				this.sessionManager.buildSessionProjection(),
+				this.sessionManager.getBranch(),
+			);
+			return tokens <= limit * 0.9;
+		}
 		if (reason !== "threshold" || model === undefined || isVirtualModel(model)) return false;
 		return !this._exceedsCompactionThreshold(model, this.sessionManager.buildSessionProjection());
 	}
@@ -3522,9 +3567,14 @@ export class AgentSession {
 	 *
 	 * @param reason Automatic trigger selected by `_checkCompaction()`
 	 * @param willRetry Whether to continue the interrupted turn after overflow compaction
+	 * @param limit The route context limit that triggered a threshold compaction, if it did
 	 * @returns Whether the post-run loop should call `agent.continue()`
 	 */
-	private async _runAutoCompaction(reason: "overflow" | "threshold", willRetry: boolean): Promise<boolean> {
+	private async _runAutoCompaction(
+		reason: "overflow" | "threshold",
+		willRetry: boolean,
+		limit?: number,
+	): Promise<boolean> {
 		const model = this.model;
 		const settings = this.settingsManager.getCompactionSettings(model);
 		let abortController: AbortController | undefined;
@@ -3538,7 +3588,7 @@ export class AgentSession {
 			}
 
 			// Dropping old tool output first often makes a summary unnecessary.
-			if (this._pruneToolOutputBeforeCompaction(reason, model)) {
+			if (this._pruneToolOutputBeforeCompaction(reason, model, limit)) {
 				return willRetry || this.agent.hasQueuedMessages();
 			}
 
@@ -3564,6 +3614,7 @@ export class AgentSession {
 					customInstructions: undefined,
 					reason,
 					willRetry,
+					...(limit !== undefined ? { contextLimit: limit } : {}),
 					signal: abortController.signal,
 				})) as SessionBeforeCompactResult | undefined;
 
@@ -3609,7 +3660,15 @@ export class AgentSession {
 			}
 			abortController.signal.throwIfAborted();
 
-			this.sessionManager.appendCompaction(summary, firstKeptEntryId, tokensBefore, details, fromExtension, usage);
+			this.sessionManager.appendCompaction(
+				summary,
+				firstKeptEntryId,
+				tokensBefore,
+				details,
+				fromExtension,
+				usage,
+				limit,
+			);
 			const newEntries = this.sessionManager.getEntries();
 			this._refreshFinalizedContext();
 			const estimatedTokensAfter = estimateMessagesTokens(this.sessionManager.buildSessionProjection().messages);

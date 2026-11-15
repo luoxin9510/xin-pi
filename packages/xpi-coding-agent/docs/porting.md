@@ -297,6 +297,12 @@ The options below come with the unit. Each says how to turn it off.
   runtime with `exposure` and `listed`; `pi.setActiveTools` / `getActiveTools`; `pi.appendEntry`; `pi.sendMessage`;
   `ctx.ui.notify`; `ctx.modelRegistry.find`. It runs the acceptance commands through a shell and reads `git` for the
   diff the lead sees (optional: outside a repository, or in one without commits, there is no snapshot to diff against).
+- **Core change for a route context limit** (relay does not use it yet): `ModelRoute.contextLimit` in
+  `src/core/virtual-models.ts`, carried and validated in `ModelRuntime.resolveModel`; `AgentSession.prepareRequest`
+  compacts above the smaller of the limit and the threshold (`_routeCompactionTrigger`), prunes first with a 90 percent
+  target (`_pruneToolOutputBeforeCompaction`), and `appendCompaction` writes `CompactionEntry.contextLimit`;
+  `session_before_compact` carries the limit. A host that routes must pass `contextLimit` through its route adapter.
+  See [Compaction](compaction.md#a-route-context-limit).
 - **Core changes for codemode-only tools** (the hand tools need all four; each also works for MCP tools):
   - *unlisted tools*: `ToolDefinition.listed: false` (`src/core/extensions/types.ts`, `ToolInfo.listed`,
     `ToolLoadout.isListed` in `agent-session.ts`), honored by codemode (`execute.ts`: `searchTools()`, `describeTool()`,

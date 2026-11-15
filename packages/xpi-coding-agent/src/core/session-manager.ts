@@ -101,6 +101,11 @@ export interface CompactionEntry<T = unknown> extends SessionEntryBase {
 	fromHook?: boolean;
 	/** Complete prompt and tool state at this compaction boundary. */
 	systemMessage?: SystemMessage;
+	/**
+	 * The route context limit (prompt tokens) that triggered this compaction. Written by the core, whoever
+	 * supplied the summary. Absent for manual, overflow and ordinary threshold compactions.
+	 */
+	contextLimit?: number;
 }
 
 export interface BranchSummaryEntry<T = unknown> extends SessionEntryBase {
@@ -1285,6 +1290,7 @@ export class SessionManager {
 		details?: T,
 		fromHook?: boolean,
 		usage?: Usage,
+		contextLimit?: number,
 	): string {
 		const timestamp = new Date().toISOString();
 		const systemMessage = getCurrentSystemMessage(this.buildSessionProjection().messages);
@@ -1300,6 +1306,7 @@ export class SessionManager {
 			details,
 			usage,
 			fromHook,
+			...(contextLimit !== undefined ? { contextLimit } : {}),
 			...(systemMessage ? { systemMessage: { ...systemMessage, timestamp: new Date(timestamp).getTime() } } : {}),
 		};
 		this._appendEntry(entry);

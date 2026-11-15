@@ -1067,7 +1067,18 @@ export class ModelRuntime implements Models {
 		const routed = `${name} routed to ${route.model.provider}/${route.model.id}`;
 		if (!target) throw new Error(`${routed}, which is not a physical model.`);
 		if (!this.hasConfiguredAuth(target.provider)) throw new Error(`${routed}, which has no credentials.`);
-		return { model: target, thinkingLevel: clampThinkingLevel(target, route.thinkingLevel), state: route.state };
+		const { contextLimit } = route;
+		if (contextLimit !== undefined && options.reason !== "direct") {
+			if (typeof contextLimit !== "number" || !Number.isInteger(contextLimit) || contextLimit <= 0) {
+				throw new Error(`${name} returned contextLimit ${String(contextLimit)}, which is not a positive integer.`);
+			}
+		}
+		return {
+			model: target,
+			thinkingLevel: clampThinkingLevel(target, route.thinkingLevel),
+			state: route.state,
+			...(contextLimit !== undefined && options.reason !== "direct" ? { contextLimit } : {}),
+		};
 	}
 
 	/** A catalog chat model that is not virtual. */

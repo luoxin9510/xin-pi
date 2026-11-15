@@ -546,6 +546,8 @@ pi.on("session_before_compact", async (event, ctx) => {
 
   // reason - "manual" (/compact), "threshold", or "overflow"
   // willRetry - whether the aborted turn is retried after compaction (overflow recovery)
+  // contextLimit - the virtual model's route context limit when that limit triggered this
+  //   compaction (the entry gets the same field); absent otherwise
 
   // Cancel:
   return { cancel: true };
