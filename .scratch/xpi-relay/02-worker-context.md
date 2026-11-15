@@ -44,9 +44,10 @@ lead's cache (about 9 percent of the lead's cost; later), more than one worker.
 Read with the other relay settings at each request, so a change applies to the next one; a wrong value ends the
 request with an error that names the key, as today. With Haiku 5.5 as the worker the default limit is 95,000 tokens.
 
-A numeric limit must leave room for what a compaction keeps: a value below `compaction.keepRecentTokens` plus 20,000
-(40,000 with the defaults) is an error that names the key. A limit that a compaction cannot get under would compact
-on every request.
+A limit must leave room for what a compaction keeps: the computed limit (a number, or the fraction of a tier) below
+`compaction.keepRecentTokens` plus 20,000 (40,000 with the defaults) is an error that names the key. A limit that a
+compaction cannot get under would compact on every request. Relay reads only its own settings block, so the host
+supplies the value: `RelayHost.keepRecentTokens()`, the compaction setting as resolved for `relay/auto`.
 
 ### 2. Core seam: a context limit on the route (decision 2)
 
@@ -73,7 +74,10 @@ lead.
   right after a compaction or a prune it is characters/4 for the whole context, which tends to undercount code and
   JSON. So a request shortly after a prune can still go out above the tier. Section 3 leaves headroom for that, and
   the eval counts the worker's requests above the tier (7), so the size of the effect is measured, not assumed.
-- Docs: `docs/virtual-models.md`, `docs/compaction.md`, `docs/extensions.md`, `docs/porting.md`.
+- The session format gains a field: `CompactionEntry.contextLimit`, written by `appendCompaction`. The session
+  format docs (`docs/session-format.md`) and the entry's type list it; older readers ignore an unknown field.
+- Docs: `docs/virtual-models.md`, `docs/compaction.md`, `docs/session-format.md`, `docs/extensions.md`,
+  `docs/porting.md`.
 
 ### 3. Prune first under a route limit (decision 3)
 
@@ -96,9 +100,13 @@ physical model it stops after pruning when that was enough.
   on the branch after the latest `relay.handover` (worker) or the latest hand back (lead). Compaction entries stay on
   the branch, so the count follows the branch. A failed acceptance run starts no new round, so the count carries
   across it.
-- The guard is raised in `route()`, for a non-direct request, when the count has reached `maxCompactions` and no
-  `relay.limit` entry of this round says so yet. `route()` stays free of side effects: it returns the route (without
-  a limit when lifted), and the event is handled where `request_start` is, as the transition is since PR B.
+- The guard is raised in `route()`, for a non-direct request, when the count has reached `maxCompactions`.
+  `route()` stays free of side effects and passes its decision on through the state it returns: `RelayState` gains an
+  optional `limit?: "lifted" | "asked"`, stored on the branch with the phase and the round. `onRequestStart` sees the
+  change between `previousRouterState` and `routerState`, as it sees a phase change since PR B, and runs the graph
+  row there (the entry, the notification, the steer). A state without the field reads as limited, so sessions from
+  before the change continue. The request that lifts the limit is itself not limited: the compaction check runs
+  after `request_start`.
   - `"lift"`: no limit for the rest of the round. One `relay.limit` entry (`{ round, phase, action: "lifted",
     compactions }`) and one notification: `relay: worker compacted 4 times in round N, limit lifted`.
   - `"handback"` (worker only): one steering message (`sendMessage` with `deliverAs: "steer"`, which reaches the
@@ -106,7 +114,11 @@ physical model it stops after pruning when that was enough.
     limit stays. One `relay.limit` entry with `action: "handback"` and a notification. It does not count as a stall
     or a mix-up, and a `/handback` by the user in the same round takes precedence. If the worker has not handed back
     after two more summaries, the limit is lifted as with `"lift"`.
-- A new handover resets the count and the lift.
+- A new handover resets the count and the lift: the new round's state has no `limit` field. The lead's count runs
+  from the latest hand back, or from the start of the branch before the first handover, and its lift lasts until the
+  next handover.
+- Prune-only passes are not counted and not capped: each needs `compaction.prune.minSavingsTokens` of old tool
+  output, so they cannot repeat without new output to prune.
 - It is a row of relay's graph: event `limit_reached` (`{ phase, compactions }`) with the actions as effects, so the
   generated table and diagram show it and the enumeration covers it.
 - The record: `view.ts` treats every compaction without `details.relay` as the lead's "earlier summary" today. A
@@ -158,8 +170,10 @@ the compactions in the worker phase, so a run shows what this spec is about with
 - Core, more: the smaller of the two thresholds wins; `contextLimit` survives `resolveModel` and is rejected when it
   is not a positive integer; ignored for `direct`; no second limit-triggered compaction without a response in
   between; the entry's `contextLimit` is written when an extension supplied the summary.
-- `xpi-relay`, more: a limit below the minimum names its key; the lead's guard lifts; the earlier summary skips the
-  worker's limit summaries; the worker's section wording.
+- `xpi-relay`, more: a limit below the minimum names its key, also when it comes from a small `tierFraction`; the
+  `limit` field of the state (set by `route()`, acted on in `onRequestStart`, absent after a handover, absent in an
+  old session); the lead's guard lifts and counts from the start of the branch before the first handover; the
+  earlier summary skips the worker's limit summaries; the worker's section wording.
 - Real models (the lead runs them, budget $10): `fork agent type`, `relaunch and pause` and `workflows` twice each
   with the defaults, then once each with `diffChars` 5000 and 0. Pass: all six default runs pass, the mean cost of
   the two runs of each task is below its unlimited run ($0.71, $1.16, $1.47), and `workflows` does not time out.

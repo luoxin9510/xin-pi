@@ -10,13 +10,14 @@ the real-model runs (the lead runs them, budget $10) before the second merges.
       between; `contextLimit` on the compaction entry, written by the core; tests
 - [ ] D2 prune first under a route limit, with the limit passed down: no summary when pruning gets to 90 percent
       of the limit; tests
-- [ ] D3 docs: `virtual-models.md`, `compaction.md`, `extensions.md`, `porting.md`
+- [ ] D3 docs: `virtual-models.md`, `compaction.md`, `session-format.md`, `extensions.md`, `porting.md`
 
 ## PR E: relay
 
 - [ ] E1 settings `relay.workerContext` and `relay.leadContext`, read at each request; the limit from the catalog
       tier, a number or `"off"`; wrong values name their key; tests
-- [ ] E2 `route()` returns the limit per phase; the count of summaries from the branch; the stuck guard as a graph
+- [ ] E2 `route()` returns the limit per phase and the `limit` field of the state; `onRequestStart` acts on it; the
+      count of summaries from the branch; `RelayHost.keepRecentTokens()`; the stuck guard as a graph
       row (`limit_reached`) with `lift` and `handback`; `relay.limit` entries and notifications; the regenerated
       table, diagram and enumeration digest; tests
 - [ ] E3 the facts for the lead, the per-round line after a hand back, the record line; tests
