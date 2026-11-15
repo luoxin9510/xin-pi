@@ -88,6 +88,7 @@ interface Row<View, Event, Effect, Config> {
   when?(view: View, event: Event, config: Config): boolean;
   doc: { view: string; event: string; next: string; effects: string };   // the docs table's four columns
   to?: string;                                     // for the diagram; the view comes from `step`
+  diagram?: false;                                 // keep the row out of the diagram (it stays in the table)
   step(view: View, event: Event, config: Config): { next: View; effects: Effect[] };
 }
 function defineGraph(graph): Graph;                // validates, throws on a bad definition
@@ -208,7 +209,8 @@ codemode result and the direct-call note are arranged around.
 
 The engine is internal, so the package exports two functions built on it, `relayDiagram()` (Mermaid) and
 `relayTable()` (the four-column table from the rows' `doc` cells). The diagram has the two states and a `paused`
-note; a row with `to` is an edge, a row without one is a self-loop on its `from`, and a `from: "*"` row is drawn once
+note; a row with `to` is an edge, a row without one is a self-loop on its `from` unless it sets `diagram: false`
+(refusals and corrections do, so they appear in the table only), and a `from: "*"` row is drawn once
 as a note beside the diagram, not as an edge from every state. The generator and its staleness test live in the
 coding agent, next to `generate:schemas`: `npm run generate:relay-docs` writes both between marker comments in
 `packages/xpi-coding-agent/docs/relay.md`, and a test fails when the file is stale. They replace the hand-written
