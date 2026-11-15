@@ -4,6 +4,10 @@
 [pi](https://github.com/earendil-works/pi) by earendil-works (MIT). It is not affiliated with or endorsed by the pi
 project.
 
+It is a personal project, made in the author's own time, for two things: making games with
+[Godot](https://godotengine.org/), and exploring how the pi agent works by changing it. It is not connected to any
+company or employer.
+
 What xin-pi adds to pi:
 
 - **Codemode on by default**: `codemode` is one of the default tools, so the model can run a script that calls other

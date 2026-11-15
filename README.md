@@ -7,6 +7,10 @@ and [themes](packages/xpi-coding-agent/docs/themes.md), and use it [interactivel
 in [print or JSON mode](packages/xpi-coding-agent/docs/cli.md), over [RPC](packages/xpi-coding-agent/docs/rpc.md), or from
 the [TypeScript SDK](packages/xpi-coding-agent/docs/sdk.md).
 
+This is a personal project, made in my own time. I use it for two things: making games with
+[Godot](https://godotengine.org/), and exploring how the pi agent works by changing it. It is not connected to any
+company or employer.
+
 What differs from pi: the command is `xpi`, packages are named `xpi-*` (only the CLI, `xpi-coding-agent`, is published
 to npm), environment variables are `XPI_*`, and these built-in extensions are added:
 
