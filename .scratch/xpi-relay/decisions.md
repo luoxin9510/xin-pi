@@ -69,3 +69,25 @@ tell the lead the facts, and measure the record's diff size; no release yet.
 7. Validation: the three most expensive tasks twice each with the new logic, plus the diff comparison; budget $10.
    Pass: all three pass, their total cost is below the unlimited runs, and `workflows` does not time out.
 
+
+## Step 3: the lead's side (2026-11-15)
+
+The owner (2026-11-15, "可以做缓存预热"): do the cache warming. And: "我觉得lead设定在30%阈值会不会比较好？" —
+a limit for the lead's own context at 30 percent of its window.
+
+## Grill 3 (2026-11-15). Accepted by the owner on 2026-11-15 ("好的可以的")
+
+1. Keep the lead's cache warm with timed refreshes, not with a one-hour cache lifetime: the longer lifetime makes
+   every cache write of the lead cost 2 times the input price instead of 1.25, more than the $0.03 it saves.
+2. A small seam on the core's cache warmer (a held entry named by the route) that relay uses; relay does not get a
+   timer and a replay of its own. The refresh is the lead's last request as sent.
+3. Refresh while the refreshes cost less than what they save, from the catalog prices; no fixed number of minutes.
+   Nothing is held while the session is idle.
+4. A setting `relay.warmLead`, on by default, off whenever the global `cacheWarming` is `"off"`. Each refresh is a
+   usage entry; `/relay` shows how many and what they cost.
+5. Validation: `relaunch and pause` and `workflows` twice each, budget $3. Pass: the first lead request after a hand
+   back reads the prefix from the cache, and the lead's cost plus the refreshes is not above the lead's cost without
+   them. If it does not pay, the default becomes off; the numbers are recorded either way.
+6. The lead's limit: `limit` gets a percentage form (a share of the model's window) for both roles, and the lead's
+   default changes from `"off"` to `"30%"`. In the measured tasks the lead peaks at 2.4 percent of its window, so
+   this is a backstop for a lead that does not hand over; no saving is expected in those tasks.
