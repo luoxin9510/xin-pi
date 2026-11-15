@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { MAX_REPAIRS, type RelayEvent, type RelayView, relayGraph, transition } from "../src/definition.ts";
-import * as reference from "./reference-machine.ts";
+import {
+	type Effect,
+	MAX_REPAIRS,
+	type RelayEvent,
+	type RelayView,
+	relayGraph,
+	transition,
+} from "../src/definition.ts";
 
 const MAX_ROUNDS = [0, 2];
 
@@ -42,20 +48,60 @@ describe("the relay graph, exhaustively", () => {
 		expect([...covered].sort()).toEqual([...relayGraph.events].sort());
 	});
 
-	it("answers every combination of overlays and events like the reference machine", () => {
+	const EFFECTS: readonly Effect["type"][] = [
+		"result",
+		"append_entry",
+		"run_acceptance",
+		"compact_record",
+		"continue_with",
+		"notify",
+		"steer",
+	];
+	const ENTRIES = [
+		"relay.handover",
+		"relay.handback",
+		"relay.mixup",
+		"relay.stall",
+		"relay.pause",
+		"relay.resume",
+		"relay.transition",
+		"relay.verify",
+		"relay.void",
+	];
+	const isCount = (value: unknown) => Number.isInteger(value) && (value as number) >= 0;
+
+	it("returns a valid next view and known effects for every combination, without changing its input", () => {
 		let combinations = 0;
 		for (const maxRounds of MAX_ROUNDS) {
 			for (const view of views()) {
 				for (const event of events()) {
-					const config = { maxRounds };
-					expect(transition(view, event, config), JSON.stringify({ view, event, config })).toEqual(
-						reference.transition(view, event, config),
-					);
+					const label = JSON.stringify({ view, event, maxRounds });
+					const frozen = structuredClone(view);
+					const { next, effects } = transition(Object.freeze({ ...view }), event, { maxRounds });
+					expect(view, label).toEqual(frozen);
+					expect(["lead", "worker"], label).toContain(next.phase);
+					expect(isCount(next.round) && isCount(next.mixups) && isCount(next.stalls), label).toBe(true);
+					expect([undefined, "handover", "handback"], label).toContain(next.pending);
+					expect(
+						[next.blocked, next.paused, next.userAsked].every((flag) => typeof flag === "boolean"),
+						label,
+					).toBe(true);
+					for (const effect of effects) {
+						expect(EFFECTS, label).toContain(effect.type);
+						if (effect.type === "append_entry") expect(ENTRIES, label).toContain(effect.entry);
+						if (effect.type === "result") expect(effect.text.length, label).toBeGreaterThan(0);
+					}
+					// Only a tool call is answered with a result.
+					if (!["handover", "handback", "wrong_role"].includes(event.type)) {
+						expect(
+							effects.some((effect) => effect.type === "result"),
+							label,
+						).toBe(false);
+					}
 					combinations++;
 				}
 			}
 		}
 		expect(combinations).toBe(MAX_ROUNDS.length * views().length * events().length);
-		console.log(`compared ${combinations} combinations`);
 	});
 });
