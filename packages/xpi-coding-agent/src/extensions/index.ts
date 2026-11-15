@@ -4,6 +4,7 @@ import codemodeExtension from "./codemode/index.ts";
 import commitExtension from "./commit/index.ts";
 import llamaExtension from "./llama/index.ts";
 import mcpExtension from "./mcp/index.ts";
+import protectExtension from "./protect/index.ts";
 import relayExtension from "./relay/index.ts";
 import roostExtension from "./roost/index.ts";
 import shadowGitExtension from "./shadow-git/index.ts";
@@ -34,6 +35,9 @@ export const builtInExtensions: InlineExtension[] = [
 	// Not replaceable. Runs the `checks.commands` settings after a turn that changed something. Off without commands.
 	// Disable it with `-builtin:checks`.
 	{ name: "checks", factory: checksExtension, builtin: true },
+	// Not replaceable. Blocks the file tools from reading secrets and writing protected paths (the `protect` settings).
+	// On by default. Disable it with `-builtin:protect`.
+	{ name: "protect", factory: protectExtension, builtin: true },
 	// Not replaceable. Background sessions (xpi roost): the session write lock, `--bg`, the worker role in a session the
 	// daemon runs. Disable it with `-builtin:roost`.
 	{ name: "roost", factory: roostExtension, builtin: true },

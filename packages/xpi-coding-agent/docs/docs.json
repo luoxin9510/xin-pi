@@ -165,6 +165,10 @@
           "path": "checks.md"
         },
         {
+          "title": "Protected paths",
+          "path": "protect.md"
+        },
+        {
           "title": "Background Sessions",
           "path": "roost.md"
         },

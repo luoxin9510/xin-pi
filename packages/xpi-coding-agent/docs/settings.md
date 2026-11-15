@@ -177,7 +177,7 @@ Resource paths in user settings resolve from the agent directory. Paths in proje
 
 Resource arrays support glob exclusions with `!pattern`, exact inclusion with `+path`, and exact exclusion with `-path`. Pi loads resources listed in both user-level and project settings.
 
-The built-in extensions are named `builtin:mcp`, `builtin:llama.cpp`, `builtin:codemode`, `builtin:tool-search`, `builtin:subagent`, `builtin:relay`, `builtin:upstream`, `builtin:commit`, `builtin:checks`, `builtin:shadow-git`, and `builtin:roost` in `extensions`. They load by default; `-builtin:mcp` disables one. A `+builtin:<name>` or `-builtin:<name>` entry in project settings overrides the user setting. `pi config` lists them under Built-in. `--no-extensions` disables them too, and `-e builtin:<name>` loads one explicitly; `-e` cannot disable one (`-e -builtin:<name>` is an error).
+The built-in extensions are named `builtin:mcp`, `builtin:llama.cpp`, `builtin:codemode`, `builtin:tool-search`, `builtin:subagent`, `builtin:relay`, `builtin:upstream`, `builtin:commit`, `builtin:checks`, `builtin:protect`, `builtin:shadow-git`, and `builtin:roost` in `extensions`. They load by default; `-builtin:mcp` disables one. A `+builtin:<name>` or `-builtin:<name>` entry in project settings overrides the user setting. `pi config` lists them under Built-in. `--no-extensions` disables them too, and `-e builtin:<name>` loads one explicitly; `-e` cannot disable one (`-e -builtin:<name>` is an error).
 
 ## Subagents
 
@@ -225,6 +225,19 @@ only when the project is trusted, so an untrusted repository's commands never ru
 | `checks.commands` | string[] | none | Shell commands run in the working directory, in order. None: the feature does nothing. |
 | `checks.timeoutMs` | number | `60000` | Per command; a longer one is killed and skipped for that check. |
 | `checks.maxErrors` | number | `20` | Most errors listed in one message to the model. |
+
+## Protect
+
+The built-in `protect` extension blocks the file tools from reading secrets and from writing protected paths
+([Protected paths](protect.md)). It is on by default. Both lists hold gitignore patterns; the extension reads its
+defaults first, then the user's entries, then the project's, and the last match wins (`!pattern` undoes one). The lists
+of user and project settings are concatenated, not replaced. A project's entries are read only when the project is
+trusted.
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `protect.secret` | string[] | `.env`, `.env.*`, `!.env.example`, `!.env.sample`, `*.pem`, `*.key`, `id_rsa*`, `id_ed25519*`, `!*.pub` | Patterns of paths that can be neither read nor written. Your entries come after the defaults. |
+| `protect.readOnly` | string[] | `.git/`, `node_modules/` | Patterns of paths that can be read but not written. |
 
 ## Background sessions
 
