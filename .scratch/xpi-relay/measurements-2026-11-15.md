@@ -97,3 +97,43 @@ cannot separate a saving of a few cents from that, and the whole-run cost is dec
 work. The default stays 20000.
 
 Rounds 3 and 4 together cost $6.96.
+
+## Round 5: the lead's prefix kept warm
+
+The build of the branch `relay-warm-lead` at df7f42c84, default settings (`relay.warmLead: true`, the worker's limit
+as in round 3). `relaunch and pause` and `workflows` twice each, $2.67 together. All four pass.
+
+Measured with Opus 5.5 as the lead and Haiku 5.5 as the worker, on four runs of two long tasks (all pass):
+
+| Worker phase | Refreshes | Their cost | The lead's first request after the hand back |
+|---|---|---|---|
+| 251 s | 0 | $0 | reads 10,827 tokens from the cache |
+| 560 s, then 900 s (two rounds) | 2, then 3 | $0.0114 | reads 10,828 tokens from the cache, both times |
+| 1,397 s | 5 | $0.0115 | reads 10,915 tokens from the cache |
+| 1,414 s | 5 | $0.0115 | reads 10,914 tokens from the cache |
+
+- Every refresh was a cache read of the prefix (10,800 to 11,000 tokens, $0.0022 each); the first one of a hold also
+  writes the 73 tokens of its short message.
+- After each worker phase longer than five minutes the lead's first request read the prefix from the cache. Without a
+  refresh it would have been written again: 10,900 tokens at the difference between the cache write and the cache
+  read price of Opus 5.5 is $0.052. Five refreshes cost $0.011, so a hand back after 23 minutes keeps about $0.04.
+- The lead's cost with the refreshes was $0.199 and $0.274 per run on average for the two tasks, against $0.20 and
+  $0.34 without them; the second pair is not comparable, because the lead used fewer rounds this time.
+- The prefix is about 10,900 tokens, not the 6,000 estimated before from the tokens written again in earlier runs.
+
+`warmLead` stays on by default: the refreshes are cache reads, the prefix is read from the cache after every long
+worker phase, and the lead's cost with the refreshes is not above its cost without them.
+
+The worker's side in these runs, for the record of step 2:
+
+| Task | Run | Cost | Handovers | Worker peak context | Limit |
+|---|---|---|---|---|---|
+| relaunch and pause | 1 | $0.84, 1,419 s | 1 | 194,493 (43 requests above the tier) | lifted after 4 summaries |
+| relaunch and pause | 2 | $0.93, 1,492 s | 1 | 182,920 (48 requests above the tier) | lifted after 4 summaries |
+| workflows | 1 | $0.20, 297 s | 1 | 93,469 | in force, 1 summary |
+| workflows | 2 | $0.70, 1,636 s | 2 | 94,965 | lifted in round 1 after 4 summaries, 7 in all |
+
+`relaunch and pause` cost $0.37 and $0.69 in round 3 and $0.84 and $0.93 here (mean worker peak 188,700 tokens, 45
+requests above the tier on average): once the guard lifts the limit the worker grows as before. Over the four runs
+the mean is $0.71, 39 percent below the unlimited run ($1.16), not the 54 percent of round 3 alone. Whether asking
+the worker to hand back (`whenStuck: "handback"`) does better on this task is not measured.

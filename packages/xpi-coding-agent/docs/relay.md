@@ -362,7 +362,7 @@ After a hand back every later lead request reads the record, not the conversatio
 ### The lead's cached prefix
 
 A worker phase can last longer than the prompt cache lifetime (5 minutes by default), so the lead's cached prefix, its
-tools and system prompt (about 6,000 tokens in the measured tasks), would be written again on the first request after
+tools and system prompt (about 10,900 tokens in the measured tasks), would be written again on the first request after
 the hand back. The record replaces the lead's conversation, so the prefix is all the next lead request reads again.
 
 With `relay.warmLead` (default `true`), `route()` labels the lead's requests `lead` and the worker's requests `worker`,
@@ -372,8 +372,25 @@ the entry expires, as long as the refreshes cost, in all, less than writing the 
 Each refresh is a `cache_warm` usage entry on the branch with the note `held prefix: lead`. It counts toward the
 session cost and never enters the context. `/relay` shows how many refreshes there have been and what they cost, and
 the delegation eval prints the same per task, with the lead's cache read and cache write on its first request after
-each hand back. The saving is not measured yet: the real-model validation is pending, and `warmLead` stays at its
-default until it is.
+each hand back.
+
+Measured with Opus 5.5 as the lead and Haiku 5.5 as the worker, on four runs of two long tasks (all pass):
+
+| Worker phase | Refreshes | Their cost | The lead's first request after the hand back |
+|---|---|---|---|
+| 251 s | 0 | $0 | reads 10,827 tokens from the cache |
+| 560 s, then 900 s (two rounds) | 2, then 3 | $0.0114 | reads 10,828 tokens from the cache, both times |
+| 1,397 s | 5 | $0.0115 | reads 10,915 tokens from the cache |
+| 1,414 s | 5 | $0.0115 | reads 10,914 tokens from the cache |
+
+- Every refresh was a cache read of the prefix (10,800 to 11,000 tokens, $0.0022 each); the first one of a hold also
+  writes the 73 tokens of its short message.
+- After each worker phase longer than five minutes the lead's first request read the prefix from the cache. Without a
+  refresh it would have been written again: 10,900 tokens at the difference between the cache write and the cache
+  read price of Opus 5.5 is $0.052. Five refreshes cost $0.011, so a hand back after 23 minutes keeps about $0.04.
+- The lead's cost with the refreshes was $0.199 and $0.274 per run on average for the two tasks, against $0.20 and
+  $0.34 without them; the second pair is not comparable, because the lead used fewer rounds this time.
+- The prefix is about 10,900 tokens, not the 6,000 estimated before from the tokens written again in earlier runs.
 
 The hold ends when the lead sends its next request, when the run settles (a session you leave idle holds nothing; if
 you interrupt the worker and resume later, nothing is held until the next lead request), when another model is

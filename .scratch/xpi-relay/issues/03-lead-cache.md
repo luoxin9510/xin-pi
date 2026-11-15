@@ -22,4 +22,4 @@ Spec: `../03-lead-cache.md`. Two PRs.
 - [x] G4 `/relay` and the eval show the refreshes and their cost, and the lead's cache read and write after each
       hand back
 - [x] G5 docs: `relay.md`, `settings.md`, `virtual-models.md`, `extensions.md`, `porting.md`, the package README
-- [ ] G6 real-model validation (budget $3) and the decision on the default, recorded in the measurements file
+- [x] G6 real-model validation (budget $3) and the decision on the default, recorded in the measurements file
