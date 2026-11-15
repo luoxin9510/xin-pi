@@ -211,6 +211,21 @@ describe("route() and the limit", () => {
 		);
 	});
 
+	it("reports a worker limit that is too small in the lead phase too, before any handover", () => {
+		const small = make({ workerContext: { limit: 30_000 } });
+		expect(() => small.relay.route(request({ phase: "lead", round: 0 }), small.call)).toThrow(
+			"relay.workerContext.limit",
+		);
+		// The default tier limit (95,000 with the faux worker's tier) under a large keepRecentTokens.
+		const keep = make({}, 80_000);
+		expect(() => keep.relay.route(request({ phase: "lead", round: 0 }), keep.call)).toThrow(
+			"relay.workerContext.tierFraction",
+		);
+		// Off: nothing to report.
+		const off = make({ workerContext: { limit: "off" } }, 80_000);
+		expect(() => off.relay.route(request({ phase: "lead", round: 0 }), off.call)).not.toThrow();
+	});
+
 	it("reads the settings at each request", () => {
 		const f = make();
 		let settings: Record<string, unknown> = { workerContext: { limit: 60_000 } };

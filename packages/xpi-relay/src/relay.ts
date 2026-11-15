@@ -344,6 +344,11 @@ export function createRelay(host: RelayHost): Relay {
 				context.limit === "off"
 					? undefined
 					: contextLimitOf(context, worker ? "workerContext" : "leadContext", model, host.keepRecentTokens());
+			// A worker limit a compaction cannot get under is reported before the handover, not after it: the lead's section
+			// states that limit, and a wrong one must end the request here instead of silently dropping the section.
+			if (!worker && cfg.workerContext.limit !== "off") {
+				contextLimitOf(cfg.workerContext, "workerContext", call.findModel(cfg.worker), host.keepRecentTokens());
+			}
 			let next = state;
 			// The stuck guard: a phase that has written `maxCompactions` summaries under its limit is stuck. The decision is
 			// the state returned here; `onRequestStart` acts on the change.

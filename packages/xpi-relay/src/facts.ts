@@ -79,7 +79,8 @@ export function workerLimitFact(config: RelayConfig, limit: number | undefined):
 export function leadLimitFact(config: RelayConfig, limit: number | undefined): string | undefined {
 	if (limit === undefined) return undefined;
 	const { maxCompactions } = config.leadContext;
-	const cap = maxCompactions === 0 ? "" : `; after ${maxCompactions} compactions in a row it is lifted`;
+	const cap =
+		maxCompactions === 0 ? "" : `; after ${maxCompactions} compactions since the last hand back it is lifted`;
 	return `Your own context limit: ${tokens(limit)} tokens${cap}`;
 }
 

@@ -124,6 +124,7 @@ describe("the relay graph, exhaustively", () => {
 								label,
 							).toBe(true);
 						}
+						if (next.phase !== view.phase) expect(next.limit, label).toBeUndefined();
 						if (!["handover", "handback", "wrong_role"].includes(event.type)) {
 							expect(
 								effects.some((effect) => effect.type === "result"),
