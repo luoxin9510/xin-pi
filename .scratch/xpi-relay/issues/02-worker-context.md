@@ -16,7 +16,8 @@ the real-model runs (the lead runs them, budget $10) before the second merges.
 
 - [ ] E1 settings `relay.workerContext` and `relay.leadContext`, read at each request; the limit from the catalog
       tier, a number or `"off"`; wrong values name their key; tests
-- [ ] E2 `route()` returns the limit per phase and the `limit` field of the state; `onRequestStart` acts on it; the
+- [ ] E2 `route()` returns the limit per phase (`RelayRoute.contextLimit`, passed on by the adapter to the core's
+      `ModelRoute`) and the `limit` field of the state; `onRequestStart` acts on it; the
       count of summaries from the branch; `RelayHost.keepRecentTokens()`; the stuck guard as a graph
       row (`limit_reached`) with `lift` and `handback`; `relay.limit` entries and notifications; the regenerated
       table, diagram and enumeration digest; tests

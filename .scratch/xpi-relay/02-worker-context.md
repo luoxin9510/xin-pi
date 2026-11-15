@@ -69,7 +69,8 @@ lead.
   it). It is set only when the route limit is what triggered the compaction. `session_before_compact` fires as for
   any threshold compaction, with the limit on the event.
 - Relay's `route()` returns the worker's limit in the worker phase and the lead's in the lead phase, each `undefined`
-  when off or lifted.
+  when off or lifted. The package's `RelayRoute` gains `contextLimit`, and the adapter passes it on to the
+  core's `ModelRoute`: left out there, the limit would be dropped at the host boundary.
 - The estimate: it is the provider's own count up to the latest response, plus characters/4 for what came after;
   right after a compaction or a prune it is characters/4 for the whole context, which tends to undercount code and
   JSON. So a request shortly after a prune can still go out above the tier. Section 3 leaves headroom for that, and
