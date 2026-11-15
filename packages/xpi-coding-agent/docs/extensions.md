@@ -2458,6 +2458,8 @@ pi.registerTool({
 
 **Signaling errors:** To mark a tool execution as failed, throw an error from `execute`, or return a result with `isError: true`. Both report an error result to the LLM; a returned result also keeps `details` and `structuredContent` for rendering and scripts. Other returned values never set the error flag.
 
+**Signals for the host:** Return `signal: { type, data? }` from `execute()` to tell the host something machine-readable about the call, for example `{ type: "relay.handover", data: { round: 2 } }`. `type` is namespaced by the extension that owns it and `data` is any JSON value. The signal is kept on the tool result message in the session (it survives a reload) and is never sent to the model, as `nestedCalls` is not: the model reads only `content`. It stays on the result whatever a `tool_result` handler returns (handlers see it as the read-only `event.signal` and cannot replace or drop it), and the call that a direct call of a `codemode` or `deferred` tool runs as keeps it with the note. When a nested call ends a codemode script (`terminate: true`), the codemode result takes that call's signal; the signal of a nested call that did not end the script is not copied. A host reads it from the `toolResult` message, so an extension no longer has to put a marker line in the result text.
+
 **Early termination:** Return `terminate: true` from `execute()` to hint that the automatic follow-up LLM call should be skipped after the current tool batch. This only takes effect when every finalized tool result in that batch is terminating. See [examples/extensions/structured-output.ts](../examples/extensions/structured-output.ts) for a minimal example where the agent ends on a final structured-output tool call.
 
 ```typescript

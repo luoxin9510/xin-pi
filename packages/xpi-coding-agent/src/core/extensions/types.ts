@@ -43,6 +43,7 @@ import type {
 	SimpleStreamOptions,
 	TextContent,
 	ToolResultMessage,
+	ToolResultSignal,
 	TranscriptContext,
 	Usage,
 } from "xpi-ai";
@@ -1398,6 +1399,8 @@ interface ToolResultEventBase {
 	 * `content` should also replace this; replacing `content` alone drops it.
 	 */
 	structuredContent?: JsonValue;
+	/** The signal the tool raised for its host, if any. Read-only: it is kept on the result however a handler changes it. */
+	signal?: ToolResultSignal;
 	isError: boolean;
 	/** Usage from the tool execution itself, if available. */
 	usage?: Usage;

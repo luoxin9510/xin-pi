@@ -804,6 +804,7 @@ export class AgentSession {
 					content: result.content,
 					details: result.details,
 					...(result.structuredContent === undefined ? {} : { structuredContent: result.structuredContent }),
+					...(result.signal ? { signal: result.signal } : {}),
 					isError,
 					usage: result.usage,
 				})

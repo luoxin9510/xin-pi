@@ -2151,6 +2151,46 @@ describe("agentLoop with AgentMessage", () => {
 
 		expect(llmCalls).toBe(1);
 	});
+
+	it("keeps a tool's signal on its result message, through an afterToolCall that changes the result", async () => {
+		const toolSchema = obj({});
+		const tool: AgentTool<typeof toolSchema, Record<string, never>> = {
+			name: "handover",
+			label: "Handover",
+			description: "Raises a signal",
+			parameters: toolSchema,
+			async execute() {
+				return {
+					content: [{ type: "text", text: "done" }],
+					details: {},
+					signal: { type: "test.signal", data: { round: 2 } },
+				};
+			},
+		};
+		const config: AgentLoopConfig = {
+			model: createModel(),
+			convertToLlm: identityConverter,
+			afterToolCall: async () => ({ content: [{ type: "text", text: "rewritten" }], terminate: true }),
+		};
+		const stream = agentLoop([createUserMessage("go")], { messages: [], tools: [tool] }, config, undefined, () => {
+			const mockStream = createAssistantMessageEventStream();
+			queueMicrotask(() => {
+				const message = createAssistantMessage(
+					[{ type: "toolCall", id: "tool-1", name: "handover", arguments: {} }],
+					"toolUse",
+				);
+				mockStream.push({ type: "done", reason: "toolUse", message });
+			});
+			return mockStream;
+		});
+		const results: ToolResultMessage[] = [];
+		for await (const event of stream) {
+			if (event.type === "message_end" && event.message.role === "toolResult") results.push(event.message);
+		}
+		expect(results).toHaveLength(1);
+		expect(results[0]?.content).toEqual([{ type: "text", text: "rewritten" }]);
+		expect(results[0]?.signal).toEqual({ type: "test.signal", data: { round: 2 } });
+	});
 });
 
 describe("agentLoopContinue with AgentMessage", () => {

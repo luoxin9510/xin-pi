@@ -11,6 +11,7 @@ import type {
 	TextContent,
 	Tool,
 	ToolResultMessage,
+	ToolResultSignal,
 	TranscriptContext,
 	Usage,
 } from "xpi-ai";
@@ -471,6 +472,11 @@ export interface AgentToolResult<T = JsonValue | undefined> {
 	 * Early termination only happens when every finalized tool result in the batch sets this to true.
 	 */
 	terminate?: boolean;
+	/**
+	 * Machine-readable signal for the host: kept on the tool result message in the session, never sent to the model.
+	 * `type` names the signal (namespaced by its owner, for example `relay.handover`); `data` is its payload.
+	 */
+	signal?: ToolResultSignal;
 }
 
 /** Final outcome of a tool call after hooks ran. */

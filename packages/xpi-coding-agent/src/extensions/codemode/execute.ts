@@ -12,6 +12,7 @@ import type {
 	ModelType,
 	ModelTypeMap,
 	TextContent,
+	ToolResultSignal,
 	Usage,
 } from "xpi-ai";
 import {
@@ -550,6 +551,8 @@ async function runCodemode(
 	const listedTools = callable.filter(isListed);
 	// A nested call whose result says `terminate` ends the script, like exit(): see `terminated` below.
 	const terminations: string[] = [];
+	// The signal of that call, if it raised one: the codemode result takes it.
+	let terminationSignal: ToolResultSignal | undefined;
 	// ALL_TOOLS entries carry the declaration.
 	const guidelines = options.getToolGuidelines?.();
 	const samples = new Map(
@@ -592,6 +595,7 @@ async function runCodemode(
 					// The script ends here: its output so far stays, this call's text is the last of the result, and the
 					// call's own promise never settles.
 					terminations.push(textOf(outcome.result));
+					terminationSignal = outcome.result.signal;
 					return new CodemodeExit();
 				}
 				return toScriptValue(tool, outcome);
@@ -748,6 +752,7 @@ async function runCodemode(
 		...(modelUsage ? { usage: modelUsage } : {}),
 		...(succeeded ? {} : { isError: true }),
 		...(endedByCall ? { terminate: true } : {}),
+		...(endedByCall && terminationSignal ? { signal: terminationSignal } : {}),
 	};
 }
 
