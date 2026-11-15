@@ -606,6 +606,9 @@ describe("relay", () => {
 		await harness.session.waitForIdle();
 		expect(seen.map((request) => request.model)).toEqual(["small", "small", "large"]);
 		expect(system[0]).toContain("given by the user");
+		// The transcript has the user marker, not a handover round line, and the section names the one that exists.
+		expect(system[0]).toContain("before the `<relay-handover-by-user>` line");
+		expect(system[0]).not.toContain("<relay-handover round=");
 		expect(system[0]).toContain("do the thing");
 		expect(entries("relay.transition")).toMatchObject([
 			{ from: "lead", to: "worker" },

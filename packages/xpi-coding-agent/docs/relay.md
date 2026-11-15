@@ -216,6 +216,9 @@ lines go to stderr with `--verbose`.
   without a hand back took the lead's earlier messages for its own. It is not verified: it is continued with a reminder,
   as after an error, at most twice, then handed back as `blocked`: a `relay.stall` entry (reason `idle`) and
   `relay: worker stopped without working, continued (1 of 2)`. Not applied after `/handback`.
+  A worker that answers with text only is continued twice, then handed back as `blocked`; this includes a round that
+  needs no tool (`/handover explain X`). Write such a round so that the worker hands back with `tools.handback`: the
+  reminder tells it to.
 - **A stop after such an error**: continued with a short role reminder, at most twice: a `relay.stall` entry and
   `relay: worker stopped after an error, continued (1 of 2)`. The correction or reminder goes to the model that erred.
 - **A pause**: `relay paused (worker phase, round N)` and `relay resumed (worker phase, round N)`.
