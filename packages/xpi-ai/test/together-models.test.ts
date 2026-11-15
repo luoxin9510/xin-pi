@@ -24,6 +24,7 @@ describe("Together models", () => {
 		expect(model.thinkingLevelMap).toEqual({ minimal: null, low: null, medium: null });
 		expect(model.input).toEqual(["text", "image"]);
 		expect(model.contextWindow).toBe(1048576);
+		// The catalog's own override (catalog/providers/together.ts), whatever the upstream metadata says.
 		expect(model.maxTokens).toBe(131072);
 		expect(model.cost).toEqual({
 			input: 3,
