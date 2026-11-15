@@ -83,8 +83,13 @@ export interface CacheRouteLabel {
 interface RememberedRequest {
 	model: Model<Api>;
 	systemPrompt: string | undefined;
-	/** The leading system message: the system prompt in sections, and the tools it declares. */
-	system: Message | undefined;
+	/**
+	 * Every system message of the request, in order: the leading one (the system prompt in sections and the tools it
+	 * declares) and the later ones (changes of sections and tools). A model that takes such changes in the middle of a
+	 * conversation builds its prefix from the first alone; any other model folds them all into it, so a refresh must
+	 * carry them all to build the same prefix.
+	 */
+	systems: Message[];
 	tools: Tool[] | undefined;
 	options: ModelsSimpleStreamOptions;
 	sentAt: number;
@@ -123,14 +128,26 @@ const HELD_PREFIX_MESSAGE = ".";
 const CHARS_PER_TOKEN = 4;
 
 function prefixTokensOf(request: RememberedRequest): number {
-	const system = request.system?.role === "system" ? request.system : undefined;
-	// The leading system message declares the tools that reach the provider; `tools` alone counts when it does not.
-	const declared = system?.toolsAdded !== undefined;
+	// The system messages declare the tools that reach the provider; `tools` alone counts when they do not.
+	const declared = request.systems.some((system) => system.role === "system" && system.toolsAdded !== undefined);
 	const chars =
 		(request.systemPrompt?.length ?? 0) +
-		(system ? JSON.stringify({ ...system, timestamp: undefined }).length : 0) +
+		request.systems.reduce((sum, system) => sum + JSON.stringify({ ...system, timestamp: undefined }).length, 0) +
 		(!declared && request.tools ? JSON.stringify(request.tools).length : 0);
 	return Math.ceil(chars / CHARS_PER_TOKEN);
+}
+
+/**
+ * The context of a refresh of a prefix: the system prompt, the tools and every system message of the remembered
+ * request, then one short user message. A new request, not a replay of the conversation.
+ */
+export function heldPrefixContext(request: Pick<RememberedRequest, "systemPrompt" | "systems" | "tools">): Context {
+	const message: Message = { role: "user", content: HELD_PREFIX_MESSAGE, timestamp: Date.now() };
+	return {
+		...(request.systemPrompt !== undefined ? { systemPrompt: request.systemPrompt } : {}),
+		...(request.tools ? { tools: request.tools } : {}),
+		messages: [...request.systems, message],
+	};
 }
 
 interface ActiveRun extends CacheWarmRequest {
@@ -311,7 +328,7 @@ export class CacheWarmer {
 		this.remembered.set(label.key, {
 			model: request.model,
 			systemPrompt: request.context.systemPrompt,
-			system: request.context.messages[0]?.role === "system" ? request.context.messages[0] : undefined,
+			systems: request.context.messages.filter((message) => message.role === "system"),
 			tools: request.context.tools,
 			options: request.options,
 			sentAt: Date.now(),
@@ -394,12 +411,7 @@ export class CacheWarmer {
 			return;
 		}
 		// A new request, not a replay of the conversation: the prefix and one short message.
-		const message: Message = { role: "user", content: HELD_PREFIX_MESSAGE, timestamp: Date.now() };
-		const context: Context = {
-			...(request.systemPrompt !== undefined ? { systemPrompt: request.systemPrompt } : {}),
-			...(request.tools ? { tools: request.tools } : {}),
-			messages: request.system ? [request.system, message] : [message],
-		};
+		const context = heldPrefixContext(request);
 		try {
 			const result = await this.models
 				.streamSimple(

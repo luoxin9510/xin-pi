@@ -337,6 +337,18 @@ describe("held prefix", () => {
 		expect(warmer.heldStatus).toBeUndefined();
 	});
 
+	it("stops an hour after the held request, whatever an extension says", async () => {
+		vi.useFakeTimers();
+		// The extension always warms, so only the one-hour limit can end the hold.
+		const { warmer, calls, send } = setup({ decide: () => "warm" });
+		send(LEAD);
+		send(WORKER);
+		// Refreshes every 270 s: 13 of them fit before the hour, the 14th would be due after it.
+		for (let i = 0; i < 20; i++) await vi.advanceTimersByTimeAsync(270_000);
+		expect(calls).toHaveLength(13);
+		expect(warmer.heldStatus).toBeUndefined();
+	});
+
 	it("sends no refresh when the prices are unknown", async () => {
 		vi.useFakeTimers();
 		const { warmer, calls, events, send } = setup();

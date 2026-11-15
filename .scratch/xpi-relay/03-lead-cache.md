@@ -74,6 +74,9 @@ model, so a request routed by a virtual model is never warmed. That stays.
   (`options.sessionId` is the session's) consumes it. A request without a pending label changes nothing about held
   prefixes: summary requests, `ctx.complete`, subagents, the refreshes themselves. A retry is routed again and
   carries its own label.
+- (Found in review of PR G: "the system prompt" is every system message of the remembered request, in order. A
+  model that does not take system and tool changes in the middle of a conversation folds them all into the head, so
+  a refresh with the leading message alone would miss there.)
 - The refresh is a new request, not a replay of the conversation: the remembered tools and system prompt, one short
   user message (`.`), the remembered options with a one-token output cap, no retries, no continuation. It goes
   through the same request building as the original, so the serialized tools and system prompt are the same bytes
