@@ -40,6 +40,7 @@ function fake(settings: Record<string, unknown> = {}) {
 	const host: RelayHost = {
 		appendEntry: (customType, data) => push({ type: "custom", customType, data }),
 		settings: () => settings,
+		keepRecentTokens: () => 20_000,
 		sendMessage: (message, options) => {
 			sent.push({ content: message.content, deliverAs: options.deliverAs });
 		},

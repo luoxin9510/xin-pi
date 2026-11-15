@@ -1068,6 +1068,87 @@
           "type": "number",
           "minimum": 0,
           "description": "What one minute of the user's waiting is worth, in dollars of tokens, told to the lead next to the objective. Unset: time is not part of the objective."
+        },
+        "workerContext": {
+          "type": "object",
+          "properties": {
+            "limit": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "const": "tier"
+                },
+                {
+                  "type": "string",
+                  "const": "off"
+                },
+                {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              ],
+              "description": "Prompt tokens the context stays under: \"tier\" (tierFraction of the model's first price tier; no tiers, no limit), a number of tokens, or \"off\". Default \"tier\"."
+            },
+            "tierFraction": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1,
+              "description": "The part of the first price tier used with \"tier\". Default 0.95."
+            },
+            "maxCompactions": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Summaries written under the limit in one phase before the stuck guard acts. 0: no guard. Default 4."
+            },
+            "whenStuck": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "const": "lift"
+                },
+                {
+                  "type": "string",
+                  "const": "handback"
+                }
+              ],
+              "description": "What happens after `maxCompactions` summaries in one round: \"lift\" (default) lifts the limit for the rest of the round; \"handback\" asks the worker to hand back with a progress report, and lifts the limit after two more summaries."
+            }
+          },
+          "description": "The worker's context limit and the stuck guard."
+        },
+        "leadContext": {
+          "type": "object",
+          "properties": {
+            "limit": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "const": "tier"
+                },
+                {
+                  "type": "string",
+                  "const": "off"
+                },
+                {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              ],
+              "description": "Prompt tokens the context stays under: \"tier\" (tierFraction of the model's first price tier; no tiers, no limit), a number of tokens, or \"off\". Default \"off\"."
+            },
+            "tierFraction": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1,
+              "description": "The part of the first price tier used with \"tier\". Default 0.95."
+            },
+            "maxCompactions": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Summaries written under the limit in one phase before the stuck guard acts. 0: no guard. Default 4."
+            }
+          },
+          "description": "The lead's own context limit. When the lead is stuck the limit is lifted until the next handover."
         }
       },
       "additionalProperties": true,

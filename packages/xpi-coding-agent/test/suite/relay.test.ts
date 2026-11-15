@@ -21,6 +21,7 @@ import {
 	roundTimeFact,
 	USER_HANDOVER_MARKER,
 } from "xpi-relay";
+import type { ExtensionAPI } from "../../src/core/extensions/types.ts";
 import type { Settings } from "../../src/core/settings-manager.ts";
 import { createCodemodeExtension } from "../../src/extensions/codemode/index.ts";
 import relayExtension, { RELAY_MODEL, RELAY_PROVIDER } from "../../src/extensions/relay/index.ts";
@@ -64,16 +65,30 @@ describe("relay", () => {
 	 * `codemode`: the codemode extension is on, so the hand tools are callable from scripts only; without it they fall
 	 * back to direct tools.
 	 */
-	async function createRelayHarness(options: { codemode?: boolean; relay?: Record<string, unknown> } = {}) {
+	async function createRelayHarness(
+		options: {
+			codemode?: boolean;
+			relay?: Record<string, unknown>;
+			settings?: Partial<Settings>;
+			smallWindow?: number;
+			extensions?: ((pi: ExtensionAPI) => void)[];
+		} = {},
+	) {
 		const harness = await createHarness({
 			models: [
-				{ id: "small", contextWindow: 50_000 },
+				{ id: "small", contextWindow: options.smallWindow ?? 50_000 },
 				{ id: "large", contextWindow: 50_000, maxTokens: 4000, reasoning: true },
 			],
 			tools: [echoTool],
 			...(options.codemode ? { initialActiveToolNames: ["echo", "codemode"] } : {}),
-			settings: { relay: { lead: "faux/large", worker: "faux/small", ...options.relay } } as Partial<Settings>,
-			extensionFactories: options.codemode ? [createCodemodeExtension(), relayExtension] : [relayExtension],
+			settings: {
+				relay: { lead: "faux/large", worker: "faux/small", ...options.relay },
+				...options.settings,
+			} as Partial<Settings>,
+			extensionFactories: [
+				...(options.codemode ? [createCodemodeExtension(), relayExtension] : [relayExtension]),
+				...(options.extensions ?? []),
+			],
 		});
 		harnesses.push(harness);
 		const runtime = harness.session.modelRuntime;
@@ -189,7 +204,7 @@ describe("relay", () => {
 		expect(system[2]).not.toContain("Relay prices:");
 		// The worker's section names the handover by its result sentence, not by a marker line.
 		expect(system[2]).toContain(
-			"The assistant messages before the tool result that contains `Handed over to the worker model (round 1)` were written by the lead",
+			"The assistant messages before the handover (a tool result that contains `Handed over to the worker model (round 1)`, or its mention in a summary of this conversation) were written by the lead",
 		);
 		expect(system[2]).not.toContain("<relay-handover round");
 		// The worker reads the whole conversation, which holds that result sentence and no marker; nothing tells it its role.
@@ -810,5 +825,126 @@ describe("relay", () => {
 		expect(text).toContain("LEAD-19");
 		expect(text).not.toContain("LEAD-0 ");
 		expect(text).toMatch(/\[\d+ earlier lead replies removed for length\]/);
+	});
+
+	describe("the worker's context limit", () => {
+		/** An extension that answers every compaction itself, so that no faux response is spent on a summary. */
+		const supplySummary = (pi: ExtensionAPI) => {
+			pi.on("session_before_compact", async (event) => ({
+				compaction: {
+					summary: "WORKER-SUMMARY (the handover happened earlier)",
+					firstKeptEntryId: event.preparation.firstKeptEntryId,
+					tokensBefore: event.preparation.tokensBefore,
+				},
+			}));
+		};
+		const BIG_TEXT = "y".repeat(24_000); // about 6000 tokens, in a tool call's arguments and again in its result
+		const limitOptions = (relay: Record<string, unknown> = {}) => ({
+			codemode: true,
+			smallWindow: 400_000,
+			relay: { workerContext: { limit: 30_000, ...relay } },
+			settings: {
+				compaction: { keepRecentTokens: 10_000, reserveTokens: 1000, prune: { enabled: false } },
+			} as Partial<Settings>,
+			extensions: [supplySummary],
+		});
+		const limitSummaries = (harness: Harness) =>
+			harness.sessionManager
+				.getEntries()
+				.filter((entry) => entry.type === "compaction" && entry.contextLimit !== undefined);
+
+		it("compacts a worker phase that crosses the limit, goes on, and reports it in the record; the lead is not limited", async () => {
+			const { harness, seen, call, script, say, entries, notes } = await createRelayHarness(
+				limitOptions({ maxCompactions: 0 }),
+			);
+			// The lead's context is far above the worker's limit and is not compacted.
+			harness.setResponses([
+				script(HAND_OVER),
+				call("echo", { text: BIG_TEXT }),
+				call("echo", { text: BIG_TEXT }),
+				call("echo", { text: BIG_TEXT }),
+				call("echo", { text: BIG_TEXT }),
+				call("echo", { text: BIG_TEXT }),
+				script(`await tools.handback({ status: "done", report: "WORKER-REPORT-TEXT" });`),
+				say("The work is fine."),
+			]);
+			await harness.session.prompt(`USER-MESSAGE ${"z".repeat(160_000)}`);
+			const compactions = limitSummaries(harness);
+			expect(compactions.length).toBeGreaterThan(0);
+			for (const entry of compactions) expect(entry).toMatchObject({ contextLimit: 30_000 });
+			// The lead's first request was not limited; every compaction came after the handover.
+			expect(seen[0].model).toBe("large");
+			expect(seen.at(-1)?.model).toBe("large");
+			const handover = harness.sessionManager
+				.getEntries()
+				.findIndex((entry) => entry.type === "custom" && entry.customType === "relay.handover");
+			const first = harness.sessionManager.getEntries().findIndex((entry) => entry.type === "compaction");
+			expect(first).toBeGreaterThan(handover);
+			// The round ended with a hand back and a record that says what the limit did.
+			expect(entries("relay.round")).toHaveLength(1);
+			const record = harness.sessionManager
+				.getEntries()
+				.find((entry) => entry.type === "compaction" && (entry.details as { relay?: boolean })?.relay);
+			expect(record?.type === "compaction" && record.summary).toMatch(
+				/## Worker context\nThe worker's context .*summar(y was|ies were) written under the limit/s,
+			);
+			expect(notes.some((note) => note.includes("limit lifted"))).toBe(false);
+		});
+
+		it("lifts the limit after maxCompactions summaries, once, and the later requests are not limited", async () => {
+			const { harness, call, script, say, entries, notes } = await createRelayHarness(
+				limitOptions({ maxCompactions: 2 }),
+			);
+			harness.setResponses([
+				script(HAND_OVER),
+				...Array.from({ length: 24 }, () => call("echo", { text: BIG_TEXT })),
+				script(`await tools.handback({ status: "done", report: "WORKER-REPORT-TEXT" });`),
+				say("The work is fine."),
+			]);
+			await harness.session.prompt("USER-MESSAGE");
+			expect(limitSummaries(harness)).toHaveLength(2);
+			expect(entries("relay.limit")).toEqual([
+				expect.objectContaining({ round: 1, phase: "worker", action: "lifted", compactions: 2 }),
+			]);
+			expect(notes.filter((note) => note.includes("limit lifted"))).toEqual([
+				"relay: worker compacted 2 times in round 1, limit lifted",
+			]);
+			const record = harness.sessionManager
+				.getEntries()
+				.find((entry) => entry.type === "compaction" && (entry.details as { relay?: boolean })?.relay);
+			expect(record?.type === "compaction" && record.summary).toContain("the limit was lifted");
+		});
+
+		it("applies a change of the settings to the next request", async () => {
+			const { harness, call, script, say } = await createRelayHarness(limitOptions({ limit: "off" }));
+			harness.setResponses([
+				script(HAND_OVER),
+				call("echo", { text: BIG_TEXT }),
+				call("echo", { text: BIG_TEXT }),
+				call("echo", { text: BIG_TEXT }),
+				call("echo", { text: BIG_TEXT }),
+				call("echo", { text: BIG_TEXT }),
+				script(`await tools.handback({ status: "done", report: "R" });`),
+				say("fine"),
+			]);
+			await harness.session.prompt("USER-MESSAGE");
+			// Off: the worker's context grew past 30,000 tokens and nothing was compacted.
+			expect(limitSummaries(harness)).toHaveLength(0);
+			harness.settingsManager.applyOverrides({
+				relay: { lead: "faux/large", worker: "faux/small", workerContext: { limit: 30_000 } },
+			} as Partial<Settings>);
+			harness.setResponses([
+				script(HAND_OVER),
+				call("echo", { text: BIG_TEXT }),
+				call("echo", { text: BIG_TEXT }),
+				call("echo", { text: BIG_TEXT }),
+				call("echo", { text: BIG_TEXT }),
+				call("echo", { text: BIG_TEXT }),
+				script(`await tools.handback({ status: "done", report: "R" });`),
+				say("fine"),
+			]);
+			await harness.session.prompt("second task");
+			expect(limitSummaries(harness).length).toBeGreaterThan(0);
+		});
 	});
 });

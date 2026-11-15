@@ -44,6 +44,8 @@ export interface RelayHost {
 	appendEntry(type: string, data: unknown): void;
 	/** The `relay` block of the settings, read at each use. */
 	settings(): unknown;
+	/** `compaction.keepRecentTokens` as resolved for the relay model, read at each use. */
+	keepRecentTokens(): number;
 	/** `/handover` and `/handback`: a message for the model. */
 	sendMessage(
 		message: { customType: string; content: string; display: boolean },
@@ -81,6 +83,8 @@ export interface RelayRoute {
 	model: Model<Api>;
 	thinkingLevel: ModelThinkingLevel;
 	state?: RelayState;
+	/** Prompt tokens the request's context should stay under; absent when the phase has no limit (off, or lifted). */
+	contextLimit?: number;
 }
 
 /** What relay reads of the host's `request_start` event: the router states around one request. */

@@ -6,7 +6,9 @@
 import type { AssistantMessage, Model } from "xpi-ai";
 import type { RelayConfig } from "./config.ts";
 import type { RelayEntry } from "./entry.ts";
+import { firstTier } from "./limit.ts";
 import { HANDBACK_TOOL, HANDOVER_TOOL } from "./router.ts";
+import type { RoundContext } from "./view.ts";
 
 type Priced = Pick<Model<string>, "cost"> | undefined;
 type Cost = Model<string>["cost"];
@@ -43,6 +45,69 @@ export function priceFact(lead: Priced, worker: Priced): string | undefined {
 	return `API list prices per million tokens. You: ${describePrices(lead.cost)}. The worker: ${describePrices(worker.cost)}. At the base prices one of your input tokens costs ${input} times a worker input token, one of your output tokens ${output} times a worker output token`;
 }
 
+const tokens = (n: number) => n.toLocaleString("en-US");
+
+/** Where the worker's price rises: its first tier, and how much dearer the tokens above it are. Undefined without tiers. */
+export function tierFact(worker: Priced): string | undefined {
+	const above = firstTier(worker);
+	if (above === undefined || !worker?.cost) return undefined;
+	const tier = worker.cost.tiers?.find((t) => t.inputTokensAbove === above);
+	const input = tier && worker.cost.input > 0 ? ratio(tier.input, worker.cost.input) : undefined;
+	const dearer = input ? `its input tokens cost ${input} times as much there` : "its tokens cost more there";
+	return `The worker's first price tier starts above ${tokens(above)} prompt tokens: ${dearer}. The worker's context grows with what it reads and writes in one round, and starts again after a hand back`;
+}
+
+/** The limits in force, in prompt tokens; undefined for a role without one. */
+export interface ContextLimits {
+	worker?: number;
+	lead?: number;
+}
+
+/** The worker's limit and what happens when it is stuck, as a fact for the lead's prompt. */
+export function workerLimitFact(config: RelayConfig, limit: number | undefined): string {
+	if (limit === undefined) return "Worker context limit: none";
+	const { maxCompactions, whenStuck } = config.workerContext;
+	if (maxCompactions === 0) return `Worker context limit: ${tokens(limit)} tokens, with no cap on compactions`;
+	const stuck =
+		whenStuck === "handback"
+			? `the worker is asked to hand back, and after two more compactions it is lifted`
+			: "it is lifted";
+	return `Worker context limit: ${tokens(limit)} tokens; after ${maxCompactions} compactions in a round ${stuck}`;
+}
+
+/** The lead's own limit, when it has one. */
+export function leadLimitFact(config: RelayConfig, limit: number | undefined): string | undefined {
+	if (limit === undefined) return undefined;
+	const { maxCompactions } = config.leadContext;
+	const cap = maxCompactions === 0 ? "" : `; after ${maxCompactions} compactions in a row it is lifted`;
+	return `Your own context limit: ${tokens(limit)} tokens${cap}`;
+}
+
+/**
+ * What the last worker round did to its context, for the review message and the record: the peak, the summaries
+ * written under the limit, whether the limit was lifted or a hand back was asked for. Empty when nothing is known.
+ */
+export function roundContextFact(round: RoundContext, limit: number | undefined): string {
+	if (round.peak === undefined && round.summaries === 0 && !round.action) return "";
+	const peak =
+		round.peak === undefined
+			? ""
+			: `peaked at ${tokens(round.peak)} prompt tokens${limit === undefined ? " (no limit)" : ` (limit ${tokens(limit)})`}`;
+	const summaries =
+		round.summaries > 0
+			? `${round.summaries} summar${round.summaries === 1 ? "y was" : "ies were"} written under the limit`
+			: limit === undefined
+				? ""
+				: "no summary was written under the limit";
+	const action =
+		round.action === "lifted"
+			? "the limit was lifted"
+			: round.action === "handback"
+				? "the worker was asked to hand back"
+				: "";
+	return `The worker's context ${[peak, summaries, action].filter(Boolean).join("; ")}.`;
+}
+
 /** The objective, with the price of the user's time when one is set. */
 export function objectiveFact(config: RelayConfig): string {
 	if (config.minuteCost === undefined) return config.objective;
@@ -50,7 +115,7 @@ export function objectiveFact(config: RelayConfig): string {
 }
 
 /** The decision facts of the lead's `relay` prompt section. Every line names the tool it is about. */
-export function leadFacts(config: RelayConfig, lead: Priced, worker: Priced): string[] {
+export function leadFacts(config: RelayConfig, lead: Priced, worker: Priced, limits: ContextLimits = {}): string[] {
 	const price = priceFact(lead, worker);
 	const charged = `What you read and write is charged at your prices; what the worker reads and writes after ${HANDOVER_TOOL} is charged at its prices.`;
 	const lines = [
@@ -62,6 +127,16 @@ export function leadFacts(config: RelayConfig, lead: Priced, worker: Priced): st
 		`Time with ${HANDOVER_TOOL}: a round adds the worker's first read of the conversation, its work, the acceptance commands, and your reading of the record. Each hand back reports how long the round took and how fast each model has been in this session.`,
 		`After a hand back nothing is final: you can read files, change them yourself, or call ${HANDOVER_TOOL} again.`,
 	];
+	const tier = tierFact(worker);
+	const own = leadLimitFact(config, limits.lead);
+	const context = [
+		tier ? `Relay worker context: ${tier}. ${workerLimitFact(config, limits.worker)}.` : undefined,
+		!tier && limits.worker !== undefined
+			? `Relay worker context: ${workerLimitFact(config, limits.worker)}.`
+			: undefined,
+		own ? `${own}.` : undefined,
+	].filter((line): line is string => line !== undefined);
+	lines.splice(3, 0, ...context);
 	if (config.workerRecord) lines.push(`About the worker, for your ${HANDOVER_TOOL} decision: ${config.workerRecord}`);
 	return lines;
 }

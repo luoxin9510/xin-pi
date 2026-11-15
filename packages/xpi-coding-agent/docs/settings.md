@@ -203,7 +203,7 @@ Read at session start and on `/reload`; only in the interactive TUI, in a saved 
 ## Relay
 
 The built-in `relay` extension reads a `relay` block (`lead`, `worker`, `leadThinking`, `workerThinking`, `maxRounds`,
-`acceptanceTimeoutMs`, `diffChars`, `objective`, `workerRecord`, `minuteCost`), listed with defaults in [Relay: Settings](relay.md#settings). The settings schema
+`acceptanceTimeoutMs`, `diffChars`, `objective`, `workerRecord`, `minuteCost`, `workerContext`, `leadContext`), listed with defaults in [Relay: Settings](relay.md#settings). `workerContext` and `leadContext` limit the context of each role (see [Relay: The worker's context limit](relay.md#the-workers-context-limit)); a limit below `compaction.keepRecentTokens` plus 20,000 tokens is an error. The settings schema
 describes the block.
 
 ## Commit

@@ -2,7 +2,7 @@
 // a role in a round), and the short texts of corrections and reminders. Each role learns only its own hand tool.
 
 import type { RelayConfig } from "./config.ts";
-import { leadFacts } from "./facts.ts";
+import { type ContextLimits, leadFacts } from "./facts.ts";
 import type { Handover } from "./record.ts";
 import { HANDBACK_TOOL, HANDOVER_TOOL, handoverResultStart } from "./router.ts";
 
@@ -42,12 +42,18 @@ function invoke(tool: string, isDirect: boolean): string {
 	return `${callOf(tool, isDirect)}${isDirect ? "" : " from codemode"}`;
 }
 
-export function leadSection(config: RelayConfig, lead: Priced, worker: Priced, isDirect: boolean): string {
+export function leadSection(
+	config: RelayConfig,
+	lead: Priced,
+	worker: Priced,
+	isDirect: boolean,
+	limits: ContextLimits = {},
+): string {
 	return [
 		`<relay role="lead">`,
 		`You are the lead in relay mode; the worker is ${config.worker}. To give the work away call ${invoke(HANDOVER_TOOL, isDirect)}.`,
 		...fieldLines(HANDOVER_FIELDS, ["acceptance", "criteria", "findings", "stopWhen"]),
-		...leadFacts(config, lead, worker),
+		...leadFacts(config, lead, worker, limits),
 		`</relay>`,
 	].join("\n");
 }
@@ -63,7 +69,7 @@ export function workerSection(handover: Handover | undefined, config: RelayConfi
 		`The handover has already happened. The assistant messages before ${
 			handover?.byUser
 				? "the `<relay-handover-by-user>` line"
-				: `the tool result that contains \`${handoverResultStart(handover?.round)}\``
+				: `the handover (a tool result that contains \`${handoverResultStart(handover?.round)}\`, or its mention in a summary of this conversation)`
 		} were written by the lead, a different model, not by you: do not continue them, and do not wait for a worker, because you are the worker. Start on the plan now.`,
 		...fieldLines(HANDBACK_FIELDS, []),
 	];

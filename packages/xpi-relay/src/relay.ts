@@ -5,8 +5,15 @@
 import { Type } from "typebox";
 import type { Api, Model } from "xpi-ai";
 import { readRelayConfig } from "./config.ts";
-import { type Effect, type MachineConfig, type RelayEvent, type RelayView, transition } from "./definition.ts";
-import { roundTimeFact, spendFact } from "./facts.ts";
+import {
+	type Effect,
+	initialView,
+	type MachineConfig,
+	type RelayEvent,
+	type RelayView,
+	transition,
+} from "./definition.ts";
+import { type ContextLimits, roundContextFact, roundTimeFact, spendFact } from "./facts.ts";
 import type {
 	HandbackParams,
 	HandoverParams,
@@ -22,6 +29,7 @@ import type {
 	ToolOutcome,
 	ToolSpec,
 } from "./host.ts";
+import { contextLimitOf } from "./limit.ts";
 import { correction, HANDBACK_FIELDS, HANDOVER_FIELDS, leadSection, reminder, workerSection } from "./prompts.ts";
 import { type AcceptanceResult, acceptancePassed, buildRecord, describeAcceptance, type Handover } from "./record.ts";
 import { HANDBACK_TOOL, HANDOVER_TOOL, nextState, type RelayState, USER_HANDOVER_MARKER } from "./router.ts";
@@ -34,12 +42,14 @@ import {
 	HANDOVER_ENTRY,
 	type Handback,
 	handoverLanded,
+	limitSummaries,
 	RELAY_MODEL,
 	RELAY_PROVIDER,
 	ROUND_ENTRY,
 	type RoundSummary,
 	readPhase,
 	readView,
+	roundContext,
 	storedState,
 	TRANSITION_ENTRY,
 	VERIFY_ENTRY,
@@ -104,7 +114,10 @@ export interface Relay {
 
 export function createRelay(host: RelayHost): Relay {
 	const config = () => readRelayConfig(host.settings());
-	const machineConfig = (): MachineConfig => ({ maxRounds: config().maxRounds });
+	const machineConfig = (): MachineConfig => {
+		const cfg = config();
+		return { maxRounds: cfg.maxRounds, whenStuck: cfg.workerContext.whenStuck };
+	};
 	// /handback: the next end of a worker run hands back without running the acceptance commands.
 	let userAsked = false;
 	const viewOf = (call: RelayCall): RelayView => readView(call.entries, userAsked);
@@ -113,6 +126,31 @@ export function createRelay(host: RelayHost): Relay {
 		const model = call.findModel(ref);
 		if (!model) throw new Error(`relay.${key}: model ${ref} is not in the catalog`);
 		return model;
+	};
+
+	/** The limits in prompt tokens of both roles under the settings now; throws for a limit a compaction cannot get under. */
+	const limitsOf = (call: RelayCall): ContextLimits => {
+		const cfg = config();
+		const keep = () => host.keepRecentTokens();
+		return {
+			worker:
+				cfg.workerContext.limit === "off"
+					? undefined
+					: contextLimitOf(cfg.workerContext, "workerContext", call.findModel(cfg.worker), keep()),
+			lead:
+				cfg.leadContext.limit === "off"
+					? undefined
+					: contextLimitOf(cfg.leadContext, "leadContext", call.findModel(cfg.lead), keep()),
+		};
+	};
+
+	/** The worker's configured limit, for the facts after a hand back; unknown (undefined) when the settings are wrong. */
+	const workerLimit = (call: RelayCall): number | undefined => {
+		try {
+			return limitsOf(call).worker;
+		} catch {
+			return undefined;
+		}
 	};
 
 	/** A phase change that took effect: one entry on the branch and one line for the user. */
@@ -299,13 +337,38 @@ export function createRelay(host: RelayHost): Relay {
 				return { model: physical(call, cfg.worker, "worker"), thinkingLevel: cfg.workerThinking };
 			}
 			const state = nextState(request.state, request.messages);
-			if (state.phase === "worker") {
-				return { model: physical(call, cfg.worker, "worker"), thinkingLevel: cfg.workerThinking, state };
-			}
+			const worker = state.phase === "worker";
+			const model = physical(call, worker ? cfg.worker : cfg.lead, worker ? "worker" : "lead");
+			const context = worker ? cfg.workerContext : cfg.leadContext;
+			let contextLimit =
+				context.limit === "off"
+					? undefined
+					: contextLimitOf(context, worker ? "workerContext" : "leadContext", model, host.keepRecentTokens());
+			let next = state;
+			// The stuck guard: a phase that has written `maxCompactions` summaries under its limit is stuck. The decision is
+			// the state returned here; `onRequestStart` acts on the change.
+			if (contextLimit !== undefined && context.maxCompactions > 0) {
+				if (state.limit === "lifted") contextLimit = undefined;
+				else {
+					const summaries = limitSummaries(call.entries, state.phase);
+					if (summaries >= context.maxCompactions) {
+						const asks = worker && cfg.workerContext.whenStuck === "handback";
+						if (asks && summaries < context.maxCompactions + 2) {
+							if (state.limit !== "asked") next = { ...state, limit: "asked" };
+						} else {
+							next = { ...state, limit: "lifted" };
+							contextLimit = undefined;
+						}
+					}
+				}
+			} else if (state.limit === "lifted") contextLimit = undefined;
+			const limited = contextLimit === undefined ? {} : { contextLimit };
+			if (worker) return { model, thinkingLevel: cfg.workerThinking, state: next, ...limited };
 			return {
-				model: physical(call, cfg.lead, "lead"),
+				model,
 				thinkingLevel: state.round === 0 ? cfg.leadThinking.plan : cfg.leadThinking.review,
-				state,
+				state: next,
+				...limited,
 			};
 		},
 
@@ -316,6 +379,41 @@ export function createRelay(host: RelayHost): Relay {
 			// Only a handover takes effect here; the hand back is written where the record is made.
 			if (state && before.phase === "lead" && state.phase === "worker") {
 				recordTransition(call, "lead", "worker", "handover", state.round);
+			}
+			// The stuck guard changed the state of this phase: the entry, the notice and the steer are this row's effects.
+			if (
+				state?.limit &&
+				state.limit !== before.limit &&
+				state.phase === before.phase &&
+				state.round === before.round
+			) {
+				const view = initialView({ phase: state.phase, round: state.round });
+				const compactions = limitSummaries(call.entries, state.phase);
+				const { effects } = transition(
+					view,
+					{ type: "limit_reached", compactions, to: state.limit },
+					machineConfig(),
+				);
+				for (const effect of effects) {
+					if (effect.type === "append_entry")
+						host.appendEntry(effect.entry, {
+							...effect.data,
+							round: view.round,
+							phase: view.phase,
+							at: Date.now(),
+						});
+					else if (effect.type === "notify") call.notify(effect.text, effect.level ?? "info");
+					else if (effect.type === "steer" && effect.kind === "limit" && !userAsked) {
+						host.sendMessage(
+							{
+								customType: REQUEST_ENTRY,
+								display: true,
+								content: `The context limit keeps compacting your work (${compactions} summaries in this round). Stop working and hand back with status "blocked": say what is done and what is left, so the lead can split the rest.`,
+							},
+							{ triggerTurn: true, deliverAs: "steer" },
+						);
+					}
+				}
 			}
 		},
 
@@ -328,7 +426,13 @@ export function createRelay(host: RelayHost): Relay {
 					text:
 						storedState(branch).phase === "worker"
 							? workerSection(readPhase(branch).handover, cfg, registeredDirect)
-							: leadSection(cfg, call.findModel(cfg.lead), call.findModel(cfg.worker), registeredDirect),
+							: leadSection(
+									cfg,
+									call.findModel(cfg.lead),
+									call.findModel(cfg.worker),
+									registeredDirect,
+									limitsOf(call),
+								),
 				};
 			} catch {
 				// Wrong settings end the request with an error that names the key, from the router.
@@ -471,6 +575,7 @@ export function createRelay(host: RelayHost): Relay {
 							.map(assistantText)
 							.find((text) => text.trim() !== "");
 						const status = handbackMade?.status ?? (view.userAsked || view.blocked ? "stopped" : "done");
+						const contextLine = roundContextFact(roundContext(branch), workerLimit(call));
 						const record = buildRecord({
 							handover: handoverNote,
 							conversation: phase.conversation,
@@ -482,6 +587,7 @@ export function createRelay(host: RelayHost): Relay {
 							acceptance: results,
 							failedRounds: phase.failedRounds,
 							repairs: phase.repairs,
+							contextLine,
 						});
 						const passed =
 							results.length > 0
@@ -510,6 +616,7 @@ export function createRelay(host: RelayHost): Relay {
 									`You are the lead again. The record above is what the worker did in round ${handoverNote.round}.`,
 									roundTimeFact(handoverNote.round, phase.startedAt, acceptanceMs),
 									spendFact(branch, cfg),
+									contextLine,
 									`Nothing is final: you can read files, run commands, change things yourself, answer the user, or call ${HANDOVER_TOOL} again.`,
 								]
 									.filter(Boolean)

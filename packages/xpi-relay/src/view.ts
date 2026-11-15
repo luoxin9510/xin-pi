@@ -26,6 +26,8 @@ export const STALL_ENTRY = "relay.stall";
 export const PAUSE_ENTRY = "relay.pause";
 export const RESUME_ENTRY = "relay.resume";
 export const TRANSITION_ENTRY = "relay.transition";
+/** The stuck guard acted on a context limit: `{ round, phase, action, compactions }`. */
+export const LIMIT_ENTRY = "relay.limit";
 /** A direct call of a hand tool that xpi ran as a call from codemode. */
 export const DIRECT_ENTRY = "relay.direct";
 /** A pending hand-off that never took effect. */
@@ -121,8 +123,12 @@ export function readPhase(branch: readonly RelayEntry[]): Phase {
 				if (line) phase.repairs.push(line);
 			}
 		} else if (entry.type === "compaction") {
-			// The record of an earlier round is rebuilt from the entries; only an ordinary summary is carried along.
-			if (!(entry.details as { relay?: boolean } | undefined)?.relay) phase.earlierSummary = entry.summary;
+			// The record of an earlier round is rebuilt from the entries; only an ordinary summary is carried along. A
+			// summary written under a limit while the worker has the work is the worker's working memory, not the
+			// lead's: the lead never saw what it summarizes. One written under the lead's own limit is the lead's.
+			const isRecord = (entry.details as { relay?: boolean } | undefined)?.relay;
+			const workers = working && entry.contextLimit !== undefined;
+			if (!isRecord && !workers) phase.earlierSummary = entry.summary;
 		} else if (entry.type === "message") {
 			const user = userText(entry.message).trim();
 			if (user) phase.conversation.push({ who: "user", text: user });
@@ -297,4 +303,46 @@ export function workerMadeNoCalls(branch: readonly RelayEntry[]): boolean {
 				entry.message.role === "assistant" &&
 				entry.message.content.some((block) => block.type === "toolCall"),
 		);
+}
+
+/**
+ * The summaries written under a context limit in the current phase of `role`: the compaction entries with
+ * `contextLimit` after the latest handover (worker) or the latest hand-back record, or the start of the branch (lead).
+ * They stay on the branch, so the count follows it.
+ */
+export function limitSummaries(branch: readonly RelayEntry[], role: "lead" | "worker"): number {
+	const boundary = branch.findLastIndex((entry) =>
+		role === "worker"
+			? entry.type === "custom" && entry.customType === HANDOVER_ENTRY
+			: entry.type === "compaction" && (entry.details as { relay?: boolean } | undefined)?.relay === true,
+	);
+	return branch.slice(boundary + 1).filter((entry) => entry.type === "compaction" && entry.contextLimit !== undefined)
+		.length;
+}
+
+/** What the latest worker round did to its context, read from the branch after the latest handover. */
+export interface RoundContext {
+	/** The largest prompt (input, cache read and cache write tokens) of a worker request; undefined without usage. */
+	peak?: number;
+	/** Summaries written under the limit. */
+	summaries: number;
+	/** What the stuck guard did, if it acted. */
+	action?: "lifted" | "handback";
+}
+
+export function roundContext(branch: readonly RelayEntry[]): RoundContext {
+	const handover = branch.findLastIndex((entry) => entry.type === "custom" && entry.customType === HANDOVER_ENTRY);
+	const result: RoundContext = { summaries: limitSummaries(branch, "worker") };
+	for (const entry of branch.slice(handover + 1)) {
+		if (entry.type === "message" && entry.message.role === "assistant") {
+			const usage = (entry.message as { usage?: { input: number; cacheRead: number; cacheWrite: number } }).usage;
+			if (!usage) continue;
+			const prompt = usage.input + usage.cacheRead + usage.cacheWrite;
+			if (result.peak === undefined || prompt > result.peak) result.peak = prompt;
+		} else if (entry.type === "custom" && entry.customType === LIMIT_ENTRY) {
+			const action = (entry.data as { action?: string } | undefined)?.action;
+			if (action === "lifted" || action === "handback") result.action = action;
+		}
+	}
+	return result;
 }

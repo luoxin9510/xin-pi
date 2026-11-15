@@ -7,6 +7,11 @@ export interface RelayState {
 	phase: "lead" | "worker";
 	/** Handovers so far on this branch. */
 	round: number;
+	/**
+	 * The stuck guard's decision for this phase: `"lifted"` (no context limit until the next handover) or `"asked"`
+	 * (the worker was asked to hand back; the limit stays). Absent: limited. A state from before the field reads so.
+	 */
+	limit?: "lifted" | "asked";
 }
 
 export const HANDOVER_TOOL = "handover";

@@ -286,9 +286,9 @@ The options below come with the unit. Each says how to turn it off.
   adapter. The package keeps its own copy of the virtual-model state entry's name (`"pi.virtual-model-state"`), so the
   host's router state must be stored under it, as `core/virtual-models.ts` does (a test pins the two). The adapter uses
   `pi.registerVirtualModel` (a
-  `route` that picks the physical model per request and has no side effects); `pi.on("request_start")` (the commit
+  `route` that picks the physical model per request, returns the context limit of the phase and has no side effects); `pi.on("request_start")` (the commit
   point of a request, fired after the routed state is stored on the branch and before compaction and the context
-  transforms, with the router states; relay appends its `relay.transition` entry there, so a host must fire it once
+  transforms, with the router states; relay appends its `relay.transition` and `relay.limit` entries there, so a host must fire it once
   per request, not when routing or resolving the physical model fails, and again on a retry);
   `pi.on("agent_before_settle")` returning `{ entries, continue: true }` with a compaction draft (the
   hand-back record); `context_with_system` (it sets the `relay` section of the leading system message, from the stored
@@ -297,12 +297,17 @@ The options below come with the unit. Each says how to turn it off.
   runtime with `exposure` and `listed`; `pi.setActiveTools` / `getActiveTools`; `pi.appendEntry`; `pi.sendMessage`;
   `ctx.ui.notify`; `ctx.modelRegistry.find`. It runs the acceptance commands through a shell and reads `git` for the
   diff the lead sees (optional: outside a repository, or in one without commits, there is no snapshot to diff against).
-- **Core change for a route context limit** (relay does not use it yet): `ModelRoute.contextLimit` in
+- **Core change for a route context limit** (relay uses it for the worker's context limit): `ModelRoute.contextLimit` in
   `src/core/virtual-models.ts`, carried and validated in `ModelRuntime.resolveModel`; `AgentSession.prepareRequest`
   compacts above the smaller of the limit and the threshold (`_routeCompactionTrigger`), prunes first with a 90 percent
   target (`_pruneToolOutputBeforeCompaction`), and `appendCompaction` writes `CompactionEntry.contextLimit`;
   `session_before_compact` carries the limit. A host that routes must pass `contextLimit` through its route adapter.
-  See [Compaction](compaction.md#a-route-context-limit).
+  See [Compaction](compaction.md#a-route-context-limit). Relay's side: the adapter returns `RelayRoute.contextLimit` as
+  the route's `contextLimit` (leaving it out drops the limit at the host boundary) and implements
+  `RelayHost.keepRecentTokens()` as `compaction.keepRecentTokens` resolved for the relay model (its
+  `compaction.modelOverrides` entry first), so that relay can refuse a limit a compaction cannot get under. The stuck
+  guard needs nothing more of the host: it counts compaction entries with `contextLimit` on the branch, and it steers
+  the worker through `sendMessage` with `deliverAs: "steer"`.
 - **Core changes for codemode-only tools** (the hand tools need all four; each also works for MCP tools):
   - *unlisted tools*: `ToolDefinition.listed: false` (`src/core/extensions/types.ts`, `ToolInfo.listed`,
     `ToolLoadout.isListed` in `agent-session.ts`), honored by codemode (`execute.ts`: `searchTools()`, `describeTool()`,
@@ -314,14 +319,14 @@ The options below come with the unit. Each says how to turn it off.
   - *direct-call repair*: `AgentLoopConfig.resolveUndeclaredTool` and the note on the result
     (`packages/xpi-agent-core/src/agent-loop.ts`, `agent.ts`), set by `AgentSession` for `codemode` and `deferred` tools.
 - **Copy (one unit)**: the package `packages/xpi-relay/` whole (`src/`: `relay.ts`, `host.ts`, `definition.ts`,
-  `graph/`, `view.ts`, `entry.ts`, `router.ts`, `prompts.ts`, `facts.ts`, `record.ts`, `workspace.ts`, `config.ts`,
+  `graph/`, `view.ts`, `entry.ts`, `router.ts`, `prompts.ts`, `facts.ts`, `limit.ts`, `record.ts`, `workspace.ts`, `config.ts`,
   `docs.ts`, `index.ts`), then write the adapter after `coding-agent/src/extensions/relay/index.ts` (the one file of
   the extension; no import from other extensions). The state diagram and table of the docs come from
   `relayDiagram()` and `relayTable()`.
 - **Rewrite**: the provider and model ids (`relay`, `auto`), the settings namespace `relay.*` (`config.ts`), the
   adapter.
 - **Verify**: `packages/xpi-relay/test/` (`machine.test.ts`: every row of the transition table; `exhaustive.test.ts`:
-  every combination of overlays and events; `graph.test.ts`; `host.test.ts`: `createRelay` against a fake host),
+  every combination of overlays and events; `graph.test.ts`; `host.test.ts`: `createRelay` against a fake host; `context-limit.test.ts`: the limit, the stuck guard, the facts),
   `test/suite/relay.test.ts` (vitest, offline), `test/suite/codemode-terminate.test.ts` and `test/suite/tool-result-signal.test.ts` (the codemode seams and the signal) and the `resolveUndeclaredTool` tests in
   `packages/xpi-agent-core/test/agent-loop.test.ts`; `npm run test:relay:real` (real models).
 - **Linux**: the acceptance commands run with `shell: true` in their own process group, which is killed on timeout or

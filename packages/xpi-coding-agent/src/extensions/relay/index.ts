@@ -16,6 +16,7 @@ import {
 	type ToolSpec,
 } from "xpi-relay";
 import type { ExtensionAPI, ExtensionContext, SessionBoundaryDraft } from "../../core/extensions/types.ts";
+import { SETTINGS_DEFAULTS } from "../../core/settings-defaults.ts";
 
 export { HANDOVER_ENTRY, RELAY_MODEL, RELAY_PROVIDER, readPhase } from "xpi-relay";
 
@@ -76,6 +77,15 @@ export default function relay(pi: ExtensionAPI) {
 	const relayHost = createRelay({
 		appendEntry: (type, data) => pi.appendEntry(type, data),
 		settings: () => (pi.getSettings() as { relay?: unknown }).relay,
+		// The compaction setting as the core resolves it for the selected model, which is relay/auto: its override first.
+		keepRecentTokens: () => {
+			const compaction = pi.getSettings().compaction;
+			return (
+				compaction?.modelOverrides?.[`${RELAY_PROVIDER}/${RELAY_MODEL}`]?.keepRecentTokens ??
+				compaction?.keepRecentTokens ??
+				SETTINGS_DEFAULTS.compaction.keepRecentTokens
+			);
+		},
 		sendMessage: (message, options) => pi.sendMessage(message, options),
 		activeTools: () => pi.getActiveTools(),
 		setActiveTools: (names) => pi.setActiveTools(names),
@@ -88,7 +98,11 @@ export default function relay(pi: ExtensionAPI) {
 		provider: RELAY_PROVIDER,
 		id: RELAY_MODEL,
 		name: "Relay (lead plans and reviews, worker builds)",
-		route: (request, ctx) => relayHost.route(request, callOf(ctx)),
+		route: (request, ctx) => {
+			const { model, thinkingLevel, state, contextLimit } = relayHost.route(request, callOf(ctx));
+			// Left out here, the limit would be dropped at the host boundary and the core would never compact by it.
+			return { model, thinkingLevel, state, ...(contextLimit !== undefined ? { contextLimit } : {}) };
+		},
 	});
 
 	pi.on("request_start", async (event, ctx) => relayHost.onRequestStart(event, callOf(ctx)));

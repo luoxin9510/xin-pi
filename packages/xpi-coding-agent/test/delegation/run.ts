@@ -22,6 +22,8 @@
 // EVAL_BUDGET=<dollars>       stop starting runs once this much is spent (default 20)
 // EVAL_SETTINGS=<json>        settings merged into every run's project settings (object-valued keys one level deep),
 //                             to compare a setting across runs
+//                             Per task the report also shows, for the relay arm, the worker's peak context, its
+//                             requests above its first price tier and the summaries written under its context limit.
 // EVAL_KEEP=1                 keep the directory (repository and sessions) of a passing run too; a failing run's is
 //                             always kept, and listed with the failures
 // Results: test/delegation/results/<stamp>.json (ignored by git).
@@ -31,6 +33,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { getModel } from "xpi-ai/compat";
 import { copyUserAuth } from "../subagent/user-auth.ts";
 import { longTasks, SOLUTION_PATH } from "./long-tasks.ts";
 import { type RpcEnd, runRpc, type WaitMetrics, waitMetrics } from "./rpc-driver.ts";
@@ -56,6 +59,13 @@ function withExtraSettings(settings: Record<string, unknown>): Record<string, un
 	}
 	return merged;
 }
+// The relay worker and where its price rises: the lowest `inputTokensAbove` of its catalog tiers. Undefined without tiers.
+const WORKER = String((withExtraSettings({ relay: { worker: HAIKU } }).relay as { worker?: unknown }).worker ?? HAIKU);
+const WORKER_TIER = (() => {
+	const [provider, ...id] = WORKER.split("/");
+	const tiers = getModel(provider as never, id.join("/") as never)?.cost.tiers ?? [];
+	return tiers.length > 0 ? Math.min(...tiers.map((tier) => tier.inputTokensAbove)) : undefined;
+})();
 const USER_AUTH = join(process.env.HOME ?? "", ".pi", "agent", "auth.json");
 const RUN_TIMEOUT_MS = 900_000;
 const tasks = process.argv.includes("--long") ? longTasks : smallTasks;
@@ -103,6 +113,10 @@ interface Row {
 	handovers: number;
 	/** Largest prompt of a main-model request in the main session. */
 	peakContext: number;
+	/** The relay worker's phases: the largest prompt, the requests above its first price tier, the summaries under a limit. */
+	workerPeak: number;
+	workerAboveTier: number;
+	workerCompactions: number;
 	cost: number;
 	/** A session mentions this checkout's source of the feature: the run may have read the solution. */
 	leak: boolean;
@@ -144,6 +158,9 @@ function sessionFiles(dir: string): string[] {
 interface Entry {
 	type: string;
 	details?: { relay?: boolean };
+	customType?: string;
+	/** On a compaction: the route context limit that triggered it. */
+	contextLimit?: number;
 	message?: {
 		role: string;
 		provider?: string;
@@ -152,10 +169,24 @@ interface Entry {
 	};
 }
 
-function readUsage(file: string): { byModel: Record<string, Usage>; handovers: number; peak: number } {
+interface WorkerStats {
+	peak: number;
+	aboveTier: number;
+	compactions: number;
+}
+
+function readUsage(file: string): {
+	byModel: Record<string, Usage>;
+	handovers: number;
+	peak: number;
+	worker: WorkerStats;
+} {
 	const byModel: Record<string, Usage> = {};
 	let handovers = 0;
 	let peak = 0;
+	const worker: WorkerStats = { peak: 0, aboveTier: 0, compactions: 0 };
+	// A worker phase runs from a `relay.handover` entry to the hand-back record.
+	let inWorker = false;
 	for (const line of readFileSync(file, "utf8").split("\n")) {
 		if (!line) continue;
 		let entry: Entry;
@@ -164,9 +195,18 @@ function readUsage(file: string): { byModel: Record<string, Usage>; handovers: n
 		} catch {
 			continue;
 		}
-		if (entry.type === "compaction" && entry.details?.relay) handovers++;
+		if (entry.type === "custom" && entry.customType === "relay.handover") inWorker = true;
+		if (entry.type === "compaction" && entry.details?.relay) {
+			handovers++;
+			inWorker = false;
+		} else if (entry.type === "compaction" && inWorker && entry.contextLimit !== undefined) worker.compactions++;
 		const message = entry.message;
 		if (entry.type !== "message" || message?.role !== "assistant" || !message.usage) continue;
+		if (inWorker) {
+			const prompt = message.usage.input + message.usage.cacheRead + message.usage.cacheWrite;
+			worker.peak = Math.max(worker.peak, prompt);
+			if (WORKER_TIER !== undefined && prompt > WORKER_TIER) worker.aboveTier++;
+		}
 		const model = `${message.provider}/${message.model}`;
 		byModel[model] ??= noUsage();
 		const usage = byModel[model];
@@ -179,7 +219,7 @@ function readUsage(file: string): { byModel: Record<string, Usage>; handovers: n
 		if (model === MAIN)
 			peak = Math.max(peak, message.usage.input + message.usage.cacheRead + message.usage.cacheWrite);
 	}
-	return { byModel, handovers, peak };
+	return { byModel, handovers, peak, worker };
 }
 
 function merge(into: Record<string, Usage>, from: Record<string, Usage>): void {
@@ -284,6 +324,7 @@ async function runOne(task: Task, arm: Arm, run: number): Promise<Row> {
 	let subagents = 0;
 	let handovers = 0;
 	let peakContext = 0;
+	const workerStats: WorkerStats = { peak: 0, aboveTier: 0, compactions: 0 };
 	let leak = false;
 	const metrics: WaitMetrics = { timeoutMsSet: 0, agentsStoppedByDeadline: 0, released: 0 };
 	for (const file of sessionFiles(sessionDir)) {
@@ -298,6 +339,9 @@ async function runOne(task: Task, arm: Arm, run: number): Promise<Row> {
 			for (const key of Object.keys(metrics) as (keyof WaitMetrics)[]) metrics[key] += wait[key];
 			handovers += usage.handovers;
 			peakContext = Math.max(peakContext, usage.peak);
+			workerStats.peak = Math.max(workerStats.peak, usage.worker.peak);
+			workerStats.aboveTier += usage.worker.aboveTier;
+			workerStats.compactions += usage.worker.compactions;
 		}
 	}
 	const why = exit ?? task.check(repo);
@@ -314,6 +358,9 @@ async function runOne(task: Task, arm: Arm, run: number): Promise<Row> {
 		subagents,
 		handovers,
 		peakContext,
+		workerPeak: workerStats.peak,
+		workerAboveTier: workerStats.aboveTier,
+		workerCompactions: workerStats.compactions,
 		cost: sumCost(main) + sumCost(children),
 		leak,
 		dir,
@@ -346,6 +393,8 @@ function report(rows: Row[]): void {
 	console.log(
 		"main: tokens of the main model in the main session (fresh input + cache write / cache read / output)\n",
 	);
+	// The worker columns: what the worker's context did, for the runs that had a worker phase (relay).
+	const relayRows = rows.some((row) => row.handovers > 0);
 	const header = [
 		"task",
 		"arm",
@@ -359,6 +408,7 @@ function report(rows: Row[]): void {
 		"peak ctx",
 		"agents",
 		"handovers",
+		...(relayRows ? ["worker peak", ">tier reqs", "worker compactions"] : []),
 		...(rows.some((row) => row.wait) ? ["wakes", "timeout_ms", "deadline stops", "released"] : []),
 	];
 	const table: string[][] = [header];
@@ -379,6 +429,13 @@ function report(rows: Row[]): void {
 				k(avg(cell.map((row) => row.peakContext))),
 				avg(cell.map((row) => row.subagents)).toFixed(1),
 				avg(cell.map((row) => row.handovers)).toFixed(1),
+				...(relayRows
+					? [
+							k(avg(cell.map((row) => row.workerPeak))),
+							WORKER_TIER === undefined ? "n/a" : avg(cell.map((row) => row.workerAboveTier)).toFixed(1),
+							avg(cell.map((row) => row.workerCompactions)).toFixed(1),
+						]
+					: []),
 				...(rows.some((row) => row.wait)
 					? (["wakes", "timeoutMsSet", "agentsStoppedByDeadline", "released"] as const).map((key) =>
 							cell.some((row) => row.wait) ? avg(cell.map((row) => row.wait?.[key] ?? 0)).toFixed(1) : "",
