@@ -74,9 +74,9 @@ tokens for Haiku 5.5; four summaries, then the limit is lifted). Two runs per ta
   and 278,000 tokens and the run costs $1.12 and $1.27: 14 to 24 percent below the unlimited run, not 58.
 - In `relaunch and pause` the limit was lifted after four summaries in both runs. In one the worker stayed below the
   tier afterwards ($0.37); in the other it grew to 153,000 tokens with 35 requests above the tier ($0.69).
-- In the five runs where the worker stayed limited to the end, no request went above the tier: the worker's peak
-  was 94,000 to 99,000 tokens against a tier of 100,000 and a limit of 95,000, so the estimate's error stayed inside
-  the headroom there.
+- In the seven runs where the limit was never lifted (four of these six and three of the `diffChars` runs), no
+  request went above the tier: the worker's peak was 93,000 to 99,000 tokens against a tier of 100,000 and a limit of
+  95,000, so the estimate's error stayed inside the headroom there.
 - One of the two `fork agent type` runs was flagged by the eval for reading this checkout's source; it is the dearer
   of the two ($0.39), and the other costs $0.28.
 
