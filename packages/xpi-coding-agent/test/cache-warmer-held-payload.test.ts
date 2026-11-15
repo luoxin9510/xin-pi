@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { stream as streamAnthropic } from "../../xpi-ai/src/api/anthropic-messages.ts";
 import { getModel, normalizeContext } from "../../xpi-ai/src/compat.ts";
 import type { Context, Message, SystemMessage } from "../../xpi-ai/src/types.ts";
-import { heldPrefixContext } from "../src/core/cache-warmer.ts";
+import { heldPrefixContext, prefixSystems } from "../src/core/cache-warmer.ts";
 
 const sseBody = [
 	{
@@ -87,10 +87,15 @@ describe("a refresh of a held prefix on the Anthropic payload", () => {
 					heldPrefixContext({
 						systemPrompt: undefined,
 						tools: undefined,
-						systems: conversation.filter((message) => message.role === "system"),
+						systems: prefixSystems(getModel("anthropic", modelId as never), conversation),
 					}),
 					key,
 				);
+				// After the prefix comes the short message and no change of sections or tools: a change sent there would be
+				// written to the cache anew at each refresh.
+				const after = JSON.stringify(refresh.messages);
+				expect(after).not.toContain("edit");
+				expect(after).not.toContain("cwd, later");
 				expect(request.tools?.length).toBeGreaterThan(0);
 				expect(request.system?.length).toBeGreaterThan(0);
 				// Equal with their cache_control markers: the lookup at the end of the system prompt hits the same entry.

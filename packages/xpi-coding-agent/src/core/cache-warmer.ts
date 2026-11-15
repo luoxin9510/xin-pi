@@ -84,10 +84,10 @@ interface RememberedRequest {
 	model: Model<Api>;
 	systemPrompt: string | undefined;
 	/**
-	 * Every system message of the request, in order: the leading one (the system prompt in sections and the tools it
-	 * declares) and the later ones (changes of sections and tools). A model that takes such changes in the middle of a
-	 * conversation builds its prefix from the first alone; any other model folds them all into it, so a refresh must
-	 * carry them all to build the same prefix.
+	 * The system messages the prefix is built from, in order. A model that takes changes of sections and tools in the
+	 * middle of a conversation builds its prefix from the leading one alone (the system prompt in sections and the tools
+	 * it declares): only that one is kept, and a later one would be sent, and billed, after the short message. Any other
+	 * model folds the later ones into the head, so all are kept.
 	 */
 	systems: Message[];
 	tools: Tool[] | undefined;
@@ -135,6 +135,16 @@ function prefixTokensOf(request: RememberedRequest): number {
 		request.systems.reduce((sum, system) => sum + JSON.stringify({ ...system, timestamp: undefined }).length, 0) +
 		(!declared && request.tools ? JSON.stringify(request.tools).length : 0);
 	return Math.ceil(chars / CHARS_PER_TOKEN);
+}
+
+/** The system messages a model builds its cached prefix from. See `RememberedRequest.systems`. */
+export function prefixSystems(model: Model<Api>, messages: readonly Message[]): Message[] {
+	const compat = (
+		model as { compat?: { supportsMidConvoSystemMessages?: boolean; supportsMidConvoToolChanges?: boolean } }
+	).compat;
+	const systems = messages.filter((message) => message.role === "system");
+	const headOnly = compat?.supportsMidConvoSystemMessages === true && compat?.supportsMidConvoToolChanges === true;
+	return headOnly ? systems.slice(0, 1) : systems;
 }
 
 /**
@@ -328,7 +338,7 @@ export class CacheWarmer {
 		this.remembered.set(label.key, {
 			model: request.model,
 			systemPrompt: request.context.systemPrompt,
-			systems: request.context.messages.filter((message) => message.role === "system"),
+			systems: prefixSystems(request.model, request.context.messages),
 			tools: request.context.tools,
 			options: request.options,
 			sentAt: Date.now(),
