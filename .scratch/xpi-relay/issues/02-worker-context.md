@@ -28,17 +28,17 @@ the real-model runs (the lead runs them, budget $10) before the second merges.
 
 ## PR E: relay
 
-- [ ] E1 settings `relay.workerContext` and `relay.leadContext`, read at each request; the limit from the catalog
+- [x] E1 settings `relay.workerContext` and `relay.leadContext`, read at each request; the limit from the catalog
       tier, a number or `"off"`; wrong values name their key; tests
-- [ ] E2 `route()` returns the limit per phase (`RelayRoute.contextLimit`, passed on by the adapter to the core's
+- [x] E2 `route()` returns the limit per phase (`RelayRoute.contextLimit`, passed on by the adapter to the core's
       `ModelRoute`) and the `limit` field of the state; `onRequestStart` acts on it; the
       count of summaries from the branch; `RelayHost.keepRecentTokens()`; the stuck guard as a graph
       row (`limit_reached`) with `lift` and `handback`; `relay.limit` entries and notifications; the regenerated
       table, diagram and enumeration digest; tests
-- [ ] E3 the facts for the lead, the per-round line after a hand back, the record line; tests
-- [ ] E4 the eval prints the worker's peak context, requests above the tier and compactions per task;
+- [x] E3 the facts for the lead, the per-round line after a hand back, the record line; tests
+- [x] E4 the eval prints the worker's peak context, requests above the tier and compactions per task;
       `EVAL_SETTINGS` merges one level deep
-- [ ] E5 docs: `relay.md` (with the measured numbers), `settings.md`, `porting.md`, the package README
-- [ ] E6 real-model validation: three tasks twice each with the defaults
-- [ ] E7 the diff comparison (`relay.diffChars` 20000, 5000, 0) and the decision on the default, recorded in the
+- [x] E5 docs: `relay.md` (with the measured numbers), `settings.md`, `porting.md`, the package README
+- [x] E6 real-model validation: three tasks twice each with the defaults
+- [x] E7 the diff comparison (`relay.diffChars` 20000, 5000, 0) and the decision on the default, recorded in the
       measurements file

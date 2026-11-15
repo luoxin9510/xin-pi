@@ -166,7 +166,7 @@ the compactions in the worker phase, so a run shows what this spec is about with
   values name their key; the count from branch entries; `lift` and `handback` (including the fall-back lift); reset at
   a new handover; the facts and the record line; the new graph row, the regenerated docs and the enumeration digest
   (it changes on purpose).
-- Suite (faux provider): a worker phase that crosses the limit is compacted and continues; the fifth summary lifts
+- Suite (faux provider): a worker phase that crosses the limit is compacted and continues; the request after the fourth summary lifts
   the limit; the lead phase is not limited by default; a settings change applies to the next request.
 - Core, more: the smaller of the two thresholds wins; `contextLimit` survives `resolveModel` and is rejected when it
   is not a positive integer; ignored for `direct`; no second limit-triggered compaction without a response in

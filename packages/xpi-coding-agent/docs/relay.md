@@ -421,7 +421,30 @@ compaction override on `relay/auto`, which was the only way before the route lim
 In the task that timed out, a compaction happened every two to three minutes: each keeps the latest 20,000 tokens
 and a summary, and the worker reads its way back to the limit. That run wrote a summary after every prune; the
 default now prunes first and writes a summary only when pruning is not enough, and the stuck guard lifts the limit
-after four summaries. The numbers above are from before those two changes; they are not a measurement of them.
+after four summaries. The numbers above are from before those two changes. With them, at the default settings, two
+runs per task (Opus 5.5 as the lead, Haiku 5.5 as the worker):
+
+| Task | No limit (1 run) | Default limit (mean of 2) | The two runs | Limit summaries | Guard |
+|---|---|---|---|---|---|
+| fork agent type | $0.71, 590 s | $0.34, 598 s | $0.28 and $0.39 | 2 and 3 | not reached |
+| relaunch and pause | $1.16, 778 s | $0.53, 1,208 s | $0.37 and $0.69 | 4 and 4 | lifted in both |
+| workflows (2,600 lines) | $1.47, 1,014 s | $0.61, 1,433 s | $0.52 and $0.70 | 4 and 6, over 3 and 4 rounds | not reached |
+
+- All six runs pass; `workflows` does not time out. The cost is 53, 54 and 58 percent lower, and the last two tasks
+  take 40 to 55 percent longer.
+- In `workflows` the lead split the work itself, into three and four handovers; no worker round passed 100,000
+  tokens. With one handover (the two `diffChars` runs below) the guard lifts the limit, the worker grows to 228,000
+  and 278,000 tokens and the run costs $1.12 and $1.27: 14 to 24 percent below the unlimited run, not 58.
+- In `relaunch and pause` the limit was lifted after four summaries in both runs. In one the worker stayed below the
+  tier afterwards ($0.37); in the other it grew to 153,000 tokens with 35 requests above the tier ($0.69).
+- In the five runs where the worker stayed limited to the end, no request went above the tier: the worker's peak
+  was 94,000 to 99,000 tokens against a tier of 100,000 and a limit of 95,000, so the estimate's error stayed inside
+  the headroom there.
+- One of the two `fork agent type` runs was flagged by the eval for reading this checkout's source; it is the dearer
+  of the two ($0.39), and the other costs $0.28.
+
+`relay.diffChars` at 5000 and 0 was tried once per task. The lead's cost after the hand backs followed the number of
+rounds, not the size of the diff, so the default stays 20000.
 
 ## Commands
 
