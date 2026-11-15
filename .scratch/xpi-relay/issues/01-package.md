@@ -9,8 +9,8 @@ real Haiku runs (the lead runs them) before merge.
       `xpi-agent-core`; a devDependency of the coding agent; `build:binary` checked
 - [ ] A2 the graph engine in `src/graph/`: `defineGraph` with its refusals, `transition`, `toMermaid`, `pairs`; tests
 - [ ] A3 relay's definition as rows; the machine's exports kept; the 33 machine tests moved (import paths only); the
-      exhaustive test (overlays and event payloads) against the reference copy of `machine.ts`, both deleted at the
-      end of this PR
+      exhaustive test (overlays and event payloads) against the reference copy of `machine.ts`; at the end of this
+      PR the copy and the comparison go, the enumeration stays
 - [ ] A4 the pure modules moved (`view`, `router`, `prompts`, `record`, `facts`, `config`, `workspace`) on
       `RelayEntry`
 - [ ] A5 `RelayHost`, `RelayCall` and `createRelay`; the built-in as the adapter; `host.test.ts`; the 29 suite tests
@@ -22,7 +22,7 @@ real Haiku runs (the lead runs them) before merge.
 ## PR B: the commit point
 
 - [ ] B1 core: the `request_start` event; tests; `docs/extensions.md`
-- [ ] B2 relay records committed transitions there; `route()` without side effects; suite tests unchanged
+- [ ] B2 `onRequestStart`: relay records committed transitions there; `route()` without side effects; suite tests unchanged
 - [ ] B3 docs (`relay.md`, `porting.md`) and real Haiku runs
 
 ## PR C: the hand-off signal

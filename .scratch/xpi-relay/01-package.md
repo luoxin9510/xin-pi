@@ -126,7 +126,6 @@ interface RelayHost {                                // lives as long as the ext
   activeTools(): string[];
   setActiveTools(names: string[]): void;
   registerTools(specs: ToolSpec[]): void;            // called again when the exposure changes (codemode on or off)
-  verbose(): boolean;                                // print mode with --verbose
 }
 interface RelayCall {                                // one handler call
   entries: readonly RelayEntry[];                    // the session branch
@@ -134,7 +133,7 @@ interface RelayCall {                                // one handler call
   cwd: string;
   signal: AbortSignal | undefined;
   findModel(ref: string): Model<Api> | undefined;    // the catalog's full model: `route` returns it
-  notify(text: string, level?: "info" | "warning" | "error"): void;   // a no-op without a UI
+  notify(text: string, level?: "info" | "warning" | "error"): void;   // the adapter: the UI, or stderr in print mode with --verbose
   isIdle(): boolean;
 }
 function createRelay(host: RelayHost): {
@@ -152,9 +151,12 @@ function createRelay(host: RelayHost): {
 ```
 
 - `SettleEvent` is what relay reads of `agent_before_settle` today: `outcome`, the boundary `entries`, and the
-  context messages (for the worker's last text). `SettleResult` is `{ entries: RelayDraft[]; continue: true }`, where
+  context messages (for the worker's last text). `SettleResult` is `{ entries: RelayDraft[]; continue: boolean }` (false when there are entries to write but the run
+  ends, as after a voided handover), where
   `RelayDraft` is the package's own union of the three drafts relay writes (`custom`, `custom_message`,
   `compaction`), which the adapter passes on as `SessionBoundaryDraft`s.
+- `onDirectCall` receives every top-level `tool_call` of a hand tool and decides itself whether it was a repaired
+  direct call (not the direct fallback, no parent call): the adapter filters nothing.
 - `ToolSpec` carries a tool's name, label, description, typebox parameters, effect, and its exposure and listing
   (`deferred` and unlisted with codemode, `direct` without); `registerTools` is how the direct fallback switches.
 - The built-in (`extensions/relay/index.ts`) becomes the adapter: it keeps the `XPI_SUBAGENT_DEPTH` guard,
@@ -175,7 +177,8 @@ twice on a retry.
   entries. Not fired when routing or resolving the physical model fails. A retry fires it again with the same
   states; the handler compares them.
 - Relay records its committed transitions there (`previousRouterState.phase !== routerState.phase`), and `route()`
-  becomes side-effect free.
+  becomes side-effect free. `createRelay`'s result gains `onRequestStart(event, call)` in PR B, which appends the
+  entry and notifies.
 - Two visible differences, both intended: `relay.transition` now follows the state entry instead of preceding it
   (`readView` does not depend on the order; a test pins that), and a transition is no longer written when the
   physical model then fails to resolve (missing credentials), which it is today.
@@ -204,7 +207,9 @@ codemode result and the direct-call note are arranged around.
 ### 6. Generated diagram (decision 6)
 
 The engine is internal, so the package exports two functions built on it, `relayDiagram()` (Mermaid) and
-`relayTable()` (the four-column table from the rows' `doc` cells). The generator and its staleness test live in the
+`relayTable()` (the four-column table from the rows' `doc` cells). The diagram has the two states and a `paused`
+note; a row with `to` is an edge, a row without one is a self-loop on its `from`, and a `from: "*"` row is drawn once
+as a note beside the diagram, not as an edge from every state. The generator and its staleness test live in the
 coding agent, next to `generate:schemas`: `npm run generate:relay-docs` writes both between marker comments in
 `packages/xpi-coding-agent/docs/relay.md`, and a test fails when the file is stale. They replace the hand-written
 diagram and table of #117; the table keeps its View, Event, Next and Effects columns.
@@ -213,14 +218,16 @@ diagram and table of #117; the table keeps its View, Event, Next and Effects col
 
 - `xpi-relay/test/machine.test.ts`: the 33 tests of `test/relay-machine.test.ts`, moved; only import paths change
   (`transition`, `effectiveState`, `initialView`, `MAX_REPAIRS` come from the package).
-- `xpi-relay/test/graph.test.ts`: `defineGraph` refusals (undeclared names, unused state or event, a shadowed row),
+- `xpi-relay/test/graph.test.ts`: `defineGraph` refusals (undeclared names, an unused state, a shadowed row), an event answered only by
+  `otherwise` loads,
   first-match order, `otherwise`, `toMermaid` of a three-state sample, `pairs`.
 - `xpi-relay/test/exhaustive.test.ts`: for both phases, every combination of the overlays (pending handover,
   pending handback, paused, blocked, user-asked, mixups 0-2, stalls 0-2) and every event with every payload
   (`byUser`; `status`; `afterRelayError`, `handoverLanded`, `workerIdle`; `passed` with `attempt` below, at and
   above `maxRounds`; `tool`), `transition` returns the same result as the old `machine.ts`, kept in the test
-  directory as a reference copy. The copy and this comparison are deleted at the end of PR A: they pin texts that
-  PR C changes.
+  directory as a reference copy. At the end of PR A the copy and the comparison are deleted (they pin texts that
+  PR C changes); the enumeration stays as a test that every combination returns a result with a valid next view and
+  known effect types, so the rows stay guarded.
 - `xpi-relay/test/host.test.ts`: `createRelay` against a fake `RelayHost` for the flows the suite covers at the unit
   level (handover, hand back, acceptance failure, void, pause).
 - `xpi-coding-agent/test/suite/relay.test.ts`: the 29 tests, their assertions unchanged through the move and seam
