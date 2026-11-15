@@ -38,8 +38,8 @@
 
 21. When xin-pi is done and the owner's look passes, the owner switches for good: install `xpi` globally, drop the old
     pi-pipipi entry from `~/.pi/agent/settings.json`, uninstall the global `@earendil-works/pi-coding-agent`, and develop
-    only xpi from then on. Checked: pi-roost and pi-mobile do not spawn the `pi` binary; the `com.nuckcole.pi-update`
-    launchd job only runs `git pull` in ~/Developer/nukcole-pi. The uninstall is confirmed with the owner when it happens.
+    only xpi from then on. Checked: pi-roost and pi-mobile do not spawn the `pi` binary; a local launchd job
+    only runs `git pull` in the old pi checkout. The uninstall is confirmed with the owner when it happens.
 
 ## Grill 2 (2026-11-09): independence, slimming, rename (all as recommended)
 

@@ -99,7 +99,7 @@ Docs
 
 Process
 
-- Branch per ticket from `main`, PR on `luoxin9510/xin-pi`, independent review, merge; upstream merged into `main` by merge commit. Commit trailer per this session's attribution rules. No company information in repo, commits or PRs.
+- Branch per ticket from `main`, PR on `luoxin9510/xin-pi`, independent review, merge; upstream merged into `main` by merge commit. Commit trailer per this session's attribution rules.
 
 /upstream
 

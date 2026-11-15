@@ -2,9 +2,8 @@
 
 The owner's answers to each grill, recorded with the recommendation they accepted. The spec is `01-shadow-git.md`.
 
-The owner brought their own design notes for a tool that puts a private git history over a workspace owned by another
-version control system, with a sandbox for agents. This spec is the neutral version built into xin-pi. It names no
-organisation, product line, site, or VCS product.
+The owner's idea: a private git history over a workspace that another version control system owns, with a sandbox
+for agents. This spec is the version built into xin-pi.
 
 ## Grill 1 (2026-11-14)
 
@@ -26,8 +25,8 @@ as recommended in Grill 2 (decision 11).
 
 ## Grill 2 (2026-11-14)
 
-The owner changed decision 10 (name no field and no VCS product; call them "other non-git VCSs"; everything else as
-recommended) and allowed "software development" as the framing ("你可以说软件开发").
+The owner changed decision 10: the docs use general terms (a host VCS, a development workspace) and name no VCS
+product; everything else as recommended.
 
 8. **Where it lives.**
    - A workspace package `packages/xpi-shadow-git`: the core library, depending only on Node and git.
@@ -44,13 +43,11 @@ recommended) and allowed "software development" as the framing ("你可以说软
 10. **Neutral wording.**
     - The docs say "software development", "development workspace", "build and test tools", and "host VCS" (any
       version control system other than git). They name no VCS product.
-    - Example paths are neutral, such as `/proj/ws`.
+    - Example paths are generic, such as `/proj/ws`.
     - The first version ships the plain-directory test adapter and an adapter template with the interface docs.
       Adapters for real host VCSs are written by their users and are not part of xin-pi.
-    - Before each PR a local word list, kept outside the repository, is grepped against the diff.
 11. **The rest of Grill 1 as recommended**: decisions 2, 3, 5 (as changed by 10) and 6.
 12. **The spec** is `.scratch/shadow-git/01-shadow-git.md`, reviewed independently and then approved by the owner.
-    The owner's own design notes stay private: they are not copied into or referenced from the repository.
 
 ## Grill 3 (2026-11-14)
 

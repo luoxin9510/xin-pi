@@ -10,7 +10,7 @@ Decisions Grill 2 (22-28) override anything below that assumes merging upstream,
 
 - [x] README and porting guide moved; layer 4 rewritten (no wrapper, no proxy, controller instead); "Keeping up with pi" points at the xin-pi merge procedure
 - [x] `docs/xin-pi.md`: product line, `xpi` command and env names (`XPI_CODING_AGENT_DIR`), the upstream-owned files we changed (spec "Merge-cost budget") with one line why each, the procedure for porting from upstream (rename script, /upstream), how to run offline vs real-model pipipi tests
-- [x] Root `AGENTS.md`: one short section for `packages/pipipi` (indent/lint via `npm run check`, test scripts, real-model suites by hand); no company information anywhere
+- [x] Root `AGENTS.md`: one short section for `packages/pipipi` (indent/lint via `npm run check`, test scripts, real-model suites by hand)
 - [x] Dry run of porting: pick one small upstream commit since the fork point, apply it with the rename script on a throwaway branch, `npm run check` green
 - [x] `npm run check` green (docs-only changes need no check, but the AGENTS.md change is verified by reading)
 
