@@ -52,6 +52,7 @@ import {
 	roundContext,
 	storedState,
 	TRANSITION_ENTRY,
+	userSpokeSinceLimit,
 	VERIFY_ENTRY,
 	workerMadeNoCalls,
 } from "./view.ts";
@@ -336,8 +337,13 @@ export function createRelay(host: RelayHost): Relay {
 			if (request.reason === "direct") {
 				return { model: physical(call, cfg.worker, "worker"), thinkingLevel: cfg.workerThinking };
 			}
-			const state = nextState(request.state, request.messages);
+			let state = nextState(request.state, request.messages);
 			const worker = state.phase === "worker";
+			// The lead's lifted limit lasts until the user speaks again: the guard is for one stretch of work, and a long
+			// conversation must not lose the limit for good.
+			if (!worker && state.limit === "lifted" && userSpokeSinceLimit(call.entries)) {
+				state = { phase: state.phase, round: state.round };
+			}
 			const model = physical(call, worker ? cfg.worker : cfg.lead, worker ? "worker" : "lead");
 			const context = worker ? cfg.workerContext : cfg.leadContext;
 			let contextLimit =

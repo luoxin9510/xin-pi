@@ -19,8 +19,16 @@ export interface RelayConfig {
 
 /** A limit on the prompt tokens of one role's context. */
 export interface ContextConfig {
-	/** `"tier"`: `tierFraction` of the model's first price tier; a number: that many tokens; `"off"`: no limit. */
-	limit: "tier" | "off" | number;
+	/**
+	 * `"tier"`: `tierFraction` of the model's first price tier; a number: that many tokens; `{ percent }`: that share of
+	 * the model's context window (written `"30%"`); `"off"`: no limit.
+	 */
+	limit: "tier" | "off" | number | { percent: number };
+	/**
+	 * Whether the settings chose the limit (`limit`, or `tierFraction` for a tier). A built-in default that a compaction
+	 * cannot get under means no limit; a chosen one is an error.
+	 */
+	chosen: boolean;
 	/** The part of the tier used with `"tier"`, above 0 and at most 1. */
 	tierFraction: number;
 	/** Summaries written under the limit in one phase before the stuck guard acts. 0: the guard is off. */
@@ -34,11 +42,17 @@ export interface WorkerContextConfig extends ContextConfig {
 
 export const DEFAULT_WORKER_CONTEXT: WorkerContextConfig = {
 	limit: "tier",
+	chosen: false,
 	tierFraction: 0.95,
 	maxCompactions: 4,
 	whenStuck: "lift",
 };
-export const DEFAULT_LEAD_CONTEXT: ContextConfig = { limit: "off", tierFraction: 0.95, maxCompactions: 4 };
+export const DEFAULT_LEAD_CONTEXT: ContextConfig = {
+	limit: { percent: 30 },
+	chosen: false,
+	tierFraction: 0.95,
+	maxCompactions: 4,
+};
 
 export const DEFAULT_OBJECTIVE =
 	"the user wants a correct result for as few of your (lead) tokens as possible. Worker tokens are not counted.";
@@ -100,9 +114,16 @@ function contextConfig(raw: unknown, key: string, defaults: ContextConfig): Cont
 	if (r.limit !== undefined) {
 		if (r.limit === "tier" || r.limit === "off") limit = r.limit;
 		else if (typeof r.limit === "number" && Number.isInteger(r.limit) && r.limit > 0) limit = r.limit;
-		else
+		else if (
+			typeof r.limit === "string" &&
+			/^(100(\.0+)?|[1-9]\d?(\.\d+)?|0\.\d*[1-9]\d*)%$/.test(r.limit) &&
+			Number.parseFloat(r.limit) > 0 &&
+			Number.parseFloat(r.limit) <= 100
+		) {
+			limit = { percent: Number.parseFloat(r.limit) };
+		} else
 			throw new Error(
-				`relay.${key}.limit must be "tier", "off" or a positive integer of tokens, got ${JSON.stringify(r.limit)}`,
+				`relay.${key}.limit must be "tier", "off", a positive integer of tokens or a percentage of the context window above 0 and at most 100 such as "30%", got ${JSON.stringify(r.limit)}`,
 			);
 	}
 	let tierFraction = defaults.tierFraction;
@@ -117,6 +138,7 @@ function contextConfig(raw: unknown, key: string, defaults: ContextConfig): Cont
 	}
 	return {
 		limit,
+		chosen: r.limit !== undefined || (limit === "tier" && r.tierFraction !== undefined),
 		tierFraction,
 		maxCompactions: count(r.maxCompactions, `${key}.maxCompactions`, defaults.maxCompactions, 0),
 	};

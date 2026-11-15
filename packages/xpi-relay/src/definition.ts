@@ -671,7 +671,7 @@ const ROWS: readonly RelayRow[] = [
 		doc: {
 			view: "any",
 			event: "stuck guard: `maxCompactions` summaries under the limit (worker: `whenStuck` is `lift`, or two more after the ask)",
-			next: "limit lifted until the next handover",
+			next: "limit lifted until the next handover (lead: or the next user message)",
 			effects: "`relay.limit` entry (`lifted`); notification",
 		},
 		step: (view, event) => ({
