@@ -7,7 +7,7 @@ import {
 	type RelayEvent,
 	type RelayView,
 	transition,
-} from "../src/extensions/relay/machine.ts";
+} from "../src/definition.ts";
 
 /** The transition table of docs/relay.md: every (view, event) pair has an expectation here. */
 

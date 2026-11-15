@@ -2,7 +2,7 @@
 // which effects follow. It is pure: it reads nothing and writes nothing, so every (view, event) pair can be tested.
 // `index.ts` builds the view from the session branch, calls this, and carries the effects out. See docs/relay.md.
 
-import { handoverMarker, type RelayState } from "./router.ts";
+import { handoverMarker, type RelayState } from "../src/router.ts";
 
 /** Times a role is corrected or continued before the machine hands the work back as blocked (or, for the lead, stops). */
 export const MAX_REPAIRS = 2;

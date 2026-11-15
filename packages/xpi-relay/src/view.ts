@@ -2,11 +2,16 @@
 // machine decides on, and what a worker phase left behind (for the hand-back record and the role prompt).
 
 import type { AgentMessage } from "xpi-agent-core";
-import type { SessionEntry } from "../../core/session-manager.ts";
-import { getVirtualModelState, VIRTUAL_MODEL_STATE_ENTRY } from "../../core/virtual-models.ts";
-import { initialView, type RelayView } from "./machine.ts";
+import { initialView, type RelayView } from "./definition.ts";
+import type { CustomEntry, RelayEntry } from "./entry.ts";
 import type { Handover, Spoken } from "./record.ts";
 import { lastLineHandoverRound, type RelayState } from "./router.ts";
+
+/**
+ * The name of the entry that holds a virtual model's router state. It is the host's constant
+ * (`VIRTUAL_MODEL_STATE_ENTRY`, pinned by a test in the coding agent): the view resets its overlays when it passes one.
+ */
+export const VIRTUAL_MODEL_STATE_ENTRY = "pi.virtual-model-state";
 
 export const RELAY_PROVIDER = "relay";
 export const RELAY_MODEL = "auto";
@@ -73,7 +78,7 @@ export interface Phase {
 	repairs: string[];
 }
 
-function repairLine(entry: SessionEntry & { type: "custom" }): string | undefined {
+function repairLine(entry: CustomEntry): string | undefined {
 	const data = (entry.data ?? {}) as { tool?: string; role?: string; reason?: string };
 	switch (entry.customType) {
 		case MIXUP_ENTRY:
@@ -89,7 +94,7 @@ function repairLine(entry: SessionEntry & { type: "custom" }): string | undefine
 	}
 }
 
-export function readPhase(branch: readonly SessionEntry[]): Phase {
+export function readPhase(branch: readonly RelayEntry[]): Phase {
 	const phase: Phase = { failedRounds: 0, acceptanceMs: 0, conversation: [], earlierRounds: [], repairs: [] };
 	let working = false;
 	for (const entry of branch) {
@@ -128,14 +133,15 @@ export function readPhase(branch: readonly SessionEntry[]): Phase {
 	return phase;
 }
 
-/** The router state stored on the branch. */
-export function storedState(branch: readonly SessionEntry[]): RelayState {
-	return (
-		(getVirtualModelState(branch, RELAY_PROVIDER, RELAY_MODEL) as RelayState | undefined) ?? {
-			phase: "lead",
-			round: 0,
-		}
-	);
+/** The router state stored on the branch: the latest state entry of the relay model. */
+export function storedState(branch: readonly RelayEntry[]): RelayState {
+	for (let i = branch.length - 1; i >= 0; i--) {
+		const entry = branch[i];
+		if (entry.type !== "custom" || entry.customType !== VIRTUAL_MODEL_STATE_ENTRY) continue;
+		const data = entry.data as { provider?: string; modelId?: string; state?: unknown } | undefined;
+		if (data?.provider === RELAY_PROVIDER && data.modelId === RELAY_MODEL) return data.state as RelayState;
+	}
+	return { phase: "lead", round: 0 };
 }
 
 /**
@@ -144,7 +150,7 @@ export function storedState(branch: readonly SessionEntry[]): RelayState {
  * `relay.transition` or `relay.verify` entry is pending. Mixups and stalls count since the latest handover or
  * transition; the relay is paused when the latest of `relay.pause` and `relay.resume` is a pause.
  */
-export function readView(branch: readonly SessionEntry[], userAsked = false): RelayView {
+export function readView(branch: readonly RelayEntry[], userAsked = false): RelayView {
 	const view = initialView(storedState(branch));
 	let pendingKind: "handover" | "handback" | undefined;
 	let blocked = false;
@@ -212,7 +218,7 @@ export function readView(branch: readonly SessionEntry[], userAsked = false): Re
  * results of that turn's calls and one final assistant message without tool calls. The error is a nested result inside
  * a codemode result, so it is read from the entry, not from the transcript.
  */
-export function endedAfterRelayError(branch: readonly SessionEntry[]): boolean {
+export function endedAfterRelayError(branch: readonly RelayEntry[]): boolean {
 	const index = branch.findLastIndex((entry) => entry.type === "custom" && entry.customType === MIXUP_ENTRY);
 	if (index < 0) return false;
 	// Entries that are no part of the conversation (a `codemode-store` entry, say) do not count.
@@ -227,7 +233,7 @@ export function endedAfterRelayError(branch: readonly SessionEntry[]): boolean {
 }
 
 /** This round's transitions and repairs, oldest first, one line each: for `/relay`. */
-export function describeHistory(branch: readonly SessionEntry[], now = Date.now()): string[] {
+export function describeHistory(branch: readonly RelayEntry[], now = Date.now()): string[] {
 	const lines: string[] = [];
 	// The latest round: from the end of the one before the latest handover on (so a direct call that came first counts).
 	const handover = branch.findLastIndex((entry) => entry.type === "custom" && entry.customType === HANDOVER_ENTRY);
@@ -267,7 +273,7 @@ export function describeHistory(branch: readonly SessionEntry[], now = Date.now(
 }
 
 /** Whether the latest tool results end with the marker of the handover that made round `round`. */
-export function handoverLanded(branch: readonly SessionEntry[], round: number): boolean {
+export function handoverLanded(branch: readonly RelayEntry[], round: number): boolean {
 	const lastAssistant = branch.findLastIndex(
 		(entry) => entry.type === "message" && entry.message.role === "assistant",
 	);
@@ -281,7 +287,7 @@ export function handoverLanded(branch: readonly SessionEntry[], round: number): 
 }
 
 /** Whether the worker has made no tool call since the latest handover: it answered with text only. */
-export function workerMadeNoCalls(branch: readonly SessionEntry[]): boolean {
+export function workerMadeNoCalls(branch: readonly RelayEntry[]): boolean {
 	const handover = branch.findLastIndex((entry) => entry.type === "custom" && entry.customType === HANDOVER_ENTRY);
 	if (handover < 0) return false;
 	return !branch

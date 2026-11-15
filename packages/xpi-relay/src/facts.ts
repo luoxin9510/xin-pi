@@ -4,8 +4,8 @@
 // change.
 
 import type { AssistantMessage, Model } from "xpi-ai";
-import type { SessionEntry } from "../../core/session-manager.ts";
 import type { RelayConfig } from "./config.ts";
+import type { RelayEntry } from "./entry.ts";
 import { HANDBACK_TOOL, HANDOVER_TOOL } from "./router.ts";
 
 type Priced = Pick<Model<string>, "cost"> | undefined;
@@ -96,7 +96,7 @@ function describeSpend(spend: Spend): string {
  * What each role has used on this branch so far, in tokens, cost and time, read from the responses. When both roles
  * are the same model the split is not known and one line is given.
  */
-export function spendFact(branch: readonly SessionEntry[], config: RelayConfig): string {
+export function spendFact(branch: readonly RelayEntry[], config: RelayConfig): string {
 	const byModel = new Map<string, Spend>();
 	for (const entry of branch) {
 		if (entry.type !== "message" || entry.message.role !== "assistant") continue;
