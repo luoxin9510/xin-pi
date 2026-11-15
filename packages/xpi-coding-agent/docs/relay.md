@@ -385,12 +385,15 @@ Measured with Opus 5.5 as the lead and Haiku 5.5 as the worker, on four runs of 
 
 - Every refresh was a cache read of the prefix (10,800 to 11,000 tokens, $0.0022 each); the first one of a hold also
   writes the 73 tokens of its short message.
-- After each worker phase longer than five minutes the lead's first request read the prefix from the cache. Without a
-  refresh it would have been written again: 10,900 tokens at the difference between the cache write and the cache
-  read price of Opus 5.5 is $0.052. Five refreshes cost $0.011, so a hand back after 23 minutes keeps about $0.04.
-- The lead's cost with the refreshes was $0.199 and $0.274 per run on average for the two tasks, against $0.20 and
-  $0.34 without them; the second pair is not comparable, because the lead used fewer rounds this time.
-- The prefix is about 10,900 tokens, not the 6,000 estimated before from the tokens written again in earlier runs.
+- After each worker phase longer than five minutes the lead's first request read the prefix from the cache (and wrote
+  2,500 to 12,700 tokens after it: the record).
+- What a refresh saves is what would have been written again without it. That was not measured side by side. The
+  upper bound is the whole prefix, 10,900 tokens at the difference between the cache write and the cache read price
+  of Opus 5.5: $0.052. The earlier runs without refreshes showed about 6,000 tokens written again after a long
+  worker phase: $0.029. Five refreshes cost $0.011, so a hand back after 23 minutes keeps between $0.018 and $0.04.
+- The lead's cost shows no difference at two runs per task: with the refreshes included it was $0.199 for `relaunch
+  and pause` and $0.274 for `workflows`, against $0.20 and $0.34 without them, and the lead handed over fewer times
+  in `workflows` this time (1.5 against 3.5 on average), so that pair is not comparable.
 
 The hold ends when the lead sends its next request, when the run settles (a session you leave idle holds nothing; if
 you interrupt the worker and resume later, nothing is held until the next lead request), when another model is

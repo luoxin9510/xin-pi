@@ -143,7 +143,16 @@ export function prefixSystems(model: Model<Api>, messages: readonly Message[]): 
 		model as { compat?: { supportsMidConvoSystemMessages?: boolean; supportsMidConvoToolChanges?: boolean } }
 	).compat;
 	const systems = messages.filter((message) => message.role === "system");
-	const headOnly = compat?.supportsMidConvoSystemMessages === true && compat?.supportsMidConvoToolChanges === true;
+	const head = systems[0];
+	// The provider takes later tool changes as they come only when the head declares the tools; else it sums them all
+	// into the tools of the request, which are part of the prefix.
+	const headOnly =
+		compat?.supportsMidConvoSystemMessages === true &&
+		compat?.supportsMidConvoToolChanges === true &&
+		head?.role === "system" &&
+		head.toolsAdded !== undefined;
+	// A model with only one of the two takes all of them: its tools need the later changes. A later change of a section
+	// is then sent after the prefix and counted with it; no catalog model is of that kind today.
 	return headOnly ? systems.slice(0, 1) : systems;
 }
 
