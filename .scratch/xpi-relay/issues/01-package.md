@@ -65,3 +65,7 @@ real Haiku runs (the lead runs them) before merge.
 - The package index re-exports every module, not only the names the spec lists; the graph engine stays out.
 - A5 and A6 are one commit: the pre-commit check runs on the working tree, and the generator needs `relayDiagram`.
   The lockfile commit needed `PI_ALLOW_LOCKFILE_CHANGE=1` (a new workspace package, intended).
+- After review: the adapter assigns `getBranch()` to `readonly RelayEntry[]` without a cast, so the first deviation's
+  promise holds; `cwd` is a getter; the package index no longer exports `relayGraph` or the engine's types (only the
+  machine's names); `Row` has an optional `label` for diagram edges; a row for the lead's second stall was added to the
+  table (no change of behaviour); the exhaustive test pins a SHA-256 digest of all outputs, which PR C updates on purpose.

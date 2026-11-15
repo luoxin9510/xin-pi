@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
 	type Effect,
@@ -72,6 +73,7 @@ describe("the relay graph, exhaustively", () => {
 
 	it("returns a valid next view and known effects for every combination, without changing its input", () => {
 		let combinations = 0;
+		const digest = createHash("sha256");
 		for (const maxRounds of MAX_ROUNDS) {
 			for (const view of views()) {
 				for (const event of events()) {
@@ -98,10 +100,15 @@ describe("the relay graph, exhaustively", () => {
 							label,
 						).toBe(false);
 					}
+					digest.update(JSON.stringify([next, effects]));
 					combinations++;
 				}
 			}
 		}
+		// A digest of every output of the enumeration: it pins behaviour now that the reference copy of the old machine is
+		// gone. A change of a text or a decision changes it; PR C (the handover result drops its marker line) updates it
+		// on purpose. The old machine produced the same outputs (31104 combinations compared before it was deleted).
+		expect(digest.digest("hex")).toBe("32fa6292ea78d9eec3f548f51838ec1e5d751f484f1979436d0f6a6a9409b790");
 		expect(combinations).toBe(MAX_ROUNDS.length * views().length * events().length);
 	});
 });

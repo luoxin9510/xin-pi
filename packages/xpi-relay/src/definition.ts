@@ -164,6 +164,7 @@ function row<T extends RelayEvent["type"]>(definition: {
 	doc: RelayRow["doc"];
 	to?: string;
 	diagram?: false;
+	label?: string;
 	step(view: RelayView, event: EventOf<T>, config: MachineConfig): Transition;
 }): RelayRow {
 	return definition as unknown as RelayRow;
@@ -250,6 +251,7 @@ const ROWS: readonly RelayRow[] = [
 		on: "handover",
 		when: (_view, event) => !event.byUser,
 		to: "worker",
+		label: "handover",
 		doc: {
 			view: "lead",
 			event: "handover",
@@ -293,6 +295,7 @@ const ROWS: readonly RelayRow[] = [
 		from: "worker",
 		on: "handback",
 		when: (_view, event) => event.byUser,
+		label: "/handback, the acceptance commands are skipped",
 		doc: {
 			view: "worker",
 			event: "`/handback` (by the user)",
@@ -304,6 +307,8 @@ const ROWS: readonly RelayRow[] = [
 	row({
 		from: "worker",
 		on: "handback",
+		to: "lead",
+		label: "handback (the lead has the work after the run ends)",
 		doc: {
 			view: "worker",
 			event: "handback",
@@ -458,10 +463,24 @@ const ROWS: readonly RelayRow[] = [
 		step: (view) => stall(view, "lead"),
 	}),
 	row({
+		from: "lead",
+		on: "run_end",
+		when: (_view, event) => event.afterRelayError,
+		diagram: false,
+		doc: {
+			view: "lead",
+			event: "run ends after a relay error, stalls = 2",
+			next: "unchanged",
+			effects: "none: the run ends; you see it",
+		},
+		step: nothing,
+	}),
+	row({
 		from: "worker",
 		on: "run_end",
 		when: (view) => view.pending === "handback" && skipsAcceptance(view),
 		to: "lead",
+		label: "run ends, blocked or asked by the user, the record",
 		doc: {
 			view: "worker, a blocked hand back or one the user asked for",
 			event: "run ends with a pending hand back",
@@ -474,6 +493,7 @@ const ROWS: readonly RelayRow[] = [
 		from: "worker",
 		on: "run_end",
 		when: (view) => view.pending === "handback",
+		label: "run ends, run the acceptance commands",
 		doc: {
 			view: "worker",
 			event: "run ends with a pending hand back",
@@ -501,6 +521,7 @@ const ROWS: readonly RelayRow[] = [
 		on: "run_end",
 		when: (view, event) => stallReason(view, event) !== undefined,
 		to: "lead",
+		label: "run ends after repeated stalls, blocked hand back and the record",
 		doc: {
 			view: "worker",
 			event: "the same, stalls = 2",
@@ -534,6 +555,7 @@ const ROWS: readonly RelayRow[] = [
 		on: "run_end",
 		when: (view) => skipsAcceptance(view),
 		to: "lead",
+		label: "run ends, blocked or asked by the user, the record",
 		doc: {
 			view: "worker, blocked or the user asked",
 			event: "run ends (otherwise)",
@@ -545,6 +567,7 @@ const ROWS: readonly RelayRow[] = [
 	row({
 		from: "worker",
 		on: "run_end",
+		label: "run ends, run the acceptance commands",
 		doc: {
 			view: "worker",
 			event: "run ends (otherwise)",
@@ -559,7 +582,7 @@ const ROWS: readonly RelayRow[] = [
 		from: "worker",
 		on: "acceptance",
 		when: (view, event, config) => !view.paused && !event.passed && event.attempt < config.maxRounds,
-		diagram: false,
+		label: "acceptance failed, below maxRounds, back to the worker",
 		doc: {
 			view: "worker",
 			event: "acceptance failed, failures so far < `maxRounds`",
@@ -584,6 +607,7 @@ const ROWS: readonly RelayRow[] = [
 		on: "acceptance",
 		when: (view) => !view.paused,
 		to: "lead",
+		label: "acceptance passed, or no retries left, the record",
 		doc: {
 			view: "worker",
 			event: "acceptance passed, failed at `maxRounds`, or nothing to run",
@@ -643,7 +667,10 @@ export const relayGraph = defineGraph<RelayView, RelayEvent, Effect, MachineConf
 	events: ["handover", "handback", "run_end", "acceptance", "model_away", "model_back", "wrong_role"],
 	rows: ROWS,
 	otherwise: {
-		// Both phases have a row for each of these (a refusal), so the answers below are never reached.
+		// `handover` and `handback` are answered by a row in every phase, so those two are never reached. The rest:
+		// `wrong_role` (a tool that is not the role's own) is refused; `run_end` (a lead run that needs nothing),
+		// `acceptance` (the lead's phase), `model_away` (the lead's phase, or already paused) and `model_back` (not
+		// paused) change nothing.
 		handover: nothing,
 		handback: nothing,
 		wrong_role: (view) => refuse(view, "Not your tool."),

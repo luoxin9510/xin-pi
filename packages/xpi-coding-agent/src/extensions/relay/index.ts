@@ -11,8 +11,7 @@ import {
 	type RelayCall,
 	type RelayDraft,
 	type RelayEntry,
-	type RelayRoute,
-	type RelayRouteRequest,
+	type RelayState,
 	splitModelRef,
 	type ToolSpec,
 } from "xpi-relay";
@@ -29,13 +28,16 @@ export default function relay(pi: ExtensionAPI) {
 	/** What one handler call carries, read from its context at each use. */
 	const callOf = (ctx: ExtensionContext): RelayCall => ({
 		get entries() {
-			// The core's session entries are the shape the package reads.
-			return ctx.sessionManager.getBranch() as readonly RelayEntry[];
+			// Assignable without a cast: a new core entry type fails to compile here until `RelayEntry` lists it.
+			const branch: readonly RelayEntry[] = ctx.sessionManager.getBranch();
+			return branch;
 		},
 		get model() {
 			return ctx.model;
 		},
-		cwd: ctx.cwd,
+		get cwd() {
+			return ctx.cwd;
+		},
 		get signal() {
 			return ctx.signal;
 		},
@@ -81,11 +83,11 @@ export default function relay(pi: ExtensionAPI) {
 		},
 	});
 
-	pi.registerVirtualModel({
+	pi.registerVirtualModel<RelayState>({
 		provider: RELAY_PROVIDER,
 		id: RELAY_MODEL,
 		name: "Relay (lead plans and reviews, worker builds)",
-		route: (request, ctx): RelayRoute => relayHost.route(request as RelayRouteRequest, callOf(ctx)),
+		route: (request, ctx) => relayHost.route(request, callOf(ctx)),
 	});
 
 	pi.on("tool_call", async (event, ctx) => {

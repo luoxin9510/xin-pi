@@ -14,6 +14,8 @@ export interface Row<View, Event extends { type: string }, Effect, Config> {
 	to?: string;
 	/** Keep the row out of the diagram (it stays in the table). */
 	diagram?: false;
+	/** The edge label in the diagram; the event names by default. */
+	label?: string;
 	step(view: View, event: Event, config: Config): { next: View; effects: Effect[] };
 }
 
@@ -136,7 +138,7 @@ export function toMermaid<View, Event extends { type: string }, Effect, Config>(
 			continue;
 		}
 		for (const from of list(row.from)) {
-			const line = `    ${from} --> ${row.to ?? from}: ${list(row.on).join(" / ")}`;
+			const line = `    ${from} --> ${row.to ?? from}: ${row.label ?? list(row.on).join(" / ")}`;
 			if (seen.has(line)) continue;
 			seen.add(line);
 			lines.push(line);

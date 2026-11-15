@@ -43,10 +43,13 @@ lead explores → tools.handover({ plan, acceptance, findings })  (from a codemo
 stateDiagram-v2
     [*] --> lead
     lead --> worker: handover
-    worker --> worker: handback
-    worker --> lead: run_end
-    worker --> worker: run_end
-    worker --> lead: acceptance
+    worker --> worker: /handback, the acceptance commands are skipped
+    worker --> lead: handback (the lead has the work after the run ends)
+    worker --> lead: run ends, blocked or asked by the user, the record
+    worker --> worker: run ends, run the acceptance commands
+    worker --> lead: run ends after repeated stalls, blocked hand back and the record
+    worker --> worker: acceptance failed, below maxRounds, back to the worker
+    worker --> lead: acceptance passed, or no retries left, the record
     note right of lead
         any with a pending hand-off: handover / handback
     end note
@@ -196,6 +199,7 @@ every other pair changes nothing and answers with a refusal.
 | lead, run ends with a pending handover whose result did not end with the marker | run ends | pending voided | `relay.void`; a line; the lead goes on |
 | lead, run ends with a pending handover | run ends | unchanged | continue: the worker answers next |
 | lead | run ends after a relay error, stalls < 2 | stalls + 1 | `relay.stall`; continue with a role reminder |
+| lead | run ends after a relay error, stalls = 2 | unchanged | none: the run ends; you see it |
 | worker, a blocked hand back or one the user asked for | run ends with a pending hand back | lead, mixups 0, stalls 0 | compact to the record; `relay.transition` (no acceptance commands) |
 | worker | run ends with a pending hand back | acceptance | run the acceptance commands |
 | worker | run ends after a relay error, or with no tool call since the handover and no hand back (text only); stalls < 2 | stalls + 1 | `relay.stall` (reason `error` or `idle`); continue with a role reminder (`idle`: that the handover happened) |
@@ -207,6 +211,9 @@ every other pair changes nothing and answers with a refusal.
 | worker | another model selected | paused | `relay.pause`; notification |
 | paused | `relay/auto` selected | worker | `relay.resume`; notification |
 <!-- relay-table:end -->
+
+A lead that gets `another model selected` or `relay/auto selected` has nothing to pause or resume: those two events change
+nothing in the lead's phase.
 
 Notes: a handover resets mixups and stalls. Whether a run "ends after a relay error" is read from the `relay.mixup`
 entry (inside a script the error is a nested result): only a wrong-role call counts, so a lead that stops after another
