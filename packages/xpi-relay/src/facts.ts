@@ -80,7 +80,9 @@ export function leadLimitFact(config: RelayConfig, limit: number | undefined): s
 	if (limit === undefined) return undefined;
 	const { maxCompactions } = config.leadContext;
 	const cap =
-		maxCompactions === 0 ? "" : `; after ${maxCompactions} compactions since the last hand back it is lifted`;
+		maxCompactions === 0
+			? ""
+			: `; after ${maxCompactions} compactions with no hand back and no message from the user in between it is lifted`;
 	return `Your own context limit: ${tokens(limit)} tokens${cap}`;
 }
 

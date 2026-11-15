@@ -100,7 +100,8 @@ No rule says when to hand over. The lead's section gives it what a decision need
   round and starts again after a hand back, and the limit in force with what happens when the worker is stuck (for
   example `Worker context limit: 95,000 tokens; after 4 compactions in a round it is lifted`; `none` when there is
   no limit). The lead's own limit is told too (`Your own context limit: 300,000 tokens; ...`), in tokens, not as a percentage; it is there
-  unless the lead has no limit (`"off"`, a model without a window, or a default that does not apply to its model).
+  unless the lead has no limit (`"off"`, a model without a window, or a default that does not apply to its model). See
+  [The worker's context limit](#the-workers-context-limit).
 - **Time**: what a round adds (the worker's first read of the conversation, its work, the acceptance commands, the
   lead's reading of the record). Time is part of the objective only when `relay.minuteCost` is set: the lead is then
   told what one minute of your waiting is worth in dollars of tokens, and can weigh it against the prices.
