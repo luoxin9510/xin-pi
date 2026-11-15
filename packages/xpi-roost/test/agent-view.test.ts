@@ -323,7 +323,8 @@ describe("AgentView keys", () => {
 		s.view.handleInput("\r");
 		expect(view0(s.view)).not.toContain("background service unavailable");
 		await started;
-		await sleep(150);
+		const deadline = Date.now() + 3000;
+		while (!client.requests.some((r) => r.op === "dispatch") && Date.now() < deadline) await sleep(20);
 		expect(client.requests.filter((r) => r.op === "dispatch")).toHaveLength(1);
 		s.view.dispose();
 	});
