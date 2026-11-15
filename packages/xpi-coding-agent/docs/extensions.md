@@ -355,12 +355,13 @@ flowchart TD
 
 The model request runs these hooks in order:
 
-1. `context` (can modify conversation messages)
-2. `context_with_system` (can modify the full transcript)
-3. `before_provider_headers` (can mutate headers)
-4. `before_provider_request` (can inspect or replace the payload)
-5. `after_provider_response` (status and headers, before the stream is consumed)
-6. `provider_stream_event` (raw parsed stream events) and `message_start` / `message_update` / `message_end` for the assistant message
+1. `request_start` (the route is committed; handlers may append entries)
+2. `context` (can modify conversation messages)
+3. `context_with_system` (can modify the full transcript)
+4. `before_provider_headers` (can mutate headers)
+5. `before_provider_request` (can inspect or replace the payload)
+6. `after_provider_response` (status and headers, before the stream is consumed)
+7. `provider_stream_event` (raw parsed stream events) and `message_start` / `message_update` / `message_end` for the assistant message
 
 A tool call that executes runs these hooks in order:
 
@@ -860,6 +861,24 @@ pi.on("tool_execution_end", async (event, ctx) => {
 ```
 
 All three events, `tool_call`, and `tool_result` carry `parentToolCallId` when another tool made the call; see [Calling Other Tools](#calling-other-tools).
+
+#### request_start
+
+Fired once per model request, after the route is committed and before threshold compaction and the `context` and `context_with_system` transforms. Use it to record what a request is about to do.
+
+```typescript
+pi.on("request_start", async (event, ctx) => {
+  // event.reason - "user", "continuation" or "retry"
+  // event.model - the physical model that will answer
+  // event.routerState - virtual model only: the state stored for this request
+  // event.previousRouterState - virtual model only: the state stored before it (absent on the first request)
+  if (event.routerState !== event.previousRouterState) pi.appendEntry("my.change", { to: event.model.id });
+});
+```
+
+For a [virtual model](virtual-models.md) the router has run and its state entry is already on the branch, so `ctx.sessionManager.getBranch()` ends with it; for a physical model selection there is no router, and `routerState` and `previousRouterState` are absent. The return value is ignored. Handlers may append entries; they land after the state entry and do not change the messages of this request. The projection of the conversation is built before routing, so the event does not mean "before the context is built".
+
+It is not fired when routing fails (the router throws, or names a model that is not in the catalog or has no credentials): the run ends with an error response and nothing was committed. A retry of a failed response fires it again with the same states, so a handler that records a change compares `routerState` with `previousRouterState` and writes nothing when they are equal.
 
 #### context
 

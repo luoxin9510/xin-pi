@@ -105,7 +105,7 @@ import type {
 	ReadToolInput,
 	WriteToolInput,
 } from "../tools/index.ts";
-import type { ModelRoute, ModelRouteRequest, VirtualModelDefinition } from "../virtual-models.ts";
+import type { ModelRoute, ModelRouteReason, ModelRouteRequest, VirtualModelDefinition } from "../virtual-models.ts";
 
 export type { ExecOptions, ExecResult } from "../exec.ts";
 export type { BuildSystemPromptOptions, NormalizedBuildSystemPromptOptions } from "../system-prompt.ts";
@@ -963,6 +963,24 @@ export interface ContextWithSystemEvent {
 	messages: AgentMessage[];
 }
 
+/**
+ * Fired once per model request, after the route is committed and before threshold compaction and the context
+ * transform (`context`, `context_with_system`). For a virtual model the routed state is already stored on the
+ * branch; for a physical model there are no router states. A retry fires it again. It is not fired when routing, or
+ * resolving the physical model, fails. Handlers may append entries; the return value is ignored.
+ */
+export interface RequestStartEvent {
+	type: "request_start";
+	/** Why the request is made: a user turn, a continuation after tool results, or a retry of a failed response. */
+	reason: ModelRouteReason;
+	/** The physical model that will answer. */
+	model: Model<Api>;
+	/** The router state stored for this request (virtual model only). */
+	routerState?: unknown;
+	/** The router state stored before this request (virtual model only; absent on the first request). */
+	previousRouterState?: unknown;
+}
+
 /** Fired before a provider request is sent. Can replace the payload. */
 export interface BeforeProviderRequestEvent {
 	type: "before_provider_request";
@@ -1510,6 +1528,7 @@ export type ExtensionEvent =
 	| SessionEvent
 	| ContextEvent
 	| ContextWithSystemEvent
+	| RequestStartEvent
 	| CacheWarmingDecisionEvent
 	| BeforeProviderRequestEvent
 	| BeforeProviderHeadersEvent
@@ -1751,6 +1770,7 @@ export interface ExtensionAPI {
 	on(event: "session_tree", handler: ExtensionHandler<SessionTreeEvent>): () => void;
 	on(event: "context", handler: ExtensionHandler<ContextEvent, ContextEventResult>): () => void;
 	on(event: "context_with_system", handler: ExtensionHandler<ContextWithSystemEvent, ContextEventResult>): () => void;
+	on(event: "request_start", handler: ExtensionHandler<RequestStartEvent>): () => void;
 	on(
 		event: "cache_warming_decision",
 		handler: ExtensionHandler<CacheWarmingDecisionEvent, CacheWarmingDecisionEventResult>,
