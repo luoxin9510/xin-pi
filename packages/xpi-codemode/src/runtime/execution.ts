@@ -41,6 +41,7 @@ import type {
 } from "../types.ts";
 import {
 	type HostToWorkerMessage,
+	isCodemodeExit,
 	isWorkerToHostMessage,
 	type VmStartData,
 	type WorkerToHostMessage,
@@ -250,6 +251,7 @@ class Execution {
 				name: tool.name,
 				jsName: tool.jsName ?? toCodemodeIdentifier(tool.name),
 				description: tool.description ?? "",
+				...(tool.unlisted ? { unlisted: true } : {}),
 			})),
 			globals: options.globals.map((global) => ({ name: global.name, spread: global.spread === true })),
 			memoryLimitBytes: options.memoryLimitBytes,
@@ -414,7 +416,9 @@ class Execution {
 			if (!tool) throw new Error(`Unknown ${isTool ? "tool" : "global"} "${name}"`);
 			const args: unknown = message.args === undefined ? undefined : JSON.parse(message.args);
 			const value = await tool.execute(args, { signal: pending.controller.signal });
-			reply = { type: "result", id, ok: true, payload: value === undefined ? undefined : JSON.stringify(value) };
+			reply = isCodemodeExit(value)
+				? { type: "result", id, ok: true, payload: undefined, exit: true }
+				: { type: "result", id, ok: true, payload: value === undefined ? undefined : JSON.stringify(value) };
 			status = "ok";
 		} catch (error) {
 			reply = { type: "result", id, ok: false, payload: errorMessage(error) };

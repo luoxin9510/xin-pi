@@ -21,6 +21,8 @@ export interface CodemodeTool {
 	name: string;
 	/** Shown as a doc comment in {@link renderDeclarations}, and listed in `ALL_TOOLS` for tools. */
 	description?: string;
+	/** Tools only: callable as `tools.<name>`, but left out of `ALL_TOOLS` and of the "did you mean" hints. */
+	unlisted?: boolean;
 	/** Schema of the single argument. Rendered as the parameter type; `unknown` when omitted. */
 	inputSchema?: CodemodeJsonSchema;
 	/** Schema of the resolved value. Rendered as the promise type; `unknown` when omitted. */
@@ -193,6 +195,8 @@ export interface CodemodeDeclaredTool {
 	 */
 	jsName?: string;
 	description?: string;
+	/** Callable as `tools.<jsName>`, but left out of `ALL_TOOLS`. */
+	unlisted?: boolean;
 }
 
 /** A global as a {@link CodemodeSandboxBase.start} run's script sees it; the same names as `globals` allow. */

@@ -49,12 +49,12 @@ export function objectiveFact(config: RelayConfig): string {
 	return `${config.objective} The user's waiting time counts as well: one minute of wall-clock time is worth ${dollars(config.minuteCost)} of tokens to the user.`;
 }
 
-/** The lead's part of the system prompt while the relay model is selected. Every line names the tool it is about. */
+/** The decision facts of the lead's `relay` prompt section. Every line names the tool it is about. */
 export function leadFacts(config: RelayConfig, lead: Priced, worker: Priced): string[] {
 	const price = priceFact(lead, worker);
 	const charged = `What you read and write is charged at your prices; what the worker reads and writes after ${HANDOVER_TOOL} is charged at its prices.`;
 	const lines = [
-		`Relay mode. You are the lead model (${config.lead}). A second model, the worker (${config.worker}), can take over this conversation when you call ${HANDOVER_TOOL}. Whether and when to call ${HANDOVER_TOOL} is your decision; nothing requires it.`,
+		`A second model, the worker (${config.worker}), can take over this conversation when you call ${HANDOVER_TOOL}. Whether and when to call ${HANDOVER_TOOL} is your decision; nothing requires it.`,
 		`Relay objective: ${objectiveFact(config)}`,
 		price ? `Relay prices: ${price}. ${charged}` : `Relay prices: not known for this pair of models. ${charged}`,
 		`What ${HANDOVER_TOOL} does: the worker continues from this exact conversation and reads all of it, so nothing is lost in a brief. It works until it calls ${HANDBACK_TOOL} or stops. The acceptance commands you gave are then run; when one fails, its output goes back to the worker, at most ${config.maxRounds} time(s).`,

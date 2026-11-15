@@ -61,6 +61,8 @@ export type CodemodeModelRuntime = Pick<
 export interface CodemodeToolOptions {
 	/** Namespace of a tool, for `searchTools()` ranking and its `namespace` filter. */
 	getToolNamespace?: (toolName: string) => ToolNamespace | undefined;
+	/** Whether a tool is listed. Unlisted tools (`ToolDefinition.listed: false`) stay callable but are not discoverable. */
+	isListed?: (toolName: string) => boolean;
 	/** Prompt guidelines of every tool, by tool name, shown with declarations by `describeTool()` and `ALL_TOOLS`. */
 	getToolGuidelines?: () => ReadonlyMap<string, readonly string[]>;
 	/**
@@ -415,7 +417,8 @@ function prepareCodemodeLoadout(loadout: ToolLoadout, options: CodemodeToolOptio
 			if (callableNames.has(tool.name)) descriptions[tool.name] = describeScriptCall(tool);
 		}
 	}
-	const listed = mode === "only" ? callable : callable.filter((tool) => !isDirect(tool));
+	const visible = callable.filter((tool) => loadout.isListed(tool.name));
+	const listed = mode === "only" ? visible : visible.filter((tool) => !isDirect(tool));
 	const namespaces = new Map(
 		listed.flatMap((tool) => {
 			const namespace = loadout.getNamespace(tool.name);

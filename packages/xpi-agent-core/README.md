@@ -117,6 +117,8 @@ The mode can be set globally via `toolExecution` in the agent config, or per-too
 
 The `beforeToolCall` hook runs after `tool_execution_start` and validated argument parsing. It can block execution and attach `terminate: true` to the blocked result. The `afterToolCall` hook runs after tool execution finishes and before `tool_execution_end` and final tool result message events are emitted.
 
+`resolveUndeclaredTool(name)` (an `AgentLoopConfig` and `Agent` option) finds a tool for a call whose name is not among the context's tools. The call then runs through the same steps as any other, and its result text gets the returned `note` as a first line. Return `undefined` for an unknown name: the call fails as "Tool ... not found".
+
 Tools, blocked `beforeToolCall` results, and `afterToolCall` overrides can return `terminate: true` to hint that the automatic follow-up LLM call should be skipped. The loop only stops early when every finalized tool result in that batch sets `terminate: true`. Mixed batches continue normally.
 
 When you use the `Agent` class, assistant `message_end` processing is treated as a barrier before tool preflight begins. That means `beforeToolCall` sees agent state that already includes the assistant message that requested the tool call.

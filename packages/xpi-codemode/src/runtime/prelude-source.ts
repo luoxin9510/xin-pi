@@ -17,10 +17,10 @@
  * with a successful "done".
  *
  * Evaluates to a function `(bridge, toolsJson, globalsJson, storeJson) => { settle, run, stalled }`.
- * `settle(id, ok, payload, propertiesJson)` settles call `id`; a rejection's `Error` gets the own properties of the
+ * `settle(id, ok, payload, propertiesJson, exitAfter)` settles call `id` (with `exitAfter` it ends the script like `exit()`); a rejection's `Error` gets the own properties of the
  * `propertiesJson` object, except `name`, `message`, and `stack`.
- * `toolsJson` lists `{ name, jsName, description }`: `tools[jsName]` and `tools[name]` call the
- * tool, and `ALL_TOOLS` lists `{ name: jsName, description }`.
+ * `toolsJson` lists `{ name, jsName, description, unlisted? }`: `tools[jsName]` and `tools[name]` call the
+ * tool, and `ALL_TOOLS` lists `{ name: jsName, description }` unless the tool is `unlisted`.
  * `stalled()` reports a script that has not finished while no host call is pending: with no timers
  * or I/O in the VM, nothing can ever resume it.
  * `globalsJson` lists `{ name, spread }`; `a.b` names are grouped into a frozen `a` object.
@@ -212,12 +212,13 @@ export const PRELUDE_SOURCE: string = `(function (bridge, toolsJson, globalsJson
 
 	const tools = Object.create(null);
 	const allTools = [];
-	for (const { name, jsName, description } of parse(toolsJson)) {
+	for (const { name, jsName, description, unlisted } of parse(toolsJson)) {
 		const fn = caller("call", name);
-		// The first tool wins when two names normalize to the same identifier.
+		// The first tool wins when two names normalize to the same identifier. An unlisted tool is callable
+		// but not part of ALL_TOOLS.
 		if (!(jsName in tools)) {
 			tools[jsName] = fn;
-			allTools.push(Object.freeze({ name: jsName, description }));
+			if (!unlisted) allTools.push(Object.freeze({ name: jsName, description }));
 		}
 		if (!(name in tools)) tools[name] = fn;
 	}
@@ -456,10 +457,22 @@ export const PRELUDE_SOURCE: string = `(function (bridge, toolsJson, globalsJson
 	Object.defineProperty(globalThis, "exit", { value: exit, enumerable: true });
 
 	return {
-		settle(id, ok, payload, propertiesJson) {
+		settle(id, ok, payload, propertiesJson, exitAfter) {
 			const entry = pending.get(id);
 			if (!entry) return;
 			pending.delete(id);
+			if (exitAfter) {
+				// The call ends the script like exit(): its promise never settles.
+				let writesJson;
+				try {
+					writesJson = serializeWrites();
+				} catch (error) {
+					done(false, describeError(error));
+					return;
+				}
+				done(true, undefined, writesJson);
+				return;
+			}
 			if (!ok) {
 				const error = new ErrorCtor(payload);
 				if (propertiesJson !== undefined) {

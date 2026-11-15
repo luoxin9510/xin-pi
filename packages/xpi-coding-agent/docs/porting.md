@@ -44,6 +44,7 @@ graph TD
   checks[unit: checks]
   protect[unit: protect]
   subagents --> codemode
+  relay -. hand tools, soft .-> codemode
   adapter --> roost
   shadowgit -. isolation option .-> subagents
   subagents -. options .- o1[Agent tool, names and SendMessage, background, panel and screens, workflows, fork]
@@ -59,7 +60,7 @@ graph TD
 | [codemode](#codemode) | codemode | tool registration, worker threads (Node or Bun), WebAssembly | nothing to turn off |
 | [Agent tool](#subagents-agent-tool) | codemode, subagents | rpc mode with xpi's flags, child processes, session files, the core changes listed under [subagents](#subagents) | the other subagent options, by settings or wiring lines |
 | [names and SendMessage](#subagents-names-and-sendmessage), [background](#subagents-background), [panel and screens](#subagents-panel-and-screens), [workflows](#workflows) | codemode, subagents | as the Agent tool, plus what each option lists | the options you do not want |
-| [relay](#relay) | relay | virtual models (`core/virtual-models.ts`), the `agent_before_settle` boundary with compaction drafts | nothing to turn off |
+| [relay](#relay) | relay, codemode | virtual models (`core/virtual-models.ts`), the `agent_before_settle` boundary with compaction drafts, `context_with_system`, and three core changes for codemode-only tools (unlisted tools, a nested `terminate`, repair of a direct call) | `-builtin:relay`; with codemode off its tools fall back to direct tools |
 | [roost core](#roost-core) | roost | node-pty, unix sockets, detached child processes, a CLI that starts a session from argv with a session file | [schedules](#schedules) (no `scheduleLaunch`), [login service](#login-service) (remove its `cmdDaemon` branch); the hub is a separate entry point, unused unless wired |
 | [shadow-git](#shadow-git) | shadow-git | Node and git 2.20 or newer; a `sh` for the shipped adapters | `--gitfile`, local-only paths and the scope are settings; the xpi integration (the extension, [isolation](#shadow-git-isolation)) by leaving its wiring out |
 | [checks](#checks) | checks | tool effects on `tool_call`, the `turn_end` boundary with `custom_message` drafts and its `terminated` field (core change, see the entry), `registerMessageRenderer`, `ctx.signal`, `ui.setStatus` | nothing to turn off but the `checks.commands` setting |
@@ -274,16 +275,34 @@ The options below come with the unit. Each says how to turn it off.
 ## relay
 
 - **Gives**: the virtual model `relay/auto`: a strong lead plans and reviews, a cheap worker builds, with `handover` and
-  `handback` tools and `/handover`, `/handback`, `/relay`. See [Relay](relay.md).
-- **Depends on**: no other unit. The extension API plus one core module: `getVirtualModelState` is imported from
-  `src/core/virtual-models.ts`. It uses `pi.registerVirtualModel` (a `route` that picks the physical model per
-  request); `pi.on("agent_before_settle")` returning `{ entries, continue: true }` with a compaction draft (the
-  hand-back record); `model_select`, `session_start`; `pi.setActiveTools` / `getActiveTools`; `pi.appendEntry`;
-  `pi.sendMessage`; `ctx.modelRegistry.find`. It runs the acceptance commands through a shell and reads `git` for the
+  `handback` tools (called from codemode scripts) and `/handover`, `/handback`, `/relay`. Every phase change and repair
+  is a `relay.*` entry and a notification. See [Relay](relay.md).
+- **Depends on**: the codemode unit for the hand tools (without it, or with codemode not active, they fall back to
+  direct tools, so the unit is a soft dependency). The extension API plus one core module: `getVirtualModelState` and
+  `VIRTUAL_MODEL_STATE_ENTRY` are imported from `src/core/virtual-models.ts`. It uses `pi.registerVirtualModel` (a
+  `route` that picks the physical model per request; it also appends a `relay.transition` entry when the phase
+  changes); `pi.on("agent_before_settle")` returning `{ entries, continue: true }` with a compaction draft (the
+  hand-back record); `context_with_system` (it sets the `relay` section of the leading system message, from the stored
+  router state; the host must run it after routing, as `prepareRequest` does); `model_select`, `session_start`,
+  `before_agent_start`, `tool_call` (`parentToolCallId` tells a direct call from a nested one); `pi.registerTool` at
+  runtime with `exposure` and `listed`; `pi.setActiveTools` / `getActiveTools`; `pi.appendEntry`; `pi.sendMessage`;
+  `ctx.ui.notify`; `ctx.modelRegistry.find`. It runs the acceptance commands through a shell and reads `git` for the
   diff the lead sees (optional: outside a repository, or in one without commits, there is no snapshot to diff against).
-- **Copy (one unit)**: `coding-agent/src/extensions/relay/` (six files; no import from other extensions).
+- **Core changes for codemode-only tools** (the hand tools need all three; each also works for MCP tools):
+  - *unlisted tools*: `ToolDefinition.listed: false` (`src/core/extensions/types.ts`, `ToolInfo.listed`,
+    `ToolLoadout.isListed` in `agent-session.ts`), honored by codemode (`execute.ts`: `searchTools()`, `describeTool()`,
+    the `unlisted` flag of `CodemodeTool` in `packages/xpi-codemode`, which keeps a tool out of `ALL_TOOLS`) and by
+    `tool_search`;
+  - *a nested `terminate`* ends the codemode script and the codemode result asks to terminate, with the terminating
+    call's text last (`extensions/codemode/execute.ts`), through `CodemodeExit` in `packages/xpi-codemode` (a tool's `execute` returns it and the VM ends the script like `exit()`, keeping `store()` writes);
+  - *direct-call repair*: `AgentLoopConfig.resolveUndeclaredTool` and the note on the result
+    (`packages/xpi-agent-core/src/agent-loop.ts`, `agent.ts`), set by `AgentSession` for `codemode` and `deferred` tools.
+- **Copy (one unit)**: `coding-agent/src/extensions/relay/` (nine files: `index.ts`, `machine.ts`, `view.ts`,
+  `router.ts`, `prompts.ts`, `facts.ts`, `record.ts`, `workspace.ts`, `config.ts`; no import from other extensions).
 - **Rewrite**: the provider and model ids (`relay`, `auto`), the settings namespace `relay.*` (`config.ts`).
-- **Verify**: `test/suite/relay.test.ts` (vitest, offline); `npm run test:relay:real` (real models).
+- **Verify**: `test/relay-machine.test.ts` (every row of the transition table), `test/suite/relay.test.ts` (vitest,
+  offline), `test/suite/codemode-terminate.test.ts` (the codemode seams) and the `resolveUndeclaredTool` tests in
+  `packages/xpi-agent-core/test/agent-loop.test.ts`; `npm run test:relay:real` (real models).
 - **Linux**: the acceptance commands run with `shell: true` in their own process group, which is killed on timeout or
   abort. **macOS**: the same.
 - **Guide**: this entry and [Relay](relay.md) (settings, the record, limits); there is no separate relay porting guide.

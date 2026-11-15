@@ -423,7 +423,7 @@ describe("AgentSession MCP integration", () => {
 		expect(calls).toEqual(["read-file:{}", "read_file:{}"]);
 	});
 
-	it("rejects direct model calls to codemode-only MCP tools", async () => {
+	it("runs direct model calls to codemode-only MCP tools as nested calls, with a note", async () => {
 		const { harness, calls } = await setup("codemode");
 		harness.setResponses([
 			fauxAssistantMessage([fauxToolCall(createMcpToolName("docs", "search"), { query: "x" })], {
@@ -435,9 +435,18 @@ describe("AgentSession MCP integration", () => {
 		await harness.session.prompt("go");
 
 		const result = toolResult(harness, "mcp__docs__search");
-		expect(result.isError).toBe(true);
-		expect(getMessageText(result)).toBe("Tool mcp__docs__search not found");
-		expect(calls).toEqual([]);
+		expect(result.isError).toBeFalsy();
+		expect(getMessageText(result)).toMatch(
+			/^\(Call mcp__docs__search from codemode next time: await tools\.mcp__docs__search\(\.\.\.\)\.\)\n/,
+		);
+		expect(calls).toHaveLength(1);
+		// A name that is no tool of the session still fails.
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("mcp__docs__missing", {})], { stopReason: "toolUse" }),
+			fauxAssistantMessage("done"),
+		]);
+		await harness.session.prompt("again");
+		expect(getMessageText(toolResult(harness, "mcp__docs__missing"))).toBe("Tool mcp__docs__missing not found");
 	});
 
 	it("declares directly exposed MCP tools to the model", async () => {

@@ -15,6 +15,7 @@ import type {
 	Usage,
 } from "xpi-ai";
 import {
+	CodemodeExit,
 	type CodemodeOutputItem,
 	type CodemodeResult,
 	CodemodeSandbox,
@@ -544,6 +545,11 @@ async function runCodemode(
 	publish();
 
 	const callable = ctx ? getCodemodeCallableTools(ctx.tools) : [];
+	// Unlisted tools are callable by name but never found: not by searchTools(), describeTool() or ALL_TOOLS.
+	const isListed = (tool: AgentTool<any>) => options.isListed?.(tool.name) !== false;
+	const listedTools = callable.filter(isListed);
+	// A nested call whose result says `terminate` ends the script, like exit(): see `terminated` below.
+	const terminations: string[] = [];
 	// ALL_TOOLS entries carry the declaration.
 	const guidelines = options.getToolGuidelines?.();
 	const samples = new Map(
@@ -552,6 +558,7 @@ async function runCodemode(
 	const sandboxTools: CodemodeTool[] = callable.map((tool) => ({
 		name: tool.name,
 		description: samples.get(tool.name),
+		...(isListed(tool) ? {} : { unlisted: true }),
 		execute: (args, { signal: callSignal }) => {
 			const record: CodemodeNestedCall = {
 				id: `${toolCallId}/?`,
@@ -581,6 +588,12 @@ async function runCodemode(
 					}
 				}
 				publish();
+				if (outcome.result.terminate === true && !outcome.isError && terminations.length === 0) {
+					// The script ends here: its output so far stays, this call's text is the last of the result, and the
+					// call's own promise never settles.
+					terminations.push(textOf(outcome.result));
+					return new CodemodeExit();
+				}
 				return toScriptValue(tool, outcome);
 			})();
 			settlements.set(record, {
@@ -651,7 +664,7 @@ async function runCodemode(
 		sandbox = new CodemodeSandbox({
 			tools: sandboxTools,
 			globals: [
-				...createDiscoveryGlobals(callable, samples, options),
+				...createDiscoveryGlobals(listedTools, samples, options),
 				...addonGlobals,
 				...(options.models && ctx
 					? createModelGlobals(ctx.modelRegistry, toolCallId, calls, publish, addModelUsage, addGeneratedImages)
@@ -681,6 +694,7 @@ async function runCodemode(
 	// Calls still marked running were cut off by the script ending, a timeout, or an abort; those an add-on lets outlive
 	// the script (on any end but an abort) were left running. A global they went through (`agent()`) was kept with them.
 	over = true;
+	const endedByCall = terminations.length > 0 && result.ok;
 	const released: CodemodeKeptCall[] = [];
 	const aborted = !result.ok && result.error.kind === "aborted";
 	for (const call of calls) {
@@ -691,7 +705,8 @@ async function runCodemode(
 			released.push({ name: call.name, args: settlement.args, settled: settlement.settled });
 		} else call.status = "cancelled";
 	}
-	if (kept && released.length > 0) kept.value = { reason: endReason(result), calls: released };
+	if (kept && released.length > 0)
+		kept.value = { reason: endedByCall ? "returned" : endReason(result), calls: released };
 
 	const scriptOutput = [...result.output];
 	if (result.ok) {
@@ -703,7 +718,7 @@ async function runCodemode(
 		if (result.value !== undefined) scriptOutput.push({ type: "text", text: valueText(result.value) });
 	}
 	const items = formatOutput(scriptOutput);
-	if (!result.ok) items.push({ type: "text", text: `Script error:\n${formatError(result, calls)}` });
+	if (!result.ok && !endedByCall) items.push({ type: "text", text: `Script error:\n${formatError(result, calls)}` });
 	if (generatedImages > 0 && !items.some((item) => item.type === "image")) {
 		items.push({
 			type: "text",
@@ -717,16 +732,22 @@ async function runCodemode(
 	);
 	// After truncation, which joins the text items and moves images after them, so each path stays
 	// next to its image and is never cut.
-	const output = joinAdjacentText(await saveImages(truncated.items));
+	const saved = await saveImages(truncated.items);
+	// The terminating call's text comes last and is never truncated: a caller reads its last line.
+	const output = joinAdjacentText(
+		terminations[0] ? [...saved, { type: "text", text: terminations[0] } as TextContent] : saved,
+	);
+	const succeeded = result.ok || endedByCall;
 	const wallTime = ((performance.now() - startedAt) / 1000).toFixed(1);
-	const header = `${result.ok ? "Script completed" : "Script failed"}\nWall time ${wallTime} seconds\nOutput:\n`;
+	const header = `${succeeded ? "Script completed" : "Script failed"}\nWall time ${wallTime} seconds\nOutput:\n`;
 	const details = snapshot();
 	if (truncated.fullOutputPath) details.fullOutputPath = truncated.fullOutputPath;
 	return {
 		content: [{ type: "text", text: header }, ...output],
 		details,
 		...(modelUsage ? { usage: modelUsage } : {}),
-		...(result.ok ? {} : { isError: true }),
+		...(succeeded ? {} : { isError: true }),
+		...(endedByCall ? { terminate: true } : {}),
 	};
 }
 

@@ -57,6 +57,7 @@ import {
 	resetApiProviders,
 	streamSimple,
 } from "xpi-ai/compat";
+import { toCodemodeIdentifier } from "xpi-codemode";
 import { getThemeByName, theme } from "../modes/interactive/theme/theme.ts";
 import { stripFrontmatter } from "../utils/frontmatter.ts";
 import { processImage } from "../utils/image-process.ts";
@@ -745,6 +746,18 @@ export class AgentSession {
 	private _installAgentToolHooks(): void {
 		this.agent.beforeToolCall = (context) => this._beforeToolCall(context);
 		this.agent.afterToolCall = (context) => this._afterToolCall(context);
+		// A call to a tool that scripts can reach but the model was not shown runs as a call from a script would.
+		this.agent.resolveUndeclaredTool = (name) => {
+			const exposure = this._getToolExposure(name);
+			const tool = this._toolRegistry.get(name);
+			if (!tool || (exposure !== "codemode" && exposure !== "deferred")) return undefined;
+			// Only while scripts can be run: with codemode off there is nothing to call it from.
+			if (!this.agent.state.tools.some((active) => active.name === "codemode")) return undefined;
+			return {
+				tool,
+				note: `(Call ${name} from codemode next time: await tools.${toCodemodeIdentifier(name)}(...).)`,
+			};
+		};
 	}
 
 	/** `tool_call` handlers. `parentToolCallId` is set for calls another tool made. */
@@ -1683,6 +1696,7 @@ export class AgentSession {
 			parameters: definition.parameters,
 			promptGuidelines: definition.promptGuidelines,
 			exposure: this._getToolExposure(definition.name),
+			...(definition.listed === false ? { listed: false as const } : {}),
 			effect: resolveToolEffect(definition),
 			...(definition.namespace ? { namespace: definition.namespace } : {}),
 			...(definition.annotations ? { annotations: { ...definition.annotations } } : {}),
@@ -1784,6 +1798,7 @@ export class AgentSession {
 				callable: this._getCallableTools(new Set(tools.map((tool) => tool.name))),
 				registered: [...this._toolRegistry.values()],
 				getExposure: (name) => this._getToolExposure(name),
+				isListed: (name) => this._toolDefinitions.get(name)?.definition.listed !== false,
 				getNamespace: (name) => this._toolDefinitions.get(name)?.definition.namespace,
 				getPromptGuidelines: (name) => this._toolPromptGuidelines.get(name) ?? [],
 			};

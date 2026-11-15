@@ -303,7 +303,9 @@ function searchAndLoad(
 	limit: number,
 ): ToolSearchResultTool[] {
 	const active = tools.getActiveTools();
-	const candidates = tools.getAllTools().filter((tool) => isSearchable(tool.exposure) && !active.includes(tool.name));
+	const candidates = tools
+		.getAllTools()
+		.filter((tool) => isSearchable(tool.exposure) && tool.listed !== false && !active.includes(tool.name));
 	const documents = candidates.map((tool) => createToolSearchDocument(tool, tool.namespace));
 	const matches = new Bm25Ranker().rank(query, documents, limit);
 	if (matches.length > 0) tools.setActiveTools([...active, ...matches.map((match) => match.name)]);

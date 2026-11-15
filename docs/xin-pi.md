@@ -70,8 +70,13 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
     [porting.md](../packages/xpi-coding-agent/docs/porting.md).
   - `relay` (`src/extensions/relay/`, off with `-builtin:relay`): the virtual model `relay/auto` (a lead model plans and
     reviews, a worker model builds), the `handover` and `handback` tools, `/handover`, `/handback`, `/relay`. Settings
-    namespace `relay.*`. It uses the extension API only (a virtual model, the `agent_before_settle` boundary with a
-    compaction draft); no core change. User docs: [relay.md](../packages/xpi-coding-agent/docs/relay.md).
+    namespace `relay.*`. The hand tools are `deferred`, unlisted tools that each role calls from codemode; every phase
+    change is a row of the pure table in `machine.ts`, and every transition and repair is a `relay.*` entry and a
+    notification. It uses the extension API (a virtual model, the `agent_before_settle` boundary with a compaction
+    draft, `context_with_system`) and three core changes made for it, each general: `ToolDefinition.listed: false`
+    (unlisted tools), a nested `terminate` that ends a codemode script (`extensions/codemode/execute.ts`), and
+    `AgentLoopConfig.resolveUndeclaredTool` (a direct call of a tool only scripts can reach runs as a nested call, with a
+    note). User docs: [relay.md](../packages/xpi-coding-agent/docs/relay.md).
   - `upstream` (`src/extensions/upstream/`, off with `-builtin:upstream`): `/upstream`, see below.
   - `shadow-git` (`src/extensions/shadow-git/`, off with `-builtin:shadow-git`): acts only when the session's cwd (read at each
     `session_start`, so `/resume` into or out of a workspace works) is in a registered shadow-git workspace (the primary),

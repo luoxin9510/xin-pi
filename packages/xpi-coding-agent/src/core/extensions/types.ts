@@ -555,7 +555,8 @@ export interface ToolRenderContext<TState = any, TArgs = any> extends Keybinding
  *   interactive tools.
  * - `codemode`: callable whenever registered. Not declared to the model unless explicitly
  *   activated. Codemode tools list it in their description.
- * - `deferred`: like `codemode`, but codemode tools do not list it; tool search can find it.
+ * - `deferred`: like `codemode`, but codemode tools do not list it; tool search can find it. With
+ *   {@link ToolDefinition.listed} `false` nothing lists it: scripts call it by name.
  * - `hidden`: registered but unreachable. Activating it has no effect.
  *
  * `direct` and `model-only` tools are activated when they are registered; the others are not.
@@ -605,6 +606,8 @@ export interface ToolLoadout {
 	/** Every registered tool. */
 	readonly registered: readonly AgentTool[];
 	getExposure(name: string): ToolExposure;
+	/** False for a tool registered with `listed: false`. */
+	isListed(name: string): boolean;
 	getNamespace(name: string): ToolNamespace | undefined;
 	/** A tool's `promptGuidelines`. Hidden declarations leave them out of the system prompt. */
 	getPromptGuidelines(name: string): readonly string[];
@@ -655,6 +658,14 @@ export interface ToolDefinition<TParams extends TSchema = TSchema, TDetails = un
 	 * How the model reaches the tool. Default: `"direct"`. See {@link ToolExposure}.
 	 */
 	exposure?: ToolExposure;
+
+	/**
+	 * Default: `true`. `false` keeps a tool that scripts can call (`codemode` or `deferred` exposure) out of every
+	 * listing: codemode's description, `searchTools()`, `describeTool()`, `ALL_TOOLS` and `tool_search`. A script
+	 * that knows the name still calls it as `tools.<name>(...)`. The tool's prompt text is the only way a model
+	 * learns of it.
+	 */
+	listed?: boolean;
 
 	/** Group the tool belongs to, for example its MCP server. */
 	namespace?: ToolNamespace;
@@ -2272,6 +2283,8 @@ export type ToolInfo = Pick<
 	"name" | "description" | "parameters" | "promptGuidelines" | "reachesTools"
 > & {
 	exposure: ToolExposure;
+	/** `false` when the tool is registered with `listed: false`. */
+	listed?: false;
 	/** The tool's effect: its declared effect, else `exec`. */
 	effect: ToolEffect;
 	namespace?: ToolNamespace;

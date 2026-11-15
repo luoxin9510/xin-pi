@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	CodemodeExit,
 	CodemodeSandbox,
 	type CodemodeSandboxBase,
 	type CodemodeSandboxBaseOptions,
@@ -326,6 +327,35 @@ describe.each(Object.keys(BACKENDS))("%s backend", (name) => {
 					calls: ["dash", "dash", "mcp"],
 				},
 			});
+		});
+
+		it("calls an unlisted tool but leaves it out of ALL_TOOLS", async () => {
+			const sandbox = createSandbox([
+				{ name: "shown", description: "Listed", execute: () => "shown" },
+				{ name: "quiet", description: "Hidden", unlisted: true, execute: () => "quiet" },
+			]);
+			const result = await sandbox.execute(`
+				return { all: ALL_TOOLS.map((tool) => tool.name), call: await tools.quiet(), byName: await tools["quiet"]() };
+			`);
+			expect(result).toMatchObject({ ok: true, value: { all: ["shown"], call: "quiet", byName: "quiet" } });
+		});
+
+		it("ends the script after a call that returns CodemodeExit, keeping output and store writes", async () => {
+			const sandbox = createSandbox([{ name: "stop", execute: () => new CodemodeExit() }]);
+			const result = await sandbox.execute(`text("before"); store("k", 1); await tools.stop(); text("after");`);
+			expect(result).toMatchObject({
+				ok: true,
+				output: [{ type: "text", text: "before" }],
+				storeWrites: { set: { k: 1 } },
+			});
+		});
+
+		it("takes any object carrying the exit tag as an exit request, as another copy of the package would make it", async () => {
+			const sandbox = createSandbox([
+				{ name: "stop", execute: () => ({ [Symbol.for("xpi.codemode.exit")]: true }) },
+			]);
+			const result = await sandbox.execute(`text("before"); await tools.stop(); text("after");`);
+			expect(result).toMatchObject({ ok: true, output: [{ type: "text", text: "before" }] });
 		});
 
 		it("passes undefined arguments and results through", async () => {
