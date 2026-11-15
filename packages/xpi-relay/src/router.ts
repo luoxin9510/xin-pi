@@ -8,7 +8,8 @@ export interface RelayState {
 	/** Handovers so far on this branch. */
 	round: number;
 	/**
-	 * The stuck guard's decision for this phase: `"lifted"` (no context limit until the next handover) or `"asked"`
+	 * The stuck guard's decision for this phase: `"lifted"` (no context limit until the next handover; for the lead also
+	 * until the next user message) or `"asked"`
 	 * (the worker was asked to hand back; the limit stays). Absent: limited. A state from before the field reads so.
 	 */
 	limit?: "lifted" | "asked";

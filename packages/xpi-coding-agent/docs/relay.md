@@ -291,7 +291,7 @@ every other pair changes nothing and answers with a refusal.
 | worker | acceptance failed, failures so far < `maxRounds` | unchanged | `relay.verify`; continue with the failure output |
 | worker | acceptance passed, failed at `maxRounds`, or nothing to run | lead, mixups 0, stalls 0 | compact to the record; `relay.transition` |
 | worker | stuck guard: the worker's context limit compacted `maxCompactions` times, `whenStuck` is `handback` | limit asked (the limit stays; lifted after two more summaries) | `relay.limit` entry (`handback`); notification; steer: ask the worker to hand back `blocked` with what is done and left |
-| any | stuck guard: `maxCompactions` summaries under the limit (worker: `whenStuck` is `lift`, or two more after the ask) | limit lifted until the next handover | `relay.limit` entry (`lifted`); notification |
+| any | stuck guard: `maxCompactions` summaries under the limit (worker: `whenStuck` is `lift`, or two more after the ask) | limit lifted until the next handover (lead: or the next user message) | `relay.limit` entry (`lifted`); notification |
 | worker | another model selected | paused | `relay.pause`; notification |
 | paused | `relay/auto` selected | worker | `relay.resume`; notification |
 <!-- relay-table:end -->
