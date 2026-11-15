@@ -42,12 +42,51 @@ real Haiku runs (the lead runs them) before merge.
 
 ## PR C: the hand-off signal
 
-- [ ] C1 core: `signal` on tool results (session only, not sent to the provider); codemode copies the ending call's
+- [x] C1 core: `signal` on tool results (session only, not sent to the provider); codemode copies the ending call's
       signal; the loop, the runner's rebuild and the direct-call repair carry it; tests
-- [ ] C2 relay: `nextState()` reads the signal and still accepts the marker line of older sessions; the handover
+      Done: `ToolResultSignal` in `xpi-ai`, `signal` on `AgentToolResult` and `ToolResultMessage`; copied in
+      `createToolResultMessage`; the `tool_result` event shows it read-only; codemode copies it from the terminating
+      call. Tests: `xpi-ai/test/tool-result-signal-payload.test.ts` (Anthropic, OpenAI completions),
+      `xpi-agent-core/test/agent-loop.test.ts` (kept through an `afterToolCall` that rewrites content),
+      `xpi-coding-agent/test/suite/tool-result-signal.test.ts` (codemode copy and non-copy, direct-call repair,
+      extension `tool_result` handler, session file and reload).
+- [x] C2 relay: `nextState()` reads the signal and still accepts the marker line of older sessions; the handover
       result drops the marker line; `handoverLanded` and the worker's section follow; the changed suite and
       machine-test assertions listed here
+      Done: `handoverRoundOf` (router.ts) reads the signal, else the old last-line marker; the handover result is the
+      neutral sentence plus `signal: { type: "relay.handover", data: { round } }`; `ToolOutcome.signal`, passed on by
+      the adapter; the worker's section quotes the sentence; generated `relay.md` regenerated (two doc cells).
 - [ ] C3 docs (`extensions.md`, `codemode.md`, `relay.md`, `porting.md`) and real Haiku runs
+      Done (docs): `extensions.md`, `codemode.md`, `relay.md`, `porting.md`, `xpi-relay/README.md`. The real Haiku
+      runs are left to the lead.
+
+## Changed assertions (PR C)
+
+- `xpi-relay/test/exhaustive.test.ts`: the pinned SHA-256 digest changed on purpose (`32fa6292...` to
+  `dded7871...`): the handover result text lost its marker line and the effect gained `signal`.
+- `xpi-relay/test/machine.test.ts`, "lead | handover: ...": the result is now the neutral sentence (no
+  `\n<relay-handover round="2"/>`) with `signal: { type: "relay.handover", data: { round: 2 } }`; title changed.
+- `xpi-relay/test/host.test.ts`: "writes the entry, answers with the marker...": it expected the last line to be the
+  marker; it now expects the exact sentence and `outcome.signal`. "makes the worker answer the next request" and
+  "continues a landed handover" and "voids a handover" (title only) pass the outcome's signal on the fake tool
+  result, since the text no longer holds a marker. New: "still continues a handover of an older session".
+- `test/suite/relay.test.ts`: the first test (worker section quotes the sentence, no marker in the worker's
+  context; was `toContain(handoverMarker(1))`), the codemode-off test (`toContain("Handed over to the worker model
+  (round 1)")`), the direct-call test (`...written by the lead.` and no marker, was `\n${handoverMarker(1)}`), the
+  parallel test (splits on the sentence, not the marker), and the `nextState` tests: `handoverResult` now carries the
+  signal; the old marker-line cases moved to "accepts the handover of an older session" (unchanged bodies); new
+  "accepts a handover from the signal ...".
+- `test/suite/relay.test.ts` worker section: `<relay-handover round="N"/>` is replaced by "the tool result that says
+  `Handed over to the worker model (round N)`"; `/handover` by the user keeps `<relay-handover-by-user>`.
+
+## Deviations (PR C)
+
+- `ToolResultSignal` is an exported interface of `xpi-ai` (and imported by agent-core), not an inline type.
+- The `tool_result` event gains a read-only `signal`; the handler result type has no `signal`, so no handler can
+  replace or drop it (the loop's merge spreads the original result).
+- `handoverResult`/`handoverResultStart` live in `router.ts` (so `prompts.ts` can quote the sentence without a
+  cycle); `handoverMarker` and `lastLineHandoverRound` stay, for older sessions.
+- The signal is copied only for a terminating nested call that ended the script (`endedByCall`).
 
 ## Changed assertions (PR B)
 
