@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { streamSimple } from "../src/compat.ts";
-import type { AssistantMessage, Context, Model } from "../src/types.ts";
+import type { Api, AssistantMessage, Context, Model } from "../src/types.ts";
 
 class PayloadCaptured extends Error {
 	constructor() {
@@ -31,6 +31,43 @@ const anthropicModel: Model<"anthropic-messages"> = {
 	maxTokens: 1024,
 };
 
+const base = {
+	reasoning: false,
+	input: ["text" as const],
+	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+	contextWindow: 200000,
+	maxTokens: 1024,
+	baseUrl: "http://127.0.0.1:9",
+};
+const responsesModel = {
+	...base,
+	id: "gpt-test",
+	name: "GPT Test",
+	api: "openai-responses",
+	provider: "openai",
+} as Model<"openai-responses">;
+const googleModel = {
+	...base,
+	id: "gemini-test",
+	name: "Gemini Test",
+	api: "google-generative-ai",
+	provider: "google",
+} as Model<"google-generative-ai">;
+const bedrockModel = {
+	...base,
+	id: "anthropic.claude-test",
+	name: "Bedrock Test",
+	api: "bedrock-converse-stream",
+	provider: "amazon-bedrock",
+} as Model<"bedrock-converse-stream">;
+const mistralModel = {
+	...base,
+	id: "mistral-test",
+	name: "Mistral Test",
+	api: "mistral-conversations",
+	provider: "mistral",
+} as Model<"mistral-conversations">;
+
 const completionsModel: Model<"openai-completions"> = {
 	id: "gpt-test",
 	name: "GPT Test",
@@ -44,7 +81,7 @@ const completionsModel: Model<"openai-completions"> = {
 	maxTokens: 1024,
 };
 
-function contextFor(model: Model<"anthropic-messages"> | Model<"openai-completions">): Context {
+function contextFor(model: Model<Api>): Context {
 	const assistant: AssistantMessage = {
 		role: "assistant",
 		content: [{ type: "toolCall", id: "call-1", name: "handover", arguments: {} }],
@@ -72,7 +109,7 @@ function contextFor(model: Model<"anthropic-messages"> | Model<"openai-completio
 	};
 }
 
-async function capture(model: Model<"anthropic-messages"> | Model<"openai-completions">): Promise<unknown> {
+async function capture(model: Model<Api>): Promise<unknown> {
 	let captured: unknown;
 	const stream = streamSimple(model, contextFor(model), {
 		apiKey: "fake-key",
@@ -91,6 +128,10 @@ describe("ToolResultMessage.signal", () => {
 	for (const [name, model] of [
 		["Anthropic", anthropicModel],
 		["OpenAI completions", completionsModel],
+		["OpenAI responses", responsesModel],
+		["Google", googleModel],
+		["Bedrock", bedrockModel],
+		["Mistral", mistralModel],
 	] as const) {
 		it(`is not part of the ${name} payload`, async () => {
 			const json = JSON.stringify(await capture(model));

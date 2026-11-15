@@ -63,7 +63,7 @@ export function workerSection(handover: Handover | undefined, config: RelayConfi
 		`The handover has already happened. The assistant messages before ${
 			handover?.byUser
 				? "the `<relay-handover-by-user>` line"
-				: `the tool result that says \`${handoverResultStart(handover?.round)}\``
+				: `the tool result that contains \`${handoverResultStart(handover?.round)}\``
 		} were written by the lead, a different model, not by you: do not continue them, and do not wait for a worker, because you are the worker. Start on the plan now.`,
 		...fieldLines(HANDBACK_FIELDS, []),
 	];

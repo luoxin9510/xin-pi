@@ -804,7 +804,8 @@ export class AgentSession {
 					content: result.content,
 					details: result.details,
 					...(result.structuredContent === undefined ? {} : { structuredContent: result.structuredContent }),
-					...(result.signal ? { signal: result.signal } : {}),
+					// A copy: a handler that changes it does not change the signal kept on the result.
+					...(result.signal ? { signal: structuredClone(result.signal) } : {}),
 					isError,
 					usage: result.usage,
 				})

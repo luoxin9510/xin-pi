@@ -18,9 +18,11 @@ describe("tool result signal", () => {
 	const harnesses: Harness[] = [];
 	const dirs: string[] = [];
 	let rewrite = false;
+	let mutate = false;
 
 	afterEach(() => {
 		rewrite = false;
+		mutate = false;
 		while (harnesses.length > 0) harnesses.pop()?.cleanup();
 		while (dirs.length > 0) rmSync(dirs.pop() as string, { recursive: true, force: true });
 	});
@@ -56,6 +58,11 @@ describe("tool result signal", () => {
 						async execute() {
 							return { content: [{ type: "text", text: "quiet" }], details: {}, signal: QUIET };
 						},
+					});
+					pi.on("tool_result", (event) => {
+						// Changes the copy the event holds, not the signal kept on the result.
+						if (mutate && event.signal?.data) (event.signal.data as { round: number }).round = 99;
+						return undefined;
 					});
 					pi.on("tool_result", (event) =>
 						rewrite && event.toolName === "ending"
@@ -104,6 +111,13 @@ describe("tool result signal", () => {
 		const result = getToolResult(harness, "ending");
 		expect(JSON.stringify(result.content)).toContain("REWRITTEN");
 		expect(result.signal).toEqual(ENDING);
+	});
+
+	it("hands handlers a copy: changing event.signal does not change the stored signal", async () => {
+		mutate = true;
+		const harness = await setup();
+		await run(harness, fauxToolCall("ending", {}));
+		expect(getToolResult(harness, "ending").signal).toEqual(ENDING);
 	});
 
 	it("is kept in the session file and after a reload", async () => {

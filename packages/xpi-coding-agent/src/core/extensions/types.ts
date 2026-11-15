@@ -1399,8 +1399,8 @@ interface ToolResultEventBase {
 	 * `content` should also replace this; replacing `content` alone drops it.
 	 */
 	structuredContent?: JsonValue;
-	/** The signal the tool raised for its host, if any. Read-only: it is kept on the result however a handler changes it. */
-	signal?: ToolResultSignal;
+	/** The signal the tool raised for its host, if any. A read-only copy: the signal kept on the result is unchanged however a handler changes it. */
+	signal?: Readonly<ToolResultSignal>;
 	isError: boolean;
 	/** Usage from the tool execution itself, if available. */
 	usage?: Usage;

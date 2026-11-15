@@ -473,7 +473,7 @@ export interface AgentToolResult<T = JsonValue | undefined> {
 	 */
 	terminate?: boolean;
 	/**
-	 * Machine-readable signal for the host: kept on the tool result message in the session, never sent to the model.
+	 * Machine-readable signal for the host: kept on the tool result message in the session, never sent to the model (native provider converters build payloads from named fields; the pi-messages and proxy backends receive the message as stored, like `details`).
 	 * `type` names the signal (namespaced by its owner, for example `relay.handover`); `data` is its payload.
 	 */
 	signal?: ToolResultSignal;

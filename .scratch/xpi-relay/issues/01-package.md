@@ -76,6 +76,9 @@ real Haiku runs (the lead runs them) before merge.
   parallel test (splits on the sentence, not the marker), and the `nextState` tests: `handoverResult` now carries the
   signal; the old marker-line cases moved to "accepts the handover of an older session" (unchanged bodies); new
   "accepts a handover from the signal ...".
+- `test/suite/relay.test.ts`, worker section (review fix): "the tool result that says `Handed over ...`" became
+  "the tool result that contains `...`", true also for a repaired direct call, where the sentence is the second line
+  after the note. `relay.md` follows; no digest pins this text.
 - `test/suite/relay.test.ts` worker section: `<relay-handover round="N"/>` is replaced by "the tool result that says
   `Handed over to the worker model (round N)`"; `/handover` by the user keeps `<relay-handover-by-user>`.
 
@@ -86,6 +89,8 @@ real Haiku runs (the lead runs them) before merge.
   replace or drop it (the loop's merge spreads the original result).
 - `handoverResult`/`handoverResultStart` live in `router.ts` (so `prompts.ts` can quote the sentence without a
   cycle); `handoverMarker` and `lastLineHandoverRound` stay, for older sessions.
+- Review fixes: the claim is "never sent to the model"; the pi-messages and proxy backends post the stored message
+  whole, like `details` and `nestedCalls`. The `tool_result` event holds a `structuredClone` typed `Readonly`.
 - The signal is copied only for a terminating nested call that ended the script (`endedByCall`).
 
 ## Changed assertions (PR B)

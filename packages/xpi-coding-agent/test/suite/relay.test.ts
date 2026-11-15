@@ -189,7 +189,7 @@ describe("relay", () => {
 		expect(system[2]).not.toContain("Relay prices:");
 		// The worker's section names the handover by its result sentence, not by a marker line.
 		expect(system[2]).toContain(
-			"The assistant messages before the tool result that says `Handed over to the worker model (round 1)` were written by the lead",
+			"The assistant messages before the tool result that contains `Handed over to the worker model (round 1)` were written by the lead",
 		);
 		expect(system[2]).not.toContain("<relay-handover round");
 		// The worker reads the whole conversation, which holds that result sentence and no marker; nothing tells it its role.

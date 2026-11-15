@@ -74,7 +74,7 @@ cached prefix stays stable. When another model is selected the section is remove
   `handback`.
 - **The worker's section**: one line (`You are the worker in relay mode. When done or stuck, call tools.handback({...})
   from codemode.`), a statement that the handover has already happened, that the assistant messages before the tool
-  result that says `Handed over to the worker model (round N)` were written by the lead (a different model) and not
+  result that contains `Handed over to the worker model (round N)` were written by the lead (a different model) and not
   by the worker (after a `/handover` by the user, before the `<relay-handover-by-user>` line), that it must
   not continue them or wait for a worker, and that it starts on the plan now, `handback`'s fields, the handover as the lead wrote it (plan, criteria, findings, when to stop, the
   acceptance commands), and its duties. The plan is here, not only in the lead's script, so a compaction cannot
