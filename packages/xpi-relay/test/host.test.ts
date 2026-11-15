@@ -15,6 +15,7 @@ import {
 	type RelayEntry,
 	type RelayHost,
 	type RelayRouteRequest,
+	readView,
 	type ToolSpec,
 	VIRTUAL_MODEL_STATE_ENTRY,
 } from "../src/index.ts";
@@ -75,6 +76,7 @@ function fake(settings: Record<string, unknown> = {}) {
 	return {
 		host,
 		call,
+		push,
 		entries,
 		notices,
 		sent,
@@ -125,6 +127,31 @@ describe("createRelay against a fake host", () => {
 		for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
 	});
 
+	it("reads the same view whether relay.transition precedes or follows the state entry", () => {
+		const branch = (stateFirst: boolean): RelayEntry[] => {
+			const { entries, state, message, push } = fake(config);
+			message(user("go"));
+			state("lead", 0);
+			push({ type: "custom", customType: HANDOVER_ENTRY, data: { round: 1, plan: "p", at: 1 } });
+			const transition = () =>
+				push({
+					type: "custom",
+					customType: "relay.transition",
+					data: { from: "lead", to: "worker", event: "handover", round: 1, at: 2 },
+				});
+			if (stateFirst) {
+				state("worker", 1);
+				transition();
+			} else {
+				transition();
+				state("worker", 1);
+			}
+			return entries.map((entry) => ({ ...entry, id: "x", timestamp: "t" }));
+		};
+		expect(readView(branch(true))).toEqual(readView(branch(false)));
+		expect(readView(branch(true)).phase).toBe("worker");
+	});
+
 	it("registers the two hand tools as deferred tools at the start", () => {
 		const { registered } = make();
 		expect(registered).toHaveLength(1);
@@ -169,7 +196,7 @@ describe("createRelay against a fake host", () => {
 		});
 
 		it("makes the worker answer the next request, and writes the transition then", async () => {
-			const { relay, call, entries, models, state, message, notices } = make();
+			const { relay, call, entries, models, state, message, notices, customTypes } = make();
 			models.set("faux/small", { id: "small" } as Model<Api>);
 			models.set("faux/large", { id: "large" } as Model<Api>);
 			state("lead", 0);
@@ -183,11 +210,19 @@ describe("createRelay against a fake host", () => {
 			const route = relay.route(request, call);
 			expect(route.model.id).toBe("small");
 			expect(route.state).toEqual({ phase: "worker", round: 1 });
+			// route() has no side effects: the transition is written at the commit point.
+			const written = entries.length;
+			expect(customTypes()).not.toContain("relay.transition");
+			relay.onRequestStart({ previousRouterState: request.state, routerState: route.state }, call);
+			expect(entries).toHaveLength(written + 1);
 			expect(entries.at(-1)).toMatchObject({
 				customType: "relay.transition",
 				data: { from: "lead", to: "worker", round: 1 },
 			});
 			expect(notices.at(-1)?.text).toBe("relay: lead → worker (round 1)");
+			// A retry meets the same stored state on both sides and writes nothing.
+			relay.onRequestStart({ previousRouterState: route.state, routerState: route.state }, call);
+			expect(entries).toHaveLength(written + 1);
 			// Without the marker the lead goes on.
 			const lead = relay.route(
 				{ ...request, messages: [assistant("", true), toolResult("codemode", "ok")] as never },

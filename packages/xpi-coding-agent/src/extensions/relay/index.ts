@@ -90,6 +90,8 @@ export default function relay(pi: ExtensionAPI) {
 		route: (request, ctx) => relayHost.route(request, callOf(ctx)),
 	});
 
+	pi.on("request_start", async (event, ctx) => relayHost.onRequestStart(event, callOf(ctx)));
+
 	pi.on("tool_call", async (event, ctx) => {
 		relayHost.onDirectCall({ name: event.toolName, parentToolCallId: event.parentToolCallId }, callOf(ctx));
 		return undefined;

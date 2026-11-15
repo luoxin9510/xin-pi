@@ -101,6 +101,7 @@ import {
 	type MessageStartEvent,
 	type MessageUpdateEvent,
 	type ReplacedSessionContext,
+	type RequestStartEvent,
 	type SessionBeforeCompactResult,
 	type SessionBeforeTreeResult,
 	type SessionBoundaryDraft,
@@ -918,6 +919,10 @@ export class AgentSession {
 		return { ...context, messages: this.sessionManager.buildSessionProjection().messages };
 	}
 
+	private async _emitRequestStart(event: RequestStartEvent): Promise<void> {
+		if (this._extensionRunner.hasHandlers("request_start")) await this._extensionRunner.emit(event);
+	}
+
 	private _installAgentRequestProjection(): void {
 		const previousPrepareRequest = this.agent.prepareRequest;
 		this.agent.prepareRequest = async (request, signal) => {
@@ -945,16 +950,21 @@ export class AgentSession {
 			let { previous, context, projection } = await prepare();
 			const model = previous?.model ?? this.agent.state.model;
 			const thinkingLevel = previous?.thinkingLevel ?? this.agent.state.thinkingLevel;
-			if (!isVirtualModel(model)) return { ...previous, context, model, thinkingLevel };
-
-			// The selection stays in agent state; only this request uses the routed model. A routing
-			// failure rejects, which ends the run with an error response. Only messages the user wrote
-			// start a turn; extension messages can follow them, e.g. from before_agent_start.
+			// Only messages the user wrote start a turn; extension messages can follow them, e.g. from
+			// before_agent_start.
 			const lastResponse = context.messages.findLastIndex((message) => message.role === "assistant");
 			const userTurn = context.messages.slice(lastResponse + 1).some((message) => message.role === "user");
+			const reason = failed ? "retry" : userTurn ? "user" : "continuation";
+			if (!isVirtualModel(model)) {
+				await this._emitRequestStart({ type: "request_start", reason, model });
+				return { ...previous, context, model, thinkingLevel };
+			}
+
+			// The selection stays in agent state; only this request uses the routed model. A routing
+			// failure rejects, which ends the run with an error response.
 			const state = getVirtualModelState(this.sessionManager.getBranch(), model.provider, model.id);
 			const route = await this._modelRuntime.resolveModel(model, convertToLlm(context.messages), {
-				reason: failed ? "retry" : userTurn ? "user" : "continuation",
+				reason,
 				thinkingLevel,
 				signal,
 				failed,
@@ -967,8 +977,16 @@ export class AgentSession {
 				);
 				if (entry) this._emit({ type: "entry_appended", entry });
 			}
-			// The route stands: the router already decided this request. The state entry does not change
-			// the projection.
+			// The route is committed: the state entry is on the branch. Handlers of request_start may append
+			// entries; none of them changes the projection built above.
+			await this._emitRequestStart({
+				type: "request_start",
+				reason,
+				model: route.model,
+				routerState: route.state ?? state,
+				previousRouterState: state,
+			});
+			// The route stands: the router already decided this request.
 			if (this._exceedsCompactionThreshold(route.model, projection)) {
 				await this._runAutoCompaction("threshold", false);
 				({ previous, context } = await prepare());

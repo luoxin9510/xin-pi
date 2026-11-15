@@ -2,7 +2,7 @@ import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentTool } from "xpi-agent-core";
 import { type FauxResponseStep, fauxAssistantMessage, fauxToolCall } from "xpi-ai";
-import type { ExtensionContext } from "../../src/core/extensions/index.ts";
+import type { ExtensionAPI, ExtensionContext } from "../../src/core/extensions/index.ts";
 import { type ModelRoute, type ModelRouteRequest, VIRTUAL_MODEL_STATE_ENTRY } from "../../src/core/virtual-models.ts";
 import { createHarness, type Harness, type HarnessOptions } from "./harness.ts";
 
@@ -341,6 +341,151 @@ describe("AgentSession virtual models", () => {
 		expect(reasons()).toEqual(["user", "continuation", "user", "direct"]);
 		expect(states).toEqual([undefined, { turns: 1 }, { turns: 1 }, undefined]);
 		expect(stored()).toHaveLength(2);
+	});
+
+	describe("request_start", () => {
+		type Log = string[];
+		/** An extension that logs request_start, the transforms and the entries around them, in order. */
+		function logger(log: Log, seen: Record<string, unknown>[]) {
+			return (pi: ExtensionAPI) => {
+				pi.on("request_start", async (event, ctx) => {
+					const branch = ctx.sessionManager.getBranch();
+					const last = branch.at(-1);
+					log.push(
+						last?.type === "custom" && last.customType === VIRTUAL_MODEL_STATE_ENTRY
+							? "request_start(after state)"
+							: "request_start(no state)",
+					);
+					seen.push({
+						reason: event.reason,
+						model: event.model.id,
+						routerState: event.routerState,
+						previousRouterState: event.previousRouterState,
+					});
+					pi.appendEntry("test.mark", { n: seen.length });
+				});
+				pi.on("context", async () => {
+					log.push("context");
+					return undefined;
+				});
+				pi.on("context_with_system", async () => {
+					log.push("context_with_system");
+					return undefined;
+				});
+			};
+		}
+		const counting: Route = (request, ctx) => {
+			const turns = (request.state as { turns: number } | undefined)?.turns ?? 0;
+			return { ...defaultRoute(request, ctx), state: { turns: turns + 1 } };
+		};
+		const customTypes = (harness: Harness) =>
+			harness.sessionManager.getBranch().flatMap((entry) => (entry.type === "custom" ? [entry.customType] : []));
+
+		it("fires once per request, after the state entry and before the context transforms", async () => {
+			const log: Log = [];
+			const seen: Record<string, unknown>[] = [];
+			const { harness } = await createRoutedHarness(counting, { extensionFactories: [logger(log, seen)] });
+			harness.setResponses([
+				fauxAssistantMessage(fauxToolCall("echo", { text: "hi" }), { stopReason: "toolUse" }),
+				fauxAssistantMessage("done"),
+			]);
+
+			await harness.session.prompt("hello");
+
+			expect(log.slice(0, 3)).toEqual(["request_start(after state)", "context", "context_with_system"]);
+			expect(log.filter((item) => item.startsWith("request_start"))).toHaveLength(2);
+			expect(seen).toEqual([
+				{ reason: "user", model: "large", routerState: { turns: 1 }, previousRouterState: undefined },
+				{ reason: "continuation", model: "large", routerState: { turns: 2 }, previousRouterState: { turns: 1 } },
+			]);
+			// The handler's entry follows the state entry of the same request.
+			expect(customTypes(harness)).toEqual([
+				VIRTUAL_MODEL_STATE_ENTRY,
+				"test.mark",
+				VIRTUAL_MODEL_STATE_ENTRY,
+				"test.mark",
+			]);
+		});
+
+		it("is not fired when the router throws or names a model that is not in the catalog", async () => {
+			const log: Log = [];
+			const seen: Record<string, unknown>[] = [];
+			let mode: "ok" | "throw" | "unknown" = "throw";
+			const { harness } = await createRoutedHarness(
+				(request, ctx) => {
+					if (mode === "throw") throw new Error("router unavailable");
+					if (mode === "unknown")
+						return { model: { ...ctx.modelRegistry.find("faux", "small")!, id: "ghost" }, thinkingLevel: "off" };
+					return defaultRoute(request, ctx);
+				},
+				{ extensionFactories: [logger(log, seen)] },
+			);
+			await harness.session.prompt("first");
+			mode = "unknown";
+			await harness.session.prompt("second");
+			expect(seen).toEqual([]);
+			expect(customTypes(harness)).toEqual([]);
+
+			mode = "ok";
+			harness.setResponses([fauxAssistantMessage("answer")]);
+			await harness.session.prompt("third");
+			expect(seen).toHaveLength(1);
+		});
+
+		it("does not break the request when a handler throws", async () => {
+			const { harness } = await createRoutedHarness(defaultRoute, {
+				extensionFactories: [
+					(pi) => {
+						pi.on("request_start", async () => {
+							throw new Error("handler failed");
+						});
+					},
+				],
+			});
+			harness.setResponses([fauxAssistantMessage("answer")]);
+
+			await harness.session.prompt("hello");
+
+			expect(harness.session.messages.at(-1)).toMatchObject({ role: "assistant", stopReason: "stop" });
+		});
+
+		it("fires again on a retry, with the same router state on both sides", async () => {
+			const log: Log = [];
+			const seen: Record<string, unknown>[] = [];
+			const { harness } = await createRoutedHarness(
+				(request, ctx) => ({ ...defaultRoute(request, ctx), state: request.state ?? { turns: 1 } }),
+				{
+					extensionFactories: [logger(log, seen)],
+					settings: { retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 } },
+				},
+			);
+			harness.setResponses([
+				fauxAssistantMessage("", { stopReason: "error", errorMessage: "overloaded_error" }),
+				fauxAssistantMessage("done"),
+			]);
+
+			await harness.session.prompt("hello");
+
+			expect(seen).toEqual([
+				{ reason: "user", model: "large", routerState: { turns: 1 }, previousRouterState: undefined },
+				{ reason: "retry", model: "large", routerState: { turns: 1 }, previousRouterState: { turns: 1 } },
+			]);
+		});
+
+		it("fires for a physical model with no router states", async () => {
+			const log: Log = [];
+			const seen: Record<string, unknown>[] = [];
+			const { harness } = await createRoutedHarness(defaultRoute, { extensionFactories: [logger(log, seen)] });
+			await harness.session.setModel(harness.session.modelRuntime.getModel("faux", "small")!);
+			harness.setResponses([fauxAssistantMessage("answer")]);
+
+			await harness.session.prompt("hello");
+
+			expect(log.slice(0, 3)).toEqual(["request_start(no state)", "context", "context_with_system"]);
+			expect(seen).toEqual([
+				{ reason: "user", model: "small", routerState: undefined, previousRouterState: undefined },
+			]);
+		});
 	});
 
 	it("does not route compactions that an extension supplies", async () => {

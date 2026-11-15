@@ -13,6 +13,7 @@ import type {
 	RelayCall,
 	RelayDraft,
 	RelayHost,
+	RelayRequestStart,
 	RelayRoute,
 	RelayRouteRequest,
 	RelaySection,
@@ -23,7 +24,7 @@ import type {
 } from "./host.ts";
 import { correction, HANDBACK_FIELDS, HANDOVER_FIELDS, leadSection, reminder, workerSection } from "./prompts.ts";
 import { type AcceptanceResult, acceptancePassed, buildRecord, describeAcceptance, type Handover } from "./record.ts";
-import { HANDBACK_TOOL, HANDOVER_TOOL, nextState, USER_HANDOVER_MARKER } from "./router.ts";
+import { HANDBACK_TOOL, HANDOVER_TOOL, nextState, type RelayState, USER_HANDOVER_MARKER } from "./router.ts";
 import {
 	assistantText,
 	DIRECT_ENTRY,
@@ -62,8 +63,14 @@ function firstLine(text: string, max: number): string {
 	return line.length <= max ? line : `${line.slice(0, max)}...`;
 }
 
+/** Other shapes are ignored on purpose: a state this relay did not write is no transition. */
+function asState(value: unknown): RelayState | undefined {
+	const state = value as RelayState | undefined;
+	return state && (state.phase === "lead" || state.phase === "worker") ? state : undefined;
+}
+
 export interface Relay {
-	/** The physical model, the thinking level and the next stored state for one request. */
+	/** The physical model, the thinking level and the next stored state for one request. No side effects. */
 	route(request: RelayRouteRequest, call: RelayCall): RelayRoute;
 	/** The `relay` section of the system prompt. Undefined: leave the prompt alone. */
 	section(call: RelayCall): RelaySection | undefined;
@@ -80,6 +87,12 @@ export interface Relay {
 	onBeforeAgentStart(call: RelayCall): void;
 	/** Tool sync, then pause or resume the worker's phase. */
 	onModelSelect(model: { provider: string; id: string } | undefined, call: RelayCall): void;
+	/**
+	 * The commit point of a request: the routed state is stored and the physical model resolved. A handover takes
+	 * effect here, as one `relay.transition` entry and one notice. A retry meets the same stored state on both sides
+	 * and writes nothing.
+	 */
+	onRequestStart(event: RelayRequestStart, call: RelayCall): void;
 	/** The end of a run: acceptance commands, the hand-back record, continuations. Undefined: nothing to do. */
 	beforeSettle(event: SettleEvent, call: RelayCall): Promise<SettleResult | undefined>;
 	commands: {
@@ -281,20 +294,25 @@ export function createRelay(host: RelayHost): Relay {
 			if (request.reason === "direct") {
 				return { model: physical(call, cfg.worker, "worker"), thinkingLevel: cfg.workerThinking };
 			}
-			const before = request.state ?? { phase: "lead", round: 0 };
 			const state = nextState(request.state, request.messages);
 			if (state.phase === "worker") {
-				// The model first: a router that fails writes nothing, so a retry cannot write a second transition.
-				const model = physical(call, cfg.worker, "worker");
-				// Only a handover takes effect here; the hand back is written where the record is made.
-				if (before.phase === "lead") recordTransition(call, "lead", "worker", "handover", state.round);
-				return { model, thinkingLevel: cfg.workerThinking, state };
+				return { model: physical(call, cfg.worker, "worker"), thinkingLevel: cfg.workerThinking, state };
 			}
 			return {
 				model: physical(call, cfg.lead, "lead"),
 				thinkingLevel: state.round === 0 ? cfg.leadThinking.plan : cfg.leadThinking.review,
 				state,
 			};
+		},
+
+		onRequestStart(event, call) {
+			if (!isRelay(call.model)) return;
+			const before = asState(event.previousRouterState) ?? { phase: "lead", round: 0 };
+			const state = asState(event.routerState);
+			// Only a handover takes effect here; the hand back is written where the record is made.
+			if (state && before.phase === "lead" && state.phase === "worker") {
+				recordTransition(call, "lead", "worker", "handover", state.round);
+			}
 		},
 
 		section(call) {
