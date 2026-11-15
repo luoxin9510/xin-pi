@@ -3,8 +3,9 @@
 // be tested. `relay.ts` builds the view from the session entries, calls this, and carries out the effects. The rows
 // are in the order of decision; where two match the earlier one wins. See docs/relay.md.
 
+import type { ToolResultSignal } from "xpi-ai";
 import { defineGraph, transition as graphTransition, type Row } from "./graph/graph.ts";
-import { handoverMarker, type RelayState } from "./router.ts";
+import { HANDOVER_SIGNAL, handoverResult, type RelayState } from "./router.ts";
 
 /** Times a role is corrected or continued before the machine hands the work back as blocked (or, for the lead, stops). */
 export const MAX_REPAIRS = 2;
@@ -54,7 +55,7 @@ export type RelayEvent =
 	| { type: "handback"; status: "done" | "blocked"; byUser: boolean }
 	/**
 	 * A run settles. `afterRelayError`: its last turn ended right after a `relay.mixup`. `handoverLanded` (default true):
-	 * the handover's marker really ended a tool result; false when the call was cut off after its entry was written.
+	 * the handover's signal really reached a tool result; false when the call was cut off after its entry was written.
 	 * `workerIdle`: the worker has made no tool call since the handover (it answered with text only).
 	 */
 	| { type: "run_end"; afterRelayError: boolean; handoverLanded?: boolean; workerIdle?: boolean }
@@ -78,8 +79,8 @@ export type EntryKind =
 	| "relay.void";
 
 export type Effect =
-	/** The tool call's result. `terminate` ends the script and the turn. */
-	| { type: "result"; text: string; isError?: boolean; terminate?: boolean }
+	/** The tool call's result. `terminate` ends the script and the turn. `signal` is kept on the result for the host. */
+	| { type: "result"; text: string; isError?: boolean; terminate?: boolean; signal?: ToolResultSignal }
 	/** A custom entry on the branch. Without `data` the executor supplies it (the call's own arguments). */
 	| { type: "append_entry"; entry: EntryKind; data?: Record<string, unknown> }
 	| { type: "run_acceptance" }
@@ -198,10 +199,6 @@ function stallReason(view: RelayView, event: EventOf<"run_end">): StallReason | 
 	return event.workerIdle === true && !view.userAsked && !view.blocked ? "idle" : undefined;
 }
 
-const handoverResult = (round: number) =>
-	// One neutral line, then the marker, which stays the last line of the result.
-	`Handed over to the worker model (round ${round}): from the next message on the worker answers; the messages above were written by the lead.\n${handoverMarker(round)}`;
-
 function handedOver(view: RelayView): RelayView {
 	return { ...view, pending: "handover", blocked: false, mixups: 0, stalls: 0, userAsked: false };
 }
@@ -256,13 +253,18 @@ const ROWS: readonly RelayRow[] = [
 			view: "lead",
 			event: "handover",
 			next: "pending worker, round + 1",
-			effects: "`relay.handover` entry; the marker as the result; the turn ends",
+			effects: "`relay.handover` entry; a `relay.handover` signal on the result; the turn ends",
 		},
 		step: (view) => ({
 			next: handedOver(view),
 			effects: [
 				{ type: "append_entry", entry: "relay.handover" },
-				{ type: "result", text: handoverResult(view.round + 1), terminate: true },
+				{
+					type: "result",
+					text: handoverResult(view.round + 1),
+					terminate: true,
+					signal: { type: HANDOVER_SIGNAL, data: { round: view.round + 1 } },
+				},
 			],
 		}),
 	}),
@@ -419,7 +421,7 @@ const ROWS: readonly RelayRow[] = [
 		when: (view, event) => view.pending === "handover" && event.handoverLanded === false,
 		diagram: false,
 		doc: {
-			view: "lead, run ends with a pending handover whose result did not end with the marker",
+			view: "lead, run ends with a pending handover whose result did not carry the signal",
 			event: "run ends",
 			next: "pending voided",
 			effects: "`relay.void`; a line; the lead goes on",

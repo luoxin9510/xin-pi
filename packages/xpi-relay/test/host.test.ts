@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AgentMessage } from "xpi-agent-core";
-import type { Api, Model } from "xpi-ai";
+import type { Api, Model, ToolResultSignal } from "xpi-ai";
 import {
 	createRelay,
 	HANDBACK_ENTRY,
@@ -104,11 +104,12 @@ const assistant = (text: string, toolCall = false) => ({
 	content: toolCall ? [{ type: "toolCall", id: "c1", name: "codemode", arguments: {} }] : [{ type: "text", text }],
 });
 const user = (text: string) => ({ role: "user", content: text });
-const toolResult = (toolName: string, text: string) => ({
+const toolResult = (toolName: string, text: string, signal?: ToolResultSignal) => ({
 	role: "toolResult",
 	toolCallId: "c1",
 	toolName,
 	content: [{ type: "text", text }],
+	...(signal ? { signal } : {}),
 	isError: false,
 });
 const config = { lead: "faux/large", worker: "faux/small", maxRounds: 1 };
@@ -162,7 +163,7 @@ describe("createRelay against a fake host", () => {
 	});
 
 	describe("handover", () => {
-		it("writes the entry, answers with the marker and ends the turn; a second call in the response is 'already'", async () => {
+		it("writes the entry, answers with a neutral sentence and the signal, and ends the turn; a second call in the response is 'already'", async () => {
 			const { relay, call, entries } = make();
 			const outcome = await relay.handover(
 				{ plan: "do it", acceptance: ["true", " "], criteria: "c" },
@@ -171,7 +172,11 @@ describe("createRelay against a fake host", () => {
 			);
 			expect(outcome.terminate).toBe(true);
 			expect(outcome.text).toMatch(/^Handed over to the worker model \(round 1\)/);
-			expect(outcome.text.split("\n").at(-1)).toBe('<relay-handover round="1"/>');
+			// The model sees one sentence and no marker line; the signal carries the handover to the router.
+			expect(outcome.text).toBe(
+				"Handed over to the worker model (round 1): from the next message on the worker answers; the messages above were written by the lead.",
+			);
+			expect(outcome.signal).toEqual({ type: "relay.handover", data: { round: 1 } });
 			const written = entries.find((entry) => entry.type === "custom" && entry.customType === HANDOVER_ENTRY);
 			expect(written?.type === "custom" && written.data).toMatchObject({
 				round: 1,
@@ -205,7 +210,7 @@ describe("createRelay against a fake host", () => {
 			const request: RelayRouteRequest = {
 				reason: "continuation",
 				state: { phase: "lead", round: 0 },
-				messages: [assistant("", true), toolResult("codemode", `ok\n${outcome.text}`)] as never,
+				messages: [assistant("", true), toolResult("codemode", `ok\n${outcome.text}`, outcome.signal)] as never,
 			};
 			const route = relay.route(request, call);
 			expect(route.model.id).toBe("small");
@@ -223,7 +228,7 @@ describe("createRelay against a fake host", () => {
 			// A retry meets the same stored state on both sides and writes nothing.
 			relay.onRequestStart({ previousRouterState: route.state, routerState: route.state }, call);
 			expect(entries).toHaveLength(written + 1);
-			// Without the marker the lead goes on.
+			// Without the signal the lead goes on.
 			const lead = relay.route(
 				{ ...request, messages: [assistant("", true), toolResult("codemode", "ok")] as never },
 				call,
@@ -231,7 +236,7 @@ describe("createRelay against a fake host", () => {
 			expect(lead.model.id).toBe("large");
 		});
 
-		it("voids a handover whose result did not end with the marker, and the lead goes on", async () => {
+		it("voids a handover whose result did not carry the signal, and the lead goes on", async () => {
 			const { relay, call, customTypes, state, message, notices } = make();
 			state("lead", 0);
 			message(user("go"));
@@ -254,7 +259,18 @@ describe("createRelay against a fake host", () => {
 			message(user("go"));
 			const outcome = await relay.handover({ plan: "do it" }, undefined, call);
 			message(assistant("", true));
-			message(toolResult("codemode", outcome.text));
+			message(toolResult("codemode", outcome.text, outcome.signal));
+			const result = await relay.beforeSettle({ outcome: "completed", contextMessages: [] }, call);
+			expect(result).toEqual({ entries: [], continue: true });
+		});
+
+		it("still continues a handover of an older session, which ended its result with the marker line", async () => {
+			const { relay, call, state, message } = make();
+			state("lead", 0);
+			message(user("go"));
+			await relay.handover({ plan: "do it" }, undefined, call);
+			message(assistant("", true));
+			message(toolResult("codemode", 'Script completed\nOutput:\nHanded over\n<relay-handover round="1"/>'));
 			const result = await relay.beforeSettle({ outcome: "completed", contextMessages: [] }, call);
 			expect(result).toEqual({ entries: [], continue: true });
 		});

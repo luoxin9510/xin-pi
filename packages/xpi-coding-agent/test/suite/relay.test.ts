@@ -1,7 +1,14 @@
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentTool } from "xpi-agent-core";
-import { type Context, type FauxResponseStep, fauxAssistantMessage, fauxToolCall, type Message } from "xpi-ai";
+import {
+	type Context,
+	type FauxResponseStep,
+	fauxAssistantMessage,
+	fauxToolCall,
+	type Message,
+	type ToolResultSignal,
+} from "xpi-ai";
 import {
 	handoverMarker,
 	leadFacts,
@@ -180,9 +187,15 @@ describe("relay", () => {
 		}
 		expect(system[2]).not.toContain("tools.handover");
 		expect(system[2]).not.toContain("Relay prices:");
-		// The worker reads the whole conversation, and the marker ends the handover's result; nothing tells it its role.
+		// The worker's section names the handover by its result sentence, not by a marker line.
+		expect(system[2]).toContain(
+			"The assistant messages before the tool result that says `Handed over to the worker model (round 1)` were written by the lead",
+		);
+		expect(system[2]).not.toContain("<relay-handover round");
+		// The worker reads the whole conversation, which holds that result sentence and no marker; nothing tells it its role.
 		expect(seen[2].text).toContain("LEAD-EARLIER-REPLY");
-		expect(seen[2].text).toContain(handoverMarker(1));
+		expect(seen[2].text).toContain("Handed over to the worker model (round 1)");
+		expect(seen[2].text).not.toContain("<relay-handover round");
 		expect(seen[2].text).not.toContain("You are the worker");
 		// The lead reads the record: its own note and replies, the user's words, the report, the acceptance result.
 		const review = seen[4].text;
@@ -237,7 +250,7 @@ describe("relay", () => {
 		expect(system[2]).toContain("call handback({...}).");
 		// Direct calls are what the fallback expects: no repair line, no entry.
 		expect(seen[2].text).not.toContain("from codemode next time");
-		expect(seen[2].text).toContain(handoverMarker(1));
+		expect(seen[2].text).toContain("Handed over to the worker model (round 1)");
 		expect(seen[4].text).toContain("WORKER-REPORT-TEXT");
 		await harness.session.prompt("/relay");
 		expect(notes.at(-1)).toContain("codemode is off: the hand tools are direct tools");
@@ -432,11 +445,12 @@ describe("relay", () => {
 		await harness.session.prompt("go");
 
 		expect(seen.map((request) => request.model)).toEqual(["large", "small", "large"]);
-		// The result as the worker reads it: the note first, the marker as the last line.
+		// The result as the worker reads it: the note first, then the neutral sentence, and no marker line.
 		expect(seen[1].text).toContain(
 			"(Call handover from codemode next time: await tools.handover(...).)\nHanded over to the worker model (round 1)",
 		);
-		expect(seen[1].text).toContain(`the messages above were written by the lead.\n${handoverMarker(1)}`);
+		expect(seen[1].text).toContain("the messages above were written by the lead.");
+		expect(seen[1].text).not.toContain("<relay-handover round");
 		// The role is the stored phase: a hand tool called by the worker is labelled the worker's.
 		expect(entries("relay.direct")).toMatchObject([
 			{ tool: "handover", role: "lead" },
@@ -508,8 +522,8 @@ describe("relay", () => {
 		await harness.session.prompt("go");
 		expect(entries("relay.handover")).toHaveLength(1);
 		expect(entries("relay.mixup")).toHaveLength(0);
-		// The worker reads both results: one ends with the marker, the other says "already".
-		expect(seen[1].text.split(handoverMarker(1))).toHaveLength(2);
+		// The worker reads both results: one says it handed over, the other says "already".
+		expect(seen[1].text.split("Handed over to the worker model (round 1)")).toHaveLength(2);
 		expect(seen[1].text.split("Already handed over.")).toHaveLength(2);
 		// One handover took effect: the worker answered next, once.
 		expect(seen.map((request) => request.model)).toEqual(["large", "small", "small", "large"]);
@@ -629,15 +643,19 @@ describe("relay", () => {
 	describe("nextState", () => {
 		const user = (text: string): Message => ({ role: "user", content: text, timestamp: 0 });
 		const answer = fauxAssistantMessage("answer") as Message;
-		const result = (toolName: string, text: string, isError = false): Message => ({
+		const result = (toolName: string, text: string, isError = false, signal?: ToolResultSignal): Message => ({
 			role: "toolResult",
 			toolCallId: "1",
 			toolName,
 			content: [{ type: "text", text }],
+			...(signal ? { signal } : {}),
 			isError,
 			timestamp: 0,
 		});
-		const handoverResult = result("handover", handoverMarker(1));
+		const signalOf = (round: number): ToolResultSignal => ({ type: "relay.handover", data: { round } });
+		const handoverResult = result("handover", "Handed over to the worker model (round 1)", false, signalOf(1));
+		// Sessions written before the signal ended the result with this marker line.
+		const oldHandoverResult = result("handover", handoverMarker(1));
 
 		it("starts with the lead and changes phase once per handover and hand back", () => {
 			expect(nextState(undefined, [user("hi")])).toEqual({ phase: "lead", round: 0 });
@@ -653,7 +671,31 @@ describe("relay", () => {
 			});
 		});
 
-		it("accepts a handover only as the last line of a handover or codemode result with the next round", () => {
+		it("accepts a handover from the signal of a handover or codemode result with the next round", () => {
+			const lead = { phase: "lead" as const, round: 0 };
+			const worker = { phase: "worker" as const, round: 1 };
+			const script = result("codemode", "Script completed\nOutput:\nHanded over", false, signalOf(1));
+			expect(nextState(lead, [user("hi"), answer, script])).toEqual({ phase: "worker", round: 1 });
+			// Another tool's signal, another signal type, another round, a failed call and a marker in the text do not count.
+			expect(nextState(lead, [user("hi"), answer, result("bash", "x", false, signalOf(1))])).toBe(lead);
+			expect(
+				nextState(lead, [
+					user("hi"),
+					answer,
+					result("handover", "x", false, { type: "other", data: { round: 1 } }),
+				]),
+			).toBe(lead);
+			expect(nextState(lead, [user("hi"), answer, result("handover", "x", false, signalOf(2))])).toBe(lead);
+			expect(nextState(lead, [user("hi"), answer, result("handover", "x", true, signalOf(1))])).toBe(lead);
+			expect(nextState(lead, [user("hi"), answer, result("read", `notes\n${handoverMarker(1)}`, false)])).toBe(lead);
+			expect(nextState(worker, [user("hi"), answer, script])).toBe(worker);
+		});
+
+		it("accepts the handover of an older session: the marker as the last line of a handover or codemode result", () => {
+			expect(nextState({ phase: "lead", round: 0 }, [user("hi"), answer, oldHandoverResult])).toEqual({
+				phase: "worker",
+				round: 1,
+			});
 			const lead = { phase: "lead" as const, round: 0 };
 			const worker = { phase: "worker" as const, round: 1 };
 			// A codemode result ends with the marker.

@@ -155,7 +155,11 @@ export function createRelay(host: RelayHost): Relay {
 	const toolResult = (result: Extract<Effect, { type: "result" }> | undefined, hint: string): ToolOutcome => {
 		if (!result) throw new Error("Nothing to do.");
 		if (result.isError) throw new Error(hint || result.text);
-		return { text: result.text, ...(result.terminate ? { terminate: true } : {}) };
+		return {
+			text: result.text,
+			...(result.terminate ? { terminate: true } : {}),
+			...(result.signal ? { signal: result.signal } : {}),
+		};
 	};
 
 	async function handover(
