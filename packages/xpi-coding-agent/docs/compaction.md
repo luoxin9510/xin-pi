@@ -38,6 +38,8 @@ During a multi-turn agent run, Pi checks the canonical projected context after t
 
 A provider context-overflow error or an early final `stopReason: "length"` can select one compact-and-retry recovery attempt. Length responses with tool calls retain their synthetic failed tool results and follow the ordinary tool/queue scheduler rather than forcing the run to end.
 
+A virtual model's route can add a lower trigger, see [A route context limit](#a-route-context-limit).
+
 You can also trigger manually with `/compact [instructions]`, where optional instructions focus the summary.
 
 ### Pruning Old Tool Output First
@@ -48,7 +50,7 @@ Before a summary is made, automatic compaction (threshold and overflow recovery,
 [Tool output removed to save context: about 1200 tokens. Run the tool again if you need it.]
 ```
 
-For a threshold trigger on a non-virtual model, if the re-estimated context is then under the threshold, no summary is made and `session_before_compact` does not fire. This shortcut is threshold-only: after a provider overflow (the estimate is not trustworthy and recovery is single-shot) and under a virtual model (the trigger measured the routed model's window), Pi prunes and then always continues into the summary. Otherwise compaction continues as described below, on the pruned context. Pruning is not a per-turn step, so it never changes a warm prompt cache by itself.
+For a threshold trigger on a non-virtual model, if the re-estimated context is then under the threshold, no summary is made and `session_before_compact` does not fire. This shortcut is threshold-only: after a provider overflow (the estimate is not trustworthy and recovery is single-shot) and under a virtual model (the trigger measured the routed model's window), Pi prunes and then always continues into the summary, except under a [route context limit](#a-route-context-limit), where the target is 90 percent of the limit. Otherwise compaction continues as described below, on the pruned context. Pruning is not a per-turn step, so it never changes a warm prompt cache by itself.
 
 Selection walks the tool results on the current branch from newest to oldest:
 
@@ -60,6 +62,14 @@ Selection walks the tool results on the current branch from newest to oldest:
 Each pruned result gets one `context_edit` entry (marked `prune: true`) that replaces its content, images included, with the placeholder. The session file stays append-only, the original output stays in it for `/tree`, fork and export, and the edits follow the branch they were made on. No separate extension event exists; extensions see the `entry_appended` events.
 
 A pruning edit replaces content of an entry that is often below the cut point, but it does not stop a later compaction from cutting past it. The cut point moves into a context-invisible suffix only when no other replacement edit touches earlier input (see Cut Point Rules); pruning edits are exempt from that rule because they only shrink what is summarized.
+
+### A route context limit
+
+A virtual model's `route()` can return `contextLimit` (prompt tokens, see [Virtual models](virtual-models.md#limit-the-context)). The request compacts when the estimated context exceeds the smaller of the limit and the usual threshold. Without a limit nothing changes.
+
+Under a route limit the pruning shortcut applies, because the limit is known and comparable: after pruning old tool output, if the estimate is at most 90 percent of the limit, no summary is written, `session_before_compact` does not fire and the conversation's messages stay. Otherwise compaction continues into the summary. The 10 percent is headroom for the estimate's error: right after a prune the estimate is characters divided by 4 for the whole context, which tends to undercount code and JSON, so a request just after a prune can still go out above the limit. Pruning rewrites the cached prompt prefix from the first pruned tool result on, which costs one cache write of the context; a summary request followed by the same rewrite costs more.
+
+A limit-triggered compaction is skipped when the newest context entry on the branch is a compaction that no assistant response has followed. The entry gets `contextLimit`, set only when the limit is what triggered the compaction, also when an extension supplied the summary. A limit at or above the usual threshold, or a context above both, makes an ordinary threshold compaction without the field.
 
 ### How It Works
 
@@ -174,6 +184,7 @@ interface CompactionEntry<T = unknown> {
   usage?: Usage;       // LLM usage that generated the summary
   fromHook?: boolean;  // true if provided by extension (legacy field name)
   details?: T;         // implementation-specific data
+  contextLimit?: number; // route context limit that triggered it, written by the core
 }
 
 // Default compaction uses this for details (from compaction.ts):

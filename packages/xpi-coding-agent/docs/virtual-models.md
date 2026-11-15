@@ -87,6 +87,15 @@ Returning `previous` for `continuation` and `failed` for `retry` keeps prompt ca
 
 If `route()` throws, or returns a virtual model or a model without credentials, the request ends with an error response.
 
+### Limit the context
+
+`route()` can also return `contextLimit`, a number of prompt tokens. Before the request, Pi compacts when the estimated context exceeds the smaller of this limit and the routed model's usual threshold (its context window minus `compaction.reserveTokens`). Without `contextLimit` nothing changes. The value must be a positive integer; anything else ends the request with an error that names the virtual model and the value. Pi ignores it for `direct` requests.
+
+- A limit at or above the usual threshold never delays a compaction, and a compaction the threshold triggers is an ordinary one.
+- A limit-triggered compaction is skipped when the newest context entry on the branch is a compaction that no assistant response has followed, so a limit the compaction cannot get under does not compact on every request.
+- Pi prunes old tool output first. When the pruned estimate is at most 90 percent of the limit, no summary is written and the conversation's messages stay; otherwise a summary follows. See [Compaction](compaction.md#a-route-context-limit).
+- The compaction entry records the limit in its `contextLimit` field, and `session_before_compact` carries it, whoever supplies the summary.
+
 ## Keep routing state
 
 `route()` can return `state` next to the model. Pi stores it on the session branch and passes it back as `request.state` on later requests. Use it for decisions the transcript does not record, such as classifier results or a routing phase:

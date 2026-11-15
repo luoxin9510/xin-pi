@@ -5,12 +5,25 @@ the real-model runs (the lead runs them, budget $10) before the second merges.
 
 ## PR D: the core seam
 
-- [ ] D1 `ModelRoute.contextLimit`, carried and validated in `resolveModel`, ignored for `direct`: the request
+- [x] D1 `ModelRoute.contextLimit`, carried and validated in `resolveModel`, ignored for `direct`: the request
       compacts at the smaller of the limit and today's threshold; no second limit compaction without a response in
       between; `contextLimit` on the compaction entry, written by the core; tests
-- [ ] D2 prune first under a route limit, with the limit passed down: no summary when pruning gets to 90 percent
+      Done: `ModelRoute.contextLimit`, `_routeCompactionTrigger`, `appendCompaction(..., contextLimit)`, event field;
+      `test/suite/virtual-model-context-limit.test.ts` (9 tests).
+- [x] D2 prune first under a route limit, with the limit passed down: no summary when pruning gets to 90 percent
       of the limit; tests
-- [ ] D3 docs: `virtual-models.md`, `compaction.md`, `session-format.md`, `extensions.md`, `porting.md`
+      Done: the limit goes `prepareRequest` -> `_runAutoCompaction` -> `_pruneToolOutputBeforeCompaction`; covered by
+      the same test file (prune-only and prune-then-summary cases).
+- [x] D3 docs: `virtual-models.md`, `compaction.md`, `session-format.md`, `extensions.md`, `porting.md`
+      Done: all five, plus a section in `compaction.md`; no generated docs depend on these inputs.
+
+### Deviations (PR D)
+
+- A context above the usual threshold as well as the limit compacts as an ordinary threshold compaction (no
+  `contextLimit` on the entry, no 90 percent prune target), since the limit is then not what triggered it.
+- "Newest context-changing entry" is read as the newest message, custom message, branch summary or compaction entry;
+  context edits, custom state entries and labels are skipped.
+- With compaction disabled (`compaction.enabled: false`) a route limit does not compact either.
 
 ## PR E: relay
 
