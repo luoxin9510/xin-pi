@@ -63,6 +63,7 @@ function firstLine(text: string, max: number): string {
 	return line.length <= max ? line : `${line.slice(0, max)}...`;
 }
 
+/** Other shapes are ignored on purpose: a state this relay did not write is no transition. */
 function asState(value: unknown): RelayState | undefined {
 	const state = value as RelayState | undefined;
 	return state && (state.phase === "lead" || state.phase === "worker") ? state : undefined;

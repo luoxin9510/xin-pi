@@ -964,10 +964,12 @@ export interface ContextWithSystemEvent {
 }
 
 /**
- * Fired once per model request, after the route is committed and before threshold compaction and the context
- * transform (`context`, `context_with_system`). For a virtual model the routed state is already stored on the
- * branch; for a physical model there are no router states. A retry fires it again. It is not fired when routing, or
- * resolving the physical model, fails. Handlers may append entries; the return value is ignored.
+ * Fired once per model request, after the route is committed and before the context transform (`context`,
+ * `context_with_system`). For a virtual model the routed state is already stored on the branch and threshold
+ * compaction runs after this event; for a physical model there are no router states and threshold compaction has
+ * already run. A retry fires it again. For a virtual model it is not fired when routing, or resolving the physical
+ * model, fails; for a physical model it fires before credentials are used. Handlers may append entries; the return
+ * value is ignored.
  */
 export interface RequestStartEvent {
 	type: "request_start";

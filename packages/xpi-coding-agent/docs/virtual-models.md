@@ -26,7 +26,7 @@ Providers only receive physical models. Assistant messages name the physical mod
 
 In interactive mode, the footer shows the routed model next to the selection, for example `auto • high → gpt-5.6-luna • medium`. `/session` lists the cost for each physical model.
 
-After a request is routed and its state is stored, the `request_start` event fires; see [extensions](extensions.md#request_start).
+After a request is routed and its state is stored, the `request_start` event fires (not when routing or resolving the physical model fails); see [extensions](extensions.md#request_start).
 
 Context usage uses the limits of the physical model that produced the latest response, even if that response came before switching to the virtual model. Without such a response, it uses the limits declared on the virtual model, if any. Compaction checks the same limits, and again the limits of the model each request is routed to. If that model's context window is too small for the conversation, Pi compacts before sending the request; the route stays as the router chose it.
 

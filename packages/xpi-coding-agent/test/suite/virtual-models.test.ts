@@ -432,6 +432,23 @@ describe("AgentSession virtual models", () => {
 			expect(seen).toHaveLength(1);
 		});
 
+		it("does not break the request when a handler throws", async () => {
+			const { harness } = await createRoutedHarness(defaultRoute, {
+				extensionFactories: [
+					(pi) => {
+						pi.on("request_start", async () => {
+							throw new Error("handler failed");
+						});
+					},
+				],
+			});
+			harness.setResponses([fauxAssistantMessage("answer")]);
+
+			await harness.session.prompt("hello");
+
+			expect(harness.session.messages.at(-1)).toMatchObject({ role: "assistant", stopReason: "stop" });
+		});
+
 		it("fires again on a retry, with the same router state on both sides", async () => {
 			const log: Log = [];
 			const seen: Record<string, unknown>[] = [];
