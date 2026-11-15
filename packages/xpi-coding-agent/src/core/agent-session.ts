@@ -67,7 +67,7 @@ import { normalizeToolResultImages } from "../utils/tool-result-images.ts";
 import { formatNoApiKeyFoundMessage, formatNoModelSelectedMessage } from "./auth-guidance.ts";
 import { type BashResult, executeBashWithOperations } from "./bash-executor.ts";
 import { generateBugReportSummary } from "./bug-report.ts";
-import type { CacheWarmer, CacheWarmingStatus } from "./cache-warmer.ts";
+import type { CacheWarmer, CacheWarmingStatus, HeldPrefixStatus } from "./cache-warmer.ts";
 import {
 	type CompactionPreparation,
 	type CompactionResult,
@@ -293,7 +293,10 @@ export interface AgentSessionConfig {
 	/** Canonical model/auth runtime used by coding-agent internals. */
 	modelRuntime: ModelRuntime;
 	/** Keeps the prompt cache entry of the last session request warm. */
-	cacheWarmer?: Pick<CacheWarmer, "cancel" | "status" | "onAgentSettled" | "onModeChanged" | "onWarmed">;
+	cacheWarmer?: Pick<
+		CacheWarmer,
+		"cancel" | "status" | "onAgentSettled" | "onModeChanged" | "onWarmed" | "setRouteCache" | "heldStatus" | "endHeld"
+	>;
 	/** Initial active built-in tool names. Default: [read, bash, edit, write] */
 	initialActiveToolNames?: string[];
 	/**
@@ -529,7 +532,10 @@ export class AgentSession {
 	private _modelRuntime: ModelRuntime;
 	/** Side calls in flight (`ctx.complete()`); a session abort stops them. */
 	private readonly _sideCallAborts = new Set<AbortController>();
-	private _cacheWarmer?: Pick<CacheWarmer, "cancel" | "status" | "onAgentSettled" | "onModeChanged" | "onWarmed">;
+	private _cacheWarmer?: Pick<
+		CacheWarmer,
+		"cancel" | "status" | "onAgentSettled" | "onModeChanged" | "onWarmed" | "setRouteCache" | "heldStatus" | "endHeld"
+	>;
 
 	// Tool registry for extension getTools/setTools
 	private _toolRegistry: Map<string, AgentTool> = new Map();
@@ -988,6 +994,7 @@ export class AgentSession {
 			const userTurn = context.messages.slice(lastResponse + 1).some((message) => message.role === "user");
 			const reason = failed ? "retry" : userTurn ? "user" : "continuation";
 			if (!isVirtualModel(model)) {
+				this._cacheWarmer?.setRouteCache(undefined);
 				await this._emitRequestStart({ type: "request_start", reason, model });
 				return { ...previous, context, model, thinkingLevel };
 			}
@@ -1024,6 +1031,8 @@ export class AgentSession {
 				await this._runAutoCompaction("threshold", false, trigger.limit);
 				({ previous, context } = await prepare());
 			}
+			// The label belongs to the session request this preparation is for; the stream function consumes it.
+			this._cacheWarmer?.setRouteCache(route.cache);
 			return { ...previous, context, model: route.model, thinkingLevel: route.thinkingLevel };
 		};
 	}
@@ -1676,6 +1685,10 @@ export class AgentSession {
 	}
 
 	/** Current cache-warming state and the policy inputs that produced it. */
+	get heldPrefixStatus(): HeldPrefixStatus | undefined {
+		return this._cacheWarmer?.heldStatus;
+	}
+
 	get cacheWarmingStatus(): CacheWarmingStatus | undefined {
 		return this._cacheWarmer?.status;
 	}
@@ -2878,6 +2891,7 @@ export class AgentSession {
 		const previousModel = this.model;
 		const thinkingLevel = this._getThinkingLevelForModelSwitch(model);
 		this.agent.state.model = model;
+		this._cacheWarmer?.endHeld();
 		this.sessionManager.appendModelChange(model.provider, model.id);
 		if (options.persist) {
 			this.settingsManager.setDefaultModelAndProvider(model.provider, model.id);

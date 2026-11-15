@@ -99,9 +99,15 @@ export default function relay(pi: ExtensionAPI) {
 		id: RELAY_MODEL,
 		name: "Relay (lead plans and reviews, worker builds)",
 		route: (request, ctx) => {
-			const { model, thinkingLevel, state, contextLimit } = relayHost.route(request, callOf(ctx));
+			const { model, thinkingLevel, state, contextLimit, cache } = relayHost.route(request, callOf(ctx));
 			// Left out here, the limit would be dropped at the host boundary and the core would never compact by it.
-			return { model, thinkingLevel, state, ...(contextLimit !== undefined ? { contextLimit } : {}) };
+			return {
+				model,
+				thinkingLevel,
+				state,
+				...(contextLimit !== undefined ? { contextLimit } : {}),
+				...(cache ? { cache } : {}),
+			};
 		},
 	});
 

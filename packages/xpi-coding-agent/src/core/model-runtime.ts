@@ -170,6 +170,20 @@ function mergeHeaders(
 	return merged;
 }
 
+function validateRouteCache(cache: ModelRoute["cache"], name: string): ModelRoute["cache"] {
+	if (cache === undefined) return undefined;
+	const bad = (what: string) => new Error(`${name} returned cache ${what}`);
+	if (typeof cache !== "object" || cache === null) throw bad("that is not an object.");
+	const { key, holdPrefix } = cache;
+	if (typeof key !== "string" || key === "") throw bad("without a non-empty string key.");
+	if (holdPrefix !== undefined) {
+		if (typeof holdPrefix !== "string" || holdPrefix === "")
+			throw bad("with a holdPrefix that is not a non-empty string.");
+		if (holdPrefix === key) throw bad(`with holdPrefix equal to its key "${key}".`);
+	}
+	return holdPrefix === undefined ? { key } : { key, holdPrefix };
+}
+
 /** Configured pi-ai Models collection used by coding-agent and SDK consumers. */
 export class ModelRuntime implements Models {
 	private readonly models: MutableModels;
@@ -1073,11 +1087,13 @@ export class ModelRuntime implements Models {
 				throw new Error(`${name} returned contextLimit ${String(contextLimit)}, which is not a positive integer.`);
 			}
 		}
+		const cache = options.reason === "direct" ? undefined : validateRouteCache(route.cache, name);
 		return {
 			model: target,
 			thinkingLevel: clampThinkingLevel(target, route.thinkingLevel),
 			state: route.state,
 			...(contextLimit !== undefined && options.reason !== "direct" ? { contextLimit } : {}),
+			...(cache ? { cache } : {}),
 		};
 	}
 

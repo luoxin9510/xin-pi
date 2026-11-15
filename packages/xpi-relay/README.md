@@ -28,6 +28,10 @@ const route = relay.route(request, call); // no side effects: a retry may call i
 // route.contextLimit: prompt tokens the request's context should stay under (absent: no limit). Pass it on to the host's
 // route, or the limit is dropped; a host that compacts by it writes the limit on its compaction entry
 // (`RelayEntry` `contextLimit`), which relay counts for its stuck guard.
+// route.cache: `{ key, holdPrefix? }`, the label of the request for the host's prompt cache: `lead` or `worker`, and in
+// a worker phase `holdPrefix: "lead"` while `relay.warmLead` is on. Pass it on to the host's route (a host without a
+// held prefix ignores it); a host that holds the prefix refreshes it with short requests, and writes each refresh as a
+// usage entry with the note `held prefix: lead`, which `/relay` counts.
 
 // The commit point: after the routed state is stored on the branch, once per request.
 relay.onRequestStart({ routerState, previousRouterState }, call);
@@ -41,6 +45,7 @@ relay.onRequestStart({ routerState, previousRouterState }, call);
 | `settings()` | The `relay` block of the settings, read at each use (the package validates it). |
 | `keepRecentTokens()` | `compaction.keepRecentTokens` as resolved for the relay model, read at each use. A context limit below this plus 20,000 tokens is refused with an error that names its key. |
 | (context limits) | `relay.workerContext.limit` and `relay.leadContext.limit` are `"tier"`, `"off"`, a number of prompt tokens, or a percentage string such as `"30%"` (that share of the model's `contextWindow` from `findModel`, rounded down; no model or no window, no limit). Defaults: `"tier"` for the worker, `"30%"` for the lead. |
+| (`relay.warmLead`) | `true` by default; must be a boolean. When on, a worker request's route asks the host to keep the lead's cached prefix warm. Nothing else is needed of the host: relay reads the refreshes from the branch (`RelayEntry` of type `usage`, `kind` `cache_warm`, `note` `held prefix: lead`). |
 | `sendMessage(message, options)` | `/handover` and `/handback` send a message for the model. |
 | `activeTools()`, `setActiveTools(names)` | The direct fallback adds the hand tools to the active set while relay is selected. |
 | `registerTools(specs)` | Called at the start and again when the exposure changes (codemode switched on or off). A `ToolSpec` carries the tool's name, description, typebox parameters, exposure and an `execute(params, signal, call)`. |
@@ -50,7 +55,7 @@ while a call awaits), the selected model, `cwd`, the abort signal, `findModel(re
 `provider/model`), `notify(text, level)` (a line for the user, never a message) and `isIdle()`.
 
 `RelayEntry` is a small discriminated union on `type` (`message`, `custom`, `custom_message`, `compaction`, and the entry
-types relay does not read) that the host's session entry must be assignable to. The router state is read from the
+types relay does not read; `usage` entries are read only for the refreshes of the lead's prefix) that the host's session entry must be assignable to. The router state is read from the
 `custom` entry named `pi.virtual-model-state`, the name the agent core uses for virtual models (the package keeps its
 own copy of the constant).
 

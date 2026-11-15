@@ -1157,6 +1157,10 @@
             }
           },
           "description": "The lead's own context limit. The default applies only where it is at least 100,000 tokens. When the lead is stuck the limit is lifted until the next handover or the next user message."
+        },
+        "warmLead": {
+          "type": "boolean",
+          "description": "Keep the lead's cached prefix (tools and system prompt) warm with short refresh requests while the worker has the work, as long as that costs less than writing the prefix again. Default true."
         }
       },
       "additionalProperties": true,

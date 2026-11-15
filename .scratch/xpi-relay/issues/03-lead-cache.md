@@ -12,14 +12,14 @@ Spec: `../03-lead-cache.md`. Two PRs.
 
 ## PR G: a held prefix
 
-- [ ] G1 core: `ModelRoute.cache` (`key`, `holdPrefix`), validated in `resolveModel`, ignored for `direct`; the
+- [x] G1 core: `ModelRoute.cache` (`key`, `holdPrefix`), validated in `resolveModel`, ignored for `direct`; the
       label handed from `prepareRequest` to the warmer and consumed by the stream function; the warmer remembers the
       latest request per key and refreshes the held prefix in a slot of its own; the ending conditions; tests
-- [ ] G2 core: the refresh request (tools, system prompt, one short message, one output token); the economics;
+- [x] G2 core: the refresh request (tools, system prompt, one short message, one output token); the economics;
       `cache_warming_decision` with `key`; the `/session` line; tests
-- [ ] G3 relay: `relay.warmLead`; `route()` returns `cache`; `RelayRoute.cache` passed on by the adapter; the suite
+- [x] G3 relay: `relay.warmLead`; `route()` returns `cache`; `RelayRoute.cache` passed on by the adapter; the suite
       test that the prefix is the same before a handover and after the hand back; tests
-- [ ] G4 `/relay` and the eval show the refreshes and their cost, and the lead's cache read and write after each
+- [x] G4 `/relay` and the eval show the refreshes and their cost, and the lead's cache read and write after each
       hand back
-- [ ] G5 docs: `relay.md`, `settings.md`, `virtual-models.md`, `extensions.md`, `porting.md`, the package README
+- [x] G5 docs: `relay.md`, `settings.md`, `virtual-models.md`, `extensions.md`, `porting.md`, the package README
 - [ ] G6 real-model validation (budget $3) and the decision on the default, recorded in the measurements file

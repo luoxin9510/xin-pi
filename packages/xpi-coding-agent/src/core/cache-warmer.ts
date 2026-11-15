@@ -7,18 +7,24 @@ import {
 	type CacheWarmingDecision,
 	type Context,
 	evaluateCacheWarming,
+	evaluateHeldPrefix,
 	getCacheWarmingDelayMs,
 	getCacheWarmingRequestOptions,
 	getPromptCacheTtlMs,
 	isCacheWarmingReplayable,
+	type Message,
 	type Model,
 	type ModelsSimpleStreamOptions,
+	type Tool,
 } from "xpi-ai";
 import type { ModelRuntime } from "./model-runtime.ts";
 import type { SessionEntry, SessionManager, UsageEntry } from "./session-manager.ts";
 import type { CacheWarmingMode } from "./settings-manager.ts";
 
 export type { CacheWarmingAction, CacheWarmingDecision };
+
+/** The note of the usage entry a held-prefix refresh writes, followed by the key. */
+export const HELD_PREFIX_NOTE = "held prefix: ";
 
 /** Prompt size of the most recent real request on the branch, as reported by the provider. */
 function lastPromptTokens(entries: SessionEntry[]): number {
@@ -39,6 +45,8 @@ function lastPromptTokens(entries: SessionEntry[]): number {
 export interface CacheWarmingDecisionEvent
 	extends Pick<CacheWarmingDecision, "warmCost" | "missCost" | "continuationProbability" | "action"> {
 	type: "cache_warming_decision";
+	/** Set when the refresh keeps a held prefix warm: the key of the request whose prefix it is. */
+	key?: string;
 }
 
 export interface CacheWarmingDecisionEventResult {
@@ -65,6 +73,66 @@ export interface CacheWarmRequest {
 	options: ModelsSimpleStreamOptions;
 }
 
+/** A label a virtual model's route puts on a session request (`ModelRoute.cache`). */
+export interface CacheRouteLabel {
+	key: string;
+	holdPrefix?: string;
+}
+
+/** The latest session request sent under one key: what a refresh of its prefix repeats. */
+interface RememberedRequest {
+	model: Model<Api>;
+	systemPrompt: string | undefined;
+	/** The leading system message: the system prompt in sections, and the tools it declares. */
+	system: Message | undefined;
+	tools: Tool[] | undefined;
+	options: ModelsSimpleStreamOptions;
+	sentAt: number;
+}
+
+/** The prefix of one key kept warm while other requests run. Separate from the ordinary run. */
+interface HeldPrefix {
+	key: string;
+	request: RememberedRequest;
+	isCurrent: () => boolean;
+	prefixTokens: number;
+	ttlMs: number;
+	delayMs: number;
+	refreshDeadlineAt: number;
+	controller: AbortController;
+	nextWarmAt: number;
+	refreshes: number;
+	/** What the refreshes of this hold have cost. */
+	spent: number;
+	timer?: ReturnType<typeof setTimeout>;
+}
+
+/** What `/session` shows of a held prefix. */
+export interface HeldPrefixStatus {
+	key: string;
+	state: "scheduled" | "refreshing";
+	nextWarmAt: number;
+	refreshes: number;
+	cost: number;
+}
+
+/** A refresh of a held prefix repeats the prefix with this one short user message. */
+const HELD_PREFIX_MESSAGE = ".";
+
+/** Characters per token for the estimate of a prefix's size. */
+const CHARS_PER_TOKEN = 4;
+
+function prefixTokensOf(request: RememberedRequest): number {
+	const system = request.system?.role === "system" ? request.system : undefined;
+	// The leading system message declares the tools that reach the provider; `tools` alone counts when it does not.
+	const declared = system?.toolsAdded !== undefined;
+	const chars =
+		(request.systemPrompt?.length ?? 0) +
+		(system ? JSON.stringify({ ...system, timestamp: undefined }).length : 0) +
+		(!declared && request.tools ? JSON.stringify(request.tools).length : 0);
+	return Math.ceil(chars / CHARS_PER_TOKEN);
+}
+
 interface ActiveRun extends CacheWarmRequest {
 	/** False once the session's model or messages no longer match the request. */
 	isCurrent: () => boolean;
@@ -89,6 +157,9 @@ interface ActiveRun extends CacheWarmRequest {
 export class CacheWarmer {
 	private run?: ActiveRun;
 	private inactive: CacheWarmingStatus;
+	private pendingLabel?: CacheRouteLabel;
+	private readonly remembered = new Map<string, RememberedRequest>();
+	private held?: HeldPrefix;
 	private readonly models: Pick<ModelRuntime, "streamSimple">;
 	private readonly sessionManager: Pick<SessionManager, "appendUsage" | "getBranch">;
 	private readonly getMode: () => CacheWarmingMode;
@@ -128,8 +199,35 @@ export class CacheWarmer {
 		};
 	}
 
-	/** Keep the prompt cache entry written by `request` warm while `isCurrent` holds. */
-	start(request: CacheWarmRequest, isCurrent: () => boolean): void {
+	/**
+	 * The label the route of the next session request carries, or none. Set at the end of request preparation and
+	 * consumed by the next `start`; a request that does not come through `start` never sees it.
+	 */
+	setRouteCache(label: CacheRouteLabel | undefined): void {
+		this.pendingLabel = label;
+	}
+
+	/** The held prefix, when there is one. */
+	get heldStatus(): HeldPrefixStatus | undefined {
+		const held = this.held;
+		if (!held) return undefined;
+		return {
+			key: held.key,
+			state: held.timer === undefined ? "refreshing" : "scheduled",
+			nextWarmAt: held.nextWarmAt,
+			refreshes: held.refreshes,
+			cost: held.spent,
+		};
+	}
+
+	/**
+	 * Keep the prompt cache entry written by `request` warm while `isCurrent` holds. `heldIsCurrent` is the same test for
+	 * a held prefix: it concerns the selection and the branch, not the routed model.
+	 */
+	start(request: CacheWarmRequest, isCurrent: () => boolean, heldIsCurrent: () => boolean = isCurrent): void {
+		const label = this.pendingLabel;
+		this.pendingLabel = undefined;
+		if (label) this.applyLabel(label, request, heldIsCurrent);
 		this.clearRun();
 		const mode = this.getMode();
 		if (mode === "off") {
@@ -170,6 +268,7 @@ export class CacheWarmer {
 	}
 
 	onAgentSettled(): void {
+		this.endHeld();
 		const run = this.run;
 		if (!run) return;
 		if (this.getMode() === "streaming") {
@@ -185,6 +284,7 @@ export class CacheWarmer {
 
 	/** Reconcile an active run after the persisted warming mode changes. */
 	onModeChanged(): void {
+		if (this.held && this.getMode() === "off") this.endHeld();
 		const run = this.run;
 		if (!run) return;
 		const reason = this.getModeStopReason(run);
@@ -192,7 +292,139 @@ export class CacheWarmer {
 	}
 
 	cancel(): void {
+		this.pendingLabel = undefined;
+		this.remembered.clear();
+		this.endHeld();
 		this.stop("inactive");
+	}
+
+	/** End the hold of a prefix, if there is one, and abort a refresh in flight. */
+	endHeld(): void {
+		const held = this.held;
+		if (!held) return;
+		this.held = undefined;
+		if (held.timer) clearTimeout(held.timer);
+		held.controller.abort();
+	}
+
+	private applyLabel(label: CacheRouteLabel, request: CacheWarmRequest, heldIsCurrent: () => boolean): void {
+		this.remembered.set(label.key, {
+			model: request.model,
+			systemPrompt: request.context.systemPrompt,
+			system: request.context.messages[0]?.role === "system" ? request.context.messages[0] : undefined,
+			tools: request.context.tools,
+			options: request.options,
+			sentAt: Date.now(),
+		});
+		// A request under the held key reads the prefix itself; one that does not hold it ends the hold.
+		if (this.held && (this.held.key === label.key || this.held.key !== label.holdPrefix)) this.endHeld();
+		if (label.holdPrefix && !this.held) this.beginHold(label.holdPrefix, heldIsCurrent);
+	}
+
+	private beginHold(key: string, isCurrent: () => boolean): void {
+		const request = this.remembered.get(key);
+		if (!request || this.getMode() === "off") return;
+		if (!isCacheWarmingReplayable(request.model, request.options)) return;
+		const ttlMs = getPromptCacheTtlMs(request.model, request.options);
+		const delayMs = ttlMs === undefined ? undefined : getCacheWarmingDelayMs(ttlMs);
+		if (ttlMs === undefined || delayMs === undefined) return;
+		const held: HeldPrefix = {
+			key,
+			request,
+			isCurrent,
+			prefixTokens: prefixTokensOf(request),
+			ttlMs,
+			delayMs,
+			refreshDeadlineAt: 0,
+			controller: new AbortController(),
+			nextWarmAt: 0,
+			refreshes: 0,
+			spent: 0,
+		};
+		this.held = held;
+		// The entry was last read when the request was sent, not when the hold began.
+		this.scheduleHeld(held, request.sentAt);
+	}
+
+	private scheduleHeld(held: HeldPrefix, from: number): void {
+		held.nextWarmAt = from + held.delayMs;
+		held.refreshDeadlineAt = held.nextWarmAt + Math.floor((held.ttlMs - held.delayMs) / 2);
+		if (held.nextWarmAt > held.request.sentAt + CACHE_WARMING_MAX_AGE_MS) {
+			this.endHeld();
+			return;
+		}
+		held.timer = setTimeout(() => void this.refreshHeld(held), Math.max(0, held.nextWarmAt - Date.now()));
+		held.timer.unref?.();
+	}
+
+	private heldStillValid(held: HeldPrefix): boolean {
+		if (this.held !== held) return false;
+		if (this.getMode() === "off" || !held.isCurrent()) {
+			this.endHeld();
+			return false;
+		}
+		return true;
+	}
+
+	private async refreshHeld(held: HeldPrefix): Promise<void> {
+		held.timer = undefined;
+		if (!this.heldStillValid(held)) return;
+		if (Date.now() > held.refreshDeadlineAt) {
+			this.endHeld();
+			return;
+		}
+		const { request } = held;
+		const decision = evaluateHeldPrefix(request.model, held.prefixTokens, held.spent);
+		let action = decision.action;
+		try {
+			action = await this.decide({
+				type: "cache_warming_decision",
+				key: held.key,
+				warmCost: decision.warmCost,
+				missCost: decision.saving,
+				continuationProbability: 1,
+				action,
+			});
+		} catch {
+			// Extension failures fall back to pi's own decision.
+		}
+		if (!this.heldStillValid(held)) return;
+		if (Date.now() > held.refreshDeadlineAt || action === "stop") {
+			this.endHeld();
+			return;
+		}
+		// A new request, not a replay of the conversation: the prefix and one short message.
+		const message: Message = { role: "user", content: HELD_PREFIX_MESSAGE, timestamp: Date.now() };
+		const context: Context = {
+			...(request.systemPrompt !== undefined ? { systemPrompt: request.systemPrompt } : {}),
+			...(request.tools ? { tools: request.tools } : {}),
+			messages: request.system ? [request.system, message] : [message],
+		};
+		try {
+			const result = await this.models
+				.streamSimple(
+					request.model,
+					context,
+					getCacheWarmingRequestOptions(request.options, held.controller.signal),
+				)
+				.result();
+			if (this.held !== held) return;
+			if (result.stopReason !== "error" && result.stopReason !== "aborted") {
+				const entry = this.sessionManager.appendUsage(
+					"cache_warm",
+					result.provider,
+					result.responseModel ?? result.model,
+					result.usage,
+					`${HELD_PREFIX_NOTE}${held.key}`,
+				);
+				held.refreshes++;
+				held.spent += result.usage.cost.total > 0 ? result.usage.cost.total : decision.warmCost;
+				this.onWarmed?.(entry);
+			}
+		} catch {
+			// Cache warming is best-effort and must not affect the active agent run.
+		}
+		if (this.held === held) this.scheduleHeld(held, Date.now());
 	}
 
 	private clearRun(): void {
@@ -346,6 +578,14 @@ export function formatCacheWarmingStatus(status: CacheWarmingStatus, now = Date.
 	if (status.state === "inactive") return `Stopped (${details})`;
 	if (status.state === "refreshing") return `Warming cache (${details})`;
 	return `${formatCacheWarmingDecisionTime(status.nextWarmAt, now)} (${details})`;
+}
+
+/** One line for `/session` about a held prefix. */
+export function formatHeldPrefixStatus(status: HeldPrefixStatus, now = Date.now()): string {
+	const spent = `${status.refreshes} refresh${status.refreshes === 1 ? "" : "es"}, ${formatDollars(status.cost)}`;
+	const when =
+		status.state === "refreshing" ? "refreshing now" : formatCacheWarmingDecisionTime(status.nextWarmAt, now);
+	return `${status.key}: ${when}; ${spent}`;
 }
 
 /** One-line transcript text for the total cost of one or more consecutive cache warms. */

@@ -408,7 +408,7 @@ Other operations change the current session without replacing the runtime:
 | Thinking-level change (settings, keybinding, `pi.setThinkingLevel()`) | `thinking_level_select` |
 | `!` or `!!` command | `user_bash` (can intercept) |
 | Extension dialog or custom screen waits for the user | `ui_prompt_start`, `ui_prompt_end` |
-| Idle prompt-cache refresh | `cache_warming_decision` |
+| Idle prompt-cache refresh, or refresh of a held prefix | `cache_warming_decision` |
 | Extension registers or removes an MCP server after startup | `mcp_servers_change` |
 
 <a id="events-and-concurrency"></a>
@@ -990,6 +990,7 @@ pi.on("cache_warming_decision", (event, ctx) => {
   // event.missCost: extra price of the next request if the entry is lost
   // event.continuationProbability: pi's estimate that a request arrives in time
   // event.action: "warm" | "stop", pi's decision
+  // event.key: set for a held prefix (a virtual model's `route().cache`): the key of the held request
 
   if (ctx.model?.provider === "my-provider") {
     return { action: "stop" };
@@ -998,6 +999,8 @@ pi.on("cache_warming_decision", (event, ctx) => {
 ```
 
 Return `{ action: "warm" }` or `{ action: "stop" }` to override; the last handler that returns an action wins. `"stop"` ends warming until the next real request.
+
+The event also fires for a held prefix (see [Virtual models](virtual-models.md#keep-a-prefix-cached)), with `event.key` set to the key of the held request and `continuationProbability` 1; `warmCost` is the price of the refresh and `missCost` is what writing the prefix again would add to reading it. A refresh of the ordinary entry has no `key`.
 
 ### Model Events
 

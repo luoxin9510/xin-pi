@@ -85,6 +85,8 @@ export interface RelayRoute {
 	state?: RelayState;
 	/** Prompt tokens the request's context should stay under; absent when the phase has no limit (off, or lifted). */
 	contextLimit?: number;
+	/** Labels for the host's prompt cache: the role of this request, and the role whose prefix it keeps warm. */
+	cache?: { key: string; holdPrefix?: string };
 }
 
 /** What relay reads of the host's `request_start` event: the router states around one request. */

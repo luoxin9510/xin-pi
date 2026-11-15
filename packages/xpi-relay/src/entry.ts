@@ -34,16 +34,17 @@ export interface CompactionEntry extends EntryBase {
 	contextLimit?: number;
 }
 
-/** Entry types relay does not read. Listed so that every one is a member of the union and `type` still narrows. */
-export interface OtherEntry extends EntryBase {
-	type:
-		| "thinking_level_change"
-		| "model_change"
-		| "usage"
-		| "branch_summary"
-		| "context_edit"
-		| "label"
-		| "session_info";
+/** Model usage that is not a message: relay reads the refreshes of a held prefix (`kind` `cache_warm`). */
+export interface UsageEntry extends EntryBase {
+	type: "usage";
+	kind: string;
+	note?: string;
+	usage: { cost: { total: number } };
 }
 
-export type RelayEntry = MessageEntry | CustomEntry | CustomMessageEntry | CompactionEntry | OtherEntry;
+/** Entry types relay does not read. Listed so that every one is a member of the union and `type` still narrows. */
+export interface OtherEntry extends EntryBase {
+	type: "thinking_level_change" | "model_change" | "branch_summary" | "context_edit" | "label" | "session_info";
+}
+
+export type RelayEntry = MessageEntry | CustomEntry | CustomMessageEntry | CompactionEntry | UsageEntry | OtherEntry;

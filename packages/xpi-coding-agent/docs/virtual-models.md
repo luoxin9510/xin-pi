@@ -97,6 +97,19 @@ If `route()` throws, or returns a virtual model or a model without credentials, 
 - Pi prunes old tool output first. When the pruned estimate is at most 90 percent of the limit, no summary is written and the conversation's messages stay; otherwise a summary follows. See [Compaction](compaction.md#a-route-context-limit).
 - The compaction entry records the limit in its `contextLimit` field, and `session_before_compact` carries it, whoever supplies the summary.
 
+### Keep a prefix cached
+
+`route()` can also return `cache: { key, holdPrefix? }` to label the request for the prompt cache. Pi ignores it for `direct` requests, and a request that fails validation (`key` or `holdPrefix` not a non-empty string, or `holdPrefix` equal to `key`) ends with an error that names the virtual model.
+
+- `key` names the role of the request. Pi remembers the latest session request sent under each key: its physical model, its tools and system prompt, and its options as sent.
+- `holdPrefix` names another key. While requests carrying it keep coming and the agent run is active, Pi keeps the cached prefix (tools and system prompt) of that key's remembered request warm.
+- A refresh is a new request, not a replay of the conversation: the remembered tools and system prompt, one short user message (`.`), the remembered options with a one-token output cap, no retries, no continuation. The prefix is built the same way as in the original request, so it hits the same cache entry. It is sent at 90 percent of the cache lifetime of the held model for the retention the request used, and it is recorded as a `cache_warm` usage entry with the note `held prefix: <key>`. It never enters the context.
+- Pi decides each refresh from the held model's prices. The prefix tokens are estimated as characters divided by 4 of the system prompt and tool definitions. The saving is those tokens times the cache write price minus the cache read price; a refresh costs the tokens at the cache read price plus one output token. Pi refreshes while what the refreshes have cost so far plus the next one stays below the saving, then lets the entry expire. Unknown prices: no refresh. The $0.05 minimum of the ordinary [cache warming](settings.md#model-and-thinking) does not apply, because the saving is one known cache write.
+- A request under the held key, or a labelled request that does not hold it, ends the hold. So do the end of the agent run (in every `cacheWarming` mode), a change of the selected model away from the virtual model, a change of the session branch, and disposing the session. `cacheWarming: "off"` disables it. A request without a label (a summary, `ctx.complete`, a subagent, a refresh itself) neither sets nor ends a hold.
+- Extensions see each refresh in [`cache_warming_decision`](extensions.md#cache_warming_decision), with the `key` of the held prefix, and can stop it. `/session` shows a held prefix on its own line.
+
+The ordinary cache warmer still keeps only the latest request of the selected model warm, so it warms nothing under a virtual model; a held prefix is separate from it and neither clears the other. [Relay](relay.md#the-leads-cached-prefix) uses it to keep the lead's prefix alive during a worker phase.
+
 ## Keep routing state
 
 `route()` can return `state` next to the model. Pi stores it on the session branch and passes it back as `request.state` on later requests. Use it for decisions the transcript does not record, such as classifier results or a routing phase:
@@ -126,4 +139,4 @@ Routers can call other models through `ctx.modelRegistry`, for example `ctx.mode
 See [`jev-router.ts`](../examples/extensions/jev-router.ts) for a complete router. It plans on a strong OpenAI Codex model chosen by the Jev classifier, lets that model make the first edit, and then switches once to a cheaper model, accepting a single prompt-cache miss. It keeps the phase as router state.
 
 xpi ships one virtual model, [`relay/auto`](relay.md): a lead model plans and reviews, a worker model builds, and the
-worker's phase reaches the lead as a compacted record. It uses `contextLimit` to keep the worker under its model's first price tier (see [Relay: The worker's context limit](relay.md#the-workers-context-limit)).
+worker's phase reaches the lead as a compacted record. It uses `contextLimit` to keep the worker under its model's first price tier (see [Relay: The worker's context limit](relay.md#the-workers-context-limit)) and `cache` to keep the lead's prefix warm during a worker phase (see [Relay: The lead's cached prefix](relay.md#the-leads-cached-prefix)).
