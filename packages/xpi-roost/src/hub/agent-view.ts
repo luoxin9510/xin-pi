@@ -1730,7 +1730,8 @@ export class AgentView implements Component {
 			}
 		}
 		const { note, ...request } = args;
-		if (!this.port) return this.say("background service unavailable", "error");
+		// No connection yet (the hub has just opened) or for a moment (the daemon restarted): the request waits for one,
+		// as a reply does, and the text comes back with the error if none comes.
 		this.dispatching = true;
 		this.input.setValue("");
 		try {

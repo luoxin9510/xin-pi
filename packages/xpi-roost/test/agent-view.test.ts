@@ -312,6 +312,23 @@ describe("AgentView keys", () => {
 		view.dispose();
 	});
 
+	it("a task typed before the background service answers is started once it does", async () => {
+		const client = new FakeClient([]);
+		const s = setup([], {
+			extra: { connect: () => sleep(200).then(() => client as unknown as DaemonClient) },
+		});
+		// The hub draws its screen and takes keys while it is still connecting.
+		const started = s.view.start();
+		type(s.view, "fix the flaky reset test");
+		s.view.handleInput("\r");
+		expect(view0(s.view)).not.toContain("background service unavailable");
+		await started;
+		const deadline = Date.now() + 3000;
+		while (!client.requests.some((r) => r.op === "dispatch") && Date.now() < deadline) await sleep(20);
+		expect(client.requests.filter((r) => r.op === "dispatch")).toHaveLength(1);
+		s.view.dispose();
+	});
+
 	it("a reply goes to the peeked row, and is refused once that row is gone", async () => {
 		const a = row({
 			state: "blocked",
