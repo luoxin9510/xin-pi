@@ -36,6 +36,12 @@ export const SETTINGS_DEFAULTS = {
 		timeoutMs: 60000,
 		maxErrors: 20,
 	},
+	// Documentation only: the settings accessor does not merge these in. The built-in protect extension puts them in
+	// front of the user's and the project's lists.
+	protect: {
+		secret: [".env", ".env.*", "!.env.example", "!.env.sample", "*.pem", "*.key", "id_rsa*", "id_ed25519*", "!*.pub"],
+		readOnly: [".git/", "node_modules/"],
+	},
 	hideThinkingBlock: false,
 	staleEditGuard: true,
 	showCacheMissNotices: false,

@@ -27,6 +27,8 @@ What xin-pi adds to pi:
   cheap worker builds. The lead hands over with a plan and acceptance commands (a call from a codemode script), and reads
   a record of the result, not the worker's transcript. Both work in one session, and every phase change and repair is
   an entry and a line on screen.
+- **Protected paths**: the file tools cannot read `.env` files and private keys or write `.git/` and `node_modules/`;
+  your own patterns go in the `protect` setting, `/protect off` lifts it for a session ([docs/protect.md](docs/protect.md)).
 - **Checks after edits**: name your type-check or lint commands in the `checks.commands` setting and xpi runs them after
   each turn that changed something, then shows the model the errors that are new, before its next request
   ([docs/checks.md](docs/checks.md)).

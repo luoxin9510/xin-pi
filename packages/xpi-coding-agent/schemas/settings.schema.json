@@ -1111,6 +1111,42 @@
       "additionalProperties": true,
       "description": "Settings of the built-in checks extension (checks after edits)."
     },
+    "protect": {
+      "type": "object",
+      "properties": {
+        "secret": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Gitignore patterns of paths the file tools can neither read nor write. The built-in protect extension reads its defaults first, then the user's entries, then the project's, and the last match wins; `!pattern` undoes an earlier match. The lists of user and project settings are concatenated, not replaced.",
+          "default": [
+            ".env",
+            ".env.*",
+            "!.env.example",
+            "!.env.sample",
+            "*.pem",
+            "*.key",
+            "id_rsa*",
+            "id_ed25519*",
+            "!*.pub"
+          ]
+        },
+        "readOnly": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Gitignore patterns of paths the file tools can read but not write. Read like `secret`; a path in both lists is a secret.",
+          "default": [
+            ".git/",
+            "node_modules/"
+          ]
+        }
+      },
+      "additionalProperties": true,
+      "description": "Settings of the built-in protect extension (protected paths)."
+    },
     "roost": {
       "type": "object",
       "properties": {

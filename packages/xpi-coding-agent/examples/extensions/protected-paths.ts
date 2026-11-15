@@ -3,6 +3,9 @@
  *
  * Blocks calls of tools whose effect is "write" (write, edit, and any tool that declares it) to protected paths.
  * Useful for preventing accidental modifications to sensitive files.
+ *
+ * This is an example of the `tool_call` API. The built-in `protect` extension does this for real (glob patterns,
+ * secrets that cannot be read, symlinks followed, settings, `/protect`); see docs/protect.md.
  */
 
 import type { ExtensionAPI } from "xpi-coding-agent";

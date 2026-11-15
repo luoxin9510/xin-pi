@@ -139,11 +139,33 @@ function resolveDefaultTools(entries: string[]): string[] {
 	return applyToolModifiers(plain.length > 0 || entries.length === 0 ? plain : DEFAULT_TOOL_NAMES, entries);
 }
 
+const PROTECT_LISTS = ["secret", "readOnly"] as const;
+
+/**
+ * Merge the `protect` lists of two settings layers: the lists concatenate (base first), so the project adds to the
+ * user's entries instead of replacing them. A malformed list (not an array of strings) replaces, as for `defaultTools`.
+ */
+function mergeProtect(base: Settings["protect"], overrides: Settings["protect"]): Settings["protect"] {
+	if (!isMergeableObject(base) || !isMergeableObject(overrides)) return undefined;
+	const lists: Record<string, string[]> = {};
+	for (const key of PROTECT_LISTS) {
+		const before = base[key];
+		const after = overrides[key];
+		const isList = (value: unknown): value is string[] =>
+			Array.isArray(value) && value.every((entry) => typeof entry === "string");
+		if (isList(before) && isList(after)) lists[key] = [...before, ...after];
+	}
+	return lists;
+}
+
 /** Deep merge settings: project/overrides take precedence, nested objects merge recursively */
 function deepMergeSettings(base: Settings, overrides: Settings): Settings {
-	const merged = deepMergeObjects(base as Record<string, unknown>, overrides as Record<string, unknown>) as Settings;
+	let merged = deepMergeObjects(base as Record<string, unknown>, overrides as Record<string, unknown>) as Settings;
 	const defaultTools = mergeDefaultTools(base.defaultTools, overrides.defaultTools);
-	return defaultTools === undefined ? merged : { ...merged, defaultTools };
+	if (defaultTools !== undefined) merged = { ...merged, defaultTools };
+	const protect = mergeProtect(base.protect, overrides.protect);
+	if (protect !== undefined && merged.protect) merged = { ...merged, protect: { ...merged.protect, ...protect } };
+	return merged;
 }
 
 function parseTimeoutSetting(value: unknown, settingName: string): number | undefined {

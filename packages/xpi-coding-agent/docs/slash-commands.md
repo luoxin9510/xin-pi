@@ -95,6 +95,7 @@ Linux with the npm installation of xpi.
 
 | Command | Description |
 |---------|-------------|
+| `/protect [off\|on]` | Show the protected paths and whether protection is on; `off` and `on` switch it for this session only (built-in `protect` extension, [Protected paths](protect.md)) |
 | `/commit [hint] [--yes]` | Draft a commit message for the staged changes with a small model, edit it, and commit (built-in `commit` extension) |
 
 `/commit` reads `git diff --cached`. With nothing staged it offers to stage tracked changes (`git add -u`); untracked

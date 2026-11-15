@@ -23,6 +23,9 @@ to npm), environment variables are `XPI_*`, and these built-in extensions are ad
 - `upstream`: `/upstream` reports what upstream pi has that is worth porting.
 - `commit`: `/commit` drafts a commit message for the staged changes with a small model (setting `commit.model`,
   default `haiku`), opens it in an editor, and commits; hooks run and nothing is pushed or amended.
+- [protect](packages/xpi-coding-agent/docs/protect.md): the file tools cannot read `.env` files and private keys or write
+  `.git/` and `node_modules/`; your own gitignore patterns go in the `protect` setting, `/protect off` lifts it for a
+  session. On by default.
 - [checks](packages/xpi-coding-agent/docs/checks.md): after a turn that changed something, runs the commands in the
   `checks.commands` setting (type checker, linter) and shows the model the errors that are new, before its next request.
   Off until you name commands.

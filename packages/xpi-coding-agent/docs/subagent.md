@@ -26,7 +26,7 @@ return [a.output, b.output].join("\n---\n");
   script, waiting for agents), [Structured output](#structured-output), [Names and SendMessage](#names-and-sendmessage), [Agent teams](#agent-teams) (experimental), [Fork](#fork)
 - Per-agent options: [Worktree isolation](#worktree-isolation), [Agent memory](#agent-memory), [MCP](#mcp),
   [Permission mode plan](#permission-mode-plan), [Extensions as hooks](#extensions-as-hooks),
-  [Codemode-only children](#codemode-only-children), [Checks in subagents](#checks-in-subagents)
+  [Codemode-only children](#codemode-only-children), [Checks in subagents](#checks-in-subagents), [Protect in subagents](#protect-in-subagents)
 - Scripts: [Workflows](#workflows) (saved workflows, runs and relaunch, pause and resume)
 - Interactive xpi: [Watching and talking to subagents](#watching-and-talking-to-subagents) (the panel, the subagent screen,
   the script screen)
@@ -1098,6 +1098,13 @@ same settings, and runs in the subagent's working directory: its worktree when i
 baseline. Two overlaps are accepted: a subagent that is not isolated changes the parent's tree, so the parent checks again
 after its `Agent` turn and may report errors the subagent already saw; and an isolated worktree without `node_modules`
 makes a command fail with output that cannot be parsed, which is in its baseline and is reported only if it changes.
+
+## Protect in subagents
+
+The [protect](protect.md) extension loads in subagents, workflow agents and roost sessions, with the same settings
+and the same rules, and no exception. A blocked call tells the child's model the reason; do not count on seeing the
+warning notification of a child. `/protect off` in the parent does not reach a child: each session has its own switch, and a child
+starts with protection on.
 
 ## Config
 

@@ -280,6 +280,24 @@ describe("SettingsManager", () => {
 			expect(manager.getSettings().checks?.commands).toEqual(["echo from-project"]);
 		});
 
+		it("should not expose an untrusted project's protect entries, and concatenate them once trusted", () => {
+			writeFileSync(
+				join(agentDir, "settings.json"),
+				JSON.stringify({ protect: { secret: ["a"], readOnly: ["x/"] } }),
+			);
+			writeFileSync(
+				join(projectDir, ".pi", "settings.json"),
+				JSON.stringify({ protect: { secret: ["!a", "b"], readOnly: ["!x/"] } }),
+			);
+			const manager = SettingsManager.create(projectDir, agentDir, { projectTrusted: false });
+
+			expect(manager.getSettings().protect).toEqual({ secret: ["a"], readOnly: ["x/"] });
+
+			manager.setProjectTrusted(true);
+
+			expect(manager.getSettings().protect).toEqual({ secret: ["a", "!a", "b"], readOnly: ["x/", "!x/"] });
+		});
+
 		it("should reload project settings after trust changes to true", () => {
 			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ theme: "global" }));
 			writeFileSync(join(projectDir, ".pi", "settings.json"), JSON.stringify({ theme: "project" }));
@@ -643,6 +661,35 @@ describe("SettingsManager", () => {
 			const savedSettings = JSON.parse(readFileSync(settingsPath, "utf-8"));
 			expect(savedSettings.shellCommandPrefix).toBe("shopt -s expand_aliases");
 			expect(savedSettings.theme).toBe("light");
+		});
+	});
+
+	describe("protect lists", () => {
+		it("concatenates the lists of the two layers, user first", () => {
+			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ protect: { secret: ["a"] } }));
+			writeFileSync(
+				join(projectDir, ".pi", "settings.json"),
+				JSON.stringify({ protect: { secret: ["b"], readOnly: ["c/"] } }),
+			);
+			const manager = SettingsManager.create(projectDir, agentDir);
+
+			expect(manager.getSettings().protect).toEqual({ secret: ["a", "b"], readOnly: ["c/"] });
+		});
+
+		it("lets a malformed list replace, and applies to runtime overrides", () => {
+			writeFileSync(
+				join(agentDir, "settings.json"),
+				JSON.stringify({ protect: { secret: ["a"], readOnly: ["r/"] } }),
+			);
+			writeFileSync(join(projectDir, ".pi", "settings.json"), JSON.stringify({ protect: { secret: "oops" } }));
+			const manager = SettingsManager.create(projectDir, agentDir);
+
+			expect(manager.getSettings().protect).toEqual({ secret: "oops", readOnly: ["r/"] });
+
+			writeFileSync(join(projectDir, ".pi", "settings.json"), JSON.stringify({}));
+			const second = SettingsManager.create(projectDir, agentDir);
+			second.applyOverrides({ protect: { secret: ["z"] } });
+			expect(second.getSettings().protect).toEqual({ secret: ["a", "z"], readOnly: ["r/"] });
 		});
 	});
 

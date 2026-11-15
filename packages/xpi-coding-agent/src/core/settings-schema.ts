@@ -434,6 +434,26 @@ const ChecksSettingsSchema = Type.Object(
 	{ additionalProperties: true, description: "Settings of the built-in checks extension (checks after edits)." },
 );
 
+const ProtectSettingsSchema = Type.Object(
+	{
+		secret: Type.Optional(
+			Type.Array(Type.String(), {
+				description:
+					"Gitignore patterns of paths the file tools can neither read nor write. The built-in protect extension reads its defaults first, then the user's entries, then the project's, and the last match wins; `!pattern` undoes an earlier match. The lists of user and project settings are concatenated, not replaced.",
+				default: SETTINGS_DEFAULTS.protect.secret,
+			}),
+		),
+		readOnly: Type.Optional(
+			Type.Array(Type.String(), {
+				description:
+					"Gitignore patterns of paths the file tools can read but not write. Read like `secret`; a path in both lists is a secret.",
+				default: SETTINGS_DEFAULTS.protect.readOnly,
+			}),
+		),
+	},
+	{ additionalProperties: true, description: "Settings of the built-in protect extension (protected paths)." },
+);
+
 // xpi roost's block (background sessions). xpi-roost validates it itself (its lib/config.ts: a bad value is skipped)
 // and its daemon reads the user's section from <agent dir>/settings.json; this is for the published schema. Defaults are
 // in the descriptions. A project's settings cannot set the four environment keys (inheritEnv, envAllowList,
@@ -806,6 +826,7 @@ export const SettingsSchema = Type.Object(
 		relay: Type.Optional(RelaySettingsSchema),
 		commit: Type.Optional(CommitSettingsSchema),
 		checks: Type.Optional(ChecksSettingsSchema),
+		protect: Type.Optional(ProtectSettingsSchema),
 		roost: Type.Optional(RoostSettingsSchema),
 	},
 	{ additionalProperties: true },
