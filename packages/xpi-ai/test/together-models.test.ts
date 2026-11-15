@@ -23,10 +23,9 @@ describe("Together models", () => {
 		expect(model.reasoning).toBe(true);
 		expect(model.thinkingLevelMap).toEqual({ minimal: null, low: null, medium: null });
 		expect(model.input).toEqual(["text", "image"]);
-		// The limits come from the generated catalog and change upstream: pin their shape, not their values.
-		expect(model.contextWindow).toBeGreaterThanOrEqual(131072);
-		expect(model.maxTokens).toBeGreaterThan(0);
-		expect(model.maxTokens).toBeLessThanOrEqual(model.contextWindow);
+		expect(model.contextWindow).toBe(1048576);
+		// The catalog's own override (catalog/providers/together.ts), whatever the upstream metadata says.
+		expect(model.maxTokens).toBe(131072);
 		expect(model.cost).toEqual({
 			input: 3,
 			output: 15,
