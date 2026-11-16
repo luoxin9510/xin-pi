@@ -50,6 +50,7 @@
 		"test:relay:real": "node --test --experimental-strip-types test/relay/real.test.ts",
 		"eval:delegation": "node --experimental-strip-types test/delegation/run.ts",
 		"generate:relay-docs": "node --import ./src/experimental/source-resolver.ts scripts/generate-relay-docs.ts",
+		"check:generated": "node --import ./src/experimental/source-resolver.ts scripts/check-generated.ts",
 		"generate:schemas": "node --import ./src/experimental/source-resolver.ts scripts/generate-schemas.ts",
 		"generate:references": "node --import ./src/experimental/source-resolver.ts scripts/generate-references.ts",
 		"prepublishOnly": "node ../../scripts/refuse-folder-publish.mjs"

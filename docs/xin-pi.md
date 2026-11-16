@@ -560,7 +560,7 @@ shell-command session runs in a PTY host and its screen is read with `logs`, the
 The codemode controller is exercised through `codemodeStandIn` in `test/subagent/helpers.ts` (a stand-in `codemode` tool
 whose scripts are JS functions, driving `beginCodemodeScript` the way `executeCodemode` does) in the fault suite, and
 through the real tool in `parent/` and `tui/`. Root-level checks: `npm run check` (lint, format, types, entry graphs,
-install lock) and `node scripts/xpi-rename.mjs --check`.
+install lock, generated schemas and relay docs, roost's command table) and `node scripts/xpi-rename.mjs --check`.
 
 ## `/upstream`: what upstream pi has that xin-pi does not
 

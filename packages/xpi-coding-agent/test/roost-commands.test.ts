@@ -1,35 +1,9 @@
 // T18: every slash command xpi has (its own and those its built-in extensions register) has a row in builtin:roost's
 // table, with how the hub's peek runs it in a background session; a new command without one fails here.
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { extensionCommandNames, FOREGROUND_ONLY_COMMANDS as FOREGROUND_ONLY } from "../scripts/check-generated.ts";
 import { BUILTIN_SLASH_COMMANDS } from "../src/core/slash-commands.ts";
 import { builtinCommands, EXTENSION_COMMANDS, unclassifiedCore } from "../src/extensions/roost/commands.ts";
-
-const EXTENSIONS = resolve(__dirname, "../src/extensions");
-
-/** Only in a foreground session (the foreground role): never in a session the daemon runs, so a peek never offers them. */
-const FOREGROUND_ONLY = ["bg", "background", "bg-fork"];
-
-function files(dir: string): string[] {
-	return readdirSync(dir).flatMap((name) => {
-		const path = join(dir, name);
-		return statSync(path).isDirectory() ? files(path) : [path];
-	});
-}
-
-/** The command names the built-in extensions register by literal, and the built-in workflows' names. */
-function extensionCommandNames(): string[] {
-	const names = new Set<string>();
-	for (const file of files(EXTENSIONS)) {
-		if (!/\.(ts|js)$/.test(file)) continue;
-		const text = readFileSync(file, "utf8");
-		for (const m of text.matchAll(/registerCommand\(\s*["']([^"']+)["']/g)) names.add(m[1]!);
-		if (file.includes(`${join("builtin", "workflows")}`))
-			for (const m of text.matchAll(/^\s*name:\s*["']([^"']+)["']/gm)) names.add(m[1]!);
-	}
-	return [...names].sort();
-}
 
 describe("the hub's table of xpi's slash commands", () => {
 	it("classifies every command in BUILTIN_SLASH_COMMANDS", () => {
