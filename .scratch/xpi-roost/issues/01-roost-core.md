@@ -333,5 +333,4 @@ Notes (PR 5):
 - [x] Phase 2 spec: schedules and resume after an interruption
       (Done: `.scratch/xpi-roost/02-schedules.md`, approved 2026-11-12, released in v1.10.0.)
 - [x] Agent teams spec (messages between sessions, watches), with the owner
-
       (Done: `.scratch/agent-teams/01-agent-teams.md`, merged in #86 to #89, released in v1.11.0.)

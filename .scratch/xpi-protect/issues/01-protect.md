@@ -17,5 +17,4 @@ real Haiku check before merge.
 - [x] P5 docs: `protect.md`, `settings.md`, `porting.md`, `subagent.md`, `xin-pi.md`, both READMEs, `docs.json`
       Done: `protect.md`, `settings.md`, `slash-commands.md`, `porting.md`, `subagent.md`, `xin-pi.md`, both READMEs, `docs.json`, `extensions.md`.
 - [x] P6 the real Haiku check (the lead runs it)
-
       (Done: recorded in PR #116, "Real Haiku check (P6)".)
