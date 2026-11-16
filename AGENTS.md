@@ -30,7 +30,7 @@
 
 ## Commands
 
-- After code changes (not docs): `npm run check` (full output, no tail). Fix all errors, warnings, and infos before committing. Does not run tests.
+- After code changes (not docs): `npm run check` (full output, no tail). Fix all errors, warnings, and infos before committing. Does not run tests, but it does fail when a generated file is stale (`schemas/*.schema.json`, the relay table and diagram in `docs/relay.md`) or a slash command has no row in roost's command table (`src/extensions/roost/commands.ts`); the message names the command that fixes it.
 - Docs and READMEs are always up to date: a change to behaviour, commands, tools, settings, tests or the release flow updates the docs in the same PR. Before opening a PR, grep `README.md`, `docs/xin-pi.md`, `packages/xpi-coding-agent/README.md` and `packages/xpi-coding-agent/docs/` (`subagent.md`, `subagent-porting.md`, `porting.md`, `slash-commands.md`, `settings.md`) for what the change touches, and name the updated docs in the PR body.
 - Every new portable feature (a built-in extension, a roost component, anything another harness could take) adds or updates its entry in the porting menu, `packages/xpi-coding-agent/docs/porting.md` (what it gives, depends on, what to copy and rewrite, how to verify, platform notes, the guide), and its detailed porting guide, in the same PR. Platform notes are written for Linux first, with macOS differences after.
 - Run `npm run build` whenever something needs built output (`dist/`): tests or benchmarks that import built packages, and the real-model subagent suites (they start `dist/bundle/cli.js`). Never use it to type check or lint: that is `npm run check`, the preferred check.
