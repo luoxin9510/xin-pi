@@ -17,6 +17,8 @@ export interface RelayConfig {
 	leadContext: ContextConfig;
 	/** Keep the lead's cached prefix (tools and system prompt) warm during a worker phase. */
 	warmLead: boolean;
+	/** In the worker's requests, quote the conversation up to the handover in one user message. */
+	quoteLead: boolean;
 }
 
 /** A limit on the prompt tokens of one role's context. */
@@ -189,6 +191,7 @@ export function readRelayConfig(raw: unknown): RelayConfig {
 		workerContext: workerContextConfig(r.workerContext),
 		leadContext: contextConfig(r.leadContext, "leadContext", DEFAULT_LEAD_CONTEXT),
 		warmLead: flag(r.warmLead, "warmLead", true),
+		quoteLead: flag(r.quoteLead, "quoteLead", true),
 	};
 }
 

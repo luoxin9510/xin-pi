@@ -19,6 +19,7 @@ export * from "./facts.ts";
 export * from "./host.ts";
 export * from "./limit.ts";
 export * from "./prompts.ts";
+export * from "./quote.ts";
 export * from "./record.ts";
 export * from "./relay.ts";
 export * from "./router.ts";

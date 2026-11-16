@@ -3,7 +3,7 @@
 // this file reads the entries into a view, asks the graph, and carries out the effects. See docs/relay.md.
 
 import { Type } from "typebox";
-import type { Api, Model } from "xpi-ai";
+import type { Api, Message, Model } from "xpi-ai";
 import { readRelayConfig } from "./config.ts";
 import {
 	type Effect,
@@ -31,6 +31,7 @@ import type {
 } from "./host.ts";
 import { contextLimitOf } from "./limit.ts";
 import { correction, HANDBACK_FIELDS, HANDOVER_FIELDS, leadSection, reminder, workerSection } from "./prompts.ts";
+import { quoteLeadWork } from "./quote.ts";
 import { type AcceptanceResult, acceptancePassed, buildRecord, describeAcceptance, type Handover } from "./record.ts";
 import { HANDBACK_TOOL, HANDOVER_TOOL, nextState, type RelayState, USER_HANDOVER_MARKER } from "./router.ts";
 import {
@@ -83,8 +84,16 @@ function asState(value: unknown): RelayState | undefined {
 export interface Relay {
 	/** The physical model, the thinking level and the next stored state for one request. No side effects. */
 	route(request: RelayRouteRequest, call: RelayCall): RelayRoute;
-	/** The `relay` section of the system prompt. Undefined: leave the prompt alone. */
-	section(call: RelayCall): RelaySection | undefined;
+	/**
+	 * The `relay` section of the system prompt. Undefined: leave the prompt alone. `quoted`: the request's messages were
+	 * rewritten by `quoteLead`, and the worker's section names the quote.
+	 */
+	section(call: RelayCall, quoted?: boolean): RelaySection | undefined;
+	/**
+	 * A worker's request with the conversation up to the handover quoted in one user message (`relay.quoteLead`), from
+	 * the full request messages, leading system message included. Undefined: send the messages as they are.
+	 */
+	quoteLead(messages: readonly Message[], call: RelayCall): Message[] | undefined;
 	handover(params: HandoverParams, signal: AbortSignal | undefined, call: RelayCall): Promise<ToolOutcome>;
 	handback(params: HandbackParams, call: RelayCall): Promise<ToolOutcome>;
 	/**
@@ -432,7 +441,7 @@ export function createRelay(host: RelayHost): Relay {
 			}
 		},
 
-		section(call) {
+		section(call, quoted = false) {
 			if (!isRelay(call.model)) return { text: undefined };
 			try {
 				const cfg = config();
@@ -440,7 +449,7 @@ export function createRelay(host: RelayHost): Relay {
 				return {
 					text:
 						storedState(branch).phase === "worker"
-							? workerSection(readPhase(branch).handover, cfg, registeredDirect)
+							? workerSection(readPhase(branch).handover, cfg, registeredDirect, quoted)
 							: leadSection(
 									cfg,
 									call.findModel(cfg.lead),
@@ -453,6 +462,19 @@ export function createRelay(host: RelayHost): Relay {
 				// Wrong settings end the request with an error that names the key, from the router.
 				return undefined;
 			}
+		},
+
+		quoteLead(messages, call) {
+			if (!isRelay(call.model)) return undefined;
+			let enabled: boolean;
+			try {
+				enabled = config().quoteLead;
+			} catch {
+				return undefined;
+			}
+			const state = storedState(call.entries);
+			if (!enabled || state.phase !== "worker") return undefined;
+			return quoteLeadWork(messages, state.round);
 		},
 
 		handover,

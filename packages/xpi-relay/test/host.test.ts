@@ -3,11 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AgentMessage } from "xpi-agent-core";
-import type { Api, Model, ToolResultSignal } from "xpi-ai";
+import type { Api, Message, Model, ToolResultSignal } from "xpi-ai";
 import {
 	createRelay,
 	HANDBACK_ENTRY,
 	HANDOVER_ENTRY,
+	HANDOVER_SIGNAL,
 	type NoticeLevel,
 	RELAY_MODEL,
 	RELAY_PROVIDER,
@@ -382,6 +383,31 @@ describe("createRelay against a fake host", () => {
 			// Wrong settings with relay selected: the prompt is left alone (the router reports the error).
 			const broken = make({ lead: 3 });
 			expect(broken.relay.section(broken.call)).toBeUndefined();
+		});
+
+		it("quotes the lead's work only for the worker with relay.quoteLead on, and the worker's section names the quote", () => {
+			const signal = { type: HANDOVER_SIGNAL, data: { round: 1 } };
+			const request = [
+				{ role: "system", content: "p", timestamp: 0 },
+				{ ...user("go"), timestamp: 1 },
+				{ ...assistant("plan"), timestamp: 2 },
+				{ ...toolResult("handover", "Handed over", signal), timestamp: 3 },
+			] as unknown as Message[];
+			const { relay, call, state, select } = make();
+			state("lead", 0);
+			expect(relay.quoteLead(request, call)).toBeUndefined();
+			state("worker", 1);
+			expect(relay.quoteLead(request, call)?.map((m) => m.role)).toEqual(["system", "user"]);
+			expect(relay.section(call, true)?.text).toContain("`<relay-lead-work>`");
+			expect(relay.section(call)?.text).not.toContain("relay-lead-work");
+			select({ provider: "faux", id: "small" });
+			expect(relay.quoteLead(request, call)).toBeUndefined();
+			const off = make({ ...config, quoteLead: false });
+			off.state("worker", 1);
+			expect(off.relay.quoteLead(request, off.call)).toBeUndefined();
+			const broken = make({ quoteLead: "yes" });
+			broken.state("worker", 1);
+			expect(broken.relay.quoteLead(request, broken.call)).toBeUndefined();
 		});
 
 		it("records a hand tool called directly while codemode is on, and ignores nested calls and other tools", () => {
