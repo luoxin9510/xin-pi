@@ -91,8 +91,8 @@ A model reads the assistant messages of its context as its own words. Before the
 worker could take itself for the lead and answer "I have handed the work over" (seen with Haiku as the lead). With `relay.quoteLead` (default `true`), every worker request is
 rewritten before it is sent, in `context_with_system`:
 
-- Everything up to the handover (the successful `handover` or `codemode` result of the round, or the latest
-  `/handover` message) becomes one user message: `<relay-lead-work round="N">`, a sentence that every part marked
+- Everything up to the handover (the successful `handover` or `codemode` result of the round, with the other tool
+  results of that response, or the round's `/handover` message) becomes one user message: `<relay-lead-work round="N">`, a sentence that every part marked
   `Lead` was written by the lead, then the conversation in order (`User:` text, `Lead:` text, `Lead called <tool>:
   <arguments as JSON>`, `Result of <tool>:` text and images, earlier rounds' hand-back records), and
   `</relay-lead-work>`. The lead's thinking is left out; tool calls and results are kept whole.

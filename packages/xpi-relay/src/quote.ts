@@ -25,8 +25,8 @@ function userText(content: UserMessage["content"]): string {
 
 /**
  * The index of the message that hands round `round` over: the successful `handover` (or `codemode`) result that
- * names it, or the latest message `/handover` sent. -1 when the context holds neither, as after a compaction that
- * summarized it.
+ * names it, or the message `/handover` sent for it (it names the round). -1 when the context holds neither, as after a
+ * compaction that summarized it.
  */
 export function handoverIndex(messages: readonly Message[], round: number): number {
 	for (let i = messages.length - 1; i >= 0; i--) {
@@ -38,7 +38,10 @@ export function handoverIndex(messages: readonly Message[], round: number): numb
 				handoverRoundOf(message) === round
 			)
 				return i;
-		} else if (message.role === "user" && userText(message.content).includes(USER_HANDOVER_MARKER)) return i;
+		} else if (message.role === "user") {
+			const text = userText(message.content);
+			if (text.includes(USER_HANDOVER_MARKER) && text.includes(`(round ${round})`)) return i;
+		}
 	}
 	return -1;
 }
@@ -70,13 +73,17 @@ function pushContent(blocks: (TextContent | ImageContent)[], label: string, cont
 
 /**
  * The worker's request with the conversation up to the handover of `round` quoted in one user message, after a leading
- * system message that holds the prompt and tools as of the handover. Undefined when there is nothing to quote: no
+ * system message that holds the prompt and tools as of the handover. The other tool results of the response that handed
+ * over are quoted with it. Undefined when there is nothing to quote: no
  * handover in the context, or no message of the lead before it. The lead's thinking is left out; tool calls and
  * results are kept whole.
  */
 export function quoteLeadWork(messages: readonly Message[], round: number): Message[] | undefined {
-	const at = handoverIndex(messages, round);
+	let at = handoverIndex(messages, round);
 	if (at < 0) return undefined;
+	// The other results of the response that handed over come after it: they answer calls inside the quote, so they go
+	// into it too. Left out, they would be results without a call, which a provider refuses.
+	while (messages[at + 1]?.role === "toolResult") at++;
 	const before = messages.slice(0, at + 1);
 	if (!before.some((message) => message.role === "assistant")) return undefined;
 	const head: SystemMessage | undefined = getCurrentSystemMessage(before);

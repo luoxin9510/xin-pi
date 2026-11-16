@@ -108,7 +108,9 @@ describe("quoteLeadWork", () => {
 			system(),
 			user("look at this"),
 			assistant([{ type: "text", text: "Here is what I see." }]),
-			user(`${USER_HANDOVER_MARKER}\nmake the change`),
+			user(
+				`${USER_HANDOVER_MARKER}\nThe user gives the work to the worker model directly (round 1): make the change`,
+			),
 			assistant([{ type: "text", text: "On it." }]),
 		];
 		expect(handoverIndex(messages, 1)).toBe(3);
@@ -129,8 +131,44 @@ describe("quoteLeadWork", () => {
 		).toBeUndefined();
 		// a /handover as the first message: no lead message to quote
 		expect(
-			quoteLeadWork([system(), user(`${USER_HANDOVER_MARKER} do it`), assistant([{ type: "text", text: "ok" }])], 1),
+			quoteLeadWork(
+				[system(), user(`${USER_HANDOVER_MARKER} (round 1) do it`), assistant([{ type: "text", text: "ok" }])],
+				1,
+			),
 		).toBeUndefined();
+		// a /handover of an earlier round is not this round's
+		expect(handoverIndex([system(), user(`${USER_HANDOVER_MARKER} (round 1) do it`)], 2)).toBe(-1);
+	});
+
+	it("quotes the other results of the response that handed over, so no result is left without its call", () => {
+		const messages: Message[] = [
+			system(),
+			user("go"),
+			assistant([
+				{ type: "toolCall", id: "h", name: "handover", arguments: { plan: "p" } },
+				{ type: "toolCall", id: "r", name: "read", arguments: { path: "a" } },
+			]),
+			handoverResultMessage(1),
+			result("read", [{ type: "text", text: "PARALLEL-READ" }], { toolCallId: "r" }),
+			assistant([{ type: "text", text: "worker" }]),
+		];
+		const quoted = quoteLeadWork(messages, 1)!;
+		expect(quoted.map((m) => m.role)).toEqual(["system", "user", "assistant"]);
+		expect(textOf(quoted[1]!)).toContain("Result of read:\nPARALLEL-READ");
+	});
+
+	it("keeps a summary of a compaction in the worker's phase in the quote, and a steer after the handover as it is", () => {
+		const messages: Message[] = [
+			system(),
+			user("<summary>EARLIER-SUMMARY</summary>"),
+			assistant([{ type: "toolCall", id: "c2", name: "handover", arguments: { plan: "p" } }]),
+			handoverResultMessage(1),
+			user("STEER-AFTER-HANDOVER"),
+			assistant([{ type: "text", text: "worker" }]),
+		];
+		const quoted = quoteLeadWork(messages, 1)!;
+		expect(textOf(quoted[1]!)).toContain("User:\n<summary>EARLIER-SUMMARY</summary>");
+		expect(quoted.slice(2)).toEqual(messages.slice(4));
 	});
 
 	it("quotes up to the latest handover in a later round, the earlier rounds' records included", () => {

@@ -6,6 +6,7 @@
 import type { AgentMessage } from "xpi-agent-core";
 import {
 	createRelay,
+	isRelay,
 	RELAY_MODEL,
 	RELAY_PROVIDER,
 	RELAY_SECTION,
@@ -124,7 +125,7 @@ export default function relay(pi: ExtensionAPI) {
 		const call = callOf(ctx);
 		// The worker reads the lead's work as a quote, not as assistant messages it would take for its own. The quote is
 		// made from what the provider would get: session-only kinds (bash runs, custom messages, summaries) converted.
-		const quoted = relayHost.quoteLead(convertToLlm(event.messages), call);
+		const quoted = isRelay(call.model) ? relayHost.quoteLead(convertToLlm(event.messages), call) : undefined;
 		const messages: AgentMessage[] = quoted ?? event.messages;
 		const head = messages[0];
 		if (!head || head.role !== "system") return quoted ? { messages } : undefined;
