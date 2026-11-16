@@ -116,3 +116,5 @@ Haiku check when it changes what a session does, and the user docs for what it a
       uninstall that stopped nothing (also one run again after a timeout) says when no daemon is running and that any
       `xpi roost` command starts it; long prose lines rewrapped.
 - [ ] S14 a release with a Node smoke test including `xpi roost schedule`
+      (2026-11-16: still open. The release smoke test, `smokeTestRoost` in `scripts/coding-agent-smoke.mjs`, checks
+      `xpi roost ls` and `xpi roost daemon status` but no `xpi roost schedule` command.)

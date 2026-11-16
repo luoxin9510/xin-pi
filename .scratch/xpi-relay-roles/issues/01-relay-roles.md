@@ -26,8 +26,9 @@ the docs, the real Haiku runs before merge.
       Done: test/suite/relay.test.ts (23 tests, faux provider, both codemode on and off); test/relay-machine.test.ts; router tests in the suite file.
 - [x] R8 docs: `relay.md`, `codemode.md`, `extensions.md`, `porting.md`, `xin-pi.md`, READMEs
       Done: docs/relay.md, codemode.md, extensions.md, porting.md, docs/xin-pi.md, the READMEs of the repository, coding-agent, agent-core and xpi-codemode where they describe the touched parts.
-- [ ] R9 real runs (the lead runs them): `npm run test:relay:real`, and a Haiku-lead session across a handover and a
+- [x] R9 real runs (the lead runs them): `npm run test:relay:real`, and a Haiku-lead session across a handover and a
       hand back
+      (Done: recorded in PR #117, "Real Haiku runs (R9)".)
 
 ## Deviations
 

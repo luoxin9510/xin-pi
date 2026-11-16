@@ -8,14 +8,14 @@
 
 Decisions Grill 2 (22-28) override anything below that assumes merging upstream, `packages/pipipi`, `packages/xpi` or `@earendil-works/*` names: pipipi lives in `xpi-coding-agent/src/extensions/pipipi`, packages are named `xpi-*`.
 
-- [ ] Failing coding-agent tests first (vitest, faux provider, `test/suite/harness.ts`) that prove or refute the inference in facts.md section 3: after an early return a later nested call reuses `<id>/1`, its usage is never recorded, `agent_end` clears the scope
-- [ ] `NestedToolCallRunner` keeps a detached scope (ids continue, records and usage kept, released when the script ends); `agent_end` does not drop it; also test the `executionMode: "sequential"` queue with a detached script
-- [ ] `executeCodemode` registers scripts, links main's signal only while foreground, races sandbox vs "moved", returns the early result with `details.background`, notifies `onEnd` with result or error; foreground path byte-for-byte unchanged when nothing calls `background`
-- [ ] Controller exported from the package index; unit tests: early return, keeps running, stop, error end, Esc on main does not stop a background script, session shutdown
-- [ ] pipipi: `installBackground` and the `registerTool` proxy deleted; the registry, end message, delivery and ctrl+b call the controller; `pipipi.backgroundScripts: false` means "never call `background()`"; print mode stays foreground
-- [ ] The `test/parent` seam now drives the plain xpi binary; its suites (`01`-`04`) pass by hand with haiku
-- [ ] Startup shows no codemode replacement warning; `/subagents`, panel rows `S1..`, `x`, ctrl+b checked in a pty (`test/tui/10-script-panel`) by hand
-- [ ] `npm run check` green; the codemode changes listed in `docs/xin-pi.md` (file by file)
+- [x] Failing coding-agent tests first (vitest, faux provider, `test/suite/harness.ts`) that prove or refute the inference in facts.md section 3: after an early return a later nested call reuses `<id>/1`, its usage is never recorded, `agent_end` clears the scope
+- [x] `NestedToolCallRunner` keeps a detached scope (ids continue, records and usage kept, released when the script ends); `agent_end` does not drop it; also test the `executionMode: "sequential"` queue with a detached script
+- [x] `executeCodemode` registers scripts, links main's signal only while foreground, races sandbox vs "moved", returns the early result with `details.background`, notifies `onEnd` with result or error; foreground path byte-for-byte unchanged when nothing calls `background`
+- [x] Controller exported from the package index; unit tests: early return, keeps running, stop, error end, Esc on main does not stop a background script, session shutdown
+- [x] pipipi: `installBackground` and the `registerTool` proxy deleted; the registry, end message, delivery and ctrl+b call the controller; `pipipi.backgroundScripts: false` means "never call `background()`"; print mode stays foreground
+- [x] The `test/parent` seam now drives the plain xpi binary; its suites (`01`-`04`) pass by hand with haiku
+- [x] Startup shows no codemode replacement warning; `/subagents`, panel rows `S1..`, `x`, ctrl+b checked in a pty (`test/tui/10-script-panel`) by hand
+- [x] `npm run check` green; the codemode changes listed in `docs/xin-pi.md` (file by file)
 
 ## Comments
 
@@ -27,3 +27,5 @@ Decisions Grill 2 (22-28) override anything below that assumes merging upstream,
   - background: `tool_execution_end codemode` at 4031 ms "Script moved to the background (id S1) ...", `details.background=true, scriptId=S1`; `agent_settled` 4589 ms; nested `Agent` id `<codemode id>/1` (parent = codemode id) ended 11193 ms; custom message 11197 ms "Background script S1 completed. Return value: ... TOK-42 completed / Agents: - mgmxn4ywzxch general-purpose completed $0.0004"; `agent_start` 11197 ms (new turn); main reply "TOK-42 completed".
   - `run_in_background:false`: codemode end 10724 ms "Script completed ... TOK-42 completed", `details.background` undefined, 0 custom messages.
 - Not done here: pty ctrl+b / `x` / panel rows; the extension's own node:test suites (ticket 05). `npm run check` and `npm run build` green.
+
+Checked on 2026-11-16 against main: codemode runs scripts in the background natively and `installBackground` is gone from the sources. The boxes were left unticked when the work merged.
