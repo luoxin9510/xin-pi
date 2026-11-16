@@ -7,8 +7,9 @@ Every PR updates the docs it touches and lists them in its description.
 
 ## Before PR 1
 
-- [ ] pi-roost 0.1.21: release PR with what is on main and a README notice that the project continues in xin-pi; tag
+- [x] pi-roost 0.1.21: release PR with what is on main and a README notice that the project continues in xin-pi; tag
       and GitHub release; npm is the owner's
+      (Done: v0.1.21 is the latest pi-roost release, 2026-11-11, and its README says development continues in xin-pi.)
 
 ## PR 1: core processes (branch `roost-core`)
 
@@ -304,6 +305,7 @@ Notes (PR 4):
 - [x] T20 `roost.md` complete; README files; `docs/xin-pi.md`; `packages/xpi-roost/docs/porting.md` cut to phase 1;
       the inventory updated; what was left out and by which decision
 - [ ] T21 pi-roost: the README notice merged; the repository archived when the owner says so
+      (2026-11-16: the README notice is on pi-roost's main; the repository is not archived. Open until the owner says.)
 - [x] Release (patch or minor, by what changed for users), Node smoke test including `xpi roost`
 
 Notes (PR 5):
@@ -328,5 +330,7 @@ Notes (PR 5):
 
 ## After phase 1
 
-- [ ] Phase 2 spec: schedules and resume after an interruption
-- [ ] Agent teams spec (messages between sessions, watches), with the owner
+- [x] Phase 2 spec: schedules and resume after an interruption
+      (Done: `.scratch/xpi-roost/02-schedules.md`, approved 2026-11-12, released in v1.10.0.)
+- [x] Agent teams spec (messages between sessions, watches), with the owner
+      (Done: `.scratch/agent-teams/01-agent-teams.md`, merged in #86 to #89, released in v1.11.0.)

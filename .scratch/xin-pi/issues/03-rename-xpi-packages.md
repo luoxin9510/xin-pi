@@ -6,13 +6,13 @@
 
 **Status:** closed (done 2026-11-09)
 
-- [ ] `scripts/xpi-rename.mjs`: one mapping table; renames package names in every `package.json` (name, deps, peerDeps, exports untouched), import specifiers in `.ts`/`.tsx`/`.js`/`.mjs`/`.json` (incl. subpath imports like `@earendil-works/pi-ai/oauth`), tsconfig `paths`, build scripts, the bundle/esbuild configs, `scripts/*.mjs` lists; `--check` mode exits non-zero if any old name remains outside CHANGELOGs; idempotent
-- [ ] Directories renamed with `git mv` (history kept); root workspaces and build chains updated
-- [ ] Literal `PI_*` env names used by the app become `XPI_*` where they are app config (record the list and any kept on purpose); `piConfig.name: "xpi"` already from 01
-- [ ] Not renamed on purpose (record in Comments): CHANGELOG history, the LICENSE notice, upstream URLs in docs that point to the original project
-- [ ] LICENSE keeps the original copyright line and adds the owner's; root README says xin-pi is based on pi by earendil-works
-- [ ] `npm install`, `npm run build`, `npm run check` green; `scripts/xpi-rename.mjs --check` passes; the dev launcher runs `xpi`; one haiku Agent call still works
-- [ ] Commits: the script; the mechanical run (script output only); manual fixes
+- [x] `scripts/xpi-rename.mjs`: one mapping table; renames package names in every `package.json` (name, deps, peerDeps, exports untouched), import specifiers in `.ts`/`.tsx`/`.js`/`.mjs`/`.json` (incl. subpath imports like `@earendil-works/pi-ai/oauth`), tsconfig `paths`, build scripts, the bundle/esbuild configs, `scripts/*.mjs` lists; `--check` mode exits non-zero if any old name remains outside CHANGELOGs; idempotent
+- [x] Directories renamed with `git mv` (history kept); root workspaces and build chains updated
+- [x] Literal `PI_*` env names used by the app become `XPI_*` where they are app config (record the list and any kept on purpose); `piConfig.name: "xpi"` already from 01
+- [x] Not renamed on purpose (record in Comments): CHANGELOG history, the LICENSE notice, upstream URLs in docs that point to the original project
+- [x] LICENSE keeps the original copyright line and adds the owner's; root README says xin-pi is based on pi by earendil-works
+- [x] `npm install`, `npm run build`, `npm run check` green; `scripts/xpi-rename.mjs --check` passes; the dev launcher runs `xpi`; one haiku Agent call still works
+- [x] Commits: the script; the mechanical run (script output only); manual fixes
 
 ## Comments
 
@@ -25,3 +25,5 @@
 - Script fixes needed because names are now unscoped: `generate-coding-agent-install-lock.mjs` (prefix `xpi-`; npm omits `name` in lock workspace entries when it equals the directory), `check-model-catalog-compat.mjs`, `source-resolver.ts` filter, `coding-agent-smoke.test.mjs`.
 - Verified: `npm install`, `npm run build`, `npm run check` green; `xpi-rename --check` clean; built xpi rpc child Agent call on `anthropic/claude-haiku-5-5` returned OK (about $0.0008); script tests (pinned-deps, runtime-deps, smoke, sync-versions, package-files, package-artifacts, local-package-install, preview-packages) pass; vitest config/extensions-discovery pass. Pre-existing failures from ticket 01 (APP_NAME is `xpi`, tests expect `pi remove`): 2 in `resource-loader.test.ts`. Not run: `./test.sh`.
 - Open for later tickets: README/docs still describe upstream install (`npm install -g xpi-coding-agent`, `pi` commands) - ticket 07; `build-binaries.sh`/`local-release.mjs` still name the `pi` binary and release flow.
+
+Checked on 2026-11-16 against main: the packages are `xpi-*`, `scripts/xpi-rename.mjs` exists, LICENSE keeps both copyright lines. The boxes were left unticked when the work merged.

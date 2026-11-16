@@ -24,7 +24,8 @@ real Haiku runs (the lead runs them) before merge.
       Done: `src/docs.ts` (`relayDiagram`, `relayTable`), `scripts/generate-relay-docs.ts`, `npm run generate:relay-docs`, `test/relay-docs.test.ts`; `docs/relay.md` holds the generated blocks between marker comments.
 - [x] A7 docs: the package README, `relay.md`, `porting.md`, `xin-pi.md`, the READMEs
       Done: `packages/xpi-relay/README.md`, `relay.md`, `porting.md`, `docs/xin-pi.md`, the root and coding-agent READMEs.
-- [ ] A8 real Haiku runs
+- [x] A8 real Haiku runs
+      (Done: recorded in PR #120, "Real Haiku runs (A8)"; PRs #121 and #122 record theirs too.)
 
 ## PR B: the commit point
 
@@ -36,9 +37,10 @@ real Haiku runs (the lead runs them) before merge.
       Done: `onRequestStart(event, call)` in `relay.ts`, `RelayRequestStart` in `host.ts`, the adapter subscribes
       `request_start`. No assertion of `test/suite/relay.test.ts` changed. One assertion of
       `xpi-relay/test/host.test.ts` changed (see below). `exhaustive.test.ts` untouched.
-- [ ] B3 docs (`relay.md`, `porting.md`) and real Haiku runs
+- [x] B3 docs (`relay.md`, `porting.md`) and real Haiku runs
       Done (docs): `relay.md`, `porting.md`, `xpi-relay/README.md`, `extensions.md`, `virtual-models.md`. The real
       Haiku runs are left to the lead.
+      (Done: the real Haiku runs are recorded in #121.)
 
 ## PR C: the hand-off signal
 
@@ -56,9 +58,10 @@ real Haiku runs (the lead runs them) before merge.
       Done: `handoverRoundOf` (router.ts) reads the signal, else the old last-line marker; the handover result is the
       neutral sentence plus `signal: { type: "relay.handover", data: { round } }`; `ToolOutcome.signal`, passed on by
       the adapter; the worker's section quotes the sentence; generated `relay.md` regenerated (two doc cells).
-- [ ] C3 docs (`extensions.md`, `codemode.md`, `relay.md`, `porting.md`) and real Haiku runs
+- [x] C3 docs (`extensions.md`, `codemode.md`, `relay.md`, `porting.md`) and real Haiku runs
       Done (docs): `extensions.md`, `codemode.md`, `relay.md`, `porting.md`, `xpi-relay/README.md`. The real Haiku
       runs are left to the lead.
+      (Done: the real Haiku runs are recorded in #122.)
 
 ## Changed assertions (PR C)
 

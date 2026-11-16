@@ -10,6 +10,8 @@
 - [x] `test:subagent:cache` script exists and is documented as by-hand, Haiku 5.5 only, never in CI
 - [x] `npm run check` green (docs formatting)
 - [ ] Owner looks: runs a fan-out of two agent types and a worktree child in a real repo and compares `cacheRead` in the session files; decides whether to turn `staggerStart` on; owner merges
+      (2026-11-16: the PR merged as #4 and `subagent.staggerStart` is off by default; the owner's look and decision are
+      not recorded. Open for the owner.)
 
 ## Comments
 
