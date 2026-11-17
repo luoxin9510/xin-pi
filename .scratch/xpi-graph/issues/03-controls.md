@@ -5,7 +5,8 @@ Spec: `.scratch/xpi-graph/01-graph.md` (sections 5, 6, 7). One PR (branch `graph
 
 - [ ] G3.1 command nodes: run by the engine when a move is entered, in a turn or from `/graph start` and
       `/graph goto` outside one (`pi.exec`, cwd, timeout; the turn's abort signal, or outside a turn the
-      extension's own controller, which `/graph stop` aborts; the running status),
+      extension's own controller, which `/graph stop` aborts; the running status; during such a run the rules
+      of a halt on a command node, and the result entered at a boundary as a pending move),
       `graph.command` with the last 200 lines, the `pass` or `fail` edge, chains of command nodes, a result without
       an edge halts
 - [ ] G3.2 `approve` edges: the three-option `select`; send back ends the turn and keeps the node; no UI halts

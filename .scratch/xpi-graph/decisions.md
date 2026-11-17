@@ -119,3 +119,11 @@ all taken:
 - `graph/auto` selected by hand with no graph answers with the last model and a notice; nothing is selected
   back.
 - Leaving a halt on a model node starts the idle count of the visit again.
+
+## Review round 3 (same reviewer, commit 693189a35, 2026-11-17)
+
+The five findings of round 2 are closed. One should-fix and one nit on the increment; both taken:
+
+- While a command node runs outside a turn, the session is under the rules of a halt on a command node (the
+  pre-graph model, the union of every `deny`, `next` refused).
+- The result of such a run is a pending move and is entered at a boundary, never in the middle of a turn.

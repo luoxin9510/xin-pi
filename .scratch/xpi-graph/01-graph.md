@@ -1,7 +1,7 @@
 # Spec 01: xpi-graph, flow control by a graph
 
 Status: waiting for the owner's approval. Grills 1 and 2 are in `decisions.md` (all 20 as recommended); the owner has
-not read this spec yet. No code before the approval. Review rounds 1 and 2 (independent Opus) are worked in; see
+not read this spec yet. No code before the approval. Review rounds 1 to 3 (independent Opus) are worked in; see
 `decisions.md`.
 
 The product text, with diagrams, is `prd.html` in this directory (Chinese).
@@ -200,8 +200,17 @@ on the extension API and forwards.
 - **Outside a turn.** `/graph start` and `/graph goto` run in a command handler, with no turn. They enter the
   node there. A command handler has no abort signal (`ctx.signal` is undefined when no turn runs), so the
   extension makes its own `AbortController` for the run, does not block the handler on it, shows
-  `graph dev: ci (running)` in the status, and `/graph stop` aborts it. On reaching a model node the extension
-  sends `graph.enter` with `triggerTurn`, so the node starts working at once.
+  `graph dev: ci (running)` in the status, and `/graph stop` aborts it.
+  - While such a command runs the session is usable, and the graph is on a command node without being halted.
+    The same rules as for a halt on a command node hold: the router uses the model selected before the graph,
+    the limits are the union of every node's `deny`, and `next` is refused.
+
+    Example: `/graph goto ci` waits on `gh pr checks --watch` for 30 minutes. The user says "finish the rest
+    meanwhile". The pre-graph model answers, and `gh pr merge` is denied.
+  - The command's result takes its edge like any move: it is written as `graph.move` and entered at the next
+    boundary. With no turn running, that is at once, and a model node is entered with `graph.enter` and
+    `triggerTurn`. With a turn running, it is that turn's `agent_before_settle`: a node never changes in the
+    middle of a turn.
 - **A turn that ends without `next`** (decision 5): if the node has an `approve` edge, nothing (the node talks with
   the user). Otherwise one `graph.reminder` and one more request; the second time in the same visit, halt. Only a
   turn whose outcome is `completed` counts: an aborted turn (Escape) and a provider error are left alone.
@@ -226,8 +235,8 @@ on the extension API and forwards.
 
 ### 6. Limits of a node (decisions 7, 15, 18)
 
-A `tool_call` handler, active while a graph runs. On a model node it applies that node's limits; halted on a command
-node, the union described in 5. Calls made by a codemode script emit the event too.
+A `tool_call` handler, active while a graph runs. On a model node it applies that node's limits; on a command node
+(halted there, or its command running outside a turn), the union described in 5. Calls made by a codemode script emit the event too.
 
 - `deny`: a `bash` or `powershell` call whose command text contains one of the strings is blocked. No shell
   parsing.
@@ -277,7 +286,8 @@ node, the union described in 5. Calls made by a codemode script emit the event t
   graph; a resumed session does not end it; a second `next` in one visit and a `next` from a background script
   are refused; a move made next to another tool call in the same batch is entered once; a pending move is entered
   after a resume, and after an aborted turn without a request of its own; start with a virtual model selected is
-  refused; `/graph stop` aborts a command run started by `/graph goto`; `graph.enter` again after
+  refused; `/graph stop` aborts a command run started by `/graph goto`; during such a run a denied command stays denied and
+  `next` is refused, and a result that arrives during a turn is entered at that turn's end; `graph.enter` again after
   a compaction; a halt on a command node (the pre-graph model answers, a denied command stays denied, `next` is
   refused, `/graph goto` leaves it); `graph/auto` selected by hand answers with the last model and a notice; a subagent child gets the handler
   and nothing else; with no graph started, the requests are the same as without the extension.
