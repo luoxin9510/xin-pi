@@ -19,6 +19,8 @@ export interface RelayConfig {
 	warmLead: boolean;
 	/** In the worker's requests, quote the conversation up to the handover in one user message. */
 	quoteLead: boolean;
+	/** The lead may give a handover a step list, which the worker ticks off and the user watches. */
+	steps: boolean;
 }
 
 /** A limit on the prompt tokens of one role's context. */
@@ -192,6 +194,7 @@ export function readRelayConfig(raw: unknown): RelayConfig {
 		leadContext: contextConfig(r.leadContext, "leadContext", DEFAULT_LEAD_CONTEXT),
 		warmLead: flag(r.warmLead, "warmLead", true),
 		quoteLead: flag(r.quoteLead, "quoteLead", true),
+		steps: flag(r.steps, "steps", true),
 	};
 }
 

@@ -72,7 +72,8 @@ worker phase all give the right role, and it is the same text for every request 
 cached prefix stays stable. When another model is selected the section is removed.
 
 - **The lead's section**: one line (`You are the lead in relay mode; the worker is <model>. To give the work away call
-  tools.handover({...}) from codemode.`), `handover`'s fields, and the decision facts below. It names no way to call
+  tools.handover({...}) from codemode.`), `handover`'s fields (with `steps` while `relay.steps` is on), and the
+  decision facts below. It names no way to call
   `handback`.
 - **The worker's section**: one line (`You are the worker in relay mode. When done or stuck, call tools.handback({...})
   from codemode.`), a statement that the handover has already happened, that the conversation before it is quoted in
@@ -191,6 +192,36 @@ error and no mix-up.
 
 The acceptance commands are written by the model and run without asking, like the model's own `bash` calls.
 
+## The step list
+
+A handover may carry `steps`: the plan again as short lines, one a step. It is optional and the lead decides; a round
+without it works as before, and so does `/handover`. With a list:
+
+- **The worker** gets the list in its section, numbered, each line with its state (`[ ]`, `[x]`, `[-]`), at every
+  request, so a compaction cannot lose it. It changes the list with a third unlisted tool, `step`, from the same script
+  that does the work: `tools.step({ n, status: "done" })`, `tools.step({ n, status: "skipped", note })` for a step it
+  leaves out, `tools.step({ add: "..." })` for work the plan did not list. It cannot remove or reword a step. Each
+  call is one `relay.step` entry on the branch.
+- **You** see the list above the editor: who has the work, the round, the count, the steps with the current one
+  marked, and what the worker added. A long list folds its closed steps into one line. After the hand back the list
+  stays until your next message.
+
+  ```
+  relay round 2 · worker (claude-haiku-5-5) · 2/5
+    ✓ 1 add a failing test for the parser
+    ✓ 2 fix the tokenizer's boundary
+    ▸ 3 update the snapshots
+      4 run the whole suite
+      5 fix the type error found on the way (added by the worker)
+  ```
+
+- **The lead** gets the list back in the record, under `## Steps`, as the worker left it. `/relay` prints it too.
+
+Nothing enforces the list. A hand back with open steps is a hand back; no reminder is sent and no run is continued for
+it. A tick is the worker's word, not a check: the acceptance commands stay the only hard test. Each tick changes the
+worker's section, so the worker's cached prefix is written again from there once per tick. `relay.steps: false` takes
+the field out of the lead's section and makes `step` refuse; at most 30 steps a round.
+
 ## The hand-back record
 
 The record replaces the conversation. It holds, in this order:
@@ -200,6 +231,7 @@ The record replaces the conversation. It holds, in this order:
   the oldest lead replies are dropped first; the user's messages stay);
 - one line per earlier round;
 - the lead's handover note, word for word;
+- the step list as the worker left it, when the handover gave one;
 - the worker's report;
 - one line for each repair of the round (a corrected call, a continuation, a direct call), so the lead knows when the
   worker needed help;
@@ -558,6 +590,7 @@ rounds, not the size of the diff, so the default stays 20000.
     "leadContext": { "limit": "30%" },
     "warmLead": true,
     "quoteLead": true,
+    "steps": true,
     "objective": "the user wants a correct result for as few of your (lead) tokens as possible. Worker tokens are not counted."
   }
 }
@@ -584,6 +617,7 @@ rounds, not the size of the diff, so the default stays 20000.
 | `leadContext.tierFraction`, `leadContext.maxCompactions` | `0.95`, `4` | As for the worker. A stuck lead always has its limit lifted, until the next handover or your next message. |
 | `warmLead` | `true` | Keep the lead's cached prefix warm with short refresh requests during a worker phase, while that costs less than writing it again. Must be `true` or `false`. |
 | `quoteLead` | `true` | In the worker's requests, quote the conversation up to the handover in one user message (see [The lead's work as a quote](#the-leads-work-as-a-quote)). `false`: the worker gets the lead's replies as assistant messages, as before. Must be `true` or `false`. |
+| `steps` | `true` | The lead may give a handover a list of steps, which the worker ticks off and you see above the editor (see [The step list](#the-step-list)). `false`: no such field, no list. Must be `true` or `false`. |
 
 The values are read at each request, so a change applies to the next one. A wrong value ends the request with an
 error that names the key; a context limit below `compaction.keepRecentTokens` plus 20,000 is one too. The thinking level selected for `relay/auto` itself is not used.

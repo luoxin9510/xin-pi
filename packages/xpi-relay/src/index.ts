@@ -23,5 +23,6 @@ export * from "./quote.ts";
 export * from "./record.ts";
 export * from "./relay.ts";
 export * from "./router.ts";
+export * from "./steps.ts";
 export * from "./view.ts";
 export * from "./workspace.ts";

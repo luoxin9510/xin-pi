@@ -451,6 +451,12 @@ const RelaySettingsSchema = Type.Object(
 					"Keep the lead's cached prefix (tools and system prompt) warm with short refresh requests while the worker has the work, as long as that costs less than writing the prefix again. Default true.",
 			}),
 		),
+		steps: Type.Optional(
+			Type.Boolean({
+				description:
+					"The lead may give a handover a list of steps; the worker ticks them off, the list is shown above the editor and comes back with the hand-back record. Nothing enforces it. Default true.",
+			}),
+		),
 		quoteLead: Type.Optional(
 			Type.Boolean({
 				description:

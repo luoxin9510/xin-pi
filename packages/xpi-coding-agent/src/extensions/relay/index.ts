@@ -25,6 +25,9 @@ export { HANDOVER_ENTRY, RELAY_MODEL, RELAY_PROVIDER, readPhase } from "xpi-rela
 
 type Level = "info" | "warning" | "error";
 
+/** The key of the step list's widget. */
+const STEPS_WIDGET = "relay-steps";
+
 export default function relay(pi: ExtensionAPI) {
 	// Subagent children are workers already: they never get the relay model or its tools.
 	if (process.env.XPI_SUBAGENT_DEPTH) return;
@@ -55,6 +58,17 @@ export default function relay(pi: ExtensionAPI) {
 		},
 		isIdle: () => ctx.isIdle(),
 	});
+
+	/** The step list above the editor: who has the work, the round, the steps. Set again only when it changed. */
+	let shownSteps = "";
+	const showSteps = (ctx: ExtensionContext) => {
+		if (!ctx.hasUI) return;
+		const lines = relayHost.stepsWidget(callOf(ctx));
+		const key = lines?.join("\n") ?? "";
+		if (key === shownSteps) return;
+		shownSteps = key;
+		ctx.ui.setWidget(STEPS_WIDGET, lines);
+	};
 
 	const registerTool = (spec: ToolSpec) =>
 		pi.registerTool({
@@ -114,7 +128,13 @@ export default function relay(pi: ExtensionAPI) {
 		},
 	});
 
-	pi.on("request_start", async (event, ctx) => relayHost.onRequestStart(event, callOf(ctx)));
+	pi.on("request_start", async (event, ctx) => {
+		relayHost.onRequestStart(event, callOf(ctx));
+		showSteps(ctx);
+	});
+	// A tick shows as soon as its call ends, and the hand back when the run does.
+	pi.on("tool_execution_end", async (_event, ctx) => showSteps(ctx));
+	pi.on("agent_end", async (_event, ctx) => showSteps(ctx));
 
 	pi.on("tool_call", async (event, ctx) => {
 		relayHost.onDirectCall({ name: event.toolName, parentToolCallId: event.parentToolCallId }, callOf(ctx));
@@ -142,8 +162,14 @@ export default function relay(pi: ExtensionAPI) {
 		return { messages: [{ ...head, sections }, ...messages.slice(1)] };
 	});
 
-	pi.on("session_start", async (_event, ctx) => relayHost.onSessionStart(callOf(ctx)));
-	pi.on("model_select", async (event, ctx) => relayHost.onModelSelect(event.model, callOf(ctx)));
+	pi.on("session_start", async (_event, ctx) => {
+		relayHost.onSessionStart(callOf(ctx));
+		showSteps(ctx);
+	});
+	pi.on("model_select", async (event, ctx) => {
+		relayHost.onModelSelect(event.model, callOf(ctx));
+		showSteps(ctx);
+	});
 	pi.on("before_agent_start", async (_event, ctx) => {
 		relayHost.onBeforeAgentStart(callOf(ctx));
 		return undefined;

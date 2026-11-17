@@ -77,3 +77,29 @@ reads as its own words. The prompt sentence and the idle-stall repair (Grill 3 n
 19. Verification: offline, the worker's request holds no assistant message before the handover. Real (needs a login):
     Haiku as the lead, 30 small tasks; pass = no role mix-up, every task passes, cost not above today's. Budget about
     $0.5. The PR is not merged before this run.
+
+## Grill 5 (2026-11-17): a step list for a round. Accepted by the owner on 2026-11-17 ("都同意")
+
+Looked at oh-my-pi's `todo` (its main at a344c4b31a: a tool with seven ops, a pinned panel, `/todo`, and reminders that
+nudge the model and continue a run with open items). Relay takes the core and none of the reminders.
+
+20. `handover` gets an optional `steps` (lines of text), given by the lead. Not required, never asked for; a round
+    without it, and `/handover`, work as before.
+21. `plan` stays, required: the list is the part of the plan that can be ticked.
+22. The worker ticks with a new codemode-only tool `step({ n, status })`, by number, `status` `done` or `skipped`
+    (with a `note`). It cannot change a step's text.
+23. The worker may add a step (`step({ add })`), shown as the worker's; it cannot remove or reword the lead's.
+24. No "in progress" state: open, done, skipped. The first open step is shown as the current one.
+25. The list with its state is in the worker's section, so a compaction cannot lose it. Each tick rewrites the
+    worker's cached prefix from there; the real run measures that cost, and if it is high the state moves to tool
+    results only.
+26. A widget above the editor, only for a round with a list: who has the work, the round, the count, the steps;
+    closed steps folded in a long list; kept after the hand back until the user's next message.
+27. The hand-back record carries the list as the worker left it, before the report.
+28. A hand back with open steps is a hand back: no reminder, no continuation. The acceptance commands stay the only
+    hard test.
+29. Setting `relay.steps`, default `true`.
+30. Verification: offline tests for every change of the list and the whole flow on the faux provider. Real: Opus as
+    the lead on two long tasks twice, Haiku as the lead on the small tasks once, about $3.5. Reported: whether the
+    lead gives steps, whether ticks match the work (against acceptance and the diff), the lead's cost, the cost of
+    decision 25. Merged only if the pass rate does not fall and the lead's cost does not rise.

@@ -21,7 +21,7 @@ host's events to what `createRelay(host)` returns.
 ```typescript
 import { createRelay, type RelayCall, type RelayHost } from "xpi-relay";
 
-const relay = createRelay(host); // registers the two hand tools through host.registerTools
+const relay = createRelay(host); // registers the two hand tools and `step` through host.registerTools
 
 // A virtual model: pick the physical model and the next stored router state for each request.
 const route = relay.route(request, call); // no side effects: a retry may call it again
@@ -45,6 +45,7 @@ relay.onRequestStart({ routerState, previousRouterState }, call);
 | `settings()` | The `relay` block of the settings, read at each use (the package validates it). |
 | `keepRecentTokens()` | `compaction.keepRecentTokens` as resolved for the relay model, read at each use. A context limit below this plus 20,000 tokens is refused with an error that names its key. |
 | (context limits) | `relay.workerContext.limit` and `relay.leadContext.limit` are `"tier"`, `"off"`, a number of prompt tokens, or a percentage string such as `"30%"` (that share of the model's `contextWindow` from `findModel`, rounded down; no model or no window, no limit). Defaults: `"tier"` for the worker, `"30%"` for the lead. |
+| (`relay.steps`) | `true` by default; must be a boolean. Off: the lead's section does not name `steps`, a list sent anyway is dropped, `step` refuses and is not declared in the direct fallback. |
 | (`relay.quoteLead`) | `true` by default; must be a boolean. Read by `quoteLead`; nothing else is needed of the host. |
 | (`relay.warmLead`) | `true` by default; must be a boolean. When on, a worker request's route asks the host to keep the lead's cached prefix warm. Nothing else is needed of the host: relay reads the refreshes from the branch (`RelayEntry` of type `usage`, `kind` `cache_warm`, `note` `held prefix: lead`). |
 | `sendMessage(message, options)` | `/handover` and `/handback` send a message for the model. |
@@ -76,6 +77,7 @@ What `createRelay` returns, and which host event feeds it:
 | `section(call, quoted?)` | the system prompt build (the `relay` section; `undefined` leaves the prompt alone). Pass `quoted: true` when `quoteLead` rewrote the request, so the worker's section names the quote |
 | `quoteLead(messages, call)` | the request's full messages (leading system message included, in the provider's message kinds) before they are sent: in a worker phase with `relay.quoteLead` on, the request with the conversation up to the handover quoted in one user message; `undefined` sends them as they are. `quoteLeadWork(messages, round)` is the same without the checks |
 | `handover`, `handback` | the two tools (`ToolSpec.execute` calls them) |
+| `stepsWidget(call)` | wherever the host can show a few lines that stay: the step list of the round for the user (who has the work, the round, the count, the steps), or `undefined` for nothing. Call it after a tool call ends, at the start of a request and at the end of a run. The list itself is `readSteps(entries)`; the worker changes it with the third registered tool, `step`, which writes `relay.step` entries |
 | `onDirectCall(tool, call)` | every `tool_call` (it ignores all but top-level hand-tool calls made while codemode is on) |
 | `onSessionStart`, `onBeforeAgentStart`, `onModelSelect` | the same events: tool sync, pause and resume |
 | `beforeSettle(event, call)` | the end of a run: acceptance commands, the record, continuations; returns the entries to write |

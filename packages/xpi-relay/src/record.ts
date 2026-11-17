@@ -8,6 +8,8 @@ import { RECORD_MARKER } from "./router.ts";
 export interface Handover {
 	round: number;
 	plan: string;
+	/** The plan as lines the worker ticks off (`relay.steps`). Absent: the round has no step list. */
+	steps?: string[];
 	acceptance: string[];
 	criteria?: string;
 	findings?: string;
@@ -47,6 +49,8 @@ export interface RecordInput {
 	failedRounds: number;
 	/** One line per repair of this round (a corrected call, a continuation), so the lead knows when the worker needed help. */
 	repairs?: readonly string[];
+	/** The round's step list as the worker left it, one rendered line a step; omitted without a list. */
+	steps?: readonly string[];
 	/** What the round did to the worker's context (peak, summaries under the limit, lifted or asked); omitted when empty. */
 	contextLine?: string;
 }
@@ -119,6 +123,9 @@ export function buildRecord(input: RecordInput): string {
 		...section("Criteria", handover.criteria),
 		...section("Findings", handover.findings),
 		...section("Stop when", handover.stopWhen),
+		...(input.steps && input.steps.length > 0
+			? ["## Steps (ticked by the worker; not checked by anything)", ...input.steps, ""]
+			: []),
 		`## Worker report (status: ${input.status})`,
 		input.report.trim() || "(the worker gave no report)",
 		"",
