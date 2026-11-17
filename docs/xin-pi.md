@@ -555,7 +555,8 @@ daemon`) needs xpi-roost's `dist` and a built node-pty: it is skipped without th
 instead (the `test (coding-agent)` job runs `npm rebuild node-pty` for it). `npm run release:local`
 also runs a roost smoke on the packed install (`smokeTestRoost` in `scripts/coding-agent-smoke.mjs`, skipped on
 Windows, `npm rebuild node-pty` first on Linux): `xpi roost ls` starts the daemon, `daemon status` reports node-pty, a
-shell-command session runs in a PTY host and its screen is read with `logs`, then the daemon is stopped.
+shell-command session runs in a PTY host and its screen is read with `logs`, a manual schedule is added, listed,
+paused and removed with `xpi roost schedule`, then the daemon is stopped.
 
 The codemode controller is exercised through `codemodeStandIn` in `test/subagent/helpers.ts` (a stand-in `codemode` tool
 whose scripts are JS functions, driving `beginCodemodeScript` the way `executeCodemode` does) in the fault suite, and

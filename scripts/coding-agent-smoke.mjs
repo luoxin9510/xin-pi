@@ -55,7 +55,7 @@ assert.equal(typeof ModelRuntime.create, "function");
 /**
  * `xpi roost` from the packed package (Node, macOS and Linux): the bundle starts its daemon, the daemon runs a
  * shell-command session in a PTY host (both bundle entries and node-pty, an optional dependency), and the command
- * line lists it, prints its screen and removes it. Users start sessions with `xpi --bg`; this starts one through the
+ * line lists it, prints its screen and removes it; then a manual schedule is added, listed, paused and removed. Users start sessions with `xpi --bg`; this starts one through the
  * daemon's socket as the client library does. The daemon follows this process (ROOST_PARENT_PID) and is stopped at
  * the end.
  */
@@ -138,6 +138,15 @@ export function smokeTestRoost(directory) {
 		const rows = JSON.parse(roost("ls", "--json"));
 		if (!rows.some((row) => row.name === "smoke" && row.kind === "shell")) throw new Error("roost smoke: ls --json");
 		if (!roost("rm", "smoke").startsWith("removed")) throw new Error("roost smoke: rm");
+		// Schedules: one that never fires by itself is added, listed, paused and removed. Nothing is started.
+		roost("schedule", "add", "smoke-nightly", "manual", "say hello");
+		const schedules = JSON.parse(roost("schedule", "list", "--json"));
+		if (!schedules.some((row) => row.name === "smoke-nightly")) {
+			throw new Error(`roost smoke: schedule list --json: ${JSON.stringify(schedules)}`);
+		}
+		roost("schedule", "pause", "smoke-nightly");
+		roost("schedule", "rm", "smoke-nightly");
+		if (JSON.parse(roost("schedule", "list", "--json")).length !== 0) throw new Error("roost smoke: schedule rm");
 	} finally {
 		try {
 			roost("daemon", "stop");
@@ -145,5 +154,5 @@ export function smokeTestRoost(directory) {
 		rmSync(home, { recursive: true, force: true });
 		if (socketDir) rmSync(socketDir, { recursive: true, force: true });
 	}
-	console.log("xpi roost smoke test passed (daemon, PTY host, shell-command session).");
+	console.log("xpi roost smoke test passed (daemon, PTY host, shell-command session, schedules).");
 }
