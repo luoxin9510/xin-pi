@@ -117,7 +117,7 @@ describe("the step list of a round", () => {
 		expect(() => applyStep(list, { n: 1.5, status: "done" })).toThrow("from 1 to 2");
 		expect(() => applyStep(list, { n: 1 })).toThrow('status must be "done" or "skipped".');
 		expect(() => applyStep(list, { n: 1, add: "x" })).toThrow("not both");
-		expect(() => applyStep(list, { add: " 1. " })).toThrow("add is empty");
+		expect(() => applyStep(list, { add: " - " })).toThrow("add is empty");
 		const full = readSteps([handover(1, Array(MAX_STEPS).fill("x"))])!;
 		expect(() => applyStep(full, { add: "one more" })).toThrow("The list is full");
 	});

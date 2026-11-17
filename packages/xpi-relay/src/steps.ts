@@ -21,7 +21,7 @@ function stepText(value: string): string {
 	const line = value
 		.replace(/\s+/g, " ")
 		.trim()
-		.replace(/^(?:[-*•]\s+|\[[ xX-]?\]\s*|\(?\d{1,2}[.):]\s+)+/, "")
+		.replace(/^(?:[-*•](?:\s+|$)|\[[ xX-]?\]\s*|\(?\d{1,2}[.):](?:\s+|$))+/, "")
 		.trim();
 	return line.length <= STEP_CHARS ? line : `${line.slice(0, STEP_CHARS - 3).trimEnd()}...`;
 }
