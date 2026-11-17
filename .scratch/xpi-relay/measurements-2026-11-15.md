@@ -157,7 +157,7 @@ the lead's work as a quote, which the earlier rounds did not have), `relay.worke
 
 In all four runs the worker handed back when asked, the lead split the rest into further handovers, and the limit was
 never lifted: the worker's peak context stayed at about 94,000 tokens and no request was above the tier (with `"lift"`
-the worker of `relaunch and pause` grew to 183,000 to 194,000 tokens in two of four runs).
+the worker of `relaunch and pause` grew to 153,000 to 194,000 tokens in three of four runs).
 
 Against the four `"lift"` runs of rounds 3 and 5:
 
@@ -166,11 +166,12 @@ Against the four `"lift"` runs of rounds 3 and 5:
 | relaunch and pause | $0.37, $0.69, $0.84, $0.93: mean $0.71 | $0.58, $0.78: mean $0.68 |
 | workflows | $0.52, $0.70, $0.20, $0.70: mean $0.53 | $0.72, $0.67: mean $0.70 |
 
-- `relaunch and pause`: the same cost within the spread (4 percent lower), and about as long as the slower `"lift"`
-  runs. What the worker saves by staying under the tier, the lead spends on reading more records and writing more
+- `relaunch and pause`: the same cost within the spread (4 percent lower), and longer than every `"lift"`
+  run. What the worker saves by staying under the tier, the lead spends on reading more records and writing more
   handovers ($0.42 of the $0.68 is the lead's).
 - `workflows`: no saving; the mean is higher, though the `"lift"` mean includes one $0.20 run with a single handover.
-- The spread of `"handback"` is narrower ($0.58 to $0.78 over both tasks, against $0.20 to $0.93).
+- The four `"handback"` runs lie closer together ($0.58 to $0.78 over both tasks, against $0.20 to $0.93); two runs
+  per task are too few to call the cost steadier.
 
 Decision: the default stays `"lift"`. `"handback"` is not clearly cheaper and is not faster; it is the setting for a
-user who wants the worker kept under its price tier and a steadier cost. Two runs per task cannot show more.
+user who wants the worker kept under its price tier. Two runs per task cannot show more.
