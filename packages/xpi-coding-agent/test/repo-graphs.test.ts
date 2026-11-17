@@ -43,6 +43,7 @@ describe("the repository's own graphs", () => {
 			expect(kinds(graph)).toEqual({
 				grill: "model",
 				spec: "model",
+				branch: "command",
 				build: "model",
 				ci: "command",
 				review: "model",
@@ -57,7 +58,43 @@ describe("the repository's own graphs", () => {
 				expect(node.kind === "model" && node.deny).toContain("gh pr merge");
 			}
 			const build = graph.nodes.build;
-			expect(build.kind === "model" && build.deny).toContain("git push origin main");
+			for (const text of [
+				"git push origin main",
+				"HEAD:main",
+				"git push --force",
+				"git switch main",
+				"--no-verify",
+			]) {
+				expect(build.kind === "model" && build.deny, text).toContain(text);
+			}
+		});
+
+		it("starts the build on a branch that is not main: a command node stands between the spec and the build", () => {
+			const graph = load(literal("dev"));
+			const into = (to: string) =>
+				graph.edges.filter((edge) => edge.to === to).map((edge) => `${edge.from}:${edge.exit}`);
+			expect(into("branch")).toEqual(["spec:approve"]);
+			// From the spec the build is reached only through `branch`; the other two ways in come from later nodes.
+			expect(into("build")).toEqual(["branch:pass", "ci:fail", "review:model"]);
+			const branch = graph.nodes.branch;
+			expect(branch.kind === "command" && branch.run).toContain("git switch -c");
+		});
+
+		it("keeps the nodes that only think or review from writing with the file tools", () => {
+			const graph = load(literal("dev"));
+			const readOnly = (id: string) => {
+				const node = graph.nodes[id];
+				return node.kind === "model" ? node.readOnly : [];
+			};
+			expect(readOnly("grill")).toEqual(["**"]);
+			for (const id of ["spec", "review"]) {
+				for (const pattern of ["packages/**", "scripts/**", "docs/**", ".github/**", "package.json"]) {
+					expect(readOnly(id), `${id}: ${pattern}`).toContain(pattern);
+				}
+			}
+			// The spec node writes under .scratch/, and the build node writes code.
+			expect(readOnly("spec")).not.toContain("**");
+			expect(readOnly("build")).toEqual([]);
 		});
 
 		it("is refused without its ci node", () => {
@@ -72,7 +109,7 @@ describe("the repository's own graphs", () => {
 			const raw = literal("dev");
 			raw.edges.push({ from: "build", to: "merge", exit: "model" });
 			expect(problems(raw)).toEqual([
-				'requires[0]: "merge" can be reached without a pass of "ci": grill -> spec -> build -> merge',
+				'requires[0]: "merge" can be reached without a pass of "ci": grill -> spec -> branch -> build -> merge',
 				'requires[0]: "merge" can be reached from "build" with no pass of "ci" after it: build -> merge',
 			]);
 		});
@@ -133,7 +170,35 @@ describe("the repository's own graphs", () => {
 			for (const [id, node] of Object.entries(graph.nodes)) {
 				if (node.kind !== "model") continue;
 				expect(node.deny, id).toContain("npm publish");
+				expect(node.deny, id).toContain("git tag");
 			}
+			// The nodes before the tag may not run the tag script either, and none of them may merge.
+			for (const id of ["plan", "fix", "review"]) {
+				const node = graph.nodes[id];
+				expect(node.kind === "model" && node.deny, id).toContain("release:tag");
+			}
+			for (const id of ["fix", "review"]) {
+				const node = graph.nodes[id];
+				expect(node.kind === "model" && node.deny, id).toContain("gh pr merge");
+			}
+		});
+
+		it("waits for CI of the merge commit itself before the tag", () => {
+			const graph = load(literal("release"));
+			const node = graph.nodes["main-ci"];
+			const run = node.kind === "command" ? node.run : "";
+			expect(run).toContain("git rev-parse HEAD");
+			expect(run).toContain("--commit");
+			expect(run).toContain("--exit-status");
+		});
+
+		it("is refused when the tag can be reached without CI on main", () => {
+			const raw = literal("release");
+			raw.edges = raw.edges.filter((edge) => !(edge.from === "sync" && edge.to === "main-ci"));
+			raw.edges.push({ from: "sync", to: "tag", exit: "pass" });
+			expect(problems(raw)).toContain(
+				'requires[2]: "tag" can be reached without a pass of "main-ci": plan -> patch -> ci -> review -> merge -> sync -> tag',
+			);
 		});
 
 		it("is refused when the tag can be reached without the merge", () => {

@@ -237,16 +237,23 @@ The xin-pi repository keeps two graphs for its own work, in
 [`.pi/graphs/`](https://github.com/luoxin9510/xin-pi/tree/main/.pi/graphs). xpi ships no graph; these are examples.
 
 - [`dev.js`](https://github.com/luoxin9510/xin-pi/blob/main/.pi/graphs/dev.js): grill the request, write the spec,
-  build, wait for CI, have it reviewed, merge. The spec is written only after you approved the grill, code only
-  after you approved the spec; the merge is a command node behind a CI pass that came after the last change. The
-  review node's prompt tells the model to start a fresh subagent for the review, because a node in the same
-  session has seen how the code was written.
+  build, wait for CI, have it reviewed, merge. The spec node is entered only after you approved the grill and the
+  build node only after you approved the spec; a command node puts the build on a branch that is not main; the
+  merge is a command node behind a CI pass that came after the last visit of build. The review node's prompt
+  tells the model to start a fresh subagent for the review, because a node in the same session has seen how the
+  code was written. Its header says what the shape guarantees and what the lists only make unlikely: a model on
+  main with a plain `git push` is stopped by the branch node and by branch protection on GitHub, not by `deny`.
 - [`release.js`](https://github.com/luoxin9510/xin-pi/blob/main/.pi/graphs/release.js): the release flow up to
-  the tag. The version bump, the merge and the tag are command nodes; you approve patch or minor, and the merge.
+  the tag. The version bump, the merge and the tag are command nodes; you approve patch or minor, and the merge;
+  the tag waits for CI of the merge commit itself.
   It shows a limit of the format: a graph has no variables, so "patch or minor" is two command nodes and the
   model picks one.
 
-A graph of your own is short. This one runs a check until it passes, at most three times:
+Both wait for the checks of a pull request with a small shell loop before `gh pr checks --watch`: a push registers
+its checks a little later, and a check that is not there yet would count as a failure.
+
+A graph of your own is short. This one runs a check until it passes, and goes back to the fix at most three
+times:
 
 ```js
 export default {

@@ -179,6 +179,26 @@ is selected (review round 2).
   tested only through the environment variable; the `mayWait` branch has no test; Escape does not stop a
   command that runs between two turns (`/graph stop` does).
 
+## Review of milestone 4 (independent Opus, PR #141, commit e1eb22489, 2026-11-18)
+
+Nothing blocking, five should-fix, four nits, all about how the two graphs behave in a real run:
+
+- `dev.js`: a build that started on main could reach main with a plain `git push`, which no `deny` substring
+  catches without denying every push (and main has no branch protection). A command node, `branch`, now stands
+  between the spec and the build and leaves main if the session is on it; `deny` also names the forms that say
+  main, a forced push and a switch to main. The header no longer says the model nodes cannot push to main.
+  For the owner: protect the main branch on GitHub.
+- The headers and the docs said code is written only after the spec is approved. What the shape guarantees is
+  the order in which the nodes are entered; `readOnly` only keeps the file tools off a list of paths. Both
+  now say so.
+- `release.js`: `main-ci` watched the latest run on main, which right after the merge is still the one before
+  it. It now waits for the run of the merge commit.
+- Both graphs: `gh pr checks --watch` right after a push can find no check yet. The `ci` nodes wait for the
+  first check to appear.
+- The PR's success table claimed the first criterion; it now says what was run (the shapes, with stand-ins).
+- `release.js`: the review node's `readOnly: ["**"]` would also have matched the temp file a PR comment is
+  written to; it is the same list as in `dev.js` now.
+
 ## Review of milestone 3 (independent Opus, PR #140, commit 4fc15b23d, 2026-11-18)
 
 One blocking finding, five should-fix, three nits. What changed:
