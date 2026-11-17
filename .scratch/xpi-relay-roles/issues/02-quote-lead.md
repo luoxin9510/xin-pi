@@ -12,5 +12,9 @@ Decisions 14-19 of `decisions.md` (Grill 4).
       worker's requests; `quoteLead: false`)
 - [x] Q6 docs: `relay.md` (worker's section, "The lead's work as a quote", settings), `settings.md`, `porting.md`,
       `xpi-relay/README.md`
-- [ ] Q7 real run (needs a login): Haiku as the lead, 30 small tasks, no mix-up (`relay.mixup`, `relay.stall` reason
+- [x] Q7 real run (needs a login): Haiku as the lead, 30 small tasks, no mix-up (`relay.mixup`, `relay.stall` reason
       `idle`), all pass, cost not above the run without the quote; recorded on the PR before merge
+      Done 2026-11-17 (`test/delegation/run.ts --arms relay --force --runs 3`, Haiku lead and worker, 10 tasks x 3):
+      quote on: 30/30 pass, 0 `relay.mixup`, 0 idle `relay.stall`, $0.139, 758 s. Quote off
+      (`EVAL_SETTINGS='{"relay":{"quoteLead":false}}'`, same build): 30/30 pass, 1 `relay.mixup` and 9 idle
+      `relay.stall` in 10 of the 30 runs, $0.155, 897 s.

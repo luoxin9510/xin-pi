@@ -88,7 +88,10 @@ cached prefix stays stable. When another model is selected the section is remove
 ### The lead's work as a quote
 
 A model reads the assistant messages of its context as its own words. Before the handover those are the lead's, so a
-worker could take itself for the lead and answer "I have handed the work over" (seen with Haiku as the lead). With `relay.quoteLead` (default `true`), every worker request is
+worker could take itself for the lead and answer "I have handed the work over". Measured on 2026-11-17 with Haiku as
+both lead and worker, 30 runs of the small delegation tasks each way: without the quote the worker mixed up its role in
+10 runs (9 text-only stops, 1 wrong-role call; the repairs recovered all of them), with the quote in none, and the
+runs were 10 percent cheaper and 16 percent shorter. With `relay.quoteLead` (default `true`), every worker request is
 rewritten before it is sent, in `context_with_system`:
 
 - Everything up to the handover (the successful `handover` or `codemode` result of the round, with the other tool
