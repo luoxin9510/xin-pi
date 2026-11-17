@@ -12,6 +12,6 @@ package's tests, green CI, an independent Opus review. Nothing in the coding age
 - [ ] G1.3 `checkGraph`: the structural rules, exit kinds per node kind, loops and the default `max: 3`, both
       `requires` checks with the offending path in the error
 - [ ] G1.4 entries and `readState`: the entry data types of spec section 4; the fold (current node, counts since
-      the start or the last goto, a pending move, halted and a halt left by a user message, ended, error state); `exits(graph, state)`
+      the start or the last goto, a pending move with its `via`, halted and a halt left by a user message, ended, error state); `exits(graph, state)`
 - [ ] G1.5 tests: as listed under "Package" in the spec's Tests
 - [ ] G1.6 `packages/xpi-graph/README.md`: what the package answers, the file format, the checks

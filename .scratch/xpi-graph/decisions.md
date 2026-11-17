@@ -127,3 +127,9 @@ The five findings of round 2 are closed. One should-fix and one nit on the incre
 - While a command node runs outside a turn, the session is under the rules of a halt on a command node (the
   pre-graph model, the union of every `deny`, `next` refused).
 - The result of such a run is a pending move and is entered at a boundary, never in the middle of a turn.
+
+## Review round 4 (same reviewer, commit 933f811d5, 2026-11-17)
+
+Both findings of round 3 are closed; nothing blocking. One nit, taken: `graph.move` records where the move came
+from (`via`), because a model's move may be entered at the next request of the same turn and a command result
+may not.

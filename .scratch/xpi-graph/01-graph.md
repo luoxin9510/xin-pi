@@ -1,7 +1,7 @@
 # Spec 01: xpi-graph, flow control by a graph
 
 Status: waiting for the owner's approval. Grills 1 and 2 are in `decisions.md` (all 20 as recommended); the owner has
-not read this spec yet. No code before the approval. Review rounds 1 to 3 (independent Opus) are worked in; see
+not read this spec yet. No code before the approval. Review rounds 1 to 4 (independent Opus) are worked in; see
 `decisions.md`.
 
 The product text, with diagrams, is `prd.html` in this directory (Chinese).
@@ -130,7 +130,7 @@ Custom entries, written by the extension, never shown to the model:
 | `graph.start` | the whole graph, the file path, the model and thinking level selected before | `/graph start` |
 | `graph.node` | `node`, `via` (`start`, `model`, `approve`, `pass`, `fail`, `goto`), `edge` (index), `report` | each entry into a node |
 | `graph.halt` | `reason` | the graph stops and waits for the user (5) |
-| `graph.move` | `edge`, `report` | `next` accepted a move that is not entered yet (5) |
+| `graph.move` | `edge`, `via` (`model`, `approve`, `pass`, `fail`), `report` | a move that is accepted and not entered yet: from `next`, or the result of a command run outside a turn (5) |
 | `graph.blocked` | the call and the rule | a limit blocked a call (6) |
 | `graph.end` | `reason` (`done`, `stopped`, `model_changed`) | the graph is over |
 
@@ -141,8 +141,10 @@ Custom entries, written by the extension, never shown to the model:
   the last `graph.node`; the count of an edge is the number of `graph.node` entries that took it since the start or
   since the last `goto` (a `goto` is the user taking over, so the counts start again).
 - A `graph.move` with no `graph.node` after it is a pending move: `readState` returns it as `pending`. It is
-  entered at the next boundary of any kind (5), also after a quit, a crash or a move to another branch, so a
-  pending move never blocks a node.
+  entered at the next boundary (5), also after a quit, a crash or a move to another branch, so a pending move
+  never blocks a node. Which boundaries count depends on `via`: a move of the model (`model`, `approve`) is
+  entered at `agent_before_settle` or at the start of the next request; a command result (`pass`, `fail`) that
+  arrives while a turn runs is entered only at that turn's `agent_before_settle`, never at a request inside it.
 - Resume: the last `graph.node` on the branch is the position. Moving to another branch of the session tree moves
   the graph with it; re-running a node is branching from its `graph.node` entry.
 - A state that cannot be read (bad entry data, a node the stored graph does not have) is an error state: the
@@ -207,8 +209,8 @@ on the extension API and forwards.
 
     Example: `/graph goto ci` waits on `gh pr checks --watch` for 30 minutes. The user says "finish the rest
     meanwhile". The pre-graph model answers, and `gh pr merge` is denied.
-  - The command's result takes its edge like any move: it is written as `graph.move` and entered at the next
-    boundary. With no turn running, that is at once, and a model node is entered with `graph.enter` and
+  - The command's result takes its edge like any move: it is written as `graph.move` with `via` `pass` or `fail`
+    and entered at the next boundary for that `via` (4). With no turn running, that is at once, and a model node is entered with `graph.enter` and
     `triggerTurn`. With a turn running, it is that turn's `agent_before_settle`: a node never changes in the
     middle of a turn.
 - **A turn that ends without `next`** (decision 5): if the node has an `approve` edge, nothing (the node talks with
@@ -287,7 +289,8 @@ A `tool_call` handler, active while a graph runs. On a model node it applies tha
   are refused; a move made next to another tool call in the same batch is entered once; a pending move is entered
   after a resume, and after an aborted turn without a request of its own; start with a virtual model selected is
   refused; `/graph stop` aborts a command run started by `/graph goto`; during such a run a denied command stays denied and
-  `next` is refused, and a result that arrives during a turn is entered at that turn's end; `graph.enter` again after
+  `next` is refused, and a result that arrives during a turn with several requests is entered at that turn's end, not at a
+  request inside it; `graph.enter` again after
   a compaction; a halt on a command node (the pre-graph model answers, a denied command stays denied, `next` is
   refused, `/graph goto` leaves it); `graph/auto` selected by hand answers with the last model and a notice; a subagent child gets the handler
   and nothing else; with no graph started, the requests are the same as without the extension.
