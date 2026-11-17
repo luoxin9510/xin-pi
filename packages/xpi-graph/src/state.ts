@@ -140,12 +140,21 @@ function step(state: RunningState, type: string, data: unknown): RunningState | 
 			halted: undefined,
 			reminded: false,
 		};
-		if (via === "start") return { ...state, ...entered };
+		// The first entry of a run is the start node, and only the first is.
+		if (state.node === "" || via === "start") {
+			if (state.node !== "") return `${type}: a second start entry`;
+			if (via !== "start" || node !== graph.start) return `${type}: the first entry must be the start node`;
+			return { ...state, ...entered };
+		}
 		if (via === "goto") return { ...state, ...entered, counts: graph.edges.map(() => 0) };
 		const edge = readIndex(data.edge, graph.edges);
 		if (edge === undefined || !MOVE_VIAS.some((kind) => kind === via)) return `${type}: no such edge or via`;
 		if (graph.edges[edge].from !== state.node || graph.edges[edge].to !== node) {
 			return `${type}: edge ${edge} does not go from "${state.node}" to "${node}"`;
+		}
+		if (graph.edges[edge].exit !== via) return `${type}: edge ${edge} is not taken by ${String(via)}`;
+		if (state.pending !== undefined && state.pending.edge !== edge) {
+			return `${type}: edge ${edge} is not the pending move (edge ${state.pending.edge})`;
 		}
 		return { ...state, ...entered, counts: state.counts.map((count, index) => (index === edge ? count + 1 : count)) };
 	}
@@ -154,6 +163,8 @@ function step(state: RunningState, type: string, data: unknown): RunningState | 
 		const via = MOVE_VIAS.find((kind) => kind === data.via);
 		if (edge === undefined || via === undefined) return `${type}: no such edge or via`;
 		if (graph.edges[edge].from !== state.node) return `${type}: edge ${edge} does not leave "${state.node}"`;
+		if (graph.edges[edge].exit !== via) return `${type}: edge ${edge} is not taken by ${via}`;
+		if (state.pending !== undefined) return `${type}: a move is already pending (edge ${state.pending.edge})`;
 		return { ...state, pending: { edge, via, ...report } };
 	}
 	return typeof data.reason === "string" ? { ...state, halted: data.reason } : `${type}: no reason`;
@@ -195,10 +206,14 @@ export function readState(entries: readonly GraphEntry[]): GraphState {
 		if (state.status === "none") continue;
 		if (entry.type === "custom" && entry.customType === GRAPH_END) {
 			const data = isFields(entry.data) ? entry.data : {};
-			const reason = END_REASONS.find((kind) => kind === data.reason) ?? "stopped";
-			state = state.selection
-				? { status: "none", ended: { selection: state.selection, reason } }
-				: { status: "none" };
+			const reason = END_REASONS.find((kind) => kind === data.reason);
+			if (reason === undefined) {
+				state = { status: "error", message: `${GRAPH_END}: no reason`, selection: state.selection };
+			} else {
+				state = state.selection
+					? { status: "none", ended: { selection: state.selection, reason } }
+					: { status: "none" };
+			}
 			continue;
 		}
 		if (state.status === "error") continue;

@@ -110,8 +110,9 @@ A graph that fails any of these does not start; the error names the nodes and ed
   `max` is the number of times the edge may be taken in one run of the graph.
 - **`requires`.** Take the graph without B's `pass` edge. If A can be reached from `start`, there is a path to A
   that does not pass B: error, with the path. For each C in `notAfter`: if A can be reached from C in that same
-  reduced graph, there is a path from C to A with no pass of B after it: error, with the path. A path has at
-  least one edge, and A in `notAfter` is a load error.
+  reduced graph, there is a path from C to A with no pass of B after it: error, with the path. A in `notAfter`
+  is a load error. A that is the start node always fails the first check: the graph is in it before anything
+  passed.
 
   Example 1: adding the edge `build -> merge` to the graph above fails the first check with
   `grill -> build -> merge`.
@@ -149,8 +150,11 @@ Custom entries, written by the extension, never shown to the model:
   arrives while a turn runs is entered only at that turn's `agent_before_settle`, never at a request inside it.
 - Resume: the last `graph.node` on the branch is the position. Moving to another branch of the session tree moves
   the graph with it; re-running a node is branching from its `graph.node` entry.
-- A state that cannot be read (bad entry data, a node the stored graph does not have) is an error state: the
-  extension halts and tells the user; it never guesses.
+- A state that cannot be read is an error state: the extension halts and tells the user; it never guesses. That
+  covers bad entry data, a node the stored graph does not have, and entries that do not agree with each other: a
+  first entry that is not the start node or a start entry later on, an edge that does not join the two nodes or is
+  not taken by its own exit, a node entered by another edge than the pending move, a second pending move, an end
+  without a known reason.
 
 Messages the model does see (custom messages): `graph.enter` (the node, its prompt, the edges out with their
 labels, how to leave, and the node's `readOnly` patterns with the sentence that they hold for shell commands too),

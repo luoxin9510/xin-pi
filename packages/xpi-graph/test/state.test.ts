@@ -241,6 +241,36 @@ describe("readState", () => {
 			expect(errorOf([...toBuild, custom(GRAPH_HALT, {})])).toMatch(/no reason/);
 		});
 
+		it("a start entry that is not the first, or a first entry that is not the start node", () => {
+			expect(errorOf([...toBuild, enter("review", "start")])).toMatch(/a second start entry/);
+			expect(errorOf([start(), enter("build", "start")])).toMatch(/the first entry must be the start node/);
+			expect(errorOf([start(), enter("grill", "goto")])).toMatch(/the first entry must be the start node/);
+		});
+
+		it("an edge taken by something other than its exit", () => {
+			expect(errorOf([...toBuild, enter("ci", "pass", EDGE.built)])).toMatch(/edge 1 is not taken by pass/);
+			expect(errorOf([...toBuild, move(EDGE.built, "fail")])).toMatch(/edge 1 is not taken by fail/);
+		});
+
+		it("a node entered by another edge than the pending move, and a second pending move", () => {
+			const inReview = [...toBuild, enter("ci", "model", EDGE.built), enter("review", "pass", EDGE.ciPass)];
+			const entered = [...inReview, move(EDGE.reviewOk, "model"), enter("build", "model", EDGE.reviewFix)];
+			expect(errorOf(entered)).toMatch(/edge 5 is not the pending move \(edge 4\)/);
+			const twice = [...inReview, move(EDGE.reviewOk, "model"), move(EDGE.reviewFix, "model")];
+			expect(errorOf(twice)).toMatch(/a move is already pending \(edge 4\)/);
+		});
+
+		it("a goto drops a pending move: the user took over", () => {
+			const state = running([...toBuild, move(EDGE.built, "model"), enter("grill", "goto")]);
+			expect(state.node).toBe("grill");
+			expect(state.pending).toBeUndefined();
+		});
+
+		it("an end without a known reason", () => {
+			expect(errorOf([...toBuild, end("finished")])).toMatch(/graph\.end: no reason/);
+			expect(errorOf([...toBuild, custom(GRAPH_END, undefined)])).toMatch(/graph\.end: no reason/);
+		});
+
 		it("stays an error until the graph is ended, and keeps the selection to restore", () => {
 			const broken = [...toBuild, enter("deploy", "goto"), enter("ci", "model", EDGE.built), user];
 			const state = readState(broken);

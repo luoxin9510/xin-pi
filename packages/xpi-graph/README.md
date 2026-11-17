@@ -86,7 +86,8 @@ A command node may lack a `pass` or a `fail` edge: that result has nowhere to go
 **`requires`.** `{ before: A, passed: B, notAfter: [C] }`, B a command node, says: on every path to A, after the last
 entry into C, B passed. Two checks on the graph without B's `pass` edge:
 
-1. A cannot be reached from `start`. Otherwise some path reaches A without passing B.
+1. A cannot be reached from `start`. Otherwise some path reaches A without passing B. A that is the start node
+   always fails: the graph is in it before anything passed.
 2. A cannot be reached from C. Otherwise some path changes things in C and reaches A with no pass of B after it.
 
 Example for 2: add a node `patch` that only `review` reaches, with `patch -> merge`. Every path to `merge` passes
@@ -112,8 +113,11 @@ the current branch into the state. Resuming a session, or moving to another bran
 - `none`: no graph runs. After a graph ended, `ended` holds the selection it should have restored.
 - `running`: the graph (checked again from the stored literal), the current `node`, `visited`, `counts` per edge,
   a `pending` move, the `halted` reason, and `reminded`.
-- `error`: the entries cannot be read as a graph (a stored graph that fails the checks, a node the graph does not
-  have, an edge that does not join the two nodes). The host must halt and tell the user, never guess.
+- `error`: the entries cannot be read as a graph, or do not agree with each other. The host must halt and tell
+  the user, never guess. The cases: a stored graph that fails the checks; a node the graph does not have; a first
+  entry that is not the start node, or a start entry later on; an edge that does not join the two nodes, or is not
+  taken by its own exit (`via: "pass"` on an `approve` edge); a node entered by another edge than the pending
+  move; a second pending move; an end without a known reason.
 
 Rules of the fold:
 
