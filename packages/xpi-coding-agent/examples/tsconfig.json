@@ -86,6 +86,9 @@
 			"xpi-relay": [
 				"../../../packages/xpi-relay/src/index.ts"
 			],
+			"xpi-graph": [
+				"../../../packages/xpi-graph/src/index.ts"
+			],
 			"xpi-shadow-git": [
 				"../../../packages/xpi-shadow-git/src/index.ts"
 			],

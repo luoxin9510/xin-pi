@@ -46,8 +46,8 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
 - `xpi-graph` (private) is flow control by a graph: a flow's hard rules as nodes and edges, so that a model can
   leave a node only by a declared edge (spec: `.scratch/xpi-graph/01-graph.md`; `packages/xpi-graph/README.md`).
   The package holds the pure part: the file format (`parseGraph`), the checks at load (`checkGraph`) and the
-  state folded from the session branch (`readState`, `exits`). It imports nothing of the workspace. Nothing uses
-  it yet: the built-in `builtin:graph` that runs a graph is the next milestone of the spec.
+  state folded from the session branch (`readState`, `exits`). It imports nothing of the workspace. The built-in
+  `builtin:graph` runs a graph on it.
 - `xpi-relay` (private, built into `xpi-coding-agent`) holds relay's control flow, records and prompts behind a host
   interface (spec: `.scratch/xpi-relay/01-package.md`; user docs: [relay.md](../packages/xpi-coding-agent/docs/relay.md);
   `packages/xpi-relay/README.md`). It builds after `xpi-ai` and `xpi-agent-core`, whose types it reads. The state
@@ -78,6 +78,13 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
     extension pi-pipipi. User docs: [subagent.md](../packages/xpi-coding-agent/docs/subagent.md); porting contracts:
     [subagent-porting.md](../packages/xpi-coding-agent/docs/subagent-porting.md), reached from the component menu
     [porting.md](../packages/xpi-coding-agent/docs/porting.md).
+  - `graph` (`src/extensions/graph/`, off with `-builtin:graph`): `/graph`, the virtual model `graph/auto` and the
+    `next` tool (deferred and unlisted, called from codemode). A graph file in `.pi/graphs/` is read as a literal
+    (`src/utils/literal.ts`, the parser saved workflows read their `meta` with) and never run. The state is the
+    session branch: the handlers read it with the `xpi-graph` package at each use and keep nothing in memory. A
+    move is entered at `agent_before_settle`, so a node never changes in the middle of a turn. Milestone 2 of
+    the spec: command nodes, approvals and the limits of a node are not built yet, and a graph that uses one is
+    refused. User docs: [graph.md](../packages/xpi-coding-agent/docs/graph.md).
   - `relay` (`src/extensions/relay/index.ts`, off with `-builtin:relay`): the virtual model `relay/auto` (a lead model
     plans and reviews, a worker model builds), the `handover` and `handback` tools, `/handover`, `/handback`, `/relay`.
     Settings namespace `relay.*`. The logic is the private package `xpi-relay` (`packages/xpi-relay`; it imports nothing

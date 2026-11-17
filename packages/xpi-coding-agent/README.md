@@ -31,6 +31,10 @@ What xin-pi adds to pi:
   cheap worker builds. The lead hands over with a plan and acceptance commands (a call from a codemode script), and reads
   a record of the result, not the worker's transcript. Both work in one session, and every phase change and repair is
   an entry and a line on screen. The logic is the `xpi-relay` package; see [docs/relay.md](https://github.com/luoxin9510/xin-pi/blob/main/packages/xpi-coding-agent/docs/relay.md).
+- **Graph**: a flow written as nodes and edges in `.pi/graphs/<name>.js`, run with `/graph start <name>`. The model
+  works freely inside a node and can leave it only by a declared edge, so a step of the flow cannot be skipped; each
+  node can have its own model. Not complete yet: nodes that run a command, approvals and per-node limits are next
+  ([docs/graph.md](https://github.com/luoxin9510/xin-pi/blob/main/packages/xpi-coding-agent/docs/graph.md)).
 - **Protected paths**: the file tools cannot read `.env` files and private keys or write `.git/` and `node_modules/`;
   your own patterns go in the `protect` setting, `/protect off` lifts it for a session ([docs/protect.md](docs/protect.md)).
 - **Checks after edits**: name your type-check or lint commands in the `checks.commands` setting and xpi runs them after
@@ -60,6 +64,7 @@ variables use the `XPI_` prefix (for example `XPI_CODING_AGENT_DIR`).
 - xin-pi overview, install from source, porting from upstream: [docs/xin-pi.md](https://github.com/luoxin9510/xin-pi/blob/main/docs/xin-pi.md)
 - Subagents: [docs/subagent.md](https://github.com/luoxin9510/xin-pi/blob/main/packages/xpi-coding-agent/docs/subagent.md)
 - Relay: [docs/relay.md](https://github.com/luoxin9510/xin-pi/blob/main/packages/xpi-coding-agent/docs/relay.md)
+- Graph: [docs/graph.md](https://github.com/luoxin9510/xin-pi/blob/main/packages/xpi-coding-agent/docs/graph.md)
 - Everything else (usage, settings, extensions, sessions, models) works as in pi; the inherited guide is in
   [README.upstream.md](https://github.com/luoxin9510/xin-pi/blob/main/packages/xpi-coding-agent/README.upstream.md) and
   the `docs/` folder, with the command named `xpi` instead of `pi`.

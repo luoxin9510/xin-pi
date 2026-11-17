@@ -112,7 +112,7 @@ the current branch into the state. Resuming a session, or moving to another bran
 
 - `none`: no graph runs. After a graph ended, `ended` holds the selection it should have restored.
 - `running`: the graph (checked again from the stored literal), the current `node`, `visited`, `counts` per edge,
-  a `pending` move, the `halted` reason, and `reminded`.
+  `lastEdge` (the edge that entered the node), a `pending` move, the `halted` reason, and `reminded`.
 - `error`: the entries cannot be read as a graph, or do not agree with each other. The host must halt and tell
   the user, never guess. The cases: a stored graph that fails the checks; a node the graph does not have; a first
   entry that is not the start node, or a start entry later on; an edge that does not join the two nodes, or is not
