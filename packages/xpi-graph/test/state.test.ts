@@ -89,6 +89,8 @@ describe("readState", () => {
 		expect(state.node).toBe("review");
 		expect(state.visited).toEqual(["grill", "build", "ci", "build", "ci", "review"]);
 		expect(state.counts).toEqual([1, 2, 1, 1, 0, 0, 0]);
+		// The edge that entered the current node, for a host that shows "2/3".
+		expect(state.lastEdge).toBe(EDGE.ciPass);
 	});
 
 	it("starts the counts again after a goto", () => {
@@ -101,6 +103,7 @@ describe("readState", () => {
 		]);
 		expect(state.node).toBe("ci");
 		expect(state.counts).toEqual([0, 1, 0, 0, 0, 0, 0]);
+		expect(running([...toBuild, enter("grill", "goto")]).lastEdge).toBeUndefined();
 	});
 
 	describe("a pending move", () => {

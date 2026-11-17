@@ -145,9 +145,8 @@ Custom entries, written by the extension, never shown to the model:
   since the last `goto` (a `goto` is the user taking over, so the counts start again).
 - A `graph.move` with no `graph.node` after it is a pending move: `readState` returns it as `pending`. It is
   entered at the next boundary (5), also after a quit, a crash or a move to another branch, so a pending move
-  never blocks a node. Which boundaries count depends on `via`: a move of the model (`model`, `approve`) is
-  entered at `agent_before_settle` or at the start of the next request; a command result (`pass`, `fail`) that
-  arrives while a turn runs is entered only at that turn's `agent_before_settle`, never at a request inside it.
+  never blocks a node. The boundaries are the end of a turn (`agent_before_settle`) and the start of the next run
+  (`before_agent_start`), for every `via`: a node never changes at a request inside a turn.
 - Resume: the last `graph.node` on the branch is the position. Moving to another branch of the session tree moves
   the graph with it; re-running a node is branching from its `graph.node` entry.
 - A state that cannot be read is an error state: the extension halts and tells the user; it never guesses. That
@@ -156,15 +155,17 @@ Custom entries, written by the extension, never shown to the model:
   not taken by its own exit, a node entered by another edge than the pending move, a second pending move, an end
   without a known reason.
 
-Messages the model does see (custom messages): `graph.enter` (the node, its prompt, the edges out with their
-labels, how to leave, and the node's `readOnly` patterns with the sentence that they hold for shell commands too),
+Messages the model does see (custom messages): `graph.enter` (the node, the report of the node it comes from, its
+prompt, the edges out with their labels, how to leave, and the node's `readOnly` patterns with the sentence that they hold for shell commands too),
 `graph.command` (a command node's command, exit code and the last 200 lines of output),
 `graph.reminder` (5).
 
 ### 5. Running (decisions 4, 5, 6, 9, 10, 13)
 
-`builtin:graph` in `src/extensions/graph/`, wired like `builtin:relay`: the file implements a small host interface
-on the extension API and forwards.
+`builtin:graph` in `src/extensions/graph/`. The package holds the pure part (the format, the checks, the state); the
+extension runs the graph on the extension API and keeps nothing in memory: each handler reads the state from the
+session branch. There is no host interface in the package, as relay has one: there is no logic to share beyond the
+three pure functions.
 
 - **Model.** A virtual model `graph/auto`. `/graph start` stores the current selection and selects `graph/auto`;
   its router reads the state and returns the node's model and thinking level. This is how relay switches models, and
@@ -192,15 +193,19 @@ on the extension API and forwards.
   - An `approve` edge: with a UI, `select` with Approve, Send back, Stop the graph. Send back ends the turn; the
     user's next message is the comment and the model stays in the node. Without a UI: halt (decision 4).
   - The graph is halted: refused (see Halt).
-  - A move is already pending (a `graph.move` with no `graph.node` after it), or the call comes from a
-    background script or from a call released after its turn: refused. One move per visit, made in the turn.
+  - A move is already pending (a `graph.move` with no `graph.node` after it): refused. One move per visit.
+  - The call comes while no turn runs (`ctx.isIdle()`: a background script, or a call released after its
+    turn): refused. A move is made in the turn of its node.
   - Otherwise the tool writes `graph.move`, and its result ends the script and asks to end the turn. The move is
-    entered at the next boundary, whichever comes first: `agent_before_settle`, or the start of the next request,
-    whatever starts it (the same run going on because another tool call of the batch did not ask to end the turn,
-    a new message after a resume, a request on another branch). Entering writes `graph.node` and `graph.enter`.
-    From `agent_before_settle` of a `completed` turn it also asks for one more request; after an aborted or failed
-    turn it does not, and the node is entered when the user sends the next message. Until the entry the old
-    node's model and limits hold.
+    entered when the turn ends (`agent_before_settle`): `graph.node` and `graph.enter` are written, and after a
+    `completed` turn one more request is asked for. A turn goes on when another tool call of the same batch
+    did not ask to end it: the old node's model and limits hold until that turn ends. A move whose turn was
+    aborted, failed, or never settled (a quit, a crash) is entered at `before_agent_start` of the next run,
+    with `graph.enter` as that run's message: it gets no request of its own.
+
+    Changed while building milestone 2: the spec first allowed a model's move to be entered at the next request
+    of the same turn. One rule for every move is simpler, and a node that never changes inside a turn is what
+    round 4 of the review asked for command results.
 - **Command nodes** run at the same point, by the engine (`pi.exec`, the session's cwd, the node's timeout, the
   run's abort signal): write `graph.node`, run, write `graph.command`, take the `pass` or `fail` edge, and go on
   until a model node, `end`, or a halt. A result with no edge, or an edge at its `max`, halts. The model is not
@@ -269,7 +274,9 @@ A `tool_call` handler, active while a graph runs. On a model node it applies tha
 - `/graph start <name>`: load, check, write `graph.start`, enter the start node.
 - `/graph stop`: end the graph (`stopped`).
 - `/graph goto <node>`: the user's jump to any node, recorded as `via: "goto"`. Going to a command node runs it.
-- Footer status with a UI: `graph dev: build (2/3)`; the count is shown when the last edge taken has a `max`.
+- Footer status with a UI: `graph dev: build (2/3)`; the count is shown when the last edge taken has a `max`
+  (`lastEdge` in the state).
+- `/graph` has a row in the roost command table (`extensions/roost/commands.ts`), as every built-in command has.
 
 ### 8. The two graphs (decisions 3, 12)
 

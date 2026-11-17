@@ -4,7 +4,8 @@ This page is a menu for taking xpi's features into another agent harness, read l
 components you want, follow each one's dependencies, and port only that set. Two levels, as in a kernel:
 
 - A **unit** is what you copy. Its files import each other, so a unit comes whole: you cannot copy half of it and build.
-  There are eight: [codemode](#codemode), [subagents](#subagents) (which needs codemode), [relay](#relay) (the `xpi-relay` package),
+  There are nine: [codemode](#codemode), [subagents](#subagents) (which needs codemode), [relay](#relay) (the `xpi-relay` package),
+  [graph](#graph) (the `xpi-graph` package; it needs codemode),
   [roost](#roost) (the `xpi-roost` package), the [roost adapter](#roost-adapter) (which needs roost) and
   [shadow-git](#shadow-git) (the `xpi-shadow-git` package; its isolation option needs subagents) and
   [checks](#checks) and [protect](#protect).
@@ -38,6 +39,7 @@ graph TD
   codemode[unit: codemode]
   subagents[unit: subagents]
   relay[unit: relay]
+  graph[unit: graph]
   roost[unit: roost]
   adapter[unit: roost adapter]
   shadowgit[unit: shadow-git]
@@ -45,6 +47,7 @@ graph TD
   protect[unit: protect]
   subagents --> codemode
   relay -. hand tools, soft .-> codemode
+  graph --> codemode
   adapter --> roost
   shadowgit -. isolation option .-> subagents
   subagents -. options .- o1[Agent tool, names and SendMessage, background, panel and screens, workflows, fork]
@@ -61,6 +64,7 @@ graph TD
 | [Agent tool](#subagents-agent-tool) | codemode, subagents | rpc mode with xpi's flags, child processes, session files, the core changes listed under [subagents](#subagents) | the other subagent options, by settings or wiring lines |
 | [names and SendMessage](#subagents-names-and-sendmessage), [background](#subagents-background), [panel and screens](#subagents-panel-and-screens), [workflows](#workflows) | codemode, subagents | as the Agent tool, plus what each option lists | the options you do not want |
 | [relay](#relay) | relay, codemode | virtual models (`core/virtual-models.ts`), the `agent_before_settle` boundary with compaction drafts, `context_with_system`, and four core changes for codemode-only tools (unlisted tools, a nested `terminate`, repair of a direct call, the hand-off signal) | `-builtin:relay`; with codemode off its tools fall back to direct tools |
+| [graph](#graph) | graph, codemode | virtual models (`core/virtual-models.ts`), tools that only a codemode script reaches (`exposure: "deferred"`, unlisted) with a nested `terminate`, the `agent_before_settle` boundary with `custom` and `custom_message` drafts, `before_agent_start` with a message, `context_with_system`, `session_compact`, `model_select` with its source | `-builtin:graph`; it does nothing until `/graph start` |
 | [roost core](#roost-core) | roost | node-pty, unix sockets, detached child processes, a CLI that starts a session from argv with a session file | [schedules](#schedules) (no `scheduleLaunch`), [login service](#login-service) (remove its `cmdDaemon` branch); the hub is a separate entry point, unused unless wired |
 | [shadow-git](#shadow-git) | shadow-git | Node and git 2.20 or newer; a `sh` for the shipped adapters | `--gitfile`, local-only paths and the scope are settings; the xpi integration (the extension, [isolation](#shadow-git-isolation)) by leaving its wiring out |
 | [checks](#checks) | checks | tool effects on `tool_call`, the `turn_end` boundary with `custom_message` drafts and its `terminated` field (core change, see the entry), `registerMessageRenderer`, `ctx.signal`, `ui.setStatus` | nothing to turn off but the `checks.commands` setting |
@@ -68,6 +72,7 @@ graph TD
 | [roost session side](#roost-session-side), [hub](#roost-hub) | roost, roost adapter | extension events, flags and commands; a TUI library like `xpi-tui` for the hub | `/agents` and the hub, by removing their registrations |
 
 A pick never needs a unit outside its row: the import graphs of `extensions/relay/index.ts` (with the `xpi-relay` package),
+`extensions/graph/index.ts` (with the `xpi-graph` package, `utils/literal.ts` and `projectDirs` of `extensions/subagent/discovery.ts`),
 `extensions/codemode/index.ts`, `extensions/subagent/index.ts`, `extensions/roost/index.ts`, `extensions/checks/index.ts`, `extensions/protect/index.ts` and xpi-roost's three
 process entries reach only the files listed in their units (plus the host's own `core/`, `modes/`, `utils/`,
 `cli/args.ts` and `config.ts`, and, for subagents, the MCP built-in's `config.ts` named in its entry).
@@ -346,6 +351,36 @@ The options below come with the unit. Each says how to turn it off.
 - **Linux**: the acceptance commands run with `shell: true` in their own process group, which is killed on timeout or
   abort. **macOS**: the same.
 - **Guide**: this entry and [Relay](relay.md) (settings, the record, limits); there is no separate relay porting guide.
+
+## graph
+
+- **Gives**: flow control by a graph. A file gives a flow nodes and edges; the model works freely inside a node
+  and leaves it only by a declared edge, with the `next` tool, so a step cannot be skipped; each node can have its
+  own model. `/graph`, `/graph start <name>`, `/graph stop`, the virtual model `graph/auto`. See [Graph](graph.md).
+  Not complete yet: command nodes, approvals and the limits of a node are the next milestone.
+- **Depends on**: codemode (the model reaches `next` only from a script; a graph does not start without it). The
+  package `xpi-graph` imports nothing: it reads a parsed literal and a list of session entries and answers whether
+  the graph is valid, where the session is and where it may go. Its entry shape (`GraphEntry`) is what the host's
+  session entries must be assignable to: a `type`, and for custom entries `customType` and `data`, for custom
+  messages `customType`, for messages a `message` with a `role`.
+- **Host must have**: a virtual model whose router gets the extension context (it reads the session branch, no
+  router state); a tool that is unlisted and reachable only from codemode, whose result can end the script and ask
+  to end the turn; `agent_before_settle` that takes `custom` and `custom_message` drafts and can ask for one more
+  request (a move is entered there); `before_agent_start` that can return a message (a move whose turn never
+  settled is entered there); `context_with_system` with named sections of the leading system message;
+  `session_compact`; `model_select` with a source that tells a restore from a choice; `appendEntry`, `sendMessage`
+  with `triggerTurn`, `setModel`, `setThinkingLevel`, `ui.setStatus`, `ctx.isIdle()`.
+- **Copy (one unit)**: the package `packages/xpi-graph/` whole (`src/`: `types.ts`, `parse.ts`, `check.ts`,
+  `state.ts`, `index.ts`), `extensions/graph/` (`index.ts`, `files.ts`) and `utils/literal.ts`. `files.ts` uses
+  `projectDirs` of `extensions/subagent/discovery.ts` (the directories from the cwd up to the repository root):
+  copy that function if you do not port subagents.
+- **Rewrite**: the provider and model ids (`graph`, `auto`), the tool name `next`, the directories
+  (`.pi/graphs/`, `<agent dir>/graphs/`), and the texts the model reads (`SECTION_TEXT` and `enterText` in
+  `index.ts`).
+- **Verify**: `packages/xpi-graph/test/` (the file format, each check, the state fold), `test/graph-files.test.ts`
+  and `test/suite/graph.test.ts` (vitest, offline, faux provider).
+- **Linux**: nothing platform-specific. **macOS**: the same.
+- **Guide**: this entry, [Graph](graph.md) and `packages/xpi-graph/README.md`.
 
 ## checks
 

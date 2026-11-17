@@ -161,6 +161,10 @@
           "path": "relay.md"
         },
         {
+          "title": "Graph",
+          "path": "graph.md"
+        },
+        {
           "title": "Checks after edits",
           "path": "checks.md"
         },

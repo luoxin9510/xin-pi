@@ -51,7 +51,8 @@ const CORE: Record<string, How> = {
  * - /restart is the hub's own in a peek (it asks the daemon to restart that session): hub.
  * - /relay only says where the work stands, /protect shows or switches the protected paths (a notice on the session's
  *   screen): screen.
- * - /handover, /handback, /subtask, /upstream and the built-in /review workflow start or steer work: reply.
+ * - /handover, /handback, /subtask, /upstream, /graph (start begins the first node's turn) and the built-in /review
+ *   workflow start or steer work: reply.
  */
 export const EXTENSION_COMMANDS: Record<string, How & { description: string; argumentHint?: string }> = {
 	commit: { how: "picker", args: "optional", description: "Draft a commit message and commit after you confirm it" },
@@ -73,6 +74,12 @@ export const EXTENSION_COMMANDS: Record<string, How & { description: string; arg
 		description: "Restart on the installed build (all: the service and every session)",
 	},
 	relay: { how: "screen", description: "Relay: who has the work, the round and the two models" },
+	graph: {
+		how: "reply",
+		args: "optional",
+		argumentHint: "start <name> | stop",
+		description: "Flow control by a graph: show the state, start a graph or stop it",
+	},
 	protect: {
 		how: "screen",
 		args: "optional",

@@ -86,6 +86,8 @@ export interface RunningState {
 	visited: string[];
 	/** How many times each edge was taken since the start or the last goto, by edge index. */
 	counts: number[];
+	/** The index of the edge that entered the current node; absent after a start or a goto. */
+	lastEdge?: number;
 	/** A move that is accepted and not entered yet. */
 	pending?: MoveData;
 	/** The reason of the halt the graph is in. */
@@ -136,6 +138,7 @@ function step(state: RunningState, type: string, data: unknown): RunningState | 
 		const entered = {
 			node,
 			visited: [...state.visited, node],
+			lastEdge: undefined,
 			pending: undefined,
 			halted: undefined,
 			reminded: false,
@@ -156,7 +159,12 @@ function step(state: RunningState, type: string, data: unknown): RunningState | 
 		if (state.pending !== undefined && state.pending.edge !== edge) {
 			return `${type}: edge ${edge} is not the pending move (edge ${state.pending.edge})`;
 		}
-		return { ...state, ...entered, counts: state.counts.map((count, index) => (index === edge ? count + 1 : count)) };
+		return {
+			...state,
+			...entered,
+			lastEdge: edge,
+			counts: state.counts.map((count, index) => (index === edge ? count + 1 : count)),
+		};
 	}
 	if (type === GRAPH_MOVE) {
 		const edge = readIndex(data.edge, graph.edges);

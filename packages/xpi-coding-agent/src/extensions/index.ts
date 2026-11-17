@@ -2,6 +2,7 @@ import type { InlineExtension } from "../core/extensions/types.ts";
 import checksExtension from "./checks/index.ts";
 import codemodeExtension from "./codemode/index.ts";
 import commitExtension from "./commit/index.ts";
+import graphExtension from "./graph/index.ts";
 import llamaExtension from "./llama/index.ts";
 import mcpExtension from "./mcp/index.ts";
 import protectExtension from "./protect/index.ts";
@@ -28,6 +29,9 @@ export const builtInExtensions: InlineExtension[] = [
 	{ name: "subagent", factory: subagentExtension, builtin: true },
 	// Not replaceable. Disable it with `-builtin:relay`.
 	{ name: "relay", factory: relayExtension, builtin: true },
+	// Not replaceable. Flow control by a graph (`/graph`, the `graph/auto` model). It does nothing until `/graph start`.
+	// Disable it with `-builtin:graph`.
+	{ name: "graph", factory: graphExtension, builtin: true },
 	// Not replaceable. Disable it with `-builtin:upstream`.
 	{ name: "upstream", factory: upstreamExtension, builtin: true },
 	// Not replaceable. Disable it with `-builtin:commit`.

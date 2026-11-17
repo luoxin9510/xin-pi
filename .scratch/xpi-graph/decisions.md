@@ -133,6 +133,20 @@ The five findings of round 2 are closed. One should-fix and one nit on the incre
 The owner approved the spec ("批准") with PR #136, and with it the refusal to start a graph while a virtual model
 is selected (review round 2).
 
+## Found while building milestone 2 (author, 2026-11-17)
+
+- Every move is entered at the end of its turn, or before the next run when the turn never settled. The spec
+  first let a model's move be entered at the next request of the same turn; one rule is simpler and a node then
+  never changes inside a turn.
+- The report of the node before goes into the `graph.enter` message. Without it the report is only an argument
+  of a tool call in the transcript, which a compaction drops.
+- The extension holds the running logic and the package only the three pure parts; there is no host interface
+  as relay's.
+- A loop limit halts already in milestone 2 (a graph of model nodes can loop). The reminder, the command nodes,
+  the approvals and the limits stay in milestone 3.
+- `next` from a background script is refused when no turn runs. A background script that calls it while a
+  later turn of the same node runs is accepted: it is a call in a turn of the node.
+
 ## Review round 4 (same reviewer, commit 933f811d5, 2026-11-17)
 
 Both findings of round 3 are closed; nothing blocking. One nit, taken: `graph.move` records where the move came

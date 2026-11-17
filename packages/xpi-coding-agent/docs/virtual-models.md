@@ -138,5 +138,8 @@ Routers can call other models through `ctx.modelRegistry`, for example `ctx.mode
 
 See [`jev-router.ts`](../examples/extensions/jev-router.ts) for a complete router. It plans on a strong OpenAI Codex model chosen by the Jev classifier, lets that model make the first edit, and then switches once to a cheaper model, accepting a single prompt-cache miss. It keeps the phase as router state.
 
-xpi ships one virtual model, [`relay/auto`](relay.md): a lead model plans and reviews, a worker model builds, and the
+xpi ships two virtual models. [`graph/auto`](graph.md) is selected by `/graph start`, not by hand: it sends each
+request to the model of the current node of the running graph, which it reads from the session branch; with no
+graph running it answers with the model that answered last. The other is
+[`relay/auto`](relay.md): a lead model plans and reviews, a worker model builds, and the
 worker's phase reaches the lead as a compacted record. It uses `contextLimit` to keep the worker under its model's first price tier (see [Relay: The worker's context limit](relay.md#the-workers-context-limit)) and `cache` to keep the lead's prefix warm during a worker phase (see [Relay: The lead's cached prefix](relay.md#the-leads-cached-prefix)).
