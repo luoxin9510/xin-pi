@@ -5,7 +5,7 @@
 
 import type { RelayEntry } from "./entry.ts";
 import type { Handover } from "./record.ts";
-import { HANDOVER_ENTRY, ROUND_ENTRY } from "./view.ts";
+import { HANDOVER_ENTRY, ROUND_ENTRY, VOID_ENTRY } from "./view.ts";
 
 /** The worker's tool. */
 export const STEP_TOOL = "step";
@@ -13,6 +13,18 @@ export const STEP_TOOL = "step";
 export const STEP_ENTRY = "relay.step";
 /** Steps a round may hold, the lead's and the worker's together. */
 export const MAX_STEPS = 30;
+/** Characters of one step; a longer line is cut. A step is a label, the plan holds the detail. */
+export const STEP_CHARS = 160;
+
+/** One step's text: one line, without a list marker or number the model put in front, cut to `STEP_CHARS`. */
+function stepText(value: string): string {
+	const line = value
+		.replace(/\s+/g, " ")
+		.trim()
+		.replace(/^(?:[-*•]\s+|\[[ xX-]?\]\s*|\(?\d{1,2}[.):]\s+)+/, "")
+		.trim();
+	return line.length <= STEP_CHARS ? line : `${line.slice(0, STEP_CHARS - 3).trimEnd()}...`;
+}
 
 export interface Step {
 	text: string;
@@ -44,7 +56,7 @@ export function cleanSteps(value: unknown): string[] | undefined {
 	if (!Array.isArray(value) || value.some((line) => typeof line !== "string")) {
 		throw new Error("steps must be a list of strings");
 	}
-	const lines = (value as string[]).map((line) => line.replace(/\s+/g, " ").trim()).filter((line) => line !== "");
+	const lines = (value as string[]).map(stepText).filter((line) => line !== "");
 	if (lines.length > MAX_STEPS) throw new Error(`steps holds ${lines.length} lines; at most ${MAX_STEPS}`);
 	return lines.length > 0 ? lines : undefined;
 }
@@ -75,6 +87,8 @@ export function readSteps(branch: readonly RelayEntry[]): StepList | undefined {
 					else delete step.note;
 				}
 			} else if (entry.customType === ROUND_ENTRY && list) list.handedBack = true;
+			// A handover whose result never reached the router did not happen: the lead goes on, without a list.
+			else if (entry.customType === VOID_ENTRY) list = undefined;
 		} else if (entry.type === "message" && list?.handedBack && entry.message.role === "user") list.closed = true;
 	}
 	return list;
@@ -87,7 +101,7 @@ export function applyStep(list: StepList | undefined, params: StepParams): { dat
 		const open = steps.flatMap((step, index) => (step.status === "todo" ? [index + 1] : []));
 		return open.length > 0 ? `Open: ${open.join(", ")}.` : "No step is open.";
 	};
-	const add = typeof params.add === "string" ? params.add.replace(/\s+/g, " ").trim() : "";
+	const add = typeof params.add === "string" ? stepText(params.add) : "";
 	if (add) {
 		if (params.n !== undefined) throw new Error("Give n with status, or add, not both.");
 		if (list.steps.length >= MAX_STEPS) throw new Error(`The list is full (${MAX_STEPS} steps).`);
@@ -117,7 +131,7 @@ export function renderSteps(steps: readonly Step[]): string[] {
 	});
 }
 
-/** Lines of the widget before finished steps are folded. */
+/** Step rows of the widget: with the title it stays under the ten lines a host widget may show. */
 const WIDGET_ROWS = 8;
 
 /**
@@ -140,10 +154,14 @@ export function stepsWidget(branch: readonly RelayEntry[], workerModel: string):
 		].filter(Boolean);
 		return `  ${mark} ${index + 1} ${step.text}${tail.length > 0 ? ` (${tail.join("; ")})` : ""}`;
 	});
-	// A long list folds the finished steps in front of the current one into one line.
+	// A long list folds the closed steps in front of the current one into one line, then leaves out the far end.
+	let shown = rows;
 	const lead = current < 0 ? list.steps.length : current;
-	if (rows.length > WIDGET_ROWS && lead > 1) {
-		lines.push(`  ✓ 1-${lead} closed`, ...rows.slice(lead));
-	} else lines.push(...rows);
+	if (shown.length > WIDGET_ROWS && lead > 1) shown = [`  ✓ 1-${lead} closed`, ...rows.slice(lead)];
+	if (shown.length > WIDGET_ROWS) {
+		const more = shown.length - (WIDGET_ROWS - 1);
+		shown = [...shown.slice(0, WIDGET_ROWS - 1), `    +${more} more`];
+	}
+	lines.push(...shown);
 	return lines;
 }

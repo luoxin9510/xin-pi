@@ -250,7 +250,7 @@ export function createRelay(host: RelayHost): Relay {
 		if (event.type === "handover" && !view.pending && !params.plan.trim()) throw new Error("plan is empty");
 		// A wrong shape is the lead's to correct before anything is written. With `relay.steps` off the lead was never
 		// told of the field, and a list it sends anyway is left out.
-		const steps = config().steps ? cleanSteps(params.steps) : undefined;
+		const steps = event.type === "handover" && config().steps ? cleanSteps(params.steps) : undefined;
 		const { effects } = transition(view, event, machineConfig());
 		const own: { handover?: Handover } = {};
 		if (effects.some((effect) => effect.type === "append_entry" && effect.entry === "relay.handover")) {
@@ -553,6 +553,11 @@ export function createRelay(host: RelayHost): Relay {
 			try {
 				const cfg = config();
 				if (!cfg.steps) return undefined;
+				// A handover that was cut off before the worker answered (Esc, then a message) left its entry on the
+				// branch, but the lead has the work: no list then.
+				const view = viewOf(call);
+				const list = readSteps(call.entries);
+				if (!list || (!list.handedBack && view.phase !== "worker" && !view.pending)) return undefined;
 				return stepsWidget(call.entries, splitModelRef(cfg.worker).id);
 			} catch {
 				return undefined;
@@ -818,8 +823,8 @@ export function createRelay(host: RelayHost): Relay {
 					if (registeredDirect) lines.push("codemode is off: the hand tools are direct tools");
 					const history = describeHistory(branch);
 					if (history.length > 0) lines.push("this round:", ...history.map((line) => `  ${line}`));
-					const list = readSteps(branch);
-					if (list)
+					const list = cfg.steps ? readSteps(branch) : undefined;
+					if (list && (list.handedBack || view.phase === "worker" || view.pending))
 						lines.push(`steps of round ${list.round}:`, ...renderSteps(list.steps).map((line) => `  ${line}`));
 					const spend = spendFact(branch, cfg);
 					if (spend) lines.push(spend);

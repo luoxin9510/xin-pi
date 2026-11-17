@@ -178,8 +178,10 @@ describe("createRelay against a fake host", () => {
 				"Only the worker changes the step list",
 			);
 			state("worker", 1);
+			expect(relay.section(call)?.text).toContain("Steps:\n1. [ ] add a test\n2. [ ] fix it");
+			// how to tick is one of the worker's duties, named only when the round has a list
 			expect(relay.section(call)?.text).toContain(
-				'Steps (when one is finished call tools.step({ n, status: "done" }); "skipped" with a note for one you leave out; tools.step({ add: "..." }) for work the plan did not list):\n1. [ ] add a test\n2. [ ] fix it',
+				'- The handover has a step list. In the script that finishes a step, also call tools.step({ n, status: "done" }) with the step\'s number',
 			);
 			expect((await step.execute({ n: 1, status: "done" }, undefined, call)).text).toBe("Step 1 done. Open: 2.");
 			expect((await step.execute({ add: "update the docs" }, undefined, call)).text).toBe(
@@ -201,6 +203,19 @@ describe("createRelay against a fake host", () => {
 			expect(relay.commands.status(call).text).toContain("steps of round 1:\n  1. [x] add a test");
 		});
 
+		it("shows no list for a handover that was cut off before the worker answered", async () => {
+			const { relay, call, state, message } = make();
+			state("lead", 0);
+			message(user("go"));
+			await relay.handover({ plan: "p", steps: ["a", "b"] }, undefined, call);
+			// in the moment between the handover and the worker's first request the list is already the worker's
+			expect(relay.stepsWidget(call)?.[0]).toBe("relay round 1 · worker (small) · 0/2");
+			// Esc, then a new message: the lead has the work, and the handover's entry is still on the branch
+			message(user("wait, something else"));
+			expect(relay.stepsWidget(call)).toBeUndefined();
+			expect(relay.commands.status(call).text).not.toContain("steps of round");
+		});
+
 		it("refuses a wrong shape before anything is written, and has no list without steps", async () => {
 			const { relay, call, entries, state, registered } = make();
 			state("lead", 0);
@@ -210,7 +225,8 @@ describe("createRelay against a fake host", () => {
 			expect(entries.some((entry) => entry.type === "custom" && entry.customType === HANDOVER_ENTRY)).toBe(false);
 			await relay.handover({ plan: "p" }, undefined, call);
 			state("worker", 1);
-			expect(relay.section(call)?.text).not.toContain("Steps (");
+			expect(relay.section(call)?.text).not.toContain("Steps:");
+			expect(relay.section(call)?.text).not.toContain("step list");
 			expect(relay.stepsWidget(call)).toBeUndefined();
 			const step = registered[0].find((spec) => spec.name === "step")!;
 			await expect(step.execute({ n: 1, status: "done" }, undefined, call)).rejects.toThrow(

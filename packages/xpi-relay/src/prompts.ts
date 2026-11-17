@@ -95,12 +95,7 @@ export function workerSection(
 				? `The handover (round ${handover.round}, given by the user):`
 				: `The handover (round ${handover.round}, from the lead):`,
 			...section("Plan", handover.plan),
-			...(steps.length > 0
-				? [
-						`Steps (when one is finished call ${callOf(STEP_TOOL, isDirect).replace("{...}", '{ n, status: "done" }')}; "skipped" with a note for one you leave out; ${callOf(STEP_TOOL, isDirect).replace("{...}", '{ add: "..." }')} for work the plan did not list):`,
-						...steps,
-					]
-				: []),
+			...(steps.length > 0 ? ["Steps:", ...steps] : []),
 			...section("Criteria", handover.criteria),
 			...section("Findings", handover.findings),
 			...section("Stop when", handover.stopWhen),
@@ -110,6 +105,11 @@ export function workerSection(
 		"",
 		"Your duties:",
 		"- Carry out the plan as written. Everything earlier in this conversation is context you may rely on.",
+		...(steps.length > 0
+			? [
+					`- The handover has a step list. In the script that finishes a step, also call ${callOf(STEP_TOOL, isDirect).replace("{...}", '{ n, status: "done" }')} with the step's number: the user watches the list while you work, and the lead reads it with your report. A step you leave out: status "skipped" with a note. Work the plan did not list: ${callOf(STEP_TOOL, isDirect).replace("{...}", '{ add: "..." }')}.`,
+				]
+			: []),
 		`- When the work is done, hand back with status "done" and a report: what you changed, where you left the plan and why, what is unresolved.`,
 		`- When you cannot go on (the plan does not fit what you find, a stop condition is met, the same failure keeps coming back), hand back with status "blocked" and say what stops you. Do not improvise a different design.`,
 	);

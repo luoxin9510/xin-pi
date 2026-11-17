@@ -220,7 +220,10 @@ without it works as before, and so does `/handover`. With a list:
 Nothing enforces the list. A hand back with open steps is a hand back; no reminder is sent and no run is continued for
 it. A tick is the worker's word, not a check: the acceptance commands stay the only hard test. Each tick changes the
 worker's section, so the worker's cached prefix is written again from there once per tick. `relay.steps: false` takes
-the field out of the lead's section and makes `step` refuse; at most 30 steps a round.
+the field out of the lead's section (a list sent anyway is dropped) and makes `step` refuse. A round holds at most 30
+steps; a step is one line of at most 160 characters (a longer one is cut, and a number or list marker in front is
+removed), and the widget shows eight rows, the far end of a longer list as `+N more`. A handover that did not take
+effect (cut off, or voided) has no list.
 
 ## The hand-back record
 

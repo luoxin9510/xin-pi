@@ -8,8 +8,10 @@ import {
 	ROUND_ENTRY,
 	readSteps,
 	renderSteps,
+	STEP_CHARS,
 	STEP_ENTRY,
 	stepsWidget,
+	VOID_ENTRY,
 } from "../src/index.ts";
 
 let id = 0;
@@ -36,6 +38,16 @@ describe("the step list of a round", () => {
 		expect(cleanSteps(undefined)).toBeUndefined();
 		expect(cleanSteps([])).toBeUndefined();
 		expect(cleanSteps([" add a  test ", "", "fix it\nnow"])).toEqual(["add a test", "fix it now"]);
+		// a list marker or number the model put in front goes; a long line is cut: a step is a label
+		expect(cleanSteps(["1. add a test", "- [ ] fix it", "(3) run 2 suites", "* 4) docs"])).toEqual([
+			"add a test",
+			"fix it",
+			"run 2 suites",
+			"docs",
+		]);
+		const long = cleanSteps(["x".repeat(500)])![0]!;
+		expect(long).toHaveLength(STEP_CHARS);
+		expect(long.endsWith("...")).toBe(true);
 		expect(() => cleanSteps("one")).toThrow("steps must be a list of strings");
 		expect(() => cleanSteps([1])).toThrow("steps must be a list of strings");
 		expect(() => cleanSteps(Array(MAX_STEPS + 1).fill("x"))).toThrow(`at most ${MAX_STEPS}`);
@@ -73,6 +85,8 @@ describe("the step list of a round", () => {
 		expect(readSteps([handover(1)])).toBeUndefined();
 		expect(readSteps([handover(1, ["a"]), handover(2)])).toBeUndefined();
 		expect(readSteps([handover(1, ["a"]), handover(2, ["z"])])?.steps[0]?.text).toBe("z");
+		// a handover that was voided did not happen
+		expect(readSteps([handover(1, ["a"]), custom(VOID_ENTRY, { round: 1 })])).toBeUndefined();
 	});
 
 	it("applies one call: a tick by number, a skip with its note, an addition; and says what is open", () => {
@@ -141,5 +155,20 @@ describe("the step list of a round", () => {
 		const lines = stepsWidget(branch, "haiku")!;
 		expect(lines.slice(0, 3)).toEqual(["relay round 1 · worker (haiku) · 4/10", "  ✓ 1-4 closed", "  ▸ 5 s5"]);
 		expect(lines).toHaveLength(8);
+	});
+
+	it("never shows more than the title and eight rows: the far end of a long list is counted, not shown", () => {
+		const steps = Array.from({ length: 15 }, (_, i) => `s${i + 1}`);
+		const fresh = stepsWidget([handover(1, steps)], "haiku")!;
+		expect(fresh).toHaveLength(9);
+		expect(fresh.slice(0, 2)).toEqual(["relay round 1 · worker (haiku) · 0/15", "  ▸ 1 s1"]);
+		expect(fresh.at(-1)).toBe("    +8 more");
+		const later = stepsWidget(
+			[handover(1, steps), ...[1, 2, 3].map((n) => tick(1, { n, status: "done" }))],
+			"haiku",
+		)!;
+		expect(later).toHaveLength(9);
+		expect(later.slice(1, 3)).toEqual(["  ✓ 1-3 closed", "  ▸ 4 s4"]);
+		expect(later.at(-1)).toBe("    +6 more");
 	});
 });
