@@ -21,7 +21,7 @@ Spec: `.scratch/xpi-graph/01-graph.md` (sections 5, 6, 7). One PR (branch `graph
       leaves it and the idle count starts again. On a command node the router uses the pre-graph model, the limits are the union of every node's
       `deny`, and only `/graph goto` and `/graph stop` leave it. `/graph goto <node>` is recorded, resets the
       counts and runs a command node
-      Done: `haltNotice`, `/graph goto`. The router and the limits read the node kind, so they hold while a command runs as well.
+      Done: `haltNotice`, `/graph goto`. While a command runs, the limits are read from the running command (every node's `deny`), also at a turn's end, when the branch still shows the node before.
 - [x] G3.6 limits: the `tool_call` handler for `deny` and `readOnly`; `match.ts` of `builtin:protect` reused; the
       graph directories and the session file read-only while a graph runs; the reason, the warning,
       `graph.blocked`; the `readOnly` patterns in `graph.enter` with the sentence about shell commands
@@ -32,7 +32,7 @@ Spec: `.scratch/xpi-graph/01-graph.md` (sections 5, 6, 7). One PR (branch `graph
 - [x] G3.8 the "not supported yet" refusal of milestone 2 is removed
       Done.
 - [x] G3.9 suite tests: the remaining cases of the spec's Tests
-      Done: `test/suite/graph-controls.test.ts` (23 tests, a fake command runner). Not covered by a test: a command result that arrives while a turn runs (`mayWait`), which needs a command started outside a turn and a turn started during it.
+      Done: `test/suite/graph-controls.test.ts` (25 tests, a fake command runner; two of them hold a command and stop it with `/graph stop`) and `test/graph-limits.test.ts` (14 tests of `limits.ts`). Not covered by a test: a command result that arrives while a turn runs (`mayWait`), which needs a command started outside a turn and a turn started during it.
 - [x] G3.10 docs: `docs/graph.md` complete, with the boundary of the limits stated plainly (`readOnly` is not
       enforced on `bash`; a running child keeps the limits it started with; a child in a worktree matches against
       its own cwd);

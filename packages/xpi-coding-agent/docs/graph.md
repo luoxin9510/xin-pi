@@ -131,7 +131,8 @@ What happens while it runs:
 - **A command node** is run by xpi in the session's directory when the graph enters it. The model is not asked and
   cannot report a result of its own. The command, how it ended and the last 200 lines of its output go into the
   session, so the next node reads them. Then the `pass` or `fail` edge is taken; several command nodes in a row run
-  one after the other.
+  one after the other. To stop a command that runs, use `/graph stop` (it ends the graph); Escape does not reach a
+  command that runs between two turns.
 - **An approval.** When the model chooses an `approve` edge you are asked: **Approve**, **Send back** or **Stop the
   graph**. After "Send back" the model stays in the node and your next message is the comment. Closing the question
   is not an approval. Without a UI nobody can approve, and the graph halts.
@@ -155,12 +156,12 @@ cannot move the graph while it is halted.
 | two turns ended without a move | that model node | the same |
 | an approval is needed and there is no UI | that model node | the same |
 | a command's result has no edge, or its edge is at `max` | the command node | `/graph goto <node>` (the same node runs the command again), `/graph stop` |
-| a command was stopped while it ran | the command node | the same |
 | the state cannot be read | | `/graph stop` |
 
 On a model node your next message leaves the halt. On a command node it does not: there is no node at work there. If
-you talk to the session while it is halted on a command node (or while a command started by `/graph goto` runs), the
-model you had selected before the graph answers, the `deny` lists of all nodes hold, and `next` is refused.
+you talk to the session while it is halted on a command node, the model you had selected before the graph answers,
+the `deny` lists of all nodes hold, and `next` is refused. While a command runs, the `deny` lists of all nodes hold
+as well.
 
 Example: `ci` fails a fourth time and `ci -> build` has `max: 3`. The graph halts on `ci`. You say "look at the log";
 the model selected before the graph answers, and `gh pr merge` stays denied because `build` and `review` deny it.
@@ -214,9 +215,13 @@ to get around it.
 
 - `deny` matches the text of a command. It does not parse the shell: a command written into a script file and run
   from there is not seen.
+- `deny` looks at `bash` and `powershell` calls only. A tool that reaches the same result another way is not seen:
+  an MCP tool that merges a pull request is not stopped by a `deny` of `gh pr merge`. If such a tool is
+  connected, the command node is your only control for that step, and the model can get ahead of it.
 - `readOnly` sees the file tools only. A shell command that writes a file (`cat > spec.md`) is not blocked. A model
   can do that out of habit, not only on purpose, so the message that enters a node names the node's read-only paths
-  and says they hold for shell commands too. That is an instruction, not an enforcement.
+  and says they hold for shell commands too. That is an instruction, not an enforcement. A path with a scheme
+  (`name://...`, owned by an extension) is not checked either.
 - A model can change a test so that it passes. The check then passes honestly. An independent review finds that, the
   graph does not.
 - A review node in the same session sees the whole conversation. For an independent review, tell the node in its

@@ -219,9 +219,11 @@ three pure functions.
   until a model node, `end`, or a halt. A result with no edge, or an edge at its `max`, halts. The model is not
   asked and cannot report a result of its own. `exec` takes the timeout and the abort signal.
 - **Outside a turn.** `/graph start` and `/graph goto` run in a command handler, with no turn. They enter the
-  node there. A command handler has no abort signal (`ctx.signal` is undefined when no turn runs), so the
-  extension makes its own `AbortController` for the run, shows `graph dev: ci (running)` in the status, and
-  `/graph stop` and a change of model abort it. The handler waits for the run (changed while building
+  node there. A command handler has no abort signal, and neither has the end of a turn (`ctx.signal` is the
+  run's, and the run is over by then), so every command runs under the extension's own `AbortController`,
+  whoever started it. The status shows `graph dev: ci (running)`; `/graph stop` and a change of model abort it.
+  Escape does not reach a command that runs between two turns. After a command the extension reads the branch
+  again: a graph that was ended meanwhile writes and runs nothing more. The handler waits for the run (changed while building
   milestone 3: the spec first said it does not; waiting keeps one place that goes on from a result, and the
   rules below hold either way).
   - While such a command runs the session is usable, and the graph is on a command node without being halted.
@@ -260,7 +262,8 @@ three pure functions.
 
 ### 6. Limits of a node (decisions 7, 15, 18)
 
-A `tool_call` handler (`limits.ts`), active while a graph runs. On a model node it applies that node's limits; on a command node
+A `tool_call` handler (`limits.ts`), active while a graph runs. While a command runs at a turn's end the branch
+still shows the node before (the new entries are drafts), so the handler reads the state from the running command. On a model node it applies that node's limits; on a command node
 (halted there, or its command running outside a turn), the union described in 5. Calls made by a codemode script emit the event too.
 
 - `deny`: a `bash` or `powershell` call whose command text contains one of the strings is blocked. No shell

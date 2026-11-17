@@ -71,6 +71,7 @@ export function blockedBy(
 	limits: NodeLimits,
 	call: { toolName: string; effect: string; input: Record<string, unknown> },
 	cwd: string,
+	platform: NodeJS.Platform = process.platform,
 ): Blocked | undefined {
 	const where = `node "${limits.node}" of graph ${limits.graph}`;
 	const command = call.toolName === "bash" || call.toolName === "powershell" ? call.input.command : undefined;
@@ -88,15 +89,17 @@ export function blockedBy(
 	if (typeof path !== "string" || path === "" || SCHEME.test(path)) return undefined;
 	if (
 		limits.readOnly.length > 0 &&
-		protectLevel({ secret: [], readOnly: limits.readOnly }, path, cwd) === "readOnly"
+		protectLevel({ secret: [], readOnly: limits.readOnly }, path, cwd, platform) === "readOnly"
 	) {
 		return {
 			rule: "readOnly",
 			reason: `\`${path}\` cannot be written in ${where}. If a change is needed, ask the user.`,
 		};
 	}
-	const real = realPathOf(resolveToCwd(path, cwd));
-	if (limits.protected.some((kept) => real === kept || real.startsWith(`${kept}${sep}`))) {
+	// A file system that ignores case (macOS, Windows) keeps the spelling it is given: `.PI/graphs` is `.pi/graphs`.
+	const fold = (value: string) => (platform === "darwin" || platform === "win32" ? value.toLowerCase() : value);
+	const real = fold(realPathOf(resolveToCwd(path, cwd)));
+	if (limits.protected.some((kept) => real === fold(kept) || real.startsWith(`${fold(kept)}${sep}`))) {
 		return {
 			rule: "graph files",
 			reason: `\`${path}\` cannot be written while a graph runs: it is a graph file or the session's own record.`,

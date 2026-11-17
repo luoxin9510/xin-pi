@@ -71,13 +71,27 @@ describe("graph extension: controls", () => {
 		/** How each command ends, in order; a command with nothing left passes. */
 		const results: Record<string, Partial<RunResult>[]> = {};
 		const ran: { command: string; timeoutMs: number; cwd: string }[] = [];
+		/** Commands that do not end by themselves: each runs until the test releases it or its signal aborts. */
+		const held = new Set<string>();
+		const release: Record<string, () => void> = {};
 		const graphExtension = createGraphExtension({
 			run: async (command, runOptions) => {
 				ran.push({ command, timeoutMs: runOptions.timeoutMs, cwd: runOptions.cwd });
-				const next = results[command]?.shift() ?? {};
-				return { command, output: `${command} output\n`, code: 0, timedOut: false, aborted: false, ...next };
+				const base = { command, output: `${command} output\n`, code: 0, timedOut: false, aborted: false };
+				if (held.has(command)) {
+					return new Promise<RunResult>((resolve) => {
+						release[command] = () => resolve(base);
+						runOptions.signal?.addEventListener("abort", () => resolve({ ...base, code: null, aborted: true }));
+					});
+				}
+				return { ...base, ...(results[command]?.shift() ?? {}) };
 			},
 		});
+		/** Wait until a held command has started. */
+		const started = async (command: string) => {
+			for (let i = 0; i < 300 && !release[command]; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+			if (!release[command]) throw new Error(`${command} did not start`);
+		};
 		const harness = await createHarness({
 			// The first model is the one selected when a test starts.
 			models: [{ id: "medium" }, { id: "small" }, { id: "large", reasoning: true }],
@@ -155,6 +169,9 @@ describe("graph extension: controls", () => {
 			asked,
 			results,
 			ran,
+			held,
+			release,
+			started,
 			seen,
 			move,
 			attempt,
@@ -289,6 +306,46 @@ describe("graph extension: controls", () => {
 			expect(seen[1].text).toContain("line 251\n");
 			expect(seen[1].text).toContain("line 450");
 			expect(seen[1].text).not.toContain("line 250\n");
+		});
+
+		it("stops a command that runs at a turn's end with /graph stop, and runs nothing after it", async () => {
+			const { harness, answers, held, started, ran, move, state, selected, models, entries } = await setup();
+			answers.push("Approve");
+			held.add("run-ci");
+			harness.setResponses([move("ci")]);
+			const turn = harness.session.prompt("/graph start ship");
+			await started("run-ci");
+			// While the command runs the graph is on the command node: every node's deny is in force, for children too.
+			expect(JSON.parse(process.env[LIMITS_ENV] ?? "null")).toMatchObject({
+				node: "ci",
+				deny: ["gh pr merge", "git push"],
+				readOnly: [],
+			});
+			await harness.session.prompt("/graph stop");
+			await turn;
+			await harness.session.waitForIdle();
+			// The command was aborted, the graph is over, and nothing went on from the command's result.
+			expect(ran.map((call) => call.command)).toEqual(["run-ci"]);
+			expect(state()).toMatchObject({ status: "none", ended: { reason: "stopped" } });
+			expect(models()).toEqual(["small"]);
+			expect(selected()).toBe("faux/medium");
+			expect(entries("graph.node")).toEqual([{ node: "build", via: "start" }]);
+			expect(process.env[LIMITS_ENV]).toBeUndefined();
+		});
+
+		it("stops a command started by /graph goto with /graph stop", async () => {
+			const { harness, held, started, ran, say, state, go } = await setup();
+			harness.setResponses([say("Building."), say("Still building.")]);
+			await go("/graph start ship");
+			held.add("run-ci");
+			const jump = harness.session.prompt("/graph goto ci");
+			await started("run-ci");
+			// A second jump has to wait for the command.
+			await harness.session.prompt("/graph goto review");
+			await harness.session.prompt("/graph stop");
+			await jump;
+			expect(ran.map((call) => call.command)).toEqual(["run-ci"]);
+			expect(state()).toMatchObject({ status: "none", ended: { reason: "stopped" } });
 		});
 
 		it("starts in a command node, and runs a graph of command nodes to its end without a model", async () => {
