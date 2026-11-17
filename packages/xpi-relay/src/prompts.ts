@@ -107,7 +107,7 @@ export function workerSection(
 		"- Carry out the plan as written. Everything earlier in this conversation is context you may rely on.",
 		...(steps.length > 0
 			? [
-					`- The handover has a step list. In the script that finishes a step, also call ${callOf(STEP_TOOL, isDirect).replace("{...}", '{ n, status: "done" }')} with the step's number: the user watches the list while you work, and the lead reads it with your report. A step you leave out: status "skipped" with a note. Work the plan did not list: ${callOf(STEP_TOOL, isDirect).replace("{...}", '{ add: "..." }')}.`,
+					`- The handover has a step list. In the script that finishes a step, after the work succeeded, also call ${callOf(STEP_TOOL, isDirect).replace("{...}", '{ n, status: "done" }')} with the step's number: the user watches the list while you work, and the lead reads it with your report. A step you leave out: status "skipped" with a note. Work the plan did not list: ${callOf(STEP_TOOL, isDirect).replace("{...}", '{ add: "..." }')}.`,
 				]
 			: []),
 		`- When the work is done, hand back with status "done" and a report: what you changed, where you left the plan and why, what is unresolved.`,

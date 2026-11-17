@@ -102,6 +102,7 @@ export function applyStep(list: StepList | undefined, params: StepParams): { dat
 		return open.length > 0 ? `Open: ${open.join(", ")}.` : "No step is open.";
 	};
 	const add = typeof params.add === "string" ? stepText(params.add) : "";
+	if (typeof params.add === "string" && !add) throw new Error("add is empty: give the new step as one short line.");
 	if (add) {
 		if (params.n !== undefined) throw new Error("Give n with status, or add, not both.");
 		if (list.steps.length >= MAX_STEPS) throw new Error(`The list is full (${MAX_STEPS} steps).`);

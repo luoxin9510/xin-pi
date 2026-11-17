@@ -181,7 +181,7 @@ describe("createRelay against a fake host", () => {
 			expect(relay.section(call)?.text).toContain("Steps:\n1. [ ] add a test\n2. [ ] fix it");
 			// how to tick is one of the worker's duties, named only when the round has a list
 			expect(relay.section(call)?.text).toContain(
-				'- The handover has a step list. In the script that finishes a step, also call tools.step({ n, status: "done" }) with the step\'s number',
+				'- The handover has a step list. In the script that finishes a step, after the work succeeded, also call tools.step({ n, status: "done" }) with the step\'s number',
 			);
 			expect((await step.execute({ n: 1, status: "done" }, undefined, call)).text).toBe("Step 1 done. Open: 2.");
 			expect((await step.execute({ add: "update the docs" }, undefined, call)).text).toBe(
