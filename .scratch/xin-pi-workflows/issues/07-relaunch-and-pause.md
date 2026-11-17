@@ -14,13 +14,14 @@ Spec: `../07-relaunch-and-pause.md`. Branch `subagent-relaunch-pause`.
 - [x] T3 Pause and resume (`background.ts`): `p` on a script row, and from `/workflows`; a paused script's `Agent`
       calls wait in order; a stop or the script's end releases them with an error
 - [x] Offline: `relaunch.test.ts` (7), `pause.test.ts` (4)
-- [ ] Real, haiku: `real/22-relaunch.test.ts` (a run stopped while its third agent works; the relaunch answers the
+- [x] Real, haiku: `real/22-relaunch.test.ts` (a run stopped while its third agent works; the relaunch answers the
       first two from saved results and runs the third); pty: pause and resume in a real terminal
       (`tui/12-workflows.test.ts`). Both are written and have not run: the owner's Anthropic OAuth token expired during
       the work, and a copy of an expired token must not be used (it would log the owner's own xpi out). The full haiku
       regression (real, parent, tui, evals) is owed for the same reason.
-      (2026-11-16: still open. `packages/xpi-coding-agent/test/subagent/real/22-relaunch.test.ts` exists, but no record
-      of a real run was found: PR #22 says the real checks had not run, and nothing was added after it.)
+      (2026-11-17, on main 8f3f786cf, real Haiku: `test/subagent/real/22-relaunch.test.ts` 1/1 and
+      `test/subagent/tui/12-workflows.test.ts` 3/3, which includes pause and resume in a real terminal. The full
+      regression named above is not part of this record.)
 - [x] Docs: `docs/subagent.md` (Runs, saved results and relaunch; Pause and resume; panel keys; `/workflows`),
       `docs/slash-commands.md`, `docs/subagent-porting.md`, both READMEs
 
