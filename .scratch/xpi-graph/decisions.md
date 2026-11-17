@@ -83,3 +83,21 @@
   (`XPI_GRAPH_LIMITS`); ticket 03 checks that the child inherits it.
 - Workflows are also read from `.claude/workflows/` and from a built-in directory. Graphs are not: neither exists
   for graphs.
+
+## Review round 1 (independent Opus, commit 383314267, 2026-11-17)
+
+One blocking finding, six should-fix, six nits; all taken. None changes a decision of the grills. What the spec
+now says, and was not asked in the grills:
+
+- A halt on a command node has no node model and no node limits. The router then uses the model selected before
+  the graph, the limits are the union of every node's `deny`, and `next` is refused: only `/graph goto` and
+  `/graph stop` leave it. A halt on a model node is left by the user's next message.
+- One move per visit: `next` writes `graph.move`; a second `next`, or one from a background script, is refused;
+  the move is entered at the next request boundary.
+- `graph.enter` is sent again after a compaction.
+- `graph/auto` is registered at load (a resumed session needs it); selected by hand with no graph, the selection
+  is put back. Only a `set` or `cycle` selection ends a running graph, not a `restore`.
+- `/graph start` and `/graph goto` enter the node at once and start the turn.
+- `readOnly` does not see shell writes. The entry message tells the model the patterns hold for the shell too,
+  and the docs say the engine does not enforce it there.
+- `notAfter` cannot contain `before`. The two `requires` checks were reviewed and no counter-example was found.

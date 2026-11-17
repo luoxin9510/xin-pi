@@ -1,7 +1,8 @@
 # Spec 01: xpi-graph, flow control by a graph
 
 Status: waiting for the owner's approval. Grills 1 and 2 are in `decisions.md` (all 20 as recommended); the owner has
-not read this spec yet. No code before the approval.
+not read this spec yet. No code before the approval. Review round 1 (independent Opus) is worked in; see
+`decisions.md`.
 
 The product text, with diagrams, is `prd.html` in this directory (Chinese).
 
@@ -43,7 +44,8 @@ export default {
     build:  { model: "anthropic/claude-haiku-5-5", prompt: "Build what the spec says.",
               deny: ["gh pr merge", "git push origin main"] },
     ci:     { run: "gh pr checks --watch", timeout: "30m" },
-    review: { model: "anthropic/claude-opus-5-5", prompt: "Have a fresh Opus subagent review the change..." },
+    review: { model: "anthropic/claude-opus-5-5", prompt: "Have a fresh Opus subagent review the change...",
+              deny: ["gh pr merge", "git push origin main"] },
     merge:  { run: "gh pr merge --merge --delete-branch" },
   },
   edges: [
@@ -61,8 +63,9 @@ export default {
 
 - **Read, never run.** The file's first statement is `export default <literal>`. The literal is read with the parser
   that reads a workflow's `meta` (`LiteralParser` in `extensions/subagent/workflows.ts`: quotes of any kind, bare
-  keys, trailing commas), moved to a shared place and taught `//` and `/* */` comments if it does not know them. A
-  graph is therefore plain data (decision 17), and listing or starting a graph runs no code from the project.
+  keys, trailing commas, `//` and `/* */` comments; a template with `${}` is refused), moved to a shared place and
+  given a second opening, `export default`. A graph is therefore plain data (decision 17), and listing or starting
+  a graph runs no code from the project.
 - **Where.** `.pi/graphs/` from the cwd up to the repository root (closest wins; only in a trusted project), then
   `<agent dir>/graphs/`. No `.claude/` directory and no built-in graphs. The name is the file name and must match
   `name`; `[a-z0-9][a-z0-9-]*`.
@@ -77,7 +80,7 @@ export default {
   - From a command node, `exit` is `"pass"` (exit code 0) or `"fail"` (anything else, a timeout included); at most
     one of each.
   - `to: "end"` ends the graph. `end` is a reserved id and is not declared in `nodes`.
-- **`requires`:** `{ before: A, passed: B, notAfter?: [C, ...] }`, B a command node. See 3.
+- **`requires`:** `{ before: A, passed: B, notAfter?: [C, ...] }`, B a command node, A not in `notAfter`. See 3.
 
 ### 2. The package `xpi-graph` (decisions 2, 11)
 
@@ -105,7 +108,8 @@ A graph that fails any of these does not start; the error names the nodes and ed
   `max` is the number of times the edge may be taken in one run of the graph.
 - **`requires`.** Take the graph without B's `pass` edge. If A can be reached from `start`, there is a path to A
   that does not pass B: error, with the path. For each C in `notAfter`: if A can be reached from C in that same
-  reduced graph, there is a path from C to A with no pass of B after it: error, with the path.
+  reduced graph, there is a path from C to A with no pass of B after it: error, with the path. A path has at
+  least one edge, and A in `notAfter` is a load error.
 
   Example 1: adding the edge `build -> merge` to the graph above fails the first check with
   `grill -> build -> merge`.
@@ -126,9 +130,11 @@ Custom entries, written by the extension, never shown to the model:
 | `graph.start` | the whole graph, the file path, the model and thinking level selected before | `/graph start` |
 | `graph.node` | `node`, `via` (`start`, `model`, `approve`, `pass`, `fail`, `goto`), `edge` (index), `report` | each entry into a node |
 | `graph.halt` | `reason` | the graph stops and waits for the user (5) |
+| `graph.move` | `edge`, `report` | `next` accepted a move that is not entered yet (5) |
 | `graph.blocked` | the call and the rule | a limit blocked a call (6) |
 | `graph.end` | `reason` (`done`, `stopped`, `model_changed`) | the graph is over |
 
+- None of these reach the model: `appendEntry` entries are not sent to the provider.
 - The graph runs from the copy in `graph.start`. The file is not read again: an edit to it applies to the next
   start (decision 17).
 - `readState` walks the branch from the last `graph.start` that has no `graph.end` after it: the current node is
@@ -140,7 +146,8 @@ Custom entries, written by the extension, never shown to the model:
   extension halts and tells the user; it never guesses.
 
 Messages the model does see (custom messages): `graph.enter` (the node, its prompt, the edges out with their
-labels, how to leave), `graph.command` (a command node's command, exit code and the last 200 lines of output),
+labels, how to leave, and the node's `readOnly` patterns with the sentence that they hold for shell commands too),
+`graph.command` (a command node's command, exit code and the last 200 lines of output),
 `graph.reminder` (5).
 
 ### 5. Running (decisions 4, 5, 6, 9, 10, 13)
@@ -152,10 +159,16 @@ on the extension API and forwards.
   its router reads the state and returns the node's model and thinking level. This is how relay switches models, and
   a resumed session restores the selection without help. If a node has no `model` and the selection at the start is
   itself a virtual model, `/graph start` refuses. A node's `model` that names a virtual model (`relay/auto`) is a
-  load error. If the user selects another model while a graph runs, the graph ends (`model_changed`) with a notice.
+  load error. If the user selects another model while a graph runs (`model_select` with source `set` or `cycle`;
+  `restore` is a resume and is ignored), the graph ends (`model_changed`) with a notice.
+  The virtual model is registered when the extension loads, as relay's is: a resumed session needs it before any
+  handler runs. Selected by hand with no graph running, the selection is put back and a notice says to use
+  `/graph start`. It is a catalog entry; with no graph running no request goes through it.
 - **Prompt and cache (decision 10).** The role prompt is always part of the `graph.enter` message, never of the
   system prompt, so the system prompt is the same in every node and a move between two nodes on one model keeps the
   prompt cache. The system prompt gets one fixed `graph` section (a graph is running; leave a node with `next`).
+  A compaction can summarise the `graph.enter` message away, so after `session_compact` on a running graph the
+  extension sends the current node's `graph.enter` again (a repeat: no `graph.node`, no count).
 - **`next({ to, report })`** (decision 13). Deferred exposure: only a codemode script reaches it. `/graph start`
   refuses when codemode is off. The tool is registered at the first start (or at `session_start` on a branch with a
   running graph) and is inactive when no graph runs.
@@ -163,36 +176,62 @@ on the extension API and forwards.
   - The edge is at its `max`: halt.
   - An `approve` edge: with a UI, `select` with Approve, Send back, Stop the graph. Send back ends the turn; the
     user's next message is the comment and the model stays in the node. Without a UI: halt (decision 4).
-  - Otherwise the result carries a signal and ends the turn; at `agent_before_settle` the extension writes
-    `graph.node` and `graph.enter` and asks for one more request, which the router sends to the new node's model.
+  - The graph is halted: refused (see Halt).
+  - A move is already pending (a `graph.move` with no `graph.node` after it), or the call comes from a
+    background script or from a call released after its turn: refused. One move per visit, made in the turn.
+  - Otherwise the tool writes `graph.move`, and its result ends the script and asks to end the turn. The move is
+    entered at the next boundary, whichever comes first: `agent_before_settle`, or the next request of the same
+    run (a turn goes on when another tool call of the same batch did not ask to end it). Entering writes
+    `graph.node` and `graph.enter`; from `agent_before_settle` it also asks for one more request. Until then the
+    old node's model and limits hold. Relay commits its handover the same way (`relay.ts`).
 - **Command nodes** run at the same point, by the engine (`pi.exec`, the session's cwd, the node's timeout, the
   run's abort signal): write `graph.node`, run, write `graph.command`, take the `pass` or `fail` edge, and go on
   until a model node, `end`, or a halt. A result with no edge, or an edge at its `max`, halts. The model is not
-  asked and cannot report a result of its own.
+  asked and cannot report a result of its own. `exec` takes the timeout and the abort signal.
+- **Outside a turn.** `/graph start` and `/graph goto` run in a command handler, with no turn. They enter the
+  node there: command nodes run with the handler's abort signal, and on reaching a model node the extension
+  sends `graph.enter` with `triggerTurn`, so the node starts working at once.
 - **A turn that ends without `next`** (decision 5): if the node has an `approve` edge, nothing (the node talks with
-  the user). Otherwise one `graph.reminder` and one more request; the second time in the same visit, halt. An
-  aborted turn (Escape) is left alone.
-- **Halt.** `graph.halt`, a notice with the reason and what to do (`/graph goto <node>`, `/graph stop`, or just
-  answer). The graph stays on its node and the session stays usable.
+  the user). Otherwise one `graph.reminder` and one more request; the second time in the same visit, halt. Only a
+  turn whose outcome is `completed` counts: an aborted turn (Escape) and a provider error are left alone.
+- **Halt.** `graph.halt` and a notice with the reason and what to do. The graph stays on its node, the session
+  stays usable, and `next` is refused until the halt is left.
+  - Halted on a model node (a loop limit, a second idle turn, an approval without a UI): the node's model and
+    limits hold. The user's next message leaves the halt and the work goes on in the node; so do `/graph goto`
+    and `/graph stop`.
+  - Halted on a command node (a result with no edge, or its edge at `max`): there is no node model and no node
+    limit, so the router uses the model selected before the graph started, and the limits are the union of
+    every node's `deny` plus the always-protected paths (6). The user can talk to the model and have it fix
+    things, but the model cannot move the graph: only `/graph goto` (to the same node to run the command again,
+    or to another) and `/graph stop` leave this halt.
+
+    Example: `ci` fails a fourth time and `ci -> build` is at `max: 3`. The graph halts on `ci`. The user says
+    "look at the log"; the answer comes from the pre-graph model, and `gh pr merge` is still denied because
+    `build` and `review` deny it. The user then runs `/graph goto build`.
 - **End.** `graph.end`, the stored selection is restored, the tool is deactivated, the status is cleared.
 - One graph per session (decision 9): `/graph start` while one runs is refused.
 - Subagent children do not get the command, the tool or the virtual model.
 
 ### 6. Limits of a node (decisions 7, 15, 18)
 
-A `tool_call` handler, active only while a graph is on a model node. Calls made by a codemode script emit the event
-too.
+A `tool_call` handler, active while a graph runs. On a model node it applies that node's limits; halted on a command
+node, the union described in 5. Calls made by a codemode script emit the event too.
 
 - `deny`: a `bash` or `powershell` call whose command text contains one of the strings is blocked. No shell
   parsing.
 - `readOnly`: a call with effect `write` and a string `path` that matches a pattern is blocked. Matching is
-  `builtin:protect`'s (`extensions/protect/match.ts`), reused, not copied.
+  `builtin:protect`'s (`extensions/protect/match.ts`: the node's patterns as its read-only list), reused, not
+  copied. A shell command that writes a file (`cat > spec.md`) is not seen by this check. That is not only a
+  determined model: a model can do it out of habit. So the `graph.enter` message states the patterns and that they
+  hold for shell commands, and `docs/graph.md` says plainly that the engine does not enforce `readOnly` on `bash`.
 - Always, while a graph runs: the graph directories and the session file are read-only.
 - A blocked call returns a reason written for the model, shows a warning with a UI, and writes `graph.blocked`.
 - Commands the engine runs for a command node are not checked: they are the graph's own text.
 - Subagents: while a node is active the extension keeps the node's limits in `XPI_GRAPH_LIMITS` (JSON) in its own
-  environment; a subagent child inherits it and its `builtin:graph` installs only this handler. The ticket checks
-  that the child does inherit the variable and adds it to `docs/environment-variables.md`.
+  environment; a subagent child inherits it (children are spawned with the parent's `process.env`) and its
+  `builtin:graph` installs only this handler. A child keeps the limits it started with: one still running after
+  the graph has moved on has the old node's. A child in its own worktree matches `readOnly` patterns against its
+  own cwd. `docs/graph.md` says both; the variable is added to `docs/environment-variables.md`.
 
 ### 7. Commands and status (decision 9)
 
@@ -223,7 +262,11 @@ too.
   the list; a command node passing and failing; a loop reaching its `max` halts; approve, send back and no-UI;
   reminder then halt; `deny` and `readOnly` blocks, in a nested codemode call too; resume from a saved session at
   the same node and count; `/graph goto`; `/graph stop` restores the model; selecting another model ends the
-  graph; with no graph started, the requests are the same as without the extension.
+  graph; a resumed session does not end it; a second `next` in one visit and a `next` from a background script
+  are refused; a move made next to another tool call in the same batch is entered once; `graph.enter` again after
+  a compaction; a halt on a command node (the pre-graph model answers, a denied command stays denied, `next` is
+  refused, `/graph goto` leaves it); `graph/auto` selected by hand is put back; a subagent child gets the handler
+  and nothing else; with no graph started, the requests are the same as without the extension.
 - Relay's tests pass unchanged.
 - By hand, real Haiku 5.5 only (every node on Haiku, in a temp repository with a local stand-in for CI): the dev
   shape three times with a failing check each time, never reaching the last node on a red check; asked in the build

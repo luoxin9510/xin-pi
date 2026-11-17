@@ -4,7 +4,8 @@ Spec: `.scratch/xpi-graph/01-graph.md` (section 8, Tests, Docs). One PR (branch 
 green CI, an independent Opus review.
 
 - [ ] G4.1 `.pi/graphs/dev.js`: grill, spec, build, ci, review, merge, with `requires` and the review node's
-      prompt that starts a fresh-context Opus subagent
+      prompt that starts a fresh-context Opus subagent; the merge and push commands denied on `build` and on
+      `review`
 - [ ] G4.2 `.pi/graphs/release.js`: the flow of `.pi/skills/release.md` up to the tag. If the engine cannot express
       a step, stop and report it to the owner; do not extend the engine in this PR
 - [ ] G4.3 a test that loads and checks both graphs, and that the dev graph without its `ci` node fails the load
