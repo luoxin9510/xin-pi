@@ -1,0 +1,512 @@
+<title>xpi-graph PRD</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column (about 70ch) with figures allowed to run wider; diagrams carry the argument, tables carry scope. */
+:root {
+  --bg: #f5f7fa; --surface: #ffffff; --tint: #eef2f8; --fg: #1b2431; --muted: #5a6677; --line: #d6dce6;
+  --accent: #2d5fd1; --ok: #1d8659; --gate: #a96a12; --bad: #c2413a;
+  --font-display: "Space Grotesk", "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  --font-body: "Inter", "PingFang SC", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #11151c; --surface: #19202a; --tint: #1f2835; --fg: #e5e9f0; --muted: #98a4b5; --line: #2c3644;
+    --accent: #86a8ff; --ok: #5fcb98; --gate: #e2b25c; --bad: #ff8a80; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #11151c; --surface: #19202a; --tint: #1f2835; --fg: #e5e9f0; --muted: #98a4b5; --line: #2c3644;
+  --accent: #86a8ff; --ok: #5fcb98; --gate: #e2b25c; --bad: #ff8a80; color-scheme: dark;
+}
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 16px; line-height: 1.75; }
+.page { max-width: 920px; margin: 0 auto; padding-block: 40px 72px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.col { max-width: 720px; }
+header.top { display: flex; flex-direction: column; gap: 14px; padding-bottom: 28px; border-bottom: 1px solid var(--line); }
+.kicker { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); letter-spacing: .04em; }
+h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(30px, 6vw, 44px); line-height: 1.15; margin: 0; text-wrap: balance; }
+.lead { font-size: 18px; line-height: 1.7; margin: 0; max-width: 720px; }
+.meta { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 13.5px; color: var(--muted); }
+.meta b { color: var(--fg); font-weight: 500; }
+section { display: flex; flex-direction: column; gap: 16px; padding-top: 44px; }
+h2 { font-family: var(--font-display); font-weight: 600; font-size: 24px; line-height: 1.3; margin: 0; text-wrap: balance; }
+h3 { font-size: 16px; font-weight: 600; margin: 8px 0 0; }
+p { margin: 0; }
+ul, ol { margin: 0; padding-left: 1.3em; display: flex; flex-direction: column; gap: 6px; }
+code { font-family: var(--font-mono); font-size: .88em; background: var(--tint); padding: 1px 5px; border-radius: 4px; }
+pre { margin: 0; padding: 16px 18px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+  overflow-x: auto; font-family: var(--font-mono); font-size: 13px; line-height: 1.65; }
+pre code { background: none; padding: 0; font-size: inherit; }
+.note { font-size: 13.5px; color: var(--muted); }
+figure { margin: 8px 0 4px; display: flex; flex-direction: column; gap: 10px; }
+.fig { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+.fig svg { display: block; width: 100%; min-width: 700px; height: auto; }
+figcaption { font-size: 13.5px; color: var(--muted); max-width: 720px; }
+.dg text { font-family: var(--font-body); font-size: 13px; fill: var(--fg); }
+.dg .sub { font-size: 11px; fill: var(--muted); }
+.dg .hd { font-weight: 600; }
+.dg .box { fill: var(--surface); stroke: var(--fg); stroke-width: 1.2; }
+.dg .soft { fill: var(--tint); stroke: var(--line); stroke-width: 1; }
+.dg .ln { fill: none; stroke: var(--fg); stroke-width: 1.4; }
+.dg .model { stroke: var(--accent); } .dg .cmd { stroke: var(--ok); } .dg .human { stroke: var(--gate); }
+.dg .bad { stroke: var(--bad); stroke-dasharray: 5 4; }
+.dg .tx-model { fill: var(--accent); } .dg .tx-cmd { fill: var(--ok); } .dg .tx-human { fill: var(--gate); } .dg .tx-bad { fill: var(--bad); }
+.dg .dot { fill: var(--muted); } .dg .cp { fill: var(--accent); }
+.mf-fg { fill: var(--fg); } .mf-model { fill: var(--accent); } .mf-cmd { fill: var(--ok); } .mf-human { fill: var(--gate); } .mf-bad { fill: var(--bad); }
+.tbl { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; line-height: 1.6; }
+th, td { text-align: left; vertical-align: top; padding: 10px 14px 10px 0; border-bottom: 1px solid var(--line); }
+th { font-weight: 600; font-size: 13px; color: var(--muted); white-space: nowrap; }
+td:first-child { white-space: nowrap; font-weight: 500; }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px 36px; }
+.two > div { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.tag { font-family: var(--font-mono); font-size: 12px; letter-spacing: .04em; }
+.tag.in { color: var(--ok); } .tag.out { color: var(--muted); }
+.k-model { color: var(--accent); font-weight: 600; } .k-cmd { color: var(--ok); font-weight: 600; } .k-human { color: var(--gate); font-weight: 600; }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <marker id="mk-fg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mf-fg"/></marker>
+    <marker id="mk-model" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mf-model"/></marker>
+    <marker id="mk-cmd" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mf-cmd"/></marker>
+    <marker id="mk-human" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mf-human"/></marker>
+    <marker id="mk-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mf-bad"/></marker>
+  </defs>
+</svg>
+
+<div class="page">
+
+<header class="top">
+  <div class="kicker">xin-pi · 产品需求文档 · 草稿</div>
+  <h1>xpi-graph</h1>
+  <p class="lead">给 xpi 加一种用图来控制流程的方式。流程里的硬规则写成图上的边，模型只能沿着边走，在每个节点内部照常自由工作。</p>
+  <div class="meta">
+    <span><b>状态</b> 拷问两轮已完成（20 条已定），还没开始实现</span>
+    <span><b>日期</b> 2026-11-17</span>
+    <span><b>下一步</b> 你批准 spec 后按里程碑实现</span>
+  </div>
+</header>
+
+<section>
+  <h2 class="col">要解决的问题</h2>
+  <p class="col">xpi 现在的流程规则写在提示词和记忆里，靠模型每次都读到、理解对、并且照做。规则大多是出过事之后补上的：CI 失败时 PR 被合并了，之后才有“合并前先看 CI”；spec 没经过拷问就被动手实现了，之后才有“spec 要先拷问”。</p>
+  <p class="col">提醒只能降低出错的概率。图把规则变成结构：两个节点之间没有边，模型就没有办法走过去。</p>
+  <figure>
+    <div class="fig">
+      <svg class="dg" viewBox="0 0 860 230" role="img" aria-label="左边：规则写在提示词里，模型可能忘记规则，从实现直接走到合并。右边：用图之后，实现和合并之间没有边。">
+        <text x="20" y="28" class="hd">现在：规则写在提示词里</text>
+        <rect x="20" y="44" width="250" height="30" rx="6" class="soft"/>
+        <text x="32" y="64" class="sub">提示词：“CI 绿了才能合并”</text>
+        <rect x="20" y="140" width="100" height="46" rx="8" class="box"/><text x="70" y="168" text-anchor="middle">实现</text>
+        <rect x="160" y="140" width="100" height="46" rx="8" class="box"/><text x="210" y="168" text-anchor="middle">CI 检查</text>
+        <rect x="300" y="140" width="100" height="46" rx="8" class="box"/><text x="350" y="168" text-anchor="middle">合并</text>
+        <line x1="120" y1="163" x2="158" y2="163" class="ln" marker-end="url(#mk-fg)"/>
+        <line x1="260" y1="163" x2="298" y2="163" class="ln" marker-end="url(#mk-fg)"/>
+        <path d="M70,140 C70,96 350,96 350,138" class="ln bad" marker-end="url(#mk-bad)"/>
+        <text x="210" y="100" text-anchor="middle" class="sub tx-bad">模型忘了规则，直接合并</text>
+
+        <line x1="430" y1="16" x2="430" y2="214" class="ln" stroke-opacity=".18"/>
+
+        <text x="460" y="28" class="hd">用图之后：没有这条边</text>
+        <rect x="460" y="140" width="100" height="46" rx="8" class="box"/><text x="510" y="168" text-anchor="middle">实现</text>
+        <rect x="600" y="140" width="100" height="46" rx="8" class="box"/><text x="650" y="168" text-anchor="middle">CI 检查</text>
+        <rect x="740" y="140" width="100" height="46" rx="8" class="box"/><text x="790" y="168" text-anchor="middle">合并</text>
+        <line x1="560" y1="163" x2="598" y2="163" class="ln model" marker-end="url(#mk-model)"/>
+        <line x1="700" y1="163" x2="738" y2="163" class="ln cmd" marker-end="url(#mk-cmd)"/>
+        <text x="719" y="153" text-anchor="middle" class="sub tx-cmd">通过</text>
+        <text x="650" y="100" text-anchor="middle" class="sub">从“实现”出发只有一条边，</text>
+        <text x="650" y="116" text-anchor="middle" class="sub">模型拿到的选项里没有“合并”</text>
+      </svg>
+    </div>
+    <figcaption>同一条规则的两种存在方式。左边靠模型记得，右边靠结构保证。</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2 class="col">目标，和第一版不做的事</h2>
+  <div class="two">
+    <div>
+      <span class="tag in">目标</span>
+      <ul>
+        <li>硬规则由结构保证，不靠提醒。</li>
+        <li>每个节点可以用不同的模型，把 relay 的省钱方式用到任意流程上。</li>
+        <li>随时看得到流程走到哪一步，退出重开后接着走。</li>
+        <li>不用图的时候，xpi 的行为和花费完全不变。</li>
+      </ul>
+    </div>
+    <div>
+      <span class="tag out">第一版不做</span>
+      <ul>
+        <li>让模型自己画图。</li>
+        <li>并行节点、子 agent 节点。</li>
+        <li>把 relay、workflow、<code>/review</code> 迁到图上。</li>
+        <li>搬上游的 durable 和 chord。只借思路。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2 class="col">核心概念</h2>
+  <p class="col">图由节点和边组成。<b>节点</b>是同一个会话里的一段工作，它只是换了一套设定：角色提示、模型、限制（禁止的命令、不许写的路径）。<b>边</b>说明从一个节点可以去哪个节点，以及怎样才算可以走。</p>
+  <p class="col">一条原则贯穿全部设计：<b>边是硬的，节点内部是自由的</b>。在节点里模型想怎么做都行，xpi-graph 不管；离开节点只能走声明过的边。</p>
+  <figure>
+    <div class="fig">
+      <svg class="dg" viewBox="0 0 780 240" role="img" aria-label="一个节点由角色提示、模型、限制三样设定组成，内部由模型自由工作。离开节点有三种出口：模型选一条边、命令结果决定、等你批准。">
+        <line x1="30" y1="115" x2="148" y2="115" class="ln" marker-end="url(#mk-fg)"/>
+        <text x="88" y="104" text-anchor="middle" class="sub">进入</text>
+        <rect x="150" y="34" width="360" height="162" rx="12" class="box"/>
+        <text x="168" y="60" class="hd">节点</text>
+        <rect x="168" y="76" width="100" height="36" rx="6" class="soft"/><text x="218" y="99" text-anchor="middle">角色提示</text>
+        <rect x="280" y="76" width="100" height="36" rx="6" class="soft"/><text x="330" y="99" text-anchor="middle">模型</text>
+        <rect x="392" y="76" width="100" height="36" rx="6" class="soft"/><text x="442" y="99" text-anchor="middle">限制</text>
+        <text x="330" y="150" text-anchor="middle" class="sub">节点内部：模型自由工作，</text>
+        <text x="330" y="167" text-anchor="middle" class="sub">xpi-graph 不干预</text>
+        <line x1="510" y1="72" x2="628" y2="72" class="ln model" marker-end="url(#mk-model)"/>
+        <line x1="510" y1="115" x2="628" y2="115" class="ln cmd" marker-end="url(#mk-cmd)"/>
+        <line x1="510" y1="158" x2="628" y2="158" class="ln human" marker-end="url(#mk-human)"/>
+        <text x="640" y="76" class="tx-model">模型选一条边</text>
+        <text x="640" y="119" class="tx-cmd">命令结果决定</text>
+        <text x="640" y="162" class="tx-human">等你批准</text>
+        <text x="569" y="216" text-anchor="middle" class="sub">出口：只能走声明过的边</text>
+      </svg>
+    </div>
+    <figcaption>节点是一套设定加一组出口。三种颜色在后面的图里含义相同。</figcaption>
+  </figure>
+  <div class="tbl col">
+    <table>
+      <thead><tr><th>出口</th><th>谁决定</th><th>例子</th></tr></thead>
+      <tbody>
+        <tr><td><span class="k-model">模型选</span></td><td>模型调 <code>next</code>，从这个节点允许的边里挑一条，并交一份报告</td><td>实现完成，交去审核</td></tr>
+        <tr><td><span class="k-cmd">命令判</span></td><td>跑一条命令，按退出码走</td><td>测试通过才往下，失败就回去改</td></tr>
+        <tr><td><span class="k-human">人批准</span></td><td>停下来等你</td><td>拷问的结论等你点头</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="col">回头的边（比如“审核不过，回去改”）带一个最多几轮的上限，到了上限就停下来找你。加载时会找出所有构成环的边，没写上限的默认 3 轮。</p>
+</section>
+
+<section>
+  <h2 class="col">一个例子：开发流程</h2>
+  <p class="col">你现在的开发流程本身就是一张图，三种出口都用得上。</p>
+  <figure>
+    <div class="fig">
+      <svg class="dg" viewBox="0 0 900 290" role="img" aria-label="开发流程图：拷问经你批准进入 spec，spec 经你批准进入实现，实现由模型交给 CI 检查，CI 通过进入独立审核，失败回到实现；审核通过进入合并，有问题回到实现，最多三轮。">
+        <line x1="20" y1="24" x2="52" y2="24" class="ln model" marker-end="url(#mk-model)"/><text x="60" y="28" class="sub">模型选</text>
+        <line x1="120" y1="24" x2="152" y2="24" class="ln cmd" marker-end="url(#mk-cmd)"/><text x="160" y="28" class="sub">命令判</text>
+        <line x1="220" y1="24" x2="252" y2="24" class="ln human" marker-end="url(#mk-human)"/><text x="260" y="28" class="sub">人批准</text>
+
+        <rect x="20" y="96" width="112" height="52" rx="8" class="box"/><text x="76" y="119" text-anchor="middle">拷问</text><text x="76" y="137" text-anchor="middle" class="sub">Opus</text>
+        <rect x="172" y="96" width="112" height="52" rx="8" class="box"/><text x="228" y="119" text-anchor="middle">spec</text><text x="228" y="137" text-anchor="middle" class="sub">Opus</text>
+        <rect x="324" y="96" width="112" height="52" rx="8" class="box"/><text x="380" y="119" text-anchor="middle">实现</text><text x="380" y="137" text-anchor="middle" class="sub">Haiku</text>
+        <rect x="476" y="96" width="112" height="52" rx="8" class="box cmd"/><text x="532" y="119" text-anchor="middle">CI 检查</text><text x="532" y="137" text-anchor="middle" class="sub">只跑命令</text>
+        <rect x="628" y="96" width="112" height="52" rx="8" class="box"/><text x="684" y="119" text-anchor="middle">独立审核</text><text x="684" y="137" text-anchor="middle" class="sub">Opus 派子 agent</text>
+        <rect x="780" y="96" width="100" height="52" rx="8" class="box cmd"/><text x="830" y="119" text-anchor="middle">合并</text><text x="830" y="137" text-anchor="middle" class="sub">引擎执行</text>
+
+        <line x1="132" y1="122" x2="170" y2="122" class="ln human" marker-end="url(#mk-human)"/><text x="152" y="86" text-anchor="middle" class="sub tx-human">你批准</text>
+        <line x1="284" y1="122" x2="322" y2="122" class="ln human" marker-end="url(#mk-human)"/><text x="304" y="86" text-anchor="middle" class="sub tx-human">你批准</text>
+        <line x1="436" y1="122" x2="474" y2="122" class="ln model" marker-end="url(#mk-model)"/><text x="456" y="86" text-anchor="middle" class="sub tx-model">做完</text>
+        <line x1="588" y1="122" x2="626" y2="122" class="ln cmd" marker-end="url(#mk-cmd)"/><text x="608" y="86" text-anchor="middle" class="sub tx-cmd">通过</text>
+        <line x1="740" y1="122" x2="778" y2="122" class="ln model" marker-end="url(#mk-model)"/><text x="760" y="86" text-anchor="middle" class="sub tx-model">通过</text>
+
+        <path d="M532,148 L532,192 L396,192 L396,150" class="ln cmd" marker-end="url(#mk-cmd)"/>
+        <text x="464" y="186" text-anchor="middle" class="sub tx-cmd">失败（最多 3 轮）</text>
+        <path d="M684,148 L684,240 L364,240 L364,150" class="ln model" marker-end="url(#mk-model)"/>
+        <text x="524" y="234" text-anchor="middle" class="sub tx-model">有问题，回去改（最多 3 轮）</text>
+        <text x="524" y="270" text-anchor="middle" class="sub">超过 3 轮：停下来找你</text>
+      </svg>
+    </div>
+    <figcaption>“实现”到“合并”之间没有边，所以 CI 没过就合并这件事在这张图里做不到。每个节点下面是它用的模型；绿框的节点不用模型，由引擎直接跑命令。审核节点自己带着实现过程的上下文，所以它派一个新上下文的子 agent 去审，自己只汇总结论并选边。</figcaption>
+  </figure>
+  <p class="col">图是一个 JS 文件，默认导出一个对象。项目里的放 <code>.pi/graphs/</code>（只在受信任的项目里读），个人的放 <code>~/.pi/agent/graphs/</code>，项目的优先。这和保存的 workflow 是同一套规矩。</p>
+  <pre class="col"><code>// .pi/graphs/dev.js
+export default {
+  name: "dev",
+  start: "grill",
+  nodes: {
+    grill:  { model: "opus",   prompt: "拷问需求，列出要定的事", readOnly: ["**"] },
+    spec:   { model: "opus",   prompt: "把结论写成 spec" },
+    build:  { model: "haiku",  prompt: "按 spec 实现，只改 spec 提到的文件",
+              deny: ["gh pr merge", "git push origin main"] },
+    ci:     { run: "gh pr checks --watch", timeout: "30m" },
+    review: { model: "opus",   prompt: "派一个新上下文的 Opus 子 agent 审核改动，汇总它的结论" },
+    merge:  { run: "gh pr merge --squash" },   // 引擎执行，不交给模型
+  },
+  edges: [
+    { from: "grill",  to: "spec",   exit: "approve" },
+    { from: "spec",   to: "build",  exit: "approve" },
+    { from: "build",  to: "ci",     exit: "model" },
+    { from: "ci",     to: "review", exit: "pass" },
+    { from: "ci",     to: "build",  exit: "fail", max: 3 },
+    { from: "review", to: "merge",  exit: "model", label: "通过" },
+    { from: "review", to: "build",  exit: "model", label: "有问题", max: 3 },
+  ],
+  // 加载时检查：到 merge 的每条路径上，最后一次进入 build 之后必须再有一次 ci 通过
+  requires: [{ before: "merge", passed: "ci", notAfter: ["build"] }],
+};</code></pre>
+</section>
+
+<section>
+  <h2 class="col">它怎么运行</h2>
+  <p class="col">整张图跑在<b>一个会话</b>里。前提是 xpi 只用 codemode。</p>
+  <ul class="col">
+    <li><b>换节点</b>：模型在 codemode 里调转移工具 <code>next({ to: "ci", report: "…" })</code>。<code>to</code> 是目标节点名，<code>report</code> 必填。目标不在当前节点的出边里就报错，并列出可选的节点。调用成功后，下一次请求换成新节点的模型和角色提示。这和 relay 换 lead、worker 的机制相同。</li>
+    <li><b>进入节点</b>：引擎发一条消息，写明现在在哪个节点、角色提示、可以去哪几个节点以及各自的含义。</li>
+    <li><b>人批准</b>：模型请求走一条要批准的边时，弹出一个三选一：批准、退回、停止图。选退回后，你的下一条消息就是意见，模型留在当前节点继续。没有界面时算退回并停下。</li>
+    <li><b>命令节点</b>：引擎跑一条固定的命令，按退出码选边。默认超时 10 分钟，节点可以用 <code>timeout</code> 改，超时算失败。输出的最后 200 行写进会话，下个节点看得到。第一版没有图变量。</li>
+    <li><b>模型没选边就结束回合</b>：节点的出口里有“人批准”的，这是正常的，它在等你说话。其他节点提醒一次，再不选就停下来找你。</li>
+    <li><b>一个会话一张图</b>：图运行期间模型由节点决定，relay 不参与；节点没写模型就用启动图时的模型。走到终点或执行 <code>/graph stop</code> 后，恢复启动前的模型和工具。</li>
+    <li><b>记录</b>：每次进入节点，往会话里写一个节点条目。它就是这一步的存档点。</li>
+    <li><b>状态</b>：不另外存。沿当前分支把节点条目读一遍，就知道现在在哪个节点、回头改了几轮。</li>
+    <li><b>图的锁定</b>：图必须是纯数据，不能有函数。<code>/graph start</code> 时把整张图写进会话的启动条目，之后运行、恢复、分叉都读这一份，不再读文件。运行中改文件只影响下一次启动。</li>
+    <li><b>接着走</b>：退出重开后，最后一个节点条目就是当前位置。</li>
+    <li><b>重跑</b>：会话本来就是一棵树。你想重做某一步，就从那个节点条目分叉，旧的尝试留在旁边的分支上。</li>
+  </ul>
+  <figure>
+    <div class="fig">
+      <svg class="dg" viewBox="0 0 860 236" role="img" aria-label="一个会话分支上的条目：方块是进入节点时写的节点条目，圆点是普通消息和工具调用。从某个节点条目可以分叉出另一条分支来重跑这个节点。">
+        <text x="20" y="24" class="hd">一个会话里的条目，从左到右是时间</text>
+        <line x1="40" y1="84" x2="690" y2="84" class="ln" stroke-opacity=".35"/>
+        <g>
+          <rect x="44" y="78" width="12" height="12" class="cp"/><text x="50" y="62" text-anchor="middle" class="sub">spec</text>
+          <circle cx="82" cy="84" r="4.5" class="dot"/><circle cx="106" cy="84" r="4.5" class="dot"/><circle cx="130" cy="84" r="4.5" class="dot"/>
+          <rect x="164" y="78" width="12" height="12" class="cp"/><text x="170" y="62" text-anchor="middle" class="sub">实现</text>
+          <circle cx="202" cy="84" r="4.5" class="dot"/><circle cx="226" cy="84" r="4.5" class="dot"/><circle cx="250" cy="84" r="4.5" class="dot"/><circle cx="274" cy="84" r="4.5" class="dot"/>
+          <rect x="308" y="78" width="12" height="12" class="cp"/><text x="314" y="62" text-anchor="middle" class="sub">CI 检查</text>
+          <rect x="358" y="78" width="12" height="12" class="cp"/><text x="364" y="46" text-anchor="middle" class="sub">审核</text>
+          <circle cx="396" cy="84" r="4.5" class="dot"/><circle cx="420" cy="84" r="4.5" class="dot"/>
+          <rect x="454" y="78" width="12" height="12" class="cp"/><text x="460" y="62" text-anchor="middle" class="sub">实现 第 2 轮</text>
+          <circle cx="492" cy="84" r="4.5" class="dot"/><circle cx="516" cy="84" r="4.5" class="dot"/>
+          <rect x="550" y="78" width="12" height="12" class="cp"/><text x="556" y="46" text-anchor="middle" class="sub">CI 检查</text>
+          <rect x="600" y="78" width="12" height="12" class="cp"/><text x="606" y="62" text-anchor="middle" class="sub">审核</text>
+          <circle cx="638" cy="84" r="4.5" class="dot"/>
+        </g>
+        <line x1="644" y1="84" x2="688" y2="84" class="ln" marker-end="url(#mk-fg)"/>
+        <text x="700" y="80" class="sub">当前位置 =</text>
+        <text x="700" y="96" class="sub">最后一个节点条目</text>
+
+        <path d="M170,90 L170,150 L196,150" class="ln model"/>
+        <rect x="198" y="144" width="12" height="12" class="cp"/>
+        <circle cx="236" cy="150" r="4.5" class="dot"/><circle cx="260" cy="150" r="4.5" class="dot"/><circle cx="284" cy="150" r="4.5" class="dot"/>
+        <line x1="290" y1="150" x2="330" y2="150" class="ln" stroke-opacity=".35"/>
+        <text x="344" y="154" class="sub tx-model">你手动重跑“实现”：从它的节点条目分叉，旧的尝试留在上面</text>
+
+        <rect x="44" y="200" width="12" height="12" class="cp"/><text x="64" y="211" class="sub">节点条目（存档点）</text>
+        <circle cx="210" cy="206" r="4.5" class="dot"/><text x="222" y="211" class="sub">普通条目：消息、工具调用</text>
+      </svg>
+    </div>
+    <figcaption>图的状态不单独保存，它就是会话分支上的节点条目。切换分支，图的状态跟着变。</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2 class="col">强控制怎么保证</h2>
+  <p class="col">图只管“走哪条边”是不够的。“实现”节点有 bash，模型可以不走边，直接运行 <code>gh pr merge</code>。所以控制分三层，每层能保证的程度不同。</p>
+  <div class="tbl col">
+    <table>
+      <thead><tr><th>层</th><th>保证程度</th><th>靠什么</th></tr></thead>
+      <tbody>
+        <tr><td>走哪条边</td><td>强</td><td>转移工具只列出当前节点允许的边，由代码执行。直接调别的转移会被钩子拦下。</td></tr>
+        <tr><td>闸门的结果</td><td>强</td><td>命令由引擎跑、引擎读退出码，模型不能谎报通过。人批准走界面对话框，模型不能替你点。</td></tr>
+        <tr><td>节点里的动作</td><td>防跳步，不防蓄意绕过</td><td>敏感动作由引擎执行；模型节点另配一份禁止命令的清单作兜底。</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <figure>
+    <div class="fig">
+      <svg class="dg" viewBox="0 0 880 236" role="img" aria-label="模型在实现节点里直接运行合并命令，会被禁止命令清单拦下。正常路径是实现、CI 检查、独立审核，最后由合并这个命令节点让引擎执行合并。">
+        <path d="M80,128 L80,58 L592,58" class="ln bad"/>
+        <line x1="598" y1="44" x2="598" y2="72" class="ln" stroke-width="3"/>
+        <text x="330" y="48" text-anchor="middle" class="sub tx-bad">模型自己运行 gh pr merge</text>
+        <text x="610" y="54" class="sub">被禁止命令清单拦下</text>
+        <text x="610" y="70" class="sub">（兜底：防误操作）</text>
+
+        <rect x="20" y="130" width="120" height="52" rx="8" class="box"/><text x="80" y="153" text-anchor="middle">实现</text><text x="80" y="171" text-anchor="middle" class="sub">模型节点，有 bash</text>
+        <rect x="190" y="130" width="110" height="52" rx="8" class="box cmd"/><text x="245" y="153" text-anchor="middle">CI 检查</text><text x="245" y="171" text-anchor="middle" class="sub">引擎跑命令</text>
+        <rect x="350" y="130" width="110" height="52" rx="8" class="box"/><text x="405" y="153" text-anchor="middle">独立审核</text><text x="405" y="171" text-anchor="middle" class="sub">模型节点</text>
+        <rect x="510" y="130" width="130" height="52" rx="8" class="box cmd"/><text x="575" y="153" text-anchor="middle">合并</text><text x="575" y="171" text-anchor="middle" class="sub">命令节点</text>
+        <rect x="740" y="130" width="120" height="52" rx="8" class="soft"/><text x="800" y="161" text-anchor="middle">主分支</text>
+
+        <line x1="140" y1="156" x2="188" y2="156" class="ln model" marker-end="url(#mk-model)"/>
+        <line x1="300" y1="156" x2="348" y2="156" class="ln cmd" marker-end="url(#mk-cmd)"/><text x="324" y="146" text-anchor="middle" class="sub tx-cmd">通过</text>
+        <line x1="460" y1="156" x2="508" y2="156" class="ln model" marker-end="url(#mk-model)"/><text x="484" y="146" text-anchor="middle" class="sub tx-model">通过</text>
+        <line x1="640" y1="156" x2="738" y2="156" class="ln cmd" marker-end="url(#mk-cmd)"/><text x="689" y="146" text-anchor="middle" class="sub tx-cmd">引擎执行合并</text>
+        <text x="440" y="218" text-anchor="middle" class="sub">合并这个动作只发生在最后一个节点，执行它的是引擎，不是模型</text>
+      </svg>
+    </div>
+    <figcaption>敏感动作做成命令节点：模型不需要、也不该自己运行这条命令。禁止命令清单只是第二道防线。</figcaption>
+  </figure>
+  <h3 class="col">第一版做的三样</h3>
+  <ol class="col">
+    <li><b>敏感动作做成命令节点。</b>比如“合并”由引擎在边走通之后执行。模型节点可以配两种限制作为兜底：<code>deny</code> 是禁止的命令文本，<code>readOnly</code> 是这个节点不许写的路径。</li>
+    <li><b>加载时证明规则成立。</b>在图上声明“到达合并之前必须经过 CI 通过，而且最后一次进入实现之后必须再过一次”，加载时检查每一条通往合并的路径。图画错了当场报错。</li>
+    <li><b>出问题一律停下。</b>没有界面时，人批准算不通过；状态读不出来就停下来找你，不猜着继续；子 agent 继承当前节点的限制。</li>
+  </ol>
+  <p class="col">另外两处也要堵上：图在启动时整张写进会话并锁定，运行中改文件不生效；图运行期间引擎自动把图文件目录和会话文件设成只读。检查命令用到的配置（比如 <code>package.json</code>、CI 配置）实现节点可能有正当理由改，所以不自动保护，由图的作者在节点上用 <code>readOnly</code> 写。</p>
+  <p class="col note">要说清楚的边界：这三样保证的是流程不被跳过，防的是模型忘记规则或图省事。模型在节点里有 bash，蓄意绕过禁止命令清单总是可能的（比如把命令写进脚本再执行）；它也可以把测试改成能过，这只能靠独立审核发现。真正的硬隔离要靠凭据隔离或沙箱，第一版不做。</p>
+</section>
+
+<section>
+  <h2 class="col">结构</h2>
+  <p class="col">做法和 relay 一样分两半：一个不依赖 coding agent 的纯逻辑包，加上 coding agent 里的一层接线。纯逻辑包叫 <code>xpi-graph</code>，接线层是内置扩展 <code>builtin:graph</code>。relay 里的转移表引擎是它的内部文件，形状是“状态加事件”的表，和“节点加边”对不上，所以 xpi-graph 自己写一个小的解释器，relay 一行不动。</p>
+  <figure>
+    <div class="fig">
+      <svg class="dg" viewBox="0 0 890 280" role="img" aria-label="图定义文件被 xpi-graph 包读取。coding agent 的接线层把事件交给 xpi-graph，拿回下一步的决定，并读写会话条目、更新 TUI 状态行。">
+        <rect x="20" y="106" width="150" height="64" rx="8" class="soft"/>
+        <text x="95" y="132" text-anchor="middle">图定义文件</text><text x="95" y="151" text-anchor="middle" class="sub">.pi/graphs/dev.js</text>
+        <line x1="170" y1="138" x2="228" y2="138" class="ln" marker-end="url(#mk-fg)"/><text x="199" y="128" text-anchor="middle" class="sub">读取</text>
+
+        <rect x="230" y="38" width="220" height="200" rx="10" class="box"/>
+        <text x="246" y="64" class="hd">xpi-graph 包</text>
+        <text x="246" y="84" class="sub">纯逻辑，不依赖 coding agent</text>
+        <rect x="246" y="100" width="188" height="32" rx="6" class="soft"/><text x="340" y="121" text-anchor="middle">校验图</text>
+        <rect x="246" y="142" width="188" height="32" rx="6" class="soft"/><text x="340" y="163" text-anchor="middle">转移表：走哪条边</text>
+        <rect x="246" y="184" width="188" height="32" rx="6" class="soft"/><text x="340" y="205" text-anchor="middle">从条目算出当前状态</text>
+
+        <line x1="518" y1="116" x2="452" y2="116" class="ln" marker-end="url(#mk-fg)"/><text x="485" y="106" text-anchor="middle" class="sub">事件</text>
+        <line x1="450" y1="170" x2="516" y2="170" class="ln" marker-end="url(#mk-fg)"/><text x="485" y="160" text-anchor="middle" class="sub">决定</text>
+
+        <rect x="520" y="38" width="210" height="200" rx="10" class="box"/>
+        <text x="536" y="64" class="hd">coding agent 接线</text>
+        <text x="536" y="84" class="sub">内置扩展</text>
+        <rect x="536" y="100" width="178" height="32" rx="6" class="soft"/><text x="625" y="121" text-anchor="middle">换模型、提示、工具</text>
+        <rect x="536" y="142" width="178" height="32" rx="6" class="soft"/><text x="625" y="163" text-anchor="middle">转移工具（codemode）</text>
+        <rect x="536" y="184" width="178" height="32" rx="6" class="soft"/><text x="625" y="205" text-anchor="middle">/graph 命令</text>
+
+        <line x1="730" y1="96" x2="778" y2="96" class="ln" marker-start="url(#mk-fg)" marker-end="url(#mk-fg)"/><text x="754" y="86" text-anchor="middle" class="sub">读写</text>
+        <rect x="780" y="66" width="96" height="60" rx="8" class="soft"/><text x="828" y="92" text-anchor="middle">会话条目</text><text x="828" y="110" text-anchor="middle" class="sub">树</text>
+        <line x1="730" y1="186" x2="778" y2="186" class="ln" marker-end="url(#mk-fg)"/><text x="754" y="176" text-anchor="middle" class="sub">显示</text>
+        <rect x="780" y="156" width="96" height="60" rx="8" class="soft"/><text x="828" y="182" text-anchor="middle">TUI</text><text x="828" y="200" text-anchor="middle" class="sub">状态行</text>
+      </svg>
+    </div>
+    <figcaption>xpi-graph 包只回答一个问题：现在在哪个节点、收到这个事件之后该去哪。所有会改动东西的事都在接线层。</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2 class="col">第一版的范围</h2>
+  <p class="col">原则是简单有效，先让一张手写的图能可靠地跑完，别的以后再加。</p>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>第一版做</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td>手写的图文件</td><td>JS 文件，放在 <code>.pi/graphs/</code> 或 <code>~/.pi/agent/graphs/</code>。加载时校验：有没有走不到的节点、指向不存在的节点的边。</td></tr>
+        <tr><td>会话内节点</td><td>每个节点可以设模型、角色提示，以及 <code>deny</code> 和 <code>readOnly</code> 两种限制。不做工具白名单。</td></tr>
+        <tr><td>三种出口</td><td>模型选、命令判、人批准。人批准是三选一：批准、退回、停止图。</td></tr>
+        <tr><td>回头的边有上限</td><td>构成环的边没写上限的默认 3 轮。超过轮数就停下来找你。</td></tr>
+        <tr><td>节点条目</td><td>进入节点写一条。状态从条目算出，退出重开后接着走。</td></tr>
+        <tr><td><code>/graph</code> 命令</td><td><code>/graph start dev</code> 开始；<code>/graph</code> 看当前在哪、走过哪些节点；<code>/graph goto 节点</code> 由你手动跳转，并记一条。边对模型是硬的，对你不是。</td></tr>
+        <tr><td>状态行</td><td>TUI 底部显示当前节点和轮数。</td></tr>
+        <tr><td>命令节点</td><td>不用模型的节点，由引擎直接跑一条固定命令，默认超时 10 分钟。敏感动作（合并、发布）放在这里。模型节点可配禁止命令清单，按命令文本的子串匹配。</td></tr>
+        <tr><td>加载时检查规则</td><td>声明“到 A 之前必须通过 B”，可加“最后一次进入 C 之后必须再通过一次”。加载时检查所有路径，不满足就报错。</td></tr>
+        <tr><td>出问题就停</td><td>无界面时人批准不通过；状态读不出来就停；子 agent 继承节点限制；图在启动时写进会话并锁定。</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <h3 class="col">里程碑</h3>
+  <p class="col">四个，每个一个 PR。每个 PR 等 CI 通过，再由新上下文的 Opus 审核，过了才合并。真模型测试只用 Haiku。</p>
+  <ol class="col">
+    <li><b>纯逻辑包 <code>xpi-graph</code></b>：图的校验、“必须先通过”检查、从条目算状态。只有离线单元测试。</li>
+    <li><b><code>builtin:graph</code> 最小可跑</b>：<code>/graph start</code>、<code>/graph</code>、<code>/graph stop</code>，会话内节点换模型和角色提示，<code>next</code> 工具，节点条目，状态行，退出重开接着走。做完后用 Haiku 实测缓存花费。</li>
+    <li><b>强控制</b>：命令节点、人批准、<code>deny</code> 和 <code>readOnly</code>、环的上限、提醒一次再停、<code>/graph goto</code>、子 agent 继承限制。</li>
+    <li><b>两张图和文档</b>：开发流程图、发版流程图、真 Haiku 全流程检查、文档。</li>
+  </ol>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>以后再做</th><th>为什么先不做</th></tr></thead>
+      <tbody>
+        <tr><td>节点的工具白名单</td><td>xpi 只用 codemode，按工具限制要改 codemode 内部。第一版用 <code>deny</code> 和 <code>readOnly</code> 代替。</td></tr>
+        <tr><td>边上压缩上下文</td><td>比如审核者只看改动，不看实现过程。有用，但要先看节点切换对缓存和花费的实际影响。</td></tr>
+        <tr><td>每个节点的花费统计</td><td>用量条目已经有了，按节点分段汇总即可。等节点条目稳定后加。</td></tr>
+        <tr><td>模型选用或临时画图</td><td>模型自己画的图要先经你批准才能变硬，需要多一套交互。</td></tr>
+        <tr><td>并行节点、子 agent 节点</td><td>第一版只做会话内节点。需要新上下文时（比如独立审核），节点里的模型用现有的 <code>Agent</code> 工具派子 agent。</td></tr>
+        <tr><td>等很久的事交给后台</td><td>比如等远程 CI。以后接到 roost 上，第一版的命令只在本地跑。</td></tr>
+        <tr><td>TUI 图面板、Herdr 显示</td><td>状态行先够用。</td></tr>
+        <tr><td>凭据隔离、沙箱</td><td>防模型蓄意绕过需要它们，比如合并用的 token 只在“合并”节点里存在。工作量是另一个量级。</td></tr>
+        <tr><td>把 relay 迁到图上</td><td>relay 现在稳定在用。等 xpi-graph 跑稳了再迁。</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <h2 class="col">和现有功能的关系</h2>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>功能</th><th>它是什么</th><th>和 xpi-graph 的关系</th></tr></thead>
+      <tbody>
+        <tr><td>relay</td><td>一个会话里两个模型交接，形状固定</td><td>第一版不动，图运行期间 relay 不参与。以后变成 xpi-graph 上的一张内置图。</td></tr>
+        <tr><td>workflow</td><td>codemode 脚本，编排多个子 agent</td><td>并存。workflow 管多个 agent，xpi-graph 管一个会话里的流程。</td></tr>
+        <tr><td>agent teams</td><td>多个 agent 组队</td><td>无关，不受影响。</td></tr>
+        <tr><td>roost</td><td>后台会话和定时任务</td><td>第一版无关。以后用它来等待和唤醒。</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="col note">xpi 已经有四套编排机制。xpi-graph 值得做的前提是它最终能收编其中一部分，至少是 relay 和 <code>/review</code> 这类固定流程。</p>
+</section>
+
+<section class="col">
+  <h2>怎么算成功</h2>
+  <ul>
+    <li>用开发流程这张图跑三个真实任务，没有一次能在 CI 失败的情况下走到合并。</li>
+    <li>在“实现”节点里让模型直接合并，会被拦下，并留下一条记录。</li>
+    <li>把图里的 CI 节点删掉再加载，当场报错，不能开始。</li>
+    <li>中途退出再打开，回到同一个节点、同一轮。</li>
+    <li>写一张新图不超过 30 行，不用读 xpi-graph 的代码。</li>
+    <li>除开发流程外再写一张发版流程的图并跑通，引擎不用为它改代码。</li>
+    <li>不启动图时，xpi 的请求和花费与现在没有差别。</li>
+    <li>relay 的测试原样通过，说明没有碰到它。</li>
+  </ul>
+</section>
+
+<section class="col">
+  <h2>风险，和还没定的事</h2>
+  <ul>
+    <li><b>换节点会打断提示词缓存。</b>换模型一定会断，同一个模型换系统提示词也会断。节点不能切得太碎；所以定一条规则：相邻节点模型相同时，角色提示作为消息发出，不改系统提示词。花费在第一个里程碑做完后用 Haiku 实测，结果不好再调整。</li>
+    <li><b>禁止命令清单拦不住蓄意绕过。</b>它只匹配命令文本，xpi 现有的路径保护也不解析 bash。第一版接受这一点，文档里要写明。</li>
+    <li><b>反复用的流程可能没几条。</b>接受这个风险先做。开发流程的图不随 xpi 内置，放在本仓库的 <code>.pi/graphs/dev.js</code>，兼作例子和测试用图；再用发版流程检验引擎是不是真的通用。</li>
+  </ul>
+</section>
+
+<section class="col">
+  <h2>已经定下的事</h2>
+  <ul>
+    <li>节点是会话内节点。</li>
+    <li>xpi 只用 codemode，换节点的工具只在 codemode 里。</li>
+    <li>边是硬的，节点内部自由。</li>
+    <li>借 LangGraph、durable、chord 的思路，不搬代码，不引入 chord。</li>
+    <li>第一版要简单有效，功能以后再加。</li>
+    <li>强控制第一版做三样：敏感动作做成命令节点、加载时检查规则、出问题就停。目标是防跳步，不防蓄意绕过。</li>
+  </ul>
+  <h3>拷问第 1 轮（2026-11-17）</h3>
+  <ul>
+    <li>图文件是 JS，放 <code>.pi/graphs/</code> 和 <code>~/.pi/agent/graphs/</code>，规矩同 workflow。</li>
+    <li>不复用 relay 的转移表引擎，xpi-graph 自己写节点和边的解释器。</li>
+    <li>独立审核：审核节点用 <code>Agent</code> 工具派新上下文的 Opus 子 agent，第一版不加子 agent 节点。</li>
+    <li>人批准是三选一：批准、退回、停止图。没有界面时算退回并停下。</li>
+    <li>模型没选边就结束回合：有人批准出口的节点照常等你，其他节点提醒一次再停。</li>
+    <li>命令节点：固定命令，默认超时 10 分钟可改，超时算失败，输出最后 200 行进会话，没有图变量。</li>
+    <li>禁止命令清单按命令文本的子串匹配，不解析 shell。</li>
+    <li>构成环的边没写上限的默认 3 轮，按边计数。</li>
+    <li>一个会话一张图，图运行期间 relay 不参与，结束后恢复原来的模型和工具。</li>
+    <li>缓存不阻塞 spec：相邻同模型节点的角色提示走消息，第一个里程碑后实测。</li>
+    <li>包名 <code>xpi-graph</code>，内置扩展 <code>builtin:graph</code>，不启动图时不注册工具、不改请求。</li>
+    <li>开发流程的图不内置，放本仓库作例子；成功标准加一张发版流程的图。</li>
+  </ul>
+  <h3>拷问第 2 轮（2026-11-17）</h3>
+  <ul>
+    <li>转移工具是 <code>next({ to, report })</code>，报告必填；进入节点时引擎发一条说明消息。</li>
+    <li>砍掉“模型选，再由命令验证”的叠加边，要验证就放一个命令节点。</li>
+    <li>节点的限制只有 <code>deny</code> 和 <code>readOnly</code>，不做工具白名单。</li>
+    <li>“必须先通过”可带 <code>notAfter</code>：最后一次进入指定节点之后必须再通过一次。</li>
+    <li>图是纯数据，启动时整张写进会话条目并锁定。</li>
+    <li>引擎只自动保护图文件目录和会话文件，其余由图的作者用 <code>readOnly</code> 写。</li>
+    <li>四个里程碑：纯逻辑包、最小可跑、强控制、两张图和文档。</li>
+    <li>交付：spec 和 ticket 先开 PR 给你批准，之后逐个里程碑提 PR、CI、Opus 审核、合并。不发版，不发 npm。</li>
+  </ul>
+</section>
+
+</div>
