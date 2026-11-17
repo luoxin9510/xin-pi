@@ -1,8 +1,8 @@
 # Spec 01: xpi-graph, flow control by a graph
 
-Status: waiting for the owner's approval. Grills 1 and 2 are in `decisions.md` (all 20 as recommended); the owner has
-not read this spec yet. No code before the approval. Review rounds 1 to 4 (independent Opus) are worked in; see
-`decisions.md`.
+Status: approved by the owner on 2026-11-17 (PR #136), after Grills 1 and 2 (all 20 as recommended) and four review
+rounds by an independent Opus; see `decisions.md`. The refusal to start with a virtual model selected was put to
+the owner and accepted with the approval.
 
 The product text, with diagrams, is `prd.html` in this directory (Chinese).
 
@@ -90,8 +90,10 @@ with `tsc`, vitest). It answers three questions and changes nothing:
 - `parseGraph(value: unknown): Graph` validates the parsed literal (the trust boundary: every field is checked) and
   throws one error that lists every problem found, each with its place (`edges[3].to: no node "revieww"`).
 - `checkGraph(graph)`: the structural rules of 3, same error form.
-- `readState(entries, graph?)`: the state of the session branch, folded from entries (4).
-- `exits(graph, state)`: the edges the current node may take now, with their counts and limits.
+- `readState(entries)`: the state of the session branch, folded from entries (4). The graph is read from the
+  `graph.start` entry and goes through `parseGraph` and `checkGraph` again: a session file is a trust boundary too.
+- `exits(state)`: the edges the current node may take now, with their counts and limits (the state holds the
+  graph).
 
 It does not reuse `xpi-relay/src/graph/graph.ts` (decision 2): that file is internal to relay and is a table of
 (state, event) rows, not nodes and edges. Relay is not touched.
@@ -108,8 +110,9 @@ A graph that fails any of these does not start; the error names the nodes and ed
   `max` is the number of times the edge may be taken in one run of the graph.
 - **`requires`.** Take the graph without B's `pass` edge. If A can be reached from `start`, there is a path to A
   that does not pass B: error, with the path. For each C in `notAfter`: if A can be reached from C in that same
-  reduced graph, there is a path from C to A with no pass of B after it: error, with the path. A path has at
-  least one edge, and A in `notAfter` is a load error.
+  reduced graph, there is a path from C to A with no pass of B after it: error, with the path. A in `notAfter`
+  is a load error. A that is the start node always fails the first check: the graph is in it before anything
+  passed.
 
   Example 1: adding the edge `build -> merge` to the graph above fails the first check with
   `grill -> build -> merge`.
@@ -127,7 +130,7 @@ Custom entries, written by the extension, never shown to the model:
 
 | Entry | Data | When |
 |---|---|---|
-| `graph.start` | the whole graph, the file path, the model and thinking level selected before | `/graph start` |
+| `graph.start` | the whole graph as its file's literal, the file path, the model and thinking level selected before | `/graph start` |
 | `graph.node` | `node`, `via` (`start`, `model`, `approve`, `pass`, `fail`, `goto`), `edge` (index), `report` | each entry into a node |
 | `graph.halt` | `reason` | the graph stops and waits for the user (5) |
 | `graph.move` | `edge`, `via` (`model`, `approve`, `pass`, `fail`), `report` | a move that is accepted and not entered yet: from `next`, or the result of a command run outside a turn (5) |
@@ -147,8 +150,11 @@ Custom entries, written by the extension, never shown to the model:
   arrives while a turn runs is entered only at that turn's `agent_before_settle`, never at a request inside it.
 - Resume: the last `graph.node` on the branch is the position. Moving to another branch of the session tree moves
   the graph with it; re-running a node is branching from its `graph.node` entry.
-- A state that cannot be read (bad entry data, a node the stored graph does not have) is an error state: the
-  extension halts and tells the user; it never guesses.
+- A state that cannot be read is an error state: the extension halts and tells the user; it never guesses. That
+  covers bad entry data, a node the stored graph does not have, and entries that do not agree with each other: a
+  first entry that is not the start node or a start entry later on, an edge that does not join the two nodes or is
+  not taken by its own exit, a node entered by another edge than the pending move, a second pending move, an end
+  without a known reason.
 
 Messages the model does see (custom messages): `graph.enter` (the node, its prompt, the edges out with their
 labels, how to leave, and the node's `readOnly` patterns with the sentence that they hold for shell commands too),

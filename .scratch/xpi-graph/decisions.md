@@ -128,6 +128,11 @@ The five findings of round 2 are closed. One should-fix and one nit on the incre
   pre-graph model, the union of every `deny`, `next` refused).
 - The result of such a run is a pending move and is entered at a boundary, never in the middle of a turn.
 
+## Approval (2026-11-17)
+
+The owner approved the spec ("批准") with PR #136, and with it the refusal to start a graph while a virtual model
+is selected (review round 2).
+
 ## Review round 4 (same reviewer, commit 933f811d5, 2026-11-17)
 
 Both findings of round 3 are closed; nothing blocking. One nit, taken: `graph.move` records where the move came

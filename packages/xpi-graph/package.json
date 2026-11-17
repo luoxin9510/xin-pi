@@ -1,0 +1,46 @@
+{
+	"name": "xpi-graph",
+	"version": "1.15.0",
+	"private": true,
+	"description": "Flow control by a graph for xpi: nodes and hard edges in one session. The file format, the checks at load and the state read from the session branch",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"source": "./src/index.ts",
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		}
+	},
+	"sideEffects": false,
+	"files": [
+		"dist",
+		"README.md"
+	],
+	"scripts": {
+		"clean": "node ../../scripts/package-files.mjs clean dist",
+		"build": "tsc -p tsconfig.build.json",
+		"test": "vitest --run",
+		"prepublishOnly": "npm run clean && npm run build"
+	},
+	"keywords": [
+		"graph",
+		"agents",
+		"workflow"
+	],
+	"author": "luoxin9510",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/luoxin9510/xin-pi.git",
+		"directory": "packages/xpi-graph"
+	},
+	"engines": {
+		"node": ">=22.19.0"
+	},
+	"devDependencies": {
+		"@types/node": "22.19.19",
+		"vitest": "4.1.12"
+	}
+}
