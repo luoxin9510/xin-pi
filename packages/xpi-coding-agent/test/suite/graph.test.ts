@@ -355,6 +355,77 @@ describe("graph extension", () => {
 		expect(running().node).toBe("plan");
 	});
 
+	it("refuses a move from a background script of an earlier node that calls it in a later node's turn", async () => {
+		let openGate: (() => void) | undefined;
+		const gate: AgentTool = {
+			name: "gate",
+			label: "Gate",
+			description: "Wait until the test opens the gate",
+			parameters: Type.Object({}),
+			execute: async () => {
+				await new Promise<void>((resolve) => {
+					openGate = resolve;
+				});
+				return { content: [{ type: "text", text: "open" }], details: {} };
+			},
+		};
+		const { harness, reply, script, say, running, customTypes, models } = await setup({ tools: [gate] });
+		cleanups.push(
+			codemodeScripts.provideBackground({
+				sessionId: () => harness.sessionManager.getSessionId(),
+				enabled: () => true,
+			}),
+		);
+		const outcomes: string[] = [];
+		let scriptEnded: (() => void) | undefined;
+		const ended = new Promise<void>((resolve) => {
+			scriptEnded = resolve;
+		});
+		cleanups.push(
+			codemodeScripts.subscribe({
+				onStart: () => {},
+				onEnd: (info, outcome) => {
+					// Only the script that waits at the gate: the node's own script ends too.
+					if (!info.code?.includes("tools.gate")) return;
+					outcomes.push(JSON.stringify(outcome));
+					scriptEnded?.();
+				},
+			}),
+		);
+		harness.setResponses([
+			// In `plan`: a background script that will ask for `check` later, and the node's own move to `build`.
+			reply(
+				fauxAssistantMessage(
+					[
+						fauxToolCall("codemode", {
+							code: `await tools.gate({}); try { await tools.next({ to: "check", report: "from plan" }); return "moved"; } catch (error) { return error.message; }`,
+							run_in_background: true,
+						}),
+						fauxToolCall("codemode", { code: script("build", "the plan") }),
+					],
+					{ stopReason: "toolUse" },
+				),
+			),
+			say("The plan is handed on."),
+			// In `build`, while its turn runs, the old script wakes up. `build -> check` is a declared edge.
+			async (context, options, state, model) => {
+				for (let i = 0; i < 200 && !openGate; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+				openGate?.();
+				await ended;
+				const step = say("Building.");
+				return typeof step === "function" ? step(context, options, state, model) : step;
+			},
+		]);
+		await harness.session.prompt("/graph start flow");
+		await harness.session.waitForIdle();
+		expect(models()).toEqual(["large", "large", "small"]);
+		expect(outcomes.join("\n")).toContain("A move is made in the turn of its node, not from a background script.");
+		expect(outcomes.join("\n")).not.toContain("moved");
+		expect(customTypes().filter((type) => type === GRAPH_MOVE)).toHaveLength(1);
+		expect(running().node).toBe("build");
+		expect(running().pending).toBeUndefined();
+	});
+
 	it("is where its entries say after a resume, and goes on from there", async () => {
 		const sessionManager = SessionManager.inMemory();
 		const first = await setup({ sessionManager });

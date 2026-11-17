@@ -184,7 +184,9 @@ three pure functions.
   system prompt, so the system prompt is the same in every node and a move between two nodes on one model keeps the
   prompt cache. The system prompt gets one fixed `graph` section (a graph is running; leave a node with `next`).
   A compaction can summarise the `graph.enter` message away, so after `session_compact` on a running graph the
-  extension sends the current node's `graph.enter` again (a repeat: no `graph.node`, no count).
+  extension sends the current node's `graph.enter` again (a repeat: no `graph.node`, no count), with
+  `triggerTurn: false`: a compaction after a turn must not start another request. Not when a move is pending:
+  the next node's own message follows.
 - **`next({ to, report })`** (decision 13). Deferred exposure: only a codemode script reaches it. `/graph start`
   refuses when codemode is off. The tool is registered at the first start (or at `session_start` on a branch with a
   running graph) and is inactive when no graph runs.
@@ -194,8 +196,10 @@ three pure functions.
     user's next message is the comment and the model stays in the node. Without a UI: halt (decision 4).
   - The graph is halted: refused (see Halt).
   - A move is already pending (a `graph.move` with no `graph.node` after it): refused. One move per visit.
-  - The call comes while no turn runs (`ctx.isIdle()`: a background script, or a call released after its
-    turn): refused. A move is made in the turn of its node.
+  - The call does not come from a script of the latest assistant message on the branch (a nested call's id
+    starts with its script's tool call id), or no turn runs: refused. A move belongs to the request that asked
+    for it. A background script, or a call released after its turn, may wake up in a later turn or in another
+    node; without this rule a script started in `build` could finish the graph from `review`.
   - Otherwise the tool writes `graph.move`, and its result ends the script and asks to end the turn. The move is
     entered when the turn ends (`agent_before_settle`): `graph.node` and `graph.enter` are written, and after a
     `completed` turn one more request is asked for. A turn goes on when another tool call of the same batch

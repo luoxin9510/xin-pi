@@ -168,6 +168,19 @@ export default function graph(pi: ExtensionAPI) {
 		return { node, text: enterText(state.graph, edge.to, { from: edge.from, report: move.report }) };
 	};
 
+	/**
+	 * Whether a nested call was made by a script of the latest assistant message on the branch. A nested call's id is
+	 * `<the script's tool call id>/<n>`.
+	 */
+	const calledByLatestRequest = (ctx: ExtensionContext, toolCallId: string): boolean => {
+		const parent = toolCallId.slice(0, toolCallId.lastIndexOf("/"));
+		const latest = ctx.sessionManager
+			.getBranch()
+			.findLast((entry) => entry.type === "message" && entry.message.role === "assistant");
+		if (latest?.type !== "message" || latest.message.role !== "assistant") return false;
+		return latest.message.content.some((block) => block.type === "toolCall" && block.id === parent);
+	};
+
 	const registerTool = () => {
 		if (toolRegistered) return;
 		toolRegistered = true;
@@ -184,7 +197,7 @@ export default function graph(pi: ExtensionAPI) {
 				to: Type.String({ description: "The node to go to: one of those the current node lists." }),
 				report: Type.String({ description: "What you did in this node and what the next node must know." }),
 			}),
-			async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			async execute(toolCallId, params, _signal, _onUpdate, ctx) {
 				const state = stateOf(ctx);
 				if (state.status !== "running") throw new Error("No graph is running.");
 				if (state.halted !== undefined) {
@@ -196,8 +209,11 @@ export default function graph(pi: ExtensionAPI) {
 					throw new Error(
 						"A move is already accepted for this visit. End your turn: the next node starts after it.",
 					);
-				// A script that outlived its turn (a background script, a released call) cannot move the graph.
-				if (ctx.isIdle()) throw new Error("A move is made in the turn of its node, not from a background script.");
+				// A move belongs to the request that asked for it. A script that outlived that request (a background
+				// script, a released call) may run in a later turn or in another node: it cannot move the graph.
+				if (ctx.isIdle() || !calledByLatestRequest(ctx, toolCallId)) {
+					throw new Error("A move is made in the turn of its node, not from a background script.");
+				}
 				const choices = exits(state).filter(
 					(choice) => choice.edge.exit === "model" || choice.edge.exit === "approve",
 				);
@@ -236,6 +252,16 @@ export default function graph(pi: ExtensionAPI) {
 		name: "Graph (set by /graph start: each node's own model)",
 		route: (request, ctx) => {
 			const state = stateOf(ctx);
+			// A graph that just ended, with the selection not given back yet (a queued message of the same run): the
+			// model selected before the graph answers.
+			const ended = state.status === "none" ? state.ended?.selection : undefined;
+			const before = ended ? ctx.modelRegistry.find(ended.provider, ended.id) : undefined;
+			if (ended && before) {
+				return {
+					model: before,
+					thinkingLevel: THINKING_LEVELS.find((level) => level === ended.thinking) ?? request.thinkingLevel,
+				};
+			}
 			if (state.status === "none" || (state.status === "error" && !state.selection)) {
 				// Selected by hand with no graph running: answer with the model that answered last.
 				if (request.previous) {
@@ -319,10 +345,12 @@ export default function graph(pi: ExtensionAPI) {
 	// A compaction can summarise the node's role away: say it again.
 	pi.on("session_compact", async (_event, ctx) => {
 		const state = stateOf(ctx);
-		if (state.status !== "running") return;
+		// With a move pending the node is about to change, and its own entry message follows.
+		if (state.status !== "running" || state.pending) return;
+		// Never a turn of its own: a compaction after a turn must not start another request.
 		pi.sendMessage(
 			{ customType: GRAPH_ENTER, content: enterText(state.graph, state.node, { repeat: true }), display: false },
-			ctx.isIdle() ? {} : { deliverAs: "steer" },
+			{ triggerTurn: false },
 		);
 	});
 

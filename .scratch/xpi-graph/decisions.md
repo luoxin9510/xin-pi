@@ -147,6 +147,17 @@ is selected (review round 2).
 - `next` from a background script is refused when no turn runs. A background script that calls it while a
   later turn of the same node runs is accepted: it is a call in a turn of the node.
 
+## Review of milestone 2 (independent Opus, PR #139, commit 6d089c132, 2026-11-17)
+
+One blocking finding, two should-fix, three nits. What changed:
+
+- Blocking: a background script started in one node could call `next` during a later node's turn and move the
+  graph for it. `next` is now accepted only from a script of the latest assistant message on the branch. This
+  replaces the note above that such a call in a later turn of the same node is accepted: it is refused too.
+- The node message sent again after a compaction starts no turn, and is not sent while a move is pending.
+- A broken symlink in a graph directory no longer makes `/graph` fail; a file over 1 MiB is refused.
+- A message queued behind the turn that ends a graph is answered by the model selected before the graph.
+
 ## Review round 4 (same reviewer, commit 933f811d5, 2026-11-17)
 
 Both findings of round 3 are closed; nothing blocking. One nit, taken: `graph.move` records where the move came

@@ -42,6 +42,7 @@ export default {
 };
 ```
 
+- **Size.** A file larger than 1 MiB is refused.
 - **Where.** `.pi/graphs/<name>.js` in the project, from the current directory up to the repository root (the closest
   wins; read only in a trusted project), then `~/.pi/agent/graphs/<name>.js`. The file name is the graph's `name`.
 - **Data, not code.** The first statement is `export default` followed by a plain literal: strings in any quotes, bare
@@ -97,8 +98,9 @@ What happens while it runs:
   `to` must be one of the node's edges; otherwise the call fails and lists the choices. `report` is what the next node
   is told.
 - **When the move takes effect.** At the end of the turn, never in the middle of one: until then the old node's model
-  answers. A second `next` in the same visit is refused, and so is one from a background script that calls it after
-  its turn ended.
+  answers. A second `next` in the same visit is refused. So is one from a script that outlived the request that
+  started it, such as a background script: by the time it calls, the session may be in another turn or another
+  node, and a move belongs to the request that asked for it.
 - **A turn that ends without a move** is the node talking to you. Answer, and it goes on in the same node.
 - **The end.** An edge to `end` finishes the graph and gives back the model and thinking level you had selected.
 
@@ -127,6 +129,7 @@ The state of a graph is not kept anywhere else than in the session: each entry i
 - **An aborted turn** (Escape) after `next`: the move is not lost and gets no turn of its own; the next node starts
   with your next message.
 - **Compaction** can summarise the node's role away, so after a compaction xpi sends the current node's message again.
+  It starts no turn of its own.
 - **The graph file is read once.** The whole graph is stored in the session when it starts. Editing the file changes
   the next start, not the graph that is running.
 - **Selecting another model** while a graph runs ends the graph. Selecting `graph/auto` by hand with no graph running

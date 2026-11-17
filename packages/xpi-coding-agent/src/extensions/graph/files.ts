@@ -42,11 +42,18 @@ export function discoverGraphs(cwd: string, trusted: boolean, agentDir = getAgen
 			const name = entry.slice(0, -3);
 			if (!entry.endsWith(".js") || !GRAPH_NAME.test(name) || found.has(name)) continue;
 			const path = join(dir, entry);
-			if (statSync(path).isFile()) found.set(name, { name, path, source });
+			try {
+				if (statSync(path).isFile()) found.set(name, { name, path, source });
+			} catch {
+				// A broken symlink or a file that cannot be read: not a graph, and no reason to hide the others.
+			}
 		}
 	}
 	return [...found.values()];
 }
+
+/** A graph is a few dozen lines; a file far beyond that is not one. */
+const MAX_GRAPH_BYTES = 1024 * 1024;
 
 const DEFAULT_START = /^\s*(?:(?:\/\/[^\n]*|\/\*[\s\S]*?\*\/)\s*)*export\s+default\s*/;
 const ONLY_SPACE_AND_COMMENTS = /^(?:\s|;|\/\/[^\n]*|\/\*[\s\S]*?\*\/)*$/;
@@ -70,6 +77,7 @@ export function parseGraphText(text: string): unknown {
 
 /** Read and check a graph file. `literal` is what the session stores; `graph` is what runs. Throws with the reason. */
 export function readGraphFile(file: GraphFile): { literal: unknown; graph: Graph } {
+	if (statSync(file.path).size > MAX_GRAPH_BYTES) throw new Error(`larger than ${MAX_GRAPH_BYTES} bytes`);
 	const literal = parseGraphText(readFileSync(file.path, "utf8"));
 	const graph = checkGraph(parseGraph(literal));
 	if (graph.name !== file.name) throw new Error(`name "${graph.name}" differs from the file name "${file.name}"`);

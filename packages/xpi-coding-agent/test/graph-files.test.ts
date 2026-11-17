@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -112,6 +112,13 @@ export default {
 			expect(discoverGraphs(join(root, "repo"), true, agentDir).map((file) => file.name)).toEqual(["dev"]);
 		});
 
+		it("skips a broken symlink and still finds the other graphs", () => {
+			const dir = join(root, "repo", ".pi", "graphs");
+			write(dir, "dev.js");
+			symlinkSync(join(dir, "gone-target.js"), join(dir, "gone.js"));
+			expect(discoverGraphs(join(root, "repo"), true, agentDir).map((file) => file.name)).toEqual(["dev"]);
+		});
+
 		it("lists a file without reading it: a broken file is found, and fails only when it is read", () => {
 			const dir = join(root, "repo", ".pi", "graphs");
 			write(dir, "broken.js", "export default buildGraph();\n");
@@ -134,6 +141,13 @@ export default {
 				edges: [{ from: "a", to: "end", exit: "model" }],
 			});
 			expect(graph.nodes.a).toEqual({ kind: "model", prompt: "A", deny: [], readOnly: [] });
+		});
+
+		it("refuses a file far larger than a graph is", () => {
+			const dir = join(root, "repo", ".pi", "graphs");
+			write(dir, "big.js", `${GRAPH("big")}// ${"x".repeat(1024 * 1024)}\n`);
+			const [file] = discoverGraphs(join(root, "repo"), true, agentDir);
+			expect(() => readGraphFile(file)).toThrow(/larger than 1048576 bytes/);
 		});
 
 		it("refuses a graph whose name is not the file's, and one that fails the checks", () => {
