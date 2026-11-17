@@ -302,6 +302,11 @@ still shows the node before (the new entries are drafts), so the handler reads t
   engine needs a change to express it, the change is reported, not made silently: that is the test of whether the
   engine is general.
 
+  Result (milestone 4): it is expressed with no change to the engine. Two things it shows. A graph has no
+  variables (decision 6), so "patch or minor" is two command nodes and the plan node picks one by an approve
+  edge. And `requires` with a command node that is not a check works as it is: `{ before: "tag", passed:
+  "merge" }` says the tag comes only after the merge ran and exited 0.
+
 ## Tests
 
 - Package (`packages/xpi-graph/test`, vitest, offline): `parseGraph` on every field and every error; each check of 3

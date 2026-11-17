@@ -168,6 +168,17 @@ is selected (review round 2).
 - The two nits of milestone 2's review are fixed here: a direct call of `next` is refused with how to call
   it, and `docs/graph.md` says which model answers when `graph/auto` is selected by hand.
 
+## Milestone 4 (author, 2026-11-18)
+
+- The two graphs are written and load; the release flow needed no change to the engine.
+- The nit of milestone 3's second review round is fixed: after a command, `proceed` checks that the branch
+  still holds the graph it started with (the `graph.start` entry), and clears only its own abort handle. A
+  test stops a graph whose command is slow to die and starts another one meanwhile.
+- Real Haiku runs: five, all to the end, $0.0084 in all (ticket G4.4).
+- Open after the first version, for the owner: the main-process path of the limits while a command runs is
+  tested only through the environment variable; the `mayWait` branch has no test; Escape does not stop a
+  command that runs between two turns (`/graph stop` does).
+
 ## Review of milestone 3 (independent Opus, PR #140, commit 4fc15b23d, 2026-11-18)
 
 One blocking finding, five should-fix, three nits. What changed:

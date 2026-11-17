@@ -74,6 +74,9 @@ describe("graph extension: controls", () => {
 		/** Commands that do not end by themselves: each runs until the test releases it or its signal aborts. */
 		const held = new Set<string>();
 		const release: Record<string, () => void> = {};
+		/** Held commands that take their time to die: after an abort each returns only when the test lets it. */
+		const slowToDie = new Set<string>();
+		const letDie: Record<string, () => void> = {};
 		const graphExtension = createGraphExtension({
 			run: async (command, runOptions) => {
 				ran.push({ command, timeoutMs: runOptions.timeoutMs, cwd: runOptions.cwd });
@@ -81,7 +84,11 @@ describe("graph extension: controls", () => {
 				if (held.has(command)) {
 					return new Promise<RunResult>((resolve) => {
 						release[command] = () => resolve(base);
-						runOptions.signal?.addEventListener("abort", () => resolve({ ...base, code: null, aborted: true }));
+						runOptions.signal?.addEventListener("abort", () => {
+							const die = () => resolve({ ...base, code: null, aborted: true });
+							if (slowToDie.has(command)) letDie[command] = die;
+							else die();
+						});
 					});
 				}
 				return { ...base, ...(results[command]?.shift() ?? {}) };
@@ -171,6 +178,8 @@ describe("graph extension: controls", () => {
 			ran,
 			held,
 			release,
+			slowToDie,
+			letDie,
 			started,
 			seen,
 			move,
@@ -345,6 +354,33 @@ describe("graph extension: controls", () => {
 			await harness.session.prompt("/graph stop");
 			await jump;
 			expect(ran.map((call) => call.command)).toEqual(["run-ci"]);
+			expect(state()).toMatchObject({ status: "none", ended: { reason: "stopped" } });
+		});
+
+		it("a stopped graph's command that is slow to die does not touch a graph started after it", async () => {
+			const { harness, held, slowToDie, letDie, started, ran, notes, move, running, entries, state } = await setup({
+				graphs: { ship: SHIP, cmds: COMMANDS },
+			});
+			held.add("run-ci");
+			slowToDie.add("run-ci");
+			harness.setResponses([move("ci")]);
+			const first = harness.session.prompt("/graph start ship");
+			await started("run-ci");
+			await harness.session.prompt("/graph stop");
+			// The old command is aborted and has not returned yet. A new graph starts, and runs a command of its own.
+			held.add("first");
+			const second = harness.session.prompt("/graph start cmds");
+			await started("first");
+			letDie["run-ci"]();
+			await first;
+			// The old run wrote nothing into the new graph, and left the new command's abort handle alone.
+			expect(running().graph.name).toBe("cmds");
+			expect(entries("graph.halt")).toEqual([]);
+			await harness.session.prompt("/graph goto two");
+			expect(notes.at(-1)).toContain("wait for the turn or the command that runs now");
+			await harness.session.prompt("/graph stop");
+			await second;
+			expect(ran.map((call) => call.command)).toEqual(["run-ci", "first"]);
 			expect(state()).toMatchObject({ status: "none", ended: { reason: "stopped" } });
 		});
 
