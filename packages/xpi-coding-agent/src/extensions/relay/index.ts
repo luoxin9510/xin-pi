@@ -3,8 +3,10 @@
 // this file wires it to the agent core: it implements `RelayHost` on the extension API, builds a `RelayCall` from each
 // handler's context, and forwards. No decision is taken here.
 
+import type { AgentMessage } from "xpi-agent-core";
 import {
 	createRelay,
+	isRelay,
 	RELAY_MODEL,
 	RELAY_PROVIDER,
 	RELAY_SECTION,
@@ -16,6 +18,7 @@ import {
 	type ToolSpec,
 } from "xpi-relay";
 import type { ExtensionAPI, ExtensionContext, SessionBoundaryDraft } from "../../core/extensions/types.ts";
+import { convertToLlm } from "../../core/messages.ts";
 import { SETTINGS_DEFAULTS } from "../../core/settings-defaults.ts";
 
 export { HANDOVER_ENTRY, RELAY_MODEL, RELAY_PROVIDER, readPhase } from "xpi-relay";
@@ -119,19 +122,24 @@ export default function relay(pi: ExtensionAPI) {
 	});
 
 	pi.on("context_with_system", async (event, ctx) => {
-		const head = event.messages[0];
-		if (!head || head.role !== "system") return undefined;
-		const section = relayHost.section(callOf(ctx));
-		if (!section) return undefined;
+		const call = callOf(ctx);
+		// The worker reads the lead's work as a quote, not as assistant messages it would take for its own. The quote is
+		// made from what the provider would get: session-only kinds (bash runs, custom messages, summaries) converted.
+		const quoted = isRelay(call.model) ? relayHost.quoteLead(convertToLlm(event.messages), call) : undefined;
+		const messages: AgentMessage[] = quoted ?? event.messages;
+		const head = messages[0];
+		if (!head || head.role !== "system") return quoted ? { messages } : undefined;
+		const section = relayHost.section(call, quoted !== undefined);
+		if (!section) return quoted ? { messages } : undefined;
 		const sections = { ...head.sections };
 		if (section.text === undefined) {
-			if (!(RELAY_SECTION in sections)) return undefined;
+			if (!(RELAY_SECTION in sections)) return quoted ? { messages } : undefined;
 			delete sections[RELAY_SECTION];
 		} else {
-			if (sections[RELAY_SECTION] === section.text) return undefined;
+			if (sections[RELAY_SECTION] === section.text) return quoted ? { messages } : undefined;
 			sections[RELAY_SECTION] = section.text;
 		}
-		return { messages: [{ ...head, sections }, ...event.messages.slice(1)] };
+		return { messages: [{ ...head, sections }, ...messages.slice(1)] };
 	});
 
 	pi.on("session_start", async (_event, ctx) => relayHost.onSessionStart(callOf(ctx)));

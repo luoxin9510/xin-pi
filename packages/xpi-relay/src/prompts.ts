@@ -3,6 +3,7 @@
 
 import type { RelayConfig } from "./config.ts";
 import { type ContextLimits, leadFacts } from "./facts.ts";
+import { LEAD_WORK_TAG } from "./quote.ts";
 import type { Handover } from "./record.ts";
 import { HANDBACK_TOOL, HANDOVER_TOOL, handoverResultStart } from "./router.ts";
 
@@ -62,15 +63,22 @@ function section(title: string, body: string | undefined): string[] {
 	return body?.trim() ? [`${title}:`, body.trim()] : [];
 }
 
-export function workerSection(handover: Handover | undefined, config: RelayConfig, isDirect: boolean): string {
+export function workerSection(
+	handover: Handover | undefined,
+	config: RelayConfig,
+	isDirect: boolean,
+	quoted = false,
+): string {
 	const lines = [
 		`<relay role="worker">`,
 		`You are the worker in relay mode. When done or stuck, call ${invoke(HANDBACK_TOOL, isDirect)}.`,
-		`The handover has already happened. The assistant messages before ${
-			handover?.byUser
-				? "the `<relay-handover-by-user>` line"
-				: `the handover (a tool result that contains \`${handoverResultStart(handover?.round)}\`, or its mention in a summary of this conversation)`
-		} were written by the lead, a different model, not by you: do not continue them, and do not wait for a worker, because you are the worker. Start on the plan now.`,
+		quoted
+			? `The handover has already happened. The conversation before it is quoted in the \`<${LEAD_WORK_TAG}>\` message: the lead, a different model, wrote it, not you. Do not continue it, and do not wait for a worker, because you are the worker. Start on the plan now.`
+			: `The handover has already happened. The assistant messages before ${
+					handover?.byUser
+						? "the `<relay-handover-by-user>` line"
+						: `the handover (a tool result that contains \`${handoverResultStart(handover?.round)}\`, or its mention in a summary of this conversation)`
+				} were written by the lead, a different model, not by you: do not continue them, and do not wait for a worker, because you are the worker. Start on the plan now.`,
 		...fieldLines(HANDBACK_FIELDS, []),
 	];
 	if (handover) {

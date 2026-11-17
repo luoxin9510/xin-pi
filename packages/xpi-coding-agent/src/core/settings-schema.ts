@@ -451,6 +451,12 @@ const RelaySettingsSchema = Type.Object(
 					"Keep the lead's cached prefix (tools and system prompt) warm with short refresh requests while the worker has the work, as long as that costs less than writing the prefix again. Default true.",
 			}),
 		),
+		quoteLead: Type.Optional(
+			Type.Boolean({
+				description:
+					"In the worker's requests, quote the conversation up to the handover in one user message, so the worker does not take the lead's replies for its own. The session is not changed. Default true.",
+			}),
+		),
 	},
 	{ additionalProperties: true, description: "Settings of the built-in relay extension (the relay/auto model)." },
 );

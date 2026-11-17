@@ -292,7 +292,9 @@ The options below come with the unit. Each says how to turn it off.
   per request, not when routing or resolving the physical model fails, and again on a retry);
   `pi.on("agent_before_settle")` returning `{ entries, continue: true }` with a compaction draft (the
   hand-back record); `context_with_system` (it sets the `relay` section of the leading system message, from the stored
-  router state; the host must run it after routing, as `prepareRequest` does); `model_select`, `session_start`,
+  router state, and in a worker phase replaces the conversation up to the handover with a quote, `Relay.quoteLead`, from
+  the messages as the provider would get them, `convertToLlm` applied; the host must run it after routing, as
+  `prepareRequest` does); `model_select`, `session_start`,
   `before_agent_start`, `tool_call` (`parentToolCallId` tells a direct call from a nested one); `pi.registerTool` at
   runtime with `exposure` and `listed`; `pi.setActiveTools` / `getActiveTools`; `pi.appendEntry`; `pi.sendMessage`;
   `ctx.ui.notify`; `ctx.modelRegistry.find`. It runs the acceptance commands through a shell and reads `git` for the

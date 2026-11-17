@@ -101,12 +101,12 @@ describe("relay", () => {
 		});
 		await harness.session.setModel(runtime.getModel(RELAY_PROVIDER, RELAY_MODEL)!);
 		/** What each request saw, and which model got it. */
-		const seen: { model: string; text: string }[] = [];
+		const seen: { model: string; text: string; roles: string[] }[] = [];
 		const system: string[] = [];
 		const reply =
 			(message: ReturnType<typeof fauxAssistantMessage>): FauxResponseStep =>
 			(context, _options, _state, model) => {
-				seen.push({ model: model.id, text: textOf(context) });
+				seen.push({ model: model.id, text: textOf(context), roles: context.messages.map((m) => m.role) });
 				system.push(
 					context.messages
 						.flatMap((m) =>
@@ -203,13 +203,16 @@ describe("relay", () => {
 		}
 		expect(system[2]).not.toContain("tools.handover");
 		expect(system[2]).not.toContain("Relay prices:");
-		// The worker's section names the handover by its result sentence, not by a marker line.
-		expect(system[2]).toContain(
-			"The assistant messages before the handover (a tool result that contains `Handed over to the worker model (round 1)`, or its mention in a summary of this conversation) were written by the lead",
-		);
+		// The worker's section names the quote of the lead's work (relay.quoteLead, on by default), not a marker line.
+		expect(system[2]).toContain("The conversation before it is quoted in the `<relay-lead-work>` message");
 		expect(system[2]).not.toContain("<relay-handover round");
-		// The worker reads the whole conversation, which holds that result sentence and no marker; nothing tells it its role.
-		expect(seen[2].text).toContain("LEAD-EARLIER-REPLY");
+		// The worker reads the whole conversation up to the handover as one quote in a user message: no assistant message
+		// of the lead is left for it to take for its own. Its own messages after the handover stay as they are.
+		expect(seen[2].roles).toEqual(["system", "user"]);
+		expect(seen[3].roles).toEqual(["system", "user", "assistant", "toolResult"]);
+		expect(seen[2].text).toContain('<relay-lead-work round="1">');
+		expect(seen[2].text).toContain("Lead:\nI looked around. LEAD-EARLIER-REPLY");
+		expect(seen[2].text).toContain("User:\nUSER-SECOND-MESSAGE please build it");
 		expect(seen[2].text).toContain("Handed over to the worker model (round 1)");
 		expect(seen[2].text).not.toContain("<relay-handover round");
 		expect(seen[2].text).not.toContain("You are the worker");
@@ -244,6 +247,27 @@ describe("relay", () => {
 		await harness.session.prompt("thanks");
 		expect(seen.at(-1)?.model).toBe("large");
 		expect(seen.at(-1)?.text).not.toContain("WORKER-NOISE");
+	});
+
+	it("with relay.quoteLead off, the worker gets the lead's replies as they are and the section that names them", async () => {
+		const { harness, seen, system, script, say } = await createRelayHarness({
+			codemode: true,
+			relay: { quoteLead: false },
+		});
+		harness.setResponses([
+			say("LEAD-EARLIER-REPLY"),
+			script(HAND_OVER),
+			script(`await tools.handback({ status: "done", report: "r" });`),
+			say("ok"),
+		]);
+		await harness.session.prompt("first");
+		await harness.session.prompt("build it");
+		expect(seen[2].model).toBe("small");
+		expect(seen[2].roles).toContain("assistant");
+		expect(seen[2].text).not.toContain("relay-lead-work");
+		expect(system[2]).toContain(
+			"The assistant messages before the handover (a tool result that contains `Handed over to the worker model (round 1)`, or its mention in a summary of this conversation) were written by the lead",
+		);
 	});
 
 	it("sends the lead the same tools and system prompt after a hand back as before the handover", async () => {
@@ -456,7 +480,7 @@ describe("relay", () => {
 		expect(seen.map((request) => request.model)).toEqual(["large", "small", "small", "small", "large"]);
 		// The first worker request already says the handover happened and who wrote the earlier messages.
 		expect(system[1]).toContain("The handover has already happened");
-		expect(system[1]).toContain("written by the lead");
+		expect(system[1]).toContain("the lead, a different model, wrote it, not you");
 		// The text-only stop was continued with a reminder, and the acceptance commands did not run for it.
 		expect(seen[2].text).toContain("You answered without doing any work");
 		expect(entries("relay.stall")).toMatchObject([{ role: "worker", reason: "idle" }]);
@@ -676,7 +700,7 @@ describe("relay", () => {
 			(context, _options, _state, model): ReturnType<typeof fauxAssistantMessage> => {
 				// A user message arrives while the worker answers; it is queued behind this response.
 				void harness.session.steer("USER-FOLLOWUP");
-				seen.push({ model: model.id, text: textOf(context) });
+				seen.push({ model: model.id, text: textOf(context), roles: context.messages.map((m) => m.role) });
 				return fauxAssistantMessage("worker waits");
 			},
 			say("worker answers the follow-up"),

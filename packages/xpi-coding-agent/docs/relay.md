@@ -75,14 +75,39 @@ cached prefix stays stable. When another model is selected the section is remove
   tools.handover({...}) from codemode.`), `handover`'s fields, and the decision facts below. It names no way to call
   `handback`.
 - **The worker's section**: one line (`You are the worker in relay mode. When done or stuck, call tools.handback({...})
-  from codemode.`), a statement that the handover has already happened, that the assistant messages before the handover
-  (a tool result that contains `Handed over to the worker model (round N)`, or its mention in a summary of this
-  conversation; after a `/handover` by the user, the `<relay-handover-by-user>` line) were written by the lead (a
-  different model) and not by the worker, that it must
-  not continue them or wait for a worker, and that it starts on the plan now, `handback`'s fields, the handover as the lead wrote it (plan, criteria, findings, when to stop, the
-  acceptance commands), and its duties. The plan is here, not only in the lead's script, so a compaction cannot
-  summarize it away. It names no way to call `handover`, and no message is inserted into the conversation at a handover
-  to tell the worker its role.
+  from codemode.`), a statement that the handover has already happened, that the conversation before it is quoted in
+  the `<relay-lead-work>` message and was written by the lead (a different model), not by the worker, that it must not
+  continue it or wait for a worker, and that it starts on the plan now, `handback`'s fields, the handover as the lead
+  wrote it (plan, criteria, findings, when to stop, the acceptance commands), and its duties. The plan is here, not
+  only in the lead's script, so a compaction cannot summarize it away. It names no way to call `handover`, and no
+  message is inserted into the session at a handover to tell the worker its role. When there is no quote (see below),
+  the statement instead says that the assistant messages before the handover (a tool result that contains `Handed over
+  to the worker model (round N)`, or its mention in a summary of this conversation; after a `/handover` by the user,
+  the `<relay-handover-by-user>` line) were written by the lead.
+
+### The lead's work as a quote
+
+A model reads the assistant messages of its context as its own words. Before the handover those are the lead's, so a
+worker could take itself for the lead and answer "I have handed the work over". Measured on 2026-11-17 with Haiku as
+both lead and worker, 30 runs of the small delegation tasks each way: without the quote the worker mixed up its role in
+10 runs (9 text-only stops, 1 wrong-role call; the repairs recovered all of them), with the quote in none, and the
+runs were 10 percent cheaper and 16 percent shorter. With `relay.quoteLead` (default `true`), every worker request is
+rewritten before it is sent, in `context_with_system`:
+
+- Everything up to the handover (the successful `handover` or `codemode` result of the round, with the other tool
+  results of that response, or the round's `/handover` message) becomes one user message: `<relay-lead-work round="N">`, a sentence that every part marked
+  `Lead` was written by the lead, then the conversation in order (`User:` text, `Lead:` text, `Lead called <tool>:
+  <arguments as JSON>`, `Result of <tool>:` text and images, earlier rounds' hand-back records), and
+  `</relay-lead-work>`. The lead's thinking is left out; tool calls and results are kept whole.
+- The system messages up to the handover are folded into the leading one, so the prompt and the tools are those of the
+  handover. The worker's own messages after the handover are sent as they are.
+- The session is not changed: the lead's messages stay in the session file and in `/tree`, and the lead's own requests
+  are not rewritten.
+
+The quote is the same text for every request of the round, so the worker's cached prefix holds (the lead and the
+worker never share one: they are different models). There is no quote when the context holds no handover (a compaction
+summarized it) or nothing of the lead before it (a `/handover` as the first message); the request is then sent as it
+is. The repairs in [Repairs and what you see](#repairs-and-what-you-see) stay as a second line of defence.
 
 ## What the lead is told
 
@@ -532,6 +557,7 @@ rounds, not the size of the diff, so the default stays 20000.
     "workerContext": { "limit": "tier", "tierFraction": 0.95, "maxCompactions": 4, "whenStuck": "lift" },
     "leadContext": { "limit": "30%" },
     "warmLead": true,
+    "quoteLead": true,
     "objective": "the user wants a correct result for as few of your (lead) tokens as possible. Worker tokens are not counted."
   }
 }
@@ -557,6 +583,7 @@ rounds, not the size of the diff, so the default stays 20000.
 | `leadContext.limit` | `"30%"` | The same four forms, for the lead's own context. The default is 300,000 tokens for Opus 5.5; the lead peaks at about 2.4 percent of its window in the measured tasks, so it is a backstop. Where 30 percent of the window is under 100,000 tokens the lead has no default limit. |
 | `leadContext.tierFraction`, `leadContext.maxCompactions` | `0.95`, `4` | As for the worker. A stuck lead always has its limit lifted, until the next handover or your next message. |
 | `warmLead` | `true` | Keep the lead's cached prefix warm with short refresh requests during a worker phase, while that costs less than writing it again. Must be `true` or `false`. |
+| `quoteLead` | `true` | In the worker's requests, quote the conversation up to the handover in one user message (see [The lead's work as a quote](#the-leads-work-as-a-quote)). `false`: the worker gets the lead's replies as assistant messages, as before. Must be `true` or `false`. |
 
 The values are read at each request, so a change applies to the next one. A wrong value ends the request with an
 error that names the key; a context limit below `compaction.keepRecentTokens` plus 20,000 is one too. The thinking level selected for `relay/auto` itself is not used.

@@ -59,3 +59,21 @@ line and an entry, and `/relay` and the record show them.
 
 "Relay happens in one session, so the lead's and the worker's work both leave a trace." The spec states it as a
 constraint: nothing leaves the session, and the compaction changes only what the lead reads.
+
+## Grill 4 (2026-11-16): the lead's work as a quote. Accepted by the owner on 2026-11-16 ("按照你的推荐就可以了")
+
+Root cause: after a handover the worker's request still holds the lead's replies as `assistant` messages, which a model
+reads as its own words. The prompt sentence and the idle-stall repair (Grill 3 notes) only make up for it.
+
+14. Every worker request is rewritten in `context_with_system`: all messages up to the handover (the lead's text, its
+    tool calls and their results, user messages, earlier records) become one user message, a quote marked
+    `<relay-lead-work>` with the lead's parts named. The worker's own messages after the handover are sent as they are.
+    The session is not changed. No core change: the hook already exists, and relay uses it for its section.
+15. The lead's thinking is left out of the quote; the plan is in the handover itself.
+16. Tool results are quoted whole: the worker sees them today, and size is the context limit's job.
+17. The prompt sentence and the repairs (wrong-role correction, idle stall) stay as a second line of defence; the
+    worker's sentence names the quote when there is one.
+18. A setting `relay.quoteLead`, default `true`; `false` restores the earlier request.
+19. Verification: offline, the worker's request holds no assistant message before the handover. Real (needs a login):
+    Haiku as the lead, 30 small tasks; pass = no role mix-up, every task passes, cost not above today's. Budget about
+    $0.5. The PR is not merged before this run.
