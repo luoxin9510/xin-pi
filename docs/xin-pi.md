@@ -85,7 +85,9 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
     move is entered at `agent_before_settle`, so a node never changes in the middle of a turn. A command node is
     run by the extension with the runner of `checks` (`extensions/checks/runner.ts`); an `approve` edge asks the
     user with `ui.select`; the limits of a node (`limits.ts`: `deny` on command text, `readOnly` with the matcher
-    of `protect`) are applied at `tool_call` and reach subagent children through `XPI_GRAPH_LIMITS`. User docs:
+    of `protect`) are applied at `tool_call` and reach subagent children through `XPI_GRAPH_LIMITS`. The
+    repository's own flows are two graphs, `.pi/graphs/dev.js` (grill, spec, build, CI, review, merge) and
+    `.pi/graphs/release.js` (the release up to the tag); `test/repo-graphs.test.ts` loads them. User docs:
     [graph.md](../packages/xpi-coding-agent/docs/graph.md).
   - `relay` (`src/extensions/relay/index.ts`, off with `-builtin:relay`): the virtual model `relay/auto` (a lead model
     plans and reviews, a worker model builds), the `handover` and `handback` tools, `/handover`, `/handback`, `/relay`.

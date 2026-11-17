@@ -231,6 +231,46 @@ to get around it.
 
 Real isolation (a token that exists only in the merge node, a sandbox) is not part of this.
 
+## Two graphs to read
+
+The xin-pi repository keeps two graphs for its own work, in
+[`.pi/graphs/`](https://github.com/luoxin9510/xin-pi/tree/main/.pi/graphs). xpi ships no graph; these are examples.
+
+- [`dev.js`](https://github.com/luoxin9510/xin-pi/blob/main/.pi/graphs/dev.js): grill the request, write the spec,
+  build, wait for CI, have it reviewed, merge. The spec node is entered only after you approved the grill and the
+  build node only after you approved the spec; a command node puts the build on a branch that is not main; the
+  merge is a command node behind a CI pass that came after the last visit of build. The review node's prompt
+  tells the model to start a fresh subagent for the review, because a node in the same session has seen how the
+  code was written. Its header says what the shape guarantees and what the lists only make unlikely: a model on
+  main with a plain `git push` is stopped by the branch node and by branch protection on GitHub, not by `deny`.
+- [`release.js`](https://github.com/luoxin9510/xin-pi/blob/main/.pi/graphs/release.js): the release flow up to
+  the tag. The version bump, the merge and the tag are command nodes; you approve patch or minor, and the merge;
+  the tag waits for CI of the merge commit itself.
+  It shows a limit of the format: a graph has no variables, so "patch or minor" is two command nodes and the
+  model picks one.
+
+Both wait for the checks of a pull request with a small shell loop before `gh pr checks --watch`: a push registers
+its checks a little later, and a check that is not there yet would count as a failure.
+
+A graph of your own is short. This one runs a check until it passes, and goes back to the fix at most three
+times:
+
+```js
+export default {
+  name: "green",
+  start: "fix",
+  nodes: {
+    fix:   { prompt: "Make the tests pass. Do not change the tests.", readOnly: ["test/**"] },
+    check: { run: "npm test" },
+  },
+  edges: [
+    { from: "fix",   to: "check", exit: "model" },
+    { from: "check", to: "fix",   exit: "fail", max: 3 },
+    { from: "check", to: "end",   exit: "pass" },
+  ],
+};
+```
+
 ## The entries
 
 Custom entries in the session file, none of them sent to the model:
@@ -260,6 +300,7 @@ tool and changes no request.
   `index.ts` registers `graph/auto`, the `next` tool and `/graph`, enters a move at `agent_before_settle` or, for a
   move whose turn did not enter it, at `before_agent_start`, and runs command nodes with the runner of
   [checks](checks.md) (its own process group, killed on timeout or abort).
-- Tests: `packages/xpi-graph/test/`, `test/graph-files.test.ts`, `test/suite/graph.test.ts` and
-  `test/suite/graph-controls.test.ts` (faux provider, a fake command runner).
+- Tests: `packages/xpi-graph/test/`, `test/graph-files.test.ts`, `test/graph-limits.test.ts`,
+  `test/repo-graphs.test.ts` (the two graphs above load, and are refused with a control taken out),
+  `test/suite/graph.test.ts` and `test/suite/graph-controls.test.ts` (faux provider, a fake command runner).
 - Spec and decisions: `.scratch/xpi-graph/`.

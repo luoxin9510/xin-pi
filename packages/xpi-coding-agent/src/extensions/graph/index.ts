@@ -254,6 +254,12 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 		async function proceed(ctx: ExtensionContext, sink: Sink, mayWait: boolean): Promise<Outcome> {
 			const branch: readonly GraphEntry[] = ctx.sessionManager.getBranch();
 			const local: GraphEntry[] = [...branch];
+			/** Which graph this is: the entry that started it. A graph started after a stop is another one. */
+			const startOf = () =>
+				ctx.sessionManager
+					.getBranch()
+					.findLast((entry) => entry.type === "custom" && entry.customType === GRAPH_START)?.id;
+			const mine = startOf();
 			const write = (customType: string, data: unknown) => {
 				local.push({ type: "custom", customType, data });
 				sink.entry(customType, data);
@@ -288,11 +294,12 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 				try {
 					result = await run(node.run, { cwd: ctx.cwd, timeoutMs: node.timeoutMs, signal: abort.signal });
 				} finally {
-					commandRun = undefined;
+					// Only its own handle: a graph started meanwhile may be running a command of its own.
+					if (commandRun?.abort === abort) commandRun = undefined;
 				}
-				// The command took time. If the graph was ended meanwhile, on the branch itself, nothing more is written or
-				// run: the local copy cannot see that end.
-				if (stateOf(ctx).status !== "running") return { kind: "gone" };
+				// The command took time. If the graph was ended meanwhile, on the branch itself (and maybe another started),
+				// nothing more is written or run: the local copy cannot see that.
+				if (stateOf(ctx).status !== "running" || startOf() !== mine) return { kind: "gone" };
 				if (result.aborted) {
 					const reason = `"${state.node}" was stopped while its command ran`;
 					write(GRAPH_HALT, { reason });
