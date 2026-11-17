@@ -1,8 +1,8 @@
 # Spec 01: xpi-graph, flow control by a graph
 
-Status: waiting for the owner's approval. Grills 1 and 2 are in `decisions.md` (all 20 as recommended); the owner has
-not read this spec yet. No code before the approval. Review rounds 1 to 4 (independent Opus) are worked in; see
-`decisions.md`.
+Status: approved by the owner on 2026-11-17 (PR #136), after Grills 1 and 2 (all 20 as recommended) and four review
+rounds by an independent Opus; see `decisions.md`. The refusal to start with a virtual model selected was put to
+the owner and accepted with the approval.
 
 The product text, with diagrams, is `prd.html` in this directory (Chinese).
 
@@ -90,8 +90,10 @@ with `tsc`, vitest). It answers three questions and changes nothing:
 - `parseGraph(value: unknown): Graph` validates the parsed literal (the trust boundary: every field is checked) and
   throws one error that lists every problem found, each with its place (`edges[3].to: no node "revieww"`).
 - `checkGraph(graph)`: the structural rules of 3, same error form.
-- `readState(entries, graph?)`: the state of the session branch, folded from entries (4).
-- `exits(graph, state)`: the edges the current node may take now, with their counts and limits.
+- `readState(entries)`: the state of the session branch, folded from entries (4). The graph is read from the
+  `graph.start` entry and goes through `parseGraph` and `checkGraph` again: a session file is a trust boundary too.
+- `exits(state)`: the edges the current node may take now, with their counts and limits (the state holds the
+  graph).
 
 It does not reuse `xpi-relay/src/graph/graph.ts` (decision 2): that file is internal to relay and is a table of
 (state, event) rows, not nodes and edges. Relay is not touched.
@@ -127,7 +129,7 @@ Custom entries, written by the extension, never shown to the model:
 
 | Entry | Data | When |
 |---|---|---|
-| `graph.start` | the whole graph, the file path, the model and thinking level selected before | `/graph start` |
+| `graph.start` | the whole graph as its file's literal, the file path, the model and thinking level selected before | `/graph start` |
 | `graph.node` | `node`, `via` (`start`, `model`, `approve`, `pass`, `fail`, `goto`), `edge` (index), `report` | each entry into a node |
 | `graph.halt` | `reason` | the graph stops and waits for the user (5) |
 | `graph.move` | `edge`, `via` (`model`, `approve`, `pass`, `fail`), `report` | a move that is accepted and not entered yet: from `next`, or the result of a command run outside a turn (5) |

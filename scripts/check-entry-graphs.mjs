@@ -27,6 +27,7 @@ const WORKSPACE = {
 	"xpi-roost": "packages/xpi-roost/src",
 	"xpi-shadow-git": "packages/xpi-shadow-git/src",
 	"xpi-relay": "packages/xpi-relay/src",
+	"xpi-graph": "packages/xpi-graph/src",
 	"xpi-schema": "packages/xpi-schema/src",
 	"xpi-tui": "packages/xpi-tui/src",
 };

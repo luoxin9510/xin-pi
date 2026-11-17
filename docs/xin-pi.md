@@ -11,7 +11,7 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
   stays the shared `~/.pi/agent` (and `.pi/` in projects); override the agent dir with `XPI_CODING_AGENT_DIR` and the
   session dir with `XPI_CODING_AGENT_SESSION_DIR`.
 - Packages are unscoped `xpi-*`, directory name equal to package name: `xpi-ai`, `xpi-agent-core`, `xpi-tui`,
-  `xpi-coding-agent`, `xpi-codemode`, `xpi-mcp`, `xpi-schema`, `xpi-telemetry`, `xpi-evals`, `xpi-roost`, `xpi-shadow-git`, `xpi-relay`. All share one
+  `xpi-coding-agent`, `xpi-codemode`, `xpi-mcp`, `xpi-schema`, `xpi-telemetry`, `xpi-evals`, `xpi-roost`, `xpi-shadow-git`, `xpi-relay`, `xpi-graph`. All share one
   version. Only `xpi-coding-agent` (the CLI, a self-contained bundle) is published to npm; see [Releasing](#releasing).
 - `xpi-roost` (private) is pi-roost's daemon, PTY host and library, ported for background sessions (specs:
   `.scratch/xpi-roost/01-roost-core.md`, and `02-schedules.md` for schedules and the login service). It imports nothing
@@ -43,6 +43,11 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
   (`allowedInstallScriptPackages` in `scripts/generate-coding-agent-install-lock.mjs`, with the reason: no Linux
   prebuild), and the generator marks packages reached only through `optionalDependencies` (node-pty, node-addon-api)
   `optional: true`.
+- `xpi-graph` (private) is flow control by a graph: a flow's hard rules as nodes and edges, so that a model can
+  leave a node only by a declared edge (spec: `.scratch/xpi-graph/01-graph.md`; `packages/xpi-graph/README.md`).
+  The package holds the pure part: the file format (`parseGraph`), the checks at load (`checkGraph`) and the
+  state folded from the session branch (`readState`, `exits`). It imports nothing of the workspace. Nothing uses
+  it yet: the built-in `builtin:graph` that runs a graph is the next milestone of the spec.
 - `xpi-relay` (private, built into `xpi-coding-agent`) holds relay's control flow, records and prompts behind a host
   interface (spec: `.scratch/xpi-relay/01-package.md`; user docs: [relay.md](../packages/xpi-coding-agent/docs/relay.md);
   `packages/xpi-relay/README.md`). It builds after `xpi-ai` and `xpi-agent-core`, whose types it reads. The state
