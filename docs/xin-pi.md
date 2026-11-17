@@ -82,9 +82,11 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
     `next` tool (deferred and unlisted, called from codemode). A graph file in `.pi/graphs/` is read as a literal
     (`src/utils/literal.ts`, the parser saved workflows read their `meta` with) and never run. The state is the
     session branch: the handlers read it with the `xpi-graph` package at each use and keep nothing in memory. A
-    move is entered at `agent_before_settle`, so a node never changes in the middle of a turn. Milestone 2 of
-    the spec: command nodes, approvals and the limits of a node are not built yet, and a graph that uses one is
-    refused. User docs: [graph.md](../packages/xpi-coding-agent/docs/graph.md).
+    move is entered at `agent_before_settle`, so a node never changes in the middle of a turn. A command node is
+    run by the extension with the runner of `checks` (`extensions/checks/runner.ts`); an `approve` edge asks the
+    user with `ui.select`; the limits of a node (`limits.ts`: `deny` on command text, `readOnly` with the matcher
+    of `protect`) are applied at `tool_call` and reach subagent children through `XPI_GRAPH_LIMITS`. User docs:
+    [graph.md](../packages/xpi-coding-agent/docs/graph.md).
   - `relay` (`src/extensions/relay/index.ts`, off with `-builtin:relay`): the virtual model `relay/auto` (a lead model
     plans and reviews, a worker model builds), the `handover` and `handback` tools, `/handover`, `/handback`, `/relay`.
     Settings namespace `relay.*`. The logic is the private package `xpi-relay` (`packages/xpi-relay`; it imports nothing

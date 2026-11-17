@@ -79,6 +79,7 @@ These variables are read by Pi itself:
 | Variable | Description |
 |----------|-------------|
 | `XPI_CODING_AGENT_DIR` | Override the config directory; default is `~/.pi/agent` |
+| `XPI_GRAPH_LIMITS` | Set by xpi, not by you: while a [graph](graph.md) runs, the limits of its current node as JSON (`graph`, `node`, `deny`, `readOnly`, `protected`). A subagent child reads it and applies the limits to its own tool calls |
 | `XPI_CODING_AGENT_SESSION_DIR` | Override session storage; overridden by `--session-dir` |
 | `XPI_PACKAGE_DIR` | Override the package directory, useful for Nix/Guix store paths |
 | `XPI_OFFLINE` | Disable automatic network activity, including model catalog refreshes |

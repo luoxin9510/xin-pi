@@ -92,6 +92,7 @@ Linux with the npm installation of xpi.
 | `/relay` | [Relay](relay.md): show who has the work, the round and the two models |
 | `/graph` | [Graph](graph.md): the graph files found, or the state of the running graph |
 | `/graph start <name>` | [Graph](graph.md): check a graph and enter its first node |
+| `/graph goto <node>` | [Graph](graph.md): your own jump to any node of the running graph; a command node runs its command |
 | `/graph stop` | [Graph](graph.md): end the running graph and give back the selected model |
 
 ## Commit

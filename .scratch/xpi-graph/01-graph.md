@@ -193,7 +193,11 @@ three pure functions.
   - `to` is not an edge out of the current node: an error that lists the targets and their labels.
   - The edge is at its `max`: halt.
   - An `approve` edge: with a UI, `select` with Approve, Send back, Stop the graph. Send back ends the turn; the
-    user's next message is the comment and the model stays in the node. Without a UI: halt (decision 4).
+    user's next message is the comment and the model stays in the node. Closing the question counts as Send back.
+    Without a UI: halt (decision 4). The state is read again after the answer: a graph that moved on while the
+    user was asked refuses the move.
+  - The graph is on a command node (its command running, or halted there): refused. Only the user moves it.
+  - A direct call, not from a codemode script: refused, with how to call it.
   - The graph is halted: refused (see Halt).
   - A move is already pending (a `graph.move` with no `graph.node` after it): refused. One move per visit.
   - The call does not come from a script of the latest assistant message on the branch (a nested call's id
@@ -215,21 +219,26 @@ three pure functions.
   until a model node, `end`, or a halt. A result with no edge, or an edge at its `max`, halts. The model is not
   asked and cannot report a result of its own. `exec` takes the timeout and the abort signal.
 - **Outside a turn.** `/graph start` and `/graph goto` run in a command handler, with no turn. They enter the
-  node there. A command handler has no abort signal (`ctx.signal` is undefined when no turn runs), so the
-  extension makes its own `AbortController` for the run, does not block the handler on it, shows
-  `graph dev: ci (running)` in the status, and `/graph stop` aborts it.
+  node there. A command handler has no abort signal, and neither has the end of a turn (`ctx.signal` is the
+  run's, and the run is over by then), so every command runs under the extension's own `AbortController`,
+  whoever started it. The status shows `graph dev: ci (running)`; `/graph stop` and a change of model abort it.
+  Escape does not reach a command that runs between two turns. After a command the extension reads the branch
+  again: a graph that was ended meanwhile writes and runs nothing more. The handler waits for the run (changed while building
+  milestone 3: the spec first said it does not; waiting keeps one place that goes on from a result, and the
+  rules below hold either way).
   - While such a command runs the session is usable, and the graph is on a command node without being halted.
     The same rules as for a halt on a command node hold: the router uses the model selected before the graph,
     the limits are the union of every node's `deny`, and `next` is refused.
 
     Example: `/graph goto ci` waits on `gh pr checks --watch` for 30 minutes. The user says "finish the rest
     meanwhile". The pre-graph model answers, and `gh pr merge` is denied.
-  - The command's result takes its edge like any move: it is written as `graph.move` with `via` `pass` or `fail`
-    and entered at the next boundary for that `via` (4). With no turn running, that is at once, and a model node is entered with `graph.enter` and
+  - The command's result takes its edge like any move: it is written as `graph.move` with `via` `pass` or `fail`.
+    With no turn running the move is entered at once; with a turn running it is left pending and entered when
+    that turn ends. With no turn running, that is at once, and a model node is entered with `graph.enter` and
     `triggerTurn`. With a turn running, it is that turn's `agent_before_settle`: a node never changes in the
     middle of a turn.
-- **A turn that ends without `next`** (decision 5): if the node has an `approve` edge, nothing (the node talks with
-  the user). Otherwise one `graph.reminder` and one more request; the second time in the same visit, halt. Only a
+- **A turn that ends without `next`** (decision 5): if the node has an `approve` edge, or the graph is halted,
+  nothing (the node talks with the user). Otherwise one `graph.reminder` and one more request; the second time in the same visit, halt. Only a
   turn whose outcome is `completed` counts: an aborted turn (Escape) and a provider error are left alone.
 - **Halt.** `graph.halt` and a notice with the reason and what to do. The graph stays on its node, the session
   stays usable, and `next` is refused until the halt is left.
@@ -237,7 +246,8 @@ three pure functions.
     limits hold. The user's next message leaves the halt and the work goes on in the node, with the idle count
     of the visit starting again (a reminder comes before the next halt); `/graph goto` and `/graph stop` leave it
     too.
-  - Halted on a command node (a result with no edge, or its edge at `max`): there is no node model and no node
+  - Halted on a command node (a result with no edge, its edge at `max`, or the command stopped while it ran):
+    there is no node model and no node
     limit, so the router uses the model selected before the graph started, and the limits are the union of
     every node's `deny` plus the always-protected paths (6). The user can talk to the model and have it fix
     things, but the model cannot move the graph: only `/graph goto` (to the same node to run the command again,
@@ -252,7 +262,8 @@ three pure functions.
 
 ### 6. Limits of a node (decisions 7, 15, 18)
 
-A `tool_call` handler, active while a graph runs. On a model node it applies that node's limits; on a command node
+A `tool_call` handler (`limits.ts`), active while a graph runs. While a command runs at a turn's end the branch
+still shows the node before (the new entries are drafts), so the handler reads the state from the running command. On a model node it applies that node's limits; on a command node
 (halted there, or its command running outside a turn), the union described in 5. Calls made by a codemode script emit the event too.
 
 - `deny`: a `bash` or `powershell` call whose command text contains one of the strings is blocked. No shell

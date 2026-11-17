@@ -26,7 +26,7 @@ return [a.output, b.output].join("\n---\n");
   script, waiting for agents), [Structured output](#structured-output), [Names and SendMessage](#names-and-sendmessage), [Agent teams](#agent-teams) (experimental), [Fork](#fork)
 - Per-agent options: [Worktree isolation](#worktree-isolation), [Agent memory](#agent-memory), [MCP](#mcp),
   [Permission mode plan](#permission-mode-plan), [Extensions as hooks](#extensions-as-hooks),
-  [Codemode-only children](#codemode-only-children), [Checks in subagents](#checks-in-subagents), [Protect in subagents](#protect-in-subagents)
+  [Codemode-only children](#codemode-only-children), [Checks in subagents](#checks-in-subagents), [Protect in subagents](#protect-in-subagents), [Graph limits in subagents](#graph-limits-in-subagents)
 - Scripts: [Workflows](#workflows) (saved workflows, runs and relaunch, pause and resume)
 - Interactive xpi: [Watching and talking to subagents](#watching-and-talking-to-subagents) (the panel, the subagent screen,
   the script screen)
@@ -1105,6 +1105,14 @@ The [protect](protect.md) extension loads in subagents, workflow agents and roos
 and the same rules, and no exception. A blocked call tells the child's model the reason; do not count on seeing the
 warning notification of a child. `/protect off` in the parent does not reach a child: each session has its own switch, and a child
 starts with protection on.
+
+## Graph limits in subagents
+
+A subagent started while a [graph](graph.md) runs works inside the graph's current node. It gets that node's limits
+(`deny`, `readOnly`, and the graph files and session file as read-only) through `XPI_GRAPH_LIMITS`, as they are when
+it starts, and keeps them for its whole run: a subagent still running after the graph moved on has the old node's
+limits. A subagent in its own worktree matches `readOnly` patterns against its own directory. A subagent has no
+`/graph` and no `next`: it cannot move the graph.
 
 ## Config
 

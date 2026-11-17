@@ -26,7 +26,8 @@ to npm), environment variables are `XPI_*`, and these built-in extensions are ad
   one session, and every phase change and repair is an entry and a line on screen.
 - [graph](packages/xpi-coding-agent/docs/graph.md): a flow as nodes and edges in a file, run with `/graph start`. The
   model can leave a node only by a declared edge, so a step cannot be skipped, and each node can have its own model.
-  Not complete yet: command nodes, approvals and per-node limits are next.
+  A check or a merge is a command node that xpi runs itself, an edge can ask for your approval, and a node can carry
+  the commands it may not run and the paths it may not write.
 - `upstream`: `/upstream` reports what upstream pi has that is worth porting.
 - `commit`: `/commit` drafts a commit message for the staged changes with a small model (setting `commit.model`,
   default `haiku`), opens it in an editor, and commits; hooks run and nothing is pushed or amended.

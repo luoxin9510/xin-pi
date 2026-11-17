@@ -147,6 +147,45 @@ is selected (review round 2).
 - `next` from a background script is refused when no turn runs. A background script that calls it while a
   later turn of the same node runs is accepted: it is a call in a turn of the node.
 
+## Found while building milestone 3 (author, 2026-11-18)
+
+- One function goes on from where the branch is (`proceed` in `index.ts`): it enters a pending move, runs
+  command nodes one after the other, and stops at a model node, the end or a halt. A turn's end, the start of
+  a run, `/graph start` and `/graph goto` all call it; only where the entries go differs (drafts of the
+  boundary, or the session). It folds the entries it writes itself, because drafts are not on the branch yet.
+- A turn that was cut off or failed is left alone at its end: its move stays pending and is entered before the
+  next run. Milestone 2 entered it at the turn's end without a request; with command nodes that would run a
+  command under a signal that is already aborted.
+- `/graph start` and `/graph goto` wait for the commands they run. A result that arrives while a turn runs is
+  left as a pending move for that turn's end.
+- A command node is run by the runner of `checks` (`extensions/checks/runner.ts`: its own process group, a
+  timeout, an abort), not by `pi.exec`. Tests pass a fake runner.
+- The limits are their own file (`limits.ts`). On a command node the `deny` lists of all model nodes hold and
+  no `readOnly` (there is no node whose paths these would be).
+- Closing the approval question is Send back, not an approval.
+- A stopped command (`aborted`) halts on its node. `/graph stop` and a change of model abort a command that
+  runs outside a turn; Escape aborts one that runs at a turn's end.
+- The two nits of milestone 2's review are fixed here: a direct call of `next` is refused with how to call
+  it, and `docs/graph.md` says which model answers when `graph/auto` is selected by hand.
+
+## Review of milestone 3 (independent Opus, PR #140, commit 4fc15b23d, 2026-11-18)
+
+One blocking finding, five should-fix, three nits. What changed:
+
+- Blocking: a command that ran at a turn's end had no abort signal (the run's signal is gone by then), so
+  `/graph stop` ended the graph on the branch while the command went on, and the next command node ran after
+  the stop. Every command now runs under the extension's own abort handle, and after a command the branch is
+  read again: a graph that was ended meanwhile does nothing more.
+- While a command runs at a turn's end, the limits are those of the command node (every node's `deny`), read
+  from the running command, not from the branch, which still shows the node before.
+- `next` must come from a message of the current visit: the latest assistant message has to come after the
+  entry that entered the node.
+- The protected paths are compared without case where the file system ignores it (macOS, Windows).
+- `docs/graph.md` says what `deny` does not see (tools other than `bash` and `powershell`, an MCP tool for
+  example) and that a path with a scheme is not checked.
+- The approval re-check compares the visit, not only the node.
+- Not changed: `reminded` is reset only by a halt that is left or by entering a node, as the spec says.
+
 ## Review of milestone 2 (independent Opus, PR #139, commit 6d089c132, 2026-11-17)
 
 One blocking finding, two should-fix, three nits. What changed:
