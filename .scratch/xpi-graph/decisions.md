@@ -95,9 +95,27 @@ now says, and was not asked in the grills:
 - One move per visit: `next` writes `graph.move`; a second `next`, or one from a background script, is refused;
   the move is entered at the next request boundary.
 - `graph.enter` is sent again after a compaction.
-- `graph/auto` is registered at load (a resumed session needs it); selected by hand with no graph, the selection
-  is put back. Only a `set` or `cycle` selection ends a running graph, not a `restore`.
+- `graph/auto` is registered at load (a resumed session needs it). Only a `set` or `cycle` selection ends a
+  running graph, not a `restore`.
 - `/graph start` and `/graph goto` enter the node at once and start the turn.
 - `readOnly` does not see shell writes. The entry message tells the model the patterns hold for the shell too,
   and the docs say the engine does not enforce it there.
 - `notAfter` cannot contain `before`. The two `requires` checks were reviewed and no counter-example was found.
+
+## Review round 2 (same reviewer, commit 3c5bd06a6, 2026-11-17)
+
+The blocking finding of round 1 is closed (the reviewer agrees). Three should-fix and two nits on the increment;
+all taken:
+
+- A pending move is part of the state and is entered at the next boundary of any kind, so a quit, a crash, a
+  branch change or an aborted turn cannot leave a node stuck. An aborted turn does not get a request of its own.
+- `/graph start` refuses when the selected model is a virtual model (for the owner: with `relay/auto` selected,
+  select a physical model first). This narrows decision 9, which only excluded `relay/auto` as a node's model;
+  the reason is that a router must return a physical model and a halt on a command node uses the stored
+  selection. The alternative, if the owner prefers it: allow the start and let such a halt use the model of the
+  last model node visited.
+- A command run started from `/graph start` or `/graph goto` has the extension's own abort controller;
+  `/graph stop` aborts it.
+- `graph/auto` selected by hand with no graph answers with the last model and a notice; nothing is selected
+  back.
+- Leaving a halt on a model node starts the idle count of the visit again.

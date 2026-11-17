@@ -4,7 +4,8 @@ Spec: `.scratch/xpi-graph/01-graph.md` (sections 5, 6, 7). One PR (branch `graph
 `npm run check`, the suite tests, green CI, an independent Opus review, the docs.
 
 - [ ] G3.1 command nodes: run by the engine when a move is entered, in a turn or from `/graph start` and
-      `/graph goto` outside one (`pi.exec`, cwd, timeout, abort signal),
+      `/graph goto` outside one (`pi.exec`, cwd, timeout; the turn's abort signal, or outside a turn the
+      extension's own controller, which `/graph stop` aborts; the running status),
       `graph.command` with the last 200 lines, the `pass` or `fail` edge, chains of command nodes, a result without
       an edge halts
 - [ ] G3.2 `approve` edges: the three-option `select`; send back ends the turn and keeps the node; no UI halts
@@ -12,7 +13,7 @@ Spec: `.scratch/xpi-graph/01-graph.md` (sections 5, 6, 7). One PR (branch `graph
 - [ ] G3.4 a turn that ends without `next`: nothing in a node with an `approve` edge; otherwise one
       `graph.reminder`, then a halt; only a `completed` turn counts (not an abort, not a provider error)
 - [ ] G3.5 halt: `graph.halt`, the notice, `next` refused while halted. On a model node the user's next message
-      leaves it. On a command node the router uses the pre-graph model, the limits are the union of every node's
+      leaves it and the idle count starts again. On a command node the router uses the pre-graph model, the limits are the union of every node's
       `deny`, and only `/graph goto` and `/graph stop` leave it. `/graph goto <node>` is recorded, resets the
       counts and runs a command node
 - [ ] G3.6 limits: the `tool_call` handler for `deny` and `readOnly`; `match.ts` of `builtin:protect` reused; the

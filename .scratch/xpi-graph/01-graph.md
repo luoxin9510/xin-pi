@@ -1,7 +1,7 @@
 # Spec 01: xpi-graph, flow control by a graph
 
 Status: waiting for the owner's approval. Grills 1 and 2 are in `decisions.md` (all 20 as recommended); the owner has
-not read this spec yet. No code before the approval. Review round 1 (independent Opus) is worked in; see
+not read this spec yet. No code before the approval. Review rounds 1 and 2 (independent Opus) are worked in; see
 `decisions.md`.
 
 The product text, with diagrams, is `prd.html` in this directory (Chinese).
@@ -140,6 +140,9 @@ Custom entries, written by the extension, never shown to the model:
 - `readState` walks the branch from the last `graph.start` that has no `graph.end` after it: the current node is
   the last `graph.node`; the count of an edge is the number of `graph.node` entries that took it since the start or
   since the last `goto` (a `goto` is the user taking over, so the counts start again).
+- A `graph.move` with no `graph.node` after it is a pending move: `readState` returns it as `pending`. It is
+  entered at the next boundary of any kind (5), also after a quit, a crash or a move to another branch, so a
+  pending move never blocks a node.
 - Resume: the last `graph.node` on the branch is the position. Moving to another branch of the session tree moves
   the graph with it; re-running a node is branching from its `graph.node` entry.
 - A state that cannot be read (bad entry data, a node the stored graph does not have) is an error state: the
@@ -157,13 +160,17 @@ on the extension API and forwards.
 
 - **Model.** A virtual model `graph/auto`. `/graph start` stores the current selection and selects `graph/auto`;
   its router reads the state and returns the node's model and thinking level. This is how relay switches models, and
-  a resumed session restores the selection without help. If a node has no `model` and the selection at the start is
-  itself a virtual model, `/graph start` refuses. A node's `model` that names a virtual model (`relay/auto`) is a
+  a resumed session restores the selection without help. `/graph start` refuses when the selected model is itself
+  a virtual model (`relay/auto`), with a notice to select a physical model first: a router must return a physical
+  model, and the stored selection is what a node without `model` and a halt on a command node use. A node's `model` that names a virtual model (`relay/auto`) is a
   load error. If the user selects another model while a graph runs (`model_select` with source `set` or `cycle`;
   `restore` is a resume and is ignored), the graph ends (`model_changed`) with a notice.
   The virtual model is registered when the extension loads, as relay's is: a resumed session needs it before any
-  handler runs. Selected by hand with no graph running, the selection is put back and a notice says to use
-  `/graph start`. It is a catalog entry; with no graph running no request goes through it.
+  handler runs. With no graph running it does nothing of its own: selected by hand, its router answers with the
+  model that answered last (`request.previous`) and a notice says to use `/graph start`; with no earlier answer
+  the request fails with that message. Nothing is selected back, so cycling through the models passes over it.
+  At `session_start`, a selection of `graph/auto` on a branch whose graph has ended (a crash between `graph.end`
+  and the restore) is replaced by the selection stored in that graph's `graph.start`.
 - **Prompt and cache (decision 10).** The role prompt is always part of the `graph.enter` message, never of the
   system prompt, so the system prompt is the same in every node and a move between two nodes on one model keeps the
   prompt cache. The system prompt gets one fixed `graph` section (a graph is running; leave a node with `next`).
@@ -180,16 +187,20 @@ on the extension API and forwards.
   - A move is already pending (a `graph.move` with no `graph.node` after it), or the call comes from a
     background script or from a call released after its turn: refused. One move per visit, made in the turn.
   - Otherwise the tool writes `graph.move`, and its result ends the script and asks to end the turn. The move is
-    entered at the next boundary, whichever comes first: `agent_before_settle`, or the next request of the same
-    run (a turn goes on when another tool call of the same batch did not ask to end it). Entering writes
-    `graph.node` and `graph.enter`; from `agent_before_settle` it also asks for one more request. Until then the
-    old node's model and limits hold. Relay commits its handover the same way (`relay.ts`).
+    entered at the next boundary, whichever comes first: `agent_before_settle`, or the start of the next request,
+    whatever starts it (the same run going on because another tool call of the batch did not ask to end the turn,
+    a new message after a resume, a request on another branch). Entering writes `graph.node` and `graph.enter`.
+    From `agent_before_settle` of a `completed` turn it also asks for one more request; after an aborted or failed
+    turn it does not, and the node is entered when the user sends the next message. Until the entry the old
+    node's model and limits hold.
 - **Command nodes** run at the same point, by the engine (`pi.exec`, the session's cwd, the node's timeout, the
   run's abort signal): write `graph.node`, run, write `graph.command`, take the `pass` or `fail` edge, and go on
   until a model node, `end`, or a halt. A result with no edge, or an edge at its `max`, halts. The model is not
   asked and cannot report a result of its own. `exec` takes the timeout and the abort signal.
 - **Outside a turn.** `/graph start` and `/graph goto` run in a command handler, with no turn. They enter the
-  node there: command nodes run with the handler's abort signal, and on reaching a model node the extension
+  node there. A command handler has no abort signal (`ctx.signal` is undefined when no turn runs), so the
+  extension makes its own `AbortController` for the run, does not block the handler on it, shows
+  `graph dev: ci (running)` in the status, and `/graph stop` aborts it. On reaching a model node the extension
   sends `graph.enter` with `triggerTurn`, so the node starts working at once.
 - **A turn that ends without `next`** (decision 5): if the node has an `approve` edge, nothing (the node talks with
   the user). Otherwise one `graph.reminder` and one more request; the second time in the same visit, halt. Only a
@@ -197,8 +208,9 @@ on the extension API and forwards.
 - **Halt.** `graph.halt` and a notice with the reason and what to do. The graph stays on its node, the session
   stays usable, and `next` is refused until the halt is left.
   - Halted on a model node (a loop limit, a second idle turn, an approval without a UI): the node's model and
-    limits hold. The user's next message leaves the halt and the work goes on in the node; so do `/graph goto`
-    and `/graph stop`.
+    limits hold. The user's next message leaves the halt and the work goes on in the node, with the idle count
+    of the visit starting again (a reminder comes before the next halt); `/graph goto` and `/graph stop` leave it
+    too.
   - Halted on a command node (a result with no edge, or its edge at `max`): there is no node model and no node
     limit, so the router uses the model selected before the graph started, and the limits are the union of
     every node's `deny` plus the always-protected paths (6). The user can talk to the model and have it fix
@@ -255,17 +267,19 @@ node, the union described in 5. Calls made by a codemode script emit the event t
 
 - Package (`packages/xpi-graph/test`, vitest, offline): `parseGraph` on every field and every error; each check of 3
   with a failing and a passing graph, the `requires` examples above among them; the default `max`; `readState` on
-  hand-written branches (start, moves, a loop count, a goto resetting counts, a halt, an end, a second start after
-  an end, bad data); `exits`.
+  hand-written branches (start, moves, a loop count, a goto resetting counts, a halt, a halt left by a user message, a pending move, an
+  end, a second start after an end, bad data); `exits`.
 - Suite (`test/suite/graph.test.ts`, harness and faux provider, all models faux): start and the first
   `graph.enter`; `next` to a declared node changes the routed model; `next` to an undeclared node is refused with
   the list; a command node passing and failing; a loop reaching its `max` halts; approve, send back and no-UI;
   reminder then halt; `deny` and `readOnly` blocks, in a nested codemode call too; resume from a saved session at
   the same node and count; `/graph goto`; `/graph stop` restores the model; selecting another model ends the
   graph; a resumed session does not end it; a second `next` in one visit and a `next` from a background script
-  are refused; a move made next to another tool call in the same batch is entered once; `graph.enter` again after
+  are refused; a move made next to another tool call in the same batch is entered once; a pending move is entered
+  after a resume, and after an aborted turn without a request of its own; start with a virtual model selected is
+  refused; `/graph stop` aborts a command run started by `/graph goto`; `graph.enter` again after
   a compaction; a halt on a command node (the pre-graph model answers, a denied command stays denied, `next` is
-  refused, `/graph goto` leaves it); `graph/auto` selected by hand is put back; a subagent child gets the handler
+  refused, `/graph goto` leaves it); `graph/auto` selected by hand answers with the last model and a notice; a subagent child gets the handler
   and nothing else; with no graph started, the requests are the same as without the extension.
 - Relay's tests pass unchanged.
 - By hand, real Haiku 5.5 only (every node on Haiku, in a temp repository with a local stand-in for CI): the dev
