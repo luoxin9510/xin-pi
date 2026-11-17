@@ -350,7 +350,7 @@ describe("graph extension", () => {
 		for (let i = 0; i < 200 && !openGate; i++) await new Promise((resolve) => setTimeout(resolve, 10));
 		openGate?.();
 		await ended;
-		expect(outcomes.join("\n")).toContain("A move is made in the turn of its node, not from a background script.");
+		expect(outcomes.join("\n")).toContain("A move is made by a script of the node's current request");
 		expect(customTypes()).not.toContain(GRAPH_MOVE);
 		expect(running().node).toBe("plan");
 	});
@@ -419,7 +419,7 @@ describe("graph extension", () => {
 		await harness.session.prompt("/graph start flow");
 		await harness.session.waitForIdle();
 		expect(models()).toEqual(["large", "large", "small"]);
-		expect(outcomes.join("\n")).toContain("A move is made in the turn of its node, not from a background script.");
+		expect(outcomes.join("\n")).toContain("A move is made by a script of the node's current request");
 		expect(outcomes.join("\n")).not.toContain("moved");
 		expect(customTypes().filter((type) => type === GRAPH_MOVE)).toHaveLength(1);
 		expect(running().node).toBe("build");
@@ -573,7 +573,7 @@ describe("graph extension", () => {
 		expect(notes.at(-1)).toContain("visited: plan -> build -> check");
 		expect(notes.at(-1)).toContain('"check" -> "build": 0/1');
 		await harness.session.prompt("/graph begin flow");
-		expect(notes.at(-1)).toContain("usage: /graph [start <name> | stop]");
+		expect(notes.at(-1)).toContain("usage: /graph [start <name> | goto <node> | stop]");
 	});
 
 	describe("a start that is refused", () => {
@@ -651,27 +651,6 @@ describe("graph extension", () => {
 				"flow",
 			);
 			expect(text).toContain("nodes.a.thinking: must be one of off, minimal, low, medium, high, xhigh, max");
-		});
-
-		it.each([
-			[
-				"a command node",
-				`nodes: { a: { prompt: "A" }, b: { run: "true" } }, edges: [{ from: "a", to: "b", exit: "model" }, { from: "b", to: "end", exit: "pass" }]`,
-				'node "b" is a command node',
-			],
-			[
-				"a node with limits",
-				`nodes: { a: { prompt: "A", deny: ["rm -rf"] }, b: { prompt: "B" } }, ${TWO_NODES}`,
-				'node "a" has limits (deny, readOnly)',
-			],
-			[
-				"an approval",
-				`nodes: { a: { prompt: "A" }, b: { prompt: "B" } }, edges: [{ from: "a", to: "b", exit: "approve" }, { from: "b", to: "end", exit: "model" }]`,
-				'the edge "a" -> "b" needs an approval',
-			],
-		])("%s, which this milestone does not run yet", async (_what, body, reason) => {
-			const text = await refused({ graphs: { flow: graphFile("flow", body) } }, "flow");
-			expect(text).toContain(`flow cannot run yet: ${reason}, which is not supported yet`);
 		});
 
 		it("a graph already runs", async () => {

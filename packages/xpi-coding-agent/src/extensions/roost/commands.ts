@@ -77,8 +77,8 @@ export const EXTENSION_COMMANDS: Record<string, How & { description: string; arg
 	graph: {
 		how: "reply",
 		args: "optional",
-		argumentHint: "start <name> | stop",
-		description: "Flow control by a graph: show the state, start a graph or stop it",
+		argumentHint: "start <name> | goto <node> | stop",
+		description: "Flow control by a graph: show the state, start a graph, jump to a node or stop it",
 	},
 	protect: {
 		how: "screen",
