@@ -4,7 +4,8 @@ Spec: `.scratch/xpi-graph/02-observability.md` (sections 1–4, 6, 7 `--json`). 
 the spec PR: `npm run check`, the package and suite tests, green CI, an independent Opus review, the docs.
 
 - [ ] O1.1 `at` in the data of every graph entry the extension writes (`graph.start`, `graph.node`, `graph.move`,
-      `graph.halt`, `graph.blocked`, `graph.asked`, `graph.end`), taken when the entry is made, draft or not
+      `graph.halt`, `graph.blocked`, `graph.asked`, `graph.end`), taken when the entry is made, draft or not;
+      `duringRun` in `graph.end`
 - [ ] O1.2 `report(entries, now)` in `xpi-graph` (`src/report.ts`, exported): the last run on the branch; visits
       with node, kind, the models that answered or the command, `startedAt`, `durationMs`, `waitMs`, usage in
       `own` / `tools` / `other`, how each was left or `pending`; `asked`, `blocked`, `halts`; totals and per-model
