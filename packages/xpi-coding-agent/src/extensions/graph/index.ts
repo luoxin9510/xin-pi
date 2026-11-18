@@ -286,7 +286,10 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 						? { to: edges[fields.edge].to }
 						: {};
 				try {
-					pi.events.emit(GRAPH_EVENTS[record.type], { graph, ...where, at, ...fields, ...where, ...extra });
+					// A record's own `node` (a block names the node whose limits held) wins, except for a command's message,
+					// whose visit is the one matched above.
+					const matched = record.type === GRAPH_COMMAND ? where : {};
+					pi.events.emit(GRAPH_EVENTS[record.type], { graph, ...where, at, ...fields, ...matched, ...extra });
 				} catch {
 					// a listener's error is not the graph's
 				}

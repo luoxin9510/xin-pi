@@ -344,3 +344,7 @@ No blocking; two should-fix, three nits; all taken:
   after the abort, and the `gone` path of `/graph goto` and `/graph start` syncs the footer.
 - The runner flushes its decoders at the end (a character cut at the end of the output comes as U+FFFD).
 - `graph:move` has `to`; the docs say what `graph:start`'s `node` and `visit` are.
+
+Round 2 (same reviewer, commit 06603fc78): all five closed; two nits, taken: a test for `session_shutdown` while a
+command runs (the command is aborted, nothing is written after it), and only `graph:command` has its `node` and
+`visit` replaced by the matched visit (`graph:blocked` keeps the node whose limits held).

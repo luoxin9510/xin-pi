@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { type Context, type FauxResponseStep, fauxAssistantMessage, fauxToolCall } from "xpi-ai";
 import { GRAPH_ASKED, GRAPH_BLOCKED, GRAPH_COMMAND, GRAPH_HALT, readState, report } from "xpi-graph";
+import { emitSessionShutdownEvent } from "../../src/core/extensions/runner.ts";
 import type { ExtensionAPI } from "../../src/core/extensions/types.ts";
 import type { RunResult } from "../../src/extensions/checks/runner.ts";
 import { createCodemodeExtension } from "../../src/extensions/codemode/index.ts";
@@ -895,6 +896,23 @@ describe("graph extension: controls", () => {
 			await jump;
 			expect(statuses.slice(after - 1).every((text) => !/: ci \d/.test(text ?? ""))).toBe(true);
 			expect(statuses.at(-1)).toBeUndefined();
+			expect(widgets.at(-1)).toBeUndefined();
+		});
+
+		it("stops a running command when the session shuts down, and writes nothing after it", async () => {
+			const { harness, held, started, say, go, widgets, running } = await setup();
+			harness.setResponses([say("Building."), say("Still building.")]);
+			await go("/graph start ship");
+			held.add("run-ci");
+			const jump = harness.session.prompt("/graph goto ci");
+			await started("run-ci");
+			const before = harness.sessionManager.getBranch().length;
+			await emitSessionShutdownEvent(harness.session.extensionRunner, { type: "session_shutdown", reason: "quit" });
+			await jump;
+			// Aborted, and no halt or move was written for it: the graph stays on the command node.
+			expect(harness.sessionManager.getBranch().length).toBe(before);
+			expect(running().node).toBe("ci");
+			expect(running().halted).toBeUndefined();
 			expect(widgets.at(-1)).toBeUndefined();
 		});
 
