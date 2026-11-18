@@ -1,6 +1,8 @@
 # Spec 02: what a graph run shows
 
-Status: draft for the owner's approval. Grill 1 of this spec (O1–O9, all as recommended) is in `decisions.md`.
+Status: approved by the owner on 2026-11-18 (PR #142), after Grill 1 (O1–O9, all as recommended) and three review
+rounds by an independent Opus; see `decisions.md`. The three choices made while writing it (`graph.asked`, the last
+run only, background agents not counted) were approved with it.
 
 ## Problem
 
