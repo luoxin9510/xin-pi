@@ -283,7 +283,7 @@ The xin-pi repository keeps two graphs for its own work, in
 
 - [`dev.js`](https://github.com/luoxin9510/xin-pi/blob/main/.pi/graphs/dev.js): grill the request, write the spec,
   build, wait for CI, have it reviewed, merge. The spec node is entered only after you approved the grill and the
-  build node only after you approved the spec; a command node puts the build on a branch that is not main; the
+  build node only after you approved the spec; a command node makes the build's branch from `main`, and stops the graph on a detached HEAD or on any other branch; the
   merge is a command node behind a CI pass that came after the last visit of build. The review node's prompt
   tells the model to start a fresh subagent for the review, because a node in the same session has seen how the
   code was written. Its header says what the shape guarantees and what the lists only make unlikely: a model on
@@ -294,7 +294,7 @@ The xin-pi repository keeps two graphs for its own work, in
   It shows a limit of the format: a graph has no variables, so "patch or minor" is two command nodes and the
   model picks one.
 
-Both wait for the checks of a pull request with a small shell loop before `gh pr checks --watch`: a push registers
+Both first check that the branch has an open pull request (a closed or merged one does not count; without one, the node fails at once, with a message), then wait for the checks of that pull request with a small shell loop before `gh pr checks --watch`: a push registers
 its checks a little later, and a check that is not there yet would count as a failure.
 
 A graph of your own is short. This one runs a check until it passes, and goes back to the fix at most three
