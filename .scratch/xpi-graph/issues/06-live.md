@@ -11,7 +11,9 @@ milestone 1: `npm run check`, the tests, green CI, an independent Opus review, t
 - [ ] O2.3 bus events `graph:start`, `graph:move`, `graph:enter`, `graph:command`, `graph:asked`,
       `graph:blocked`, `graph:halt`, `graph:end`, each with `{ graph, node, visit, at }`, emitted from the
       committed branch after the extension's own writes and at `agent_settled`, in order, never twice; none for
-      dropped drafts; suite tests of the order and of a graph stopped while its command ran
+      dropped drafts; the mark set without emitting at `session_start` and `session_tree`, and when it is not on
+      the branch; suite tests of the order, of a graph stopped while its command ran, of a resumed session and of
+      `/tree`
 - [ ] O2.4 by hand, real Haiku 5.5: after the end-to-end `dev` run, `/graph` and `/graph --json`; the report's
       cost against the session's usage summed by hand; results in `decisions.md`
 - [ ] O2.5 docs: `docs/graph.md` (live view, events), `docs/extensions.md` if it lists built-in events,

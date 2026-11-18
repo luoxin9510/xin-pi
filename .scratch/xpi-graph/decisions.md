@@ -295,3 +295,15 @@ Two blocking, five should-fix, four nits; all taken into the spec:
 - `/graph --json` has no `graph: ` prefix; the test parses what an RPC client receives.
 - The tickets name `docs/porting.md` and `docs/xin-pi.md`; nits on `Sink.message`, the answering model, the error
   state and waits taken.
+
+## Review of the spec, round 2 (same reviewer, commit 50fc9f082, 2026-11-18)
+
+Six of seven findings and all nits of round 1 closed. New: one blocking, one should-fix, four nits; all taken:
+
+- Blocking: the replay mark lived in memory only, so a resumed session would replay the whole history and `/tree`
+  could replay or lose events. The mark is set without emitting at `session_start` and `session_tree`, and again
+  when it is not on the branch.
+- After `graph.end` only `own` and `tools` count, up to the end of the agent run that wrote it, so the cache
+  refreshes of an idle session do not grow a finished run's total.
+- Nits: `cache_warm` records the real model (the claim was wrong); `recordUsage` writes only `ext:<purpose>`;
+  `waitMs` is approval waits only; a queued `graph.command` is matched to its visit by node and start time.

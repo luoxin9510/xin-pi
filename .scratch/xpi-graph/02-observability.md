@@ -50,12 +50,16 @@ A command node's details (section 3) carry its own `startedAt` and `durationMs`.
 ### 2. Accounting per visit (O2)
 
 A visit is one entry into a node. Its entries (for usage) are those from its `graph.node` entry to the next
-`graph.node`; for the last visit of an ended run, up to the first user message after `graph.end` (or the next
-`graph.start`, or the end of the branch). That way a run ended from inside a script (the approval's "stop") still
-counts the script's tool result and its subagent, which are written after `graph.end`. Its time (`startedAt`,
+`graph.node`. For the last visit of an ended run, the entries after `graph.end` count only for the rest of the agent
+run that wrote it: tool results and assistant messages (`own` and `tools`, never `other`) up to and including the
+first assistant message with no tool call, and never past a user message or the next `graph.start`. That way a run
+ended from inside a script (the approval's "stop") still counts the script's tool result and its subagent, which
+are written after `graph.end`, while the cache refreshes and extension calls of an idle session after the run do
+not grow its total. Its time (`startedAt`,
 `durationMs`) runs from its `graph.node`'s `at` to the next `graph.node`'s `at`, or to the `graph.end`'s `at`, or to
 now for the visit that runs; a command visit uses the details' `startedAt` and `durationMs` for the command itself.
-The time includes waits: a halt, and an approval question (its wait is `waitMs` from `graph.asked`, section 4). For
+The time includes waits. `waitMs` is the time spent on approval questions only (`at` minus `askedAt` of the visit's
+`graph.asked` entries); the time a halt took is not split out (the halt is listed with its `at`). For
 each visit:
 
 - `node`, `kind`, and for a model node the models that answered (from the assistant messages' `provider` and
@@ -69,8 +73,8 @@ each visit:
     spent: foreground subagents started with `Agent`, `models.*` calls), and `usage` entries of kind
     `nested_tool_calls` (calls of a background script after its result was written);
   - `other`: every other usage in the visit's entries, by kind: `usage` entries of the other kinds
-    (`cache_warm`, the extension calls and summaries `recordUsage` writes) and the `usage` of `compaction` and
-    `branch_summary` entries;
+    (`cache_warm`, and the extension side calls `recordUsage` writes as `ext:<purpose>`) and the `usage` of
+    `compaction` and `branch_summary` entries (the summaries);
   so that "the review node cost $0.40, $0.35 of it in its subagent" can be read. A subagent's usage cannot be split
   from the other nested calls of the same script: the session stores their sum.
 - how it was left: `via` (`model`, `approve`, `pass`, `fail`, `goto`) and the target; a pending move (accepted by
@@ -81,7 +85,7 @@ summed by hand. Not counted, and said so in the report and the docs: a backgroun
 records only as text in the `subagent` message; usage before `graph.start`.
 
 Totals: the sum of the visits, and the sums per model. A usage recorded under a virtual model (`graph/auto`, as
-`nested_tool_calls` and `cache_warm` entries are during a graph) is put under the model that answered the visit,
+`nested_tool_calls` entries are during a graph) is put under the model that answered the visit,
 and under "unknown" when no model answered in it.
 
 ### 3. A command node's result as data (O3)
@@ -97,7 +101,9 @@ and under "unknown" when no model answered in it.
 The extension's `Sink.message` takes the details as a third argument; both of its writers (a draft,
 `pi.sendMessage`) already accept them.
 A message without `details` (a session from spec 01) is reported with the command and the outcome read from the
-move, and no duration.
+move, and no duration. A `graph.command` message sent outside a turn while another turn runs is queued and can land
+on the branch after its move or after the next `graph.node`, so the report matches a message to its visit by
+`details.node` and `details.startedAt` (the visit of that node whose time contains it), not by its position.
 
 ### 4. Approvals that are not approvals
 
@@ -160,8 +166,12 @@ width; `--json` has everything.
   (reason), `graph:end` (reason). An event is emitted only for an entry on the branch: drafts that are dropped
   (a graph ended while its command ran) emit nothing. The extension remembers the last graph entry it emitted and,
   after each of its own writes and at `agent_settled`, emits the newer graph entries of the branch in their order
-  (an extension does not see the session's `entry_appended`). So an event can come later than the moment in its
-  `at` (a draft's, after its turn), never earlier and never twice. herdr and roost are not changed here.
+  (an extension does not see the session's `entry_appended`). The mark lives in memory only: at `session_start`
+  (a new, resumed or switched session) and `session_tree` it is set to the branch's latest graph entry without
+  emitting, so history is never replayed. When the mark is not on the branch at a replay (a branch change it did
+  not see), it is set again to the latest graph entry and nothing is emitted that time. So an event can come later
+  than the moment in its `at` (a draft's, after its turn), never earlier and never twice; events of entries written
+  while the mark was lost are skipped, not replayed. The order follows the branch. herdr and roost are not changed here.
 
 ## Tests
 
@@ -180,7 +190,10 @@ width; `--json` has everything.
   usage summed in the test; the events in order for a short run, `graph:move` before `graph:enter`, none for the
   drafts of a graph stopped while its command ran, none twice; a command's output reaches the widget through
   `onOutput` and the widget is gone after the command, after `/graph stop`, and after an abort; the footer's
-  elapsed time.
+  elapsed time; a resumed session with an ended run emits no event at its next turn; after `/tree` to another
+  branch nothing is replayed; `cache_warm` and `ext:` usage after `graph.end` is not counted, a script's tool
+  result after a "stop" is; a queued `graph.command` that lands after the next `graph.node` is reported with its
+  own visit.
 - Runner: `onOutput` gets stdout and stderr in order; the kept output is the same with and without it.
 - By hand, real Haiku 5.5: the end-to-end run of `dev` (a Haiku copy, see `decisions.md`) and `/graph` and
   `/graph --json` read after it; the costs in the report against the sum of the session's usage.

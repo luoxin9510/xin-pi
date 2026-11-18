@@ -10,8 +10,9 @@ the spec PR: `npm run check`, the package and suite tests, green CI, an independ
       `own` / `tools` / `other`, how each was left or `pending`; `asked`, `blocked`, `halts`; totals and per-model
       totals (virtual-model usage under the visit's model); `status: "error"` with the visits read so far;
       `schemaVersion: 1`; times from `at`, else `timestamp`
-- [ ] O1.3 a visit's entries: to the next `graph.node`; for the last visit of an ended run, to the first user
-      message after `graph.end`
+- [ ] O1.3 a visit's entries: to the next `graph.node`; for the last visit of an ended run, after `graph.end` only
+      `own` and `tools` up to the first assistant message with no tool call, never past a user message; a
+      `graph.command` matched to its visit by `details.node` and `startedAt`
 - [ ] O1.4 `mermaid(graph, report)`: `flowchart LR`, the current node and the edges taken marked
 - [ ] O1.5 `graph.command` messages carry `details` (`node`, `run`, `code`, `timedOut`, `startedAt`,
       `durationMs`, `lines`, `outcome`) through a third argument of `Sink.message`; the text is unchanged;
