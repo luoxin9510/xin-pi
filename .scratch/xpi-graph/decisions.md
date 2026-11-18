@@ -277,3 +277,21 @@ The owner asked for observability ("最好我们的xpi-graph要有可观测性")
   leave nothing else on the branch (section 4).
 - The report covers the last run on the branch only.
 - `/graph --json` comes back as the notice's text, which RPC clients already receive.
+
+## Review of the spec (independent Opus, commit 4baa066fa, 2026-11-18)
+
+Two blocking, five should-fix, four nits; all taken into the spec:
+
+- Blocking: the entries of a move entered at a turn's end are drafts committed together after the commands they
+  cause, so their timestamps are equal and a 45-minute command's time would go to the model node before it. Every
+  graph entry now carries `at` in its data, and a command's details carry `startedAt` and `durationMs`.
+- Blocking: "stop" on an approval writes `graph.end` from inside a script, before the script's tool result, which
+  holds its subagent's cost. The last visit of an ended run now counts up to the next user message, and
+  `graph.asked` is written before what the answer causes.
+- Every usage kind is counted (`own`, `tools`, `other`), so the report's total equals the session's usage; usage
+  recorded under `graph/auto` goes to the visit's model.
+- `graph:move` added (O6 names moving), and a pending move shows in the report.
+- Events come from the committed branch, so dropped drafts emit nothing.
+- `/graph --json` has no `graph: ` prefix; the test parses what an RPC client receives.
+- The tickets name `docs/porting.md` and `docs/xin-pi.md`; nits on `Sink.message`, the answering model, the error
+  state and waits taken.

@@ -36,42 +36,66 @@ report, because they are the same entries.
 
 The run reported is the last `graph.start` on the branch and what follows it, running or ended. Earlier runs on the
 branch are not reported (one run at a time is what `/graph` is for; the JSON keeps the same shape for each run, so
-more can be added later).
+more can be added later). When `readState` cannot read the run (`status: "error"`), the report has
+`status: "error"`, the message, and the visits it could read up to the bad entry.
+
+**Times.** An entry's `timestamp` is when it was committed, not when it happened: the entries of a move entered at
+the end of a turn are drafts (`agent_before_settle`), committed together after the command nodes they cause have
+run, so they share one timestamp. Every graph entry the extension writes therefore carries its own time in its
+data, `at` (ISO, taken when the entry is made, draft or not): `graph.start`, `graph.node`, `graph.move`,
+`graph.halt`, `graph.blocked`, `graph.asked`, `graph.end`. The report uses `data.at` and falls back to the entry's
+`timestamp` for entries written before this spec (such a session's times can be off by the length of a command).
+A command node's details (section 3) carry its own `startedAt` and `durationMs`.
 
 ### 2. Accounting per visit (O2)
 
-A visit is one entry into a node: from its `graph.node` entry to the next `graph.node`, the `graph.end`, or the end
-of the branch for the visit that runs now. For each visit:
+A visit is one entry into a node. Its entries (for usage) are those from its `graph.node` entry to the next
+`graph.node`; for the last visit of an ended run, up to the first user message after `graph.end` (or the next
+`graph.start`, or the end of the branch). That way a run ended from inside a script (the approval's "stop") still
+counts the script's tool result and its subagent, which are written after `graph.end`. Its time (`startedAt`,
+`durationMs`) runs from its `graph.node`'s `at` to the next `graph.node`'s `at`, or to the `graph.end`'s `at`, or to
+now for the visit that runs; a command visit uses the details' `startedAt` and `durationMs` for the command itself.
+The time includes waits: a halt, and an approval question (its wait is `waitMs` from `graph.asked`, section 4). For
+each visit:
 
-- `node`, `kind`, and the model (`provider/id`) or the command;
-- `startedAt` (the `graph.node` timestamp) and `durationMs`, wall time to the next of those entries or to now;
+- `node`, `kind`, and for a model node the models that answered (from the assistant messages' `provider` and
+  `model`, which differ from the node's setting when the node has none and the model selected before the graph
+  answers); for a command node the command;
+- `startedAt`, `durationMs`, `waitMs`;
 - usage summed over the visit's entries: `requests` (assistant messages), `input`, `output`, `cacheRead`,
-  `cacheWrite`, `cost`, taken from
-  - `message` entries with `role: "assistant"` and a `usage` (the node's own model),
-  - `message` entries with `role: "toolResult"` and a `usage` (what a codemode script's nested calls spent:
-    foreground subagents started with `Agent`, `models.*` calls),
-  - `usage` entries of kind `nested_tool_calls` (calls of a background codemode script after its result was
-    written);
-  the first part is reported as the node's own and the other two as `tools`, so that "the review node cost $0.40,
-  $0.35 of it in its subagent" can be read. A subagent's usage cannot be split from the other nested calls of the
-  same script: the session stores their sum.
-- how it was left: `via` (`model`, `approve`, `pass`, `fail`, `goto`) and the target, or how the graph ended in it.
+  `cacheWrite`, `cost`, in three parts:
+  - `own`: `message` entries with `role: "assistant"` and a `usage`;
+  - `tools`: `message` entries with `role: "toolResult"` and a `usage` (what a codemode script's nested calls
+    spent: foreground subagents started with `Agent`, `models.*` calls), and `usage` entries of kind
+    `nested_tool_calls` (calls of a background script after its result was written);
+  - `other`: every other usage in the visit's entries, by kind: `usage` entries of the other kinds
+    (`cache_warm`, the extension calls and summaries `recordUsage` writes) and the `usage` of `compaction` and
+    `branch_summary` entries;
+  so that "the review node cost $0.40, $0.35 of it in its subagent" can be read. A subagent's usage cannot be split
+  from the other nested calls of the same script: the session stores their sum.
+- how it was left: `via` (`model`, `approve`, `pass`, `fail`, `goto`) and the target; a pending move (accepted by
+  `next`, not entered yet) as `pending: { to }`; or how the graph ended in it.
 
-Not counted, and said so in the report and the docs: a background agent's cost, which the session records only as
-text in the `subagent` message; usage from before `graph.start` or after `graph.end`.
+Every usage the session records inside the run is counted, so the report's total equals the usage of those entries
+summed by hand. Not counted, and said so in the report and the docs: a background agent's cost, which the session
+records only as text in the `subagent` message; usage before `graph.start`.
 
-Totals: the sum of the visits, and the sums per model.
+Totals: the sum of the visits, and the sums per model. A usage recorded under a virtual model (`graph/auto`, as
+`nested_tool_calls` and `cache_warm` entries are during a graph) is put under the model that answered the visit,
+and under "unknown" when no model answered in it.
 
 ### 3. A command node's result as data (O3)
 
 `graph.command` (the custom message after each command node) gets `details`:
 
 ```ts
-{ node: string; run: string; code: number | null; timedOut: boolean; durationMs: number; lines: number;
-  outcome: "pass" | "fail" }
+{ node: string; run: string; code: number | null; timedOut: boolean; startedAt: string; durationMs: number;
+  lines: number; outcome: "pass" | "fail" }
 ```
 
 `lines` counts the lines of the output kept (the runner keeps up to 1 MiB). The text of the message is unchanged.
+The extension's `Sink.message` takes the details as a third argument; both of its writers (a draft,
+`pi.sendMessage`) already accept them.
 A message without `details` (a session from spec 01) is reported with the command and the outcome read from the
 move, and no duration.
 
@@ -82,11 +106,12 @@ dismissed question leave nothing but the effect. A new entry `graph.asked` is wr
 answered:
 
 ```ts
-{ node: string; to: string; answer: "approve" | "send_back" | "stop" | "dismissed" }
+{ node: string; to: string; answer: "approve" | "send_back" | "stop" | "dismissed"; askedAt: string; at: string }
 ```
 
-`readState` ignores it (it changes no state); a `graph.asked` from a later visit than the current one is still
-only data.
+It is written before anything the answer causes: before the `graph.move` of an approval, before the `graph.end` of
+"stop". `readState` ignores it (it changes no state; `step` already passes over custom types it does not know, as
+it does for `graph.blocked`).
 
 ### 5. A command you can watch (O4)
 
@@ -112,7 +137,7 @@ dev (.pi/graphs/dev.js) · running · node build (2/3)
 3  branch  command  test "$(git …         0.1s    —        —             pass → build
 4  build   model    anthropic/…-haiku-5-5 6m40s   $0.03    120k/9k       model → ci
 5  ci      command  for i in $(seq …      4m55s   —        —             fail → build
-6  build   model    anthropic/…-haiku-5-5 1m10s   $0.01    30k/1k        (now)
+6  build   model    anthropic/…-haiku-5-5 1m10s   $0.01    30k/1k        (now) → ci pending
 asked: grill → spec approve (1) · spec → branch approve (2)
 blocked: visit 4 build: bash "git push origin main" (git push origin main)
 total 18m57s · $0.34 (tools $0.00) · anthropic/claude-opus-5-5 $0.30 · anthropic/claude-haiku-5-5 $0.04
@@ -125,23 +150,37 @@ width; `--json` has everything.
 
 ### 7. For programs (O6)
 
-- `/graph --json` shows the report as JSON (the same fields as above, `schemaVersion: 1`), as the notice's text, so
-  that an RPC client gets it through the UI record it already reads.
-- Events on the extension bus (`pi.events`), each with `{ graph, node, visit }` and its own fields:
-  `graph:start`, `graph:enter` (node entered, `via`), `graph:command` (the details of section 3), `graph:asked`,
-  `graph:blocked`, `graph:halt` (reason), `graph:end` (reason). They are emitted when the entry is written, in the
-  same order. herdr and roost are not changed here.
+- `/graph --json` shows the report as JSON (the same fields as above, `schemaVersion: 1`) and nothing else: no
+  `graph: ` prefix. With a UI it is the text of an `info` notice, which an RPC client receives as the
+  `extension_ui_request` it already reads; without one it is written to stdout as one line. The test parses what
+  the RPC client receives.
+- Events on the extension bus (`pi.events`), each with `{ graph, node, visit, at }` and the entry's own fields:
+  `graph:start`, `graph:move` (an accepted move: `to`, `via`; pending until entered), `graph:enter` (a node
+  entered, `via`), `graph:command` (the details of section 3), `graph:asked`, `graph:blocked`, `graph:halt`
+  (reason), `graph:end` (reason). An event is emitted only for an entry on the branch: drafts that are dropped
+  (a graph ended while its command ran) emit nothing. The extension remembers the last graph entry it emitted and,
+  after each of its own writes and at `agent_settled`, emits the newer graph entries of the branch in their order
+  (an extension does not see the session's `entry_appended`). So an event can come later than the moment in its
+  `at` (a draft's, after its turn), never earlier and never twice. herdr and roost are not changed here.
 
 ## Tests
 
-- Package (offline): `report` on hand-written branches: usage summed per visit from assistant messages, tool
-  results and `usage` entries; a visit with no request; durations from timestamps and to a given now; the last run
-  only when the branch has two; an ended run; `graph.command` with and without `details`; `graph.asked`; blocked
-  and halted lists; per-model totals; Mermaid output for the dev shape. `readState` ignores `graph.asked`.
-- Suite (faux provider): the details of a passing, a failing and a timed-out command; `graph.asked` for each
-  answer; `/graph` after the end shows the report; `/graph --json` parses and has the visits; the events in order
-  for a short run; a command's output reaches the widget through `onOutput` and the widget is gone after the
-  command, after `/graph stop`, and after an abort; the footer's elapsed time.
+- Package (offline): `report` on hand-written branches: usage summed per visit in its three parts (assistant
+  messages; tool results and `nested_tool_calls`; the other usage kinds, compaction and branch summary); a visit
+  with no request; times from `at` with drafts' timestamps all equal, from `timestamp` when `at` is missing, and to
+  a given now; a command visit's time from its details; `waitMs`; the usage after a `graph.end` up to the next user
+  message; the last run only when the branch has two; an ended run and a run in `error`; a pending move; a
+  `graph/auto` usage put under the visit's model; `graph.command` with and without `details`; `graph.asked`;
+  blocked and halted lists; per-model totals; Mermaid output for the dev shape. `readState` ignores `graph.asked`.
+- Suite (faux provider): a model node that moves at the end of its turn to a command node taking (fake) time: the
+  model visit's time does not include the command's; "stop" on an approval inside a script: `graph.asked` comes
+  before `graph.end` and the script's tool result is counted in the last visit; the details of a passing, a
+  failing and a timed-out command; `graph.asked` for each answer; `/graph` after the end shows the report;
+  `/graph --json` as an RPC client receives it parses and has the visits; the report's total equals the session's
+  usage summed in the test; the events in order for a short run, `graph:move` before `graph:enter`, none for the
+  drafts of a graph stopped while its command ran, none twice; a command's output reaches the widget through
+  `onOutput` and the widget is gone after the command, after `/graph stop`, and after an abort; the footer's
+  elapsed time.
 - Runner: `onOutput` gets stdout and stderr in order; the kept output is the same with and without it.
 - By hand, real Haiku 5.5: the end-to-end run of `dev` (a Haiku copy, see `decisions.md`) and `/graph` and
   `/graph --json` read after it; the costs in the report against the sum of the session's usage.
@@ -150,8 +189,9 @@ width; `--json` has everything.
 
 `docs/graph.md` (a section "What a run shows": the report, what is and is not counted, `--json`, the events),
 `docs/slash-commands.md`, `docs/extensions.md` (the `graph:*` events among the bus examples, if the doc lists
-built-in events), `docs/porting.md` (the graph unit: the widget and the bus), the checks runner's doc if it has one,
-`packages/xpi-graph/README.md` (`report`).
+built-in events), `docs/porting.md` (the graph unit: `report` and `mermaid` in the package in milestone 1, the
+widget and the bus in milestone 2), `docs/xin-pi.md` where it describes the graph, the checks runner's doc if it
+has one, `packages/xpi-graph/README.md` (`report`). Each milestone's PR greps the docs and lists what it changed.
 
 ## Milestones
 
