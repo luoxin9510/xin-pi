@@ -6,9 +6,11 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { type Context, type FauxResponseStep, fauxAssistantMessage, fauxToolCall } from "xpi-ai";
 import { GRAPH_ASKED, GRAPH_BLOCKED, GRAPH_COMMAND, GRAPH_HALT, readState, report } from "xpi-graph";
+import { emitSessionShutdownEvent } from "../../src/core/extensions/runner.ts";
+import type { ExtensionAPI } from "../../src/core/extensions/types.ts";
 import type { RunResult } from "../../src/extensions/checks/runner.ts";
 import { createCodemodeExtension } from "../../src/extensions/codemode/index.ts";
-import { createGraphExtension, GRAPH_MODEL, GRAPH_PROVIDER } from "../../src/extensions/graph/index.ts";
+import { createGraphExtension, GRAPH_EVENTS, GRAPH_MODEL, GRAPH_PROVIDER } from "../../src/extensions/graph/index.ts";
 import { LIMITS_ENV } from "../../src/extensions/graph/limits.ts";
 import { createHarness, createTestUiContext, getMessageText, getToolResult, type Harness } from "./harness.ts";
 
@@ -77,11 +79,14 @@ describe("graph extension: controls", () => {
 		/** Held commands that take their time to die: after an abort each returns only when the test lets it. */
 		const slowToDie = new Set<string>();
 		const letDie: Record<string, () => void> = {};
+		/** Output a held command writes while it runs: the test calls it (spec 02, the live view). */
+		const write: Record<string, (text: string) => void> = {};
 		const graphExtension = createGraphExtension({
 			run: async (command, runOptions) => {
 				ran.push({ command, timeoutMs: runOptions.timeoutMs, cwd: runOptions.cwd });
 				const base = { command, output: `${command} output\n`, code: 0, timedOut: false, aborted: false };
 				if (held.has(command)) {
+					write[command] = (text) => runOptions.onOutput?.(text);
 					return new Promise<RunResult>((resolve) => {
 						release[command] = () => resolve(base);
 						runOptions.signal?.addEventListener("abort", () => {
@@ -91,7 +96,9 @@ describe("graph extension: controls", () => {
 						});
 					});
 				}
-				return { ...base, ...(results[command]?.shift() ?? {}) };
+				const result = { ...base, ...(results[command]?.shift() ?? {}) };
+				runOptions.onOutput?.(result.output);
+				return result;
 			},
 		});
 		/** Wait until a held command has started. */
@@ -99,11 +106,18 @@ describe("graph extension: controls", () => {
 			for (let i = 0; i < 300 && !release[command]; i++) await new Promise((resolve) => setTimeout(resolve, 10));
 			if (!release[command]) throw new Error(`${command} did not start`);
 		};
+		/** What the extension bus was told, in order (spec 02, section 7). */
+		const events: { channel: string; data: Record<string, unknown> }[] = [];
+		const listener = (pi: ExtensionAPI) => {
+			for (const channel of Object.values(GRAPH_EVENTS)) {
+				pi.events.on(channel, (data) => events.push({ channel, data: data as Record<string, unknown> }));
+			}
+		};
 		const harness = await createHarness({
 			// The first model is the one selected when a test starts.
 			models: [{ id: "medium" }, { id: "small" }, { id: "large", reasoning: true }],
 			initialActiveToolNames: ["read", "write", "bash", "codemode"],
-			extensionFactories: [createCodemodeExtension(), graphExtension],
+			extensionFactories: [createCodemodeExtension(), graphExtension, listener],
 		});
 		harnesses.push(harness);
 		const runtime = harness.session.modelRuntime;
@@ -111,6 +125,7 @@ describe("graph extension: controls", () => {
 			runtime.streamSimple(model, context, streamOptions);
 		const notes: string[] = [];
 		const statuses: (string | undefined)[] = [];
+		const widgets: (string[] | undefined)[] = [];
 		/** What the user answers to an approval, in order. */
 		const answers: (string | undefined)[] = [];
 		const asked: string[] = [];
@@ -120,6 +135,9 @@ describe("graph extension: controls", () => {
 					notify: (message) => notes.push(message),
 					setStatus: (key, text) => {
 						if (key === "graph") statuses.push(text);
+					},
+					setWidget: (key: string, content: unknown) => {
+						if (key === "graph") widgets.push(Array.isArray(content) ? [...content] : undefined);
 					},
 					select: async (title) => {
 						asked.push(title);
@@ -183,6 +201,9 @@ describe("graph extension: controls", () => {
 			release,
 			slowToDie,
 			letDie,
+			write,
+			widgets,
+			events,
 			started,
 			seen,
 			move,
@@ -823,6 +844,153 @@ describe("graph extension: controls", () => {
 			const json = JSON.parse(notes.at(-1) ?? "");
 			expect(json).toMatchObject({ schemaVersion: 1, status: "ended", graph: "ship", endReason: "done" });
 			expect(json.visits.map((visit: { node: string }) => visit.node)).toEqual(["build", "ci", "review", "merge"]);
+		});
+
+		it("shows a running command's elapsed time and last lines, and removes the widget when it ends", async () => {
+			const { harness, held, started, release, write, widgets, statuses, move, say } = await setup();
+			held.add("run-ci");
+			harness.setResponses([move("ci"), say("Reviewing."), say("Still reviewing.")]);
+			const turn = harness.session.prompt("/graph start ship");
+			await started("run-ci");
+			write["run-ci"]("line 1\nline 2\nline 3\n");
+			write["run-ci"]("\u001b[32mline 4\u001b[0m\nline 5\nline 6\nprogress 10%\rprogress 90%");
+			await new Promise((resolve) => setTimeout(resolve, 1300));
+			expect(widgets.at(-1)).toEqual(["$ run-ci", "line 3", "line 4", "line 5", "line 6", "progress 90%"]);
+			expect(statuses.some((text) => /^graph ship: ci (0\.\ds|1s)$/.test(text ?? ""))).toBe(true);
+			release["run-ci"]();
+			await turn;
+			await harness.session.waitForIdle();
+			expect(widgets.at(-1)).toBeUndefined();
+			expect(statuses.at(-1)).toMatch(/^graph ship: review/);
+		});
+
+		it("removes the widget when the graph is stopped while its command runs", async () => {
+			const { harness, held, started, write, widgets, statuses, move } = await setup();
+			held.add("run-ci");
+			harness.setResponses([move("ci")]);
+			const turn = harness.session.prompt("/graph start ship");
+			await started("run-ci");
+			write["run-ci"]("working\n");
+			await harness.session.prompt("/graph stop");
+			await turn;
+			await harness.session.waitForIdle();
+			expect(widgets.some((lines) => lines?.[0] === "$ run-ci")).toBe(true);
+			expect(widgets.at(-1)).toBeUndefined();
+			// The footer is not left on the command's time.
+			expect(statuses.at(-1)).toBeUndefined();
+		});
+
+		it("stops the view's timers on a stopped command that is slow to die, and leaves the footer plain", async () => {
+			const { harness, held, started, slowToDie, letDie, statuses, widgets, say, go } = await setup();
+			harness.setResponses([say("Building."), say("Still building.")]);
+			await go("/graph start ship");
+			held.add("run-ci");
+			slowToDie.add("run-ci");
+			const jump = harness.session.prompt("/graph goto ci");
+			await started("run-ci");
+			await harness.session.prompt("/graph stop");
+			// The command takes over a second to die: the view's clock must not write its time meanwhile.
+			await new Promise((resolve) => setTimeout(resolve, 1200));
+			const after = statuses.length;
+			letDie["run-ci"]?.();
+			await jump;
+			expect(statuses.slice(after - 1).every((text) => !/: ci \d/.test(text ?? ""))).toBe(true);
+			expect(statuses.at(-1)).toBeUndefined();
+			expect(widgets.at(-1)).toBeUndefined();
+		});
+
+		it("stops a running command when the session shuts down, and writes nothing after it", async () => {
+			const { harness, held, started, say, go, widgets, running } = await setup();
+			harness.setResponses([say("Building."), say("Still building.")]);
+			await go("/graph start ship");
+			held.add("run-ci");
+			const jump = harness.session.prompt("/graph goto ci");
+			await started("run-ci");
+			const before = harness.sessionManager.getBranch().length;
+			await emitSessionShutdownEvent(harness.session.extensionRunner, { type: "session_shutdown", reason: "quit" });
+			await jump;
+			// Aborted, and no halt or move was written for it: the graph stays on the command node.
+			expect(harness.sessionManager.getBranch().length).toBe(before);
+			expect(running().node).toBe("ci");
+			expect(running().halted).toBeUndefined();
+			expect(widgets.at(-1)).toBeUndefined();
+		});
+
+		it("tells a command run before the next run with the visit of its own node", async () => {
+			const { harness, events, say, go } = await setup();
+			harness.setResponses([say("Building."), say("Still building.")]);
+			await go("/graph start ship");
+			// A move that was accepted and whose turn never ended (a quit): it is entered before the next run.
+			harness.sessionManager.appendCustomEntry("graph.move", { edge: 0, via: "model", report: "built" });
+			harness.setResponses([say("Reviewing.")]);
+			await go("go on");
+			const command = events.find((event) => event.channel === "graph:command");
+			expect(command?.data).toMatchObject({ node: "ci", visit: 2, outcome: "pass" });
+			expect(events.filter((event) => event.channel === "graph:enter").map((event) => event.data.node)).toEqual([
+				"build",
+				"ci",
+				"review",
+			]);
+		});
+
+		it("tells the bus of each record of a run, in the branch's order, once", async () => {
+			const { harness, answers, events, move, say, go } = await setup();
+			answers.push("Approve");
+			harness.setResponses([move("ci"), move("merge")]);
+			await go("/graph start ship");
+			expect(events.map((event) => `${event.channel} ${event.data.node}#${event.data.visit}`)).toEqual([
+				"graph:start #0",
+				"graph:enter build#1",
+				"graph:move build#1",
+				"graph:enter ci#2",
+				"graph:command ci#2",
+				"graph:move ci#2",
+				"graph:enter review#3",
+				"graph:asked review#3",
+				"graph:move review#3",
+				"graph:enter merge#4",
+				"graph:command merge#4",
+				"graph:move merge#4",
+				"graph:end merge#4",
+			]);
+			for (const event of events) {
+				expect(event.data.graph).toBe("ship");
+				expect(typeof event.data.at).toBe("string");
+			}
+			expect(events.find((event) => event.channel === "graph:command")?.data).toMatchObject({
+				run: "run-ci",
+				outcome: "pass",
+			});
+			expect(events.at(-1)?.data).toMatchObject({ reason: "done" });
+			expect(events.filter((event) => event.channel === "graph:move").map((event) => event.data.to)).toEqual([
+				"ci",
+				"review",
+				"merge",
+				"end",
+			]);
+			// Nothing is told twice.
+			await go("/graph");
+			harness.setResponses([say("After the graph.")]);
+			await go("hello");
+			expect(events).toHaveLength(13);
+		});
+
+		it("tells nothing of the drafts of a graph stopped while its command ran", async () => {
+			const { harness, held, started, events, move } = await setup();
+			held.add("run-ci");
+			harness.setResponses([move("ci")]);
+			const turn = harness.session.prompt("/graph start ship");
+			await started("run-ci");
+			await harness.session.prompt("/graph stop");
+			await turn;
+			await harness.session.waitForIdle();
+			expect(events.map((event) => event.channel)).toEqual([
+				"graph:start",
+				"graph:enter",
+				"graph:move",
+				"graph:end",
+			]);
+			expect(events.at(-1)?.data).toMatchObject({ reason: "stopped", node: "build" });
 		});
 
 		it("answers --json with no run, and without a UI on stdout", async () => {

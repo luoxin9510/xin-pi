@@ -2144,6 +2144,10 @@ xpi itself emits three events here while [agent teams](subagent.md#hooks) are on
 `agent-teams:task_created` and `agent-teams:task_completed`. A handler can answer during `emit` with the payload's
 `block(feedback)` or `hold(promise)` to stop the step and send feedback to the agent.
 
+While a [graph](graph.md#what-a-run-shows) runs, `builtin:graph` emits `graph:start`, `graph:move`, `graph:enter`,
+`graph:command`, `graph:asked`, `graph:blocked`, `graph:halt` and `graph:end`, one per record on the session branch,
+each with `{ graph, node, visit, at }` and the record's fields. They only inform; a handler cannot answer them.
+
 ### pi.registerProvider(name, config)
 
 Register or override a model provider dynamically. Useful for proxies, custom endpoints, or team-wide model configurations.

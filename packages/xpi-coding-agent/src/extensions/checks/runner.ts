@@ -3,6 +3,7 @@
 // (`npx tsc` is a shell, npx and node).
 
 import { spawn } from "node:child_process";
+import { StringDecoder } from "node:string_decoder";
 import { killProcessTree, trackDetachedChildPid, untrackDetachedChildPid } from "../../utils/shell.ts";
 
 /** Most output kept per command. Past it the rest is dropped (the process keeps running to its end or timeout). */
@@ -19,6 +20,11 @@ export interface RunOptions {
 	timeoutMs: number;
 	/** Aborting kills the process group; the result has `aborted: true`. */
 	signal?: AbortSignal;
+	/**
+	 * Called with stdout and stderr text as it arrives, past the cap on kept output too (a live view wants the latest
+	 * lines). A character split between two chunks comes whole in the second. An error it throws is ignored.
+	 */
+	onOutput?: (text: string) => void;
 }
 
 export interface RunResult {
@@ -34,7 +40,7 @@ export interface RunResult {
 /** The runner as the extension sees it; tests pass a fake. */
 export type CheckRunner = (command: string, options: RunOptions) => Promise<RunResult>;
 
-export const runCheckCommand: CheckRunner = (command, { cwd, timeoutMs, signal }) =>
+export const runCheckCommand: CheckRunner = (command, { cwd, timeoutMs, signal, onOutput }) =>
 	new Promise<RunResult>((resolve) => {
 		const result: RunResult = { command, output: "", code: null, timedOut: false, aborted: false };
 		if (signal?.aborted) {
@@ -43,6 +49,16 @@ export const runCheckCommand: CheckRunner = (command, { cwd, timeoutMs, signal }
 		}
 		const chunks: Buffer[] = [];
 		let size = 0;
+		// One decoder per stream, so a character split between chunks of one stream is joined.
+		const decoders = { out: new StringDecoder("utf8"), err: new StringDecoder("utf8") };
+		const tell = (text: string) => {
+			if (!onOutput || text === "") return;
+			try {
+				onOutput(text);
+			} catch {
+				// the live view is not the command
+			}
+		};
 		const collect = (chunk: Buffer) => {
 			const room = MAX_OUTPUT_BYTES - size;
 			if (room <= 0) return;
@@ -61,8 +77,14 @@ export const runCheckCommand: CheckRunner = (command, { cwd, timeoutMs, signal }
 		const pid = child.pid;
 		// So print and interactive mode kill the group on SIGTERM and SIGHUP too.
 		if (pid !== undefined) trackDetachedChildPid(pid);
-		child.stdout.on("data", collect);
-		child.stderr.on("data", collect);
+		child.stdout.on("data", (chunk: Buffer) => {
+			collect(chunk);
+			tell(decoders.out.write(chunk));
+		});
+		child.stderr.on("data", (chunk: Buffer) => {
+			collect(chunk);
+			tell(decoders.err.write(chunk));
+		});
 
 		let exited = false;
 		let settled = false;
@@ -79,6 +101,9 @@ export const runCheckCommand: CheckRunner = (command, { cwd, timeoutMs, signal }
 			if (pid !== undefined) untrackDetachedChildPid(pid);
 			child.stdout.destroy();
 			child.stderr.destroy();
+			// Bytes of a character the output ended in the middle of.
+			tell(decoders.out.end());
+			tell(decoders.err.end());
 			resolve({ ...result, output: Buffer.concat(chunks).toString("utf8"), code });
 		};
 		// After a kill the result ends once the grace is over, whether or not the pipes closed.

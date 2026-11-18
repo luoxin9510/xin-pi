@@ -92,7 +92,9 @@ isolated). A subagent's baseline is its own. Two overlaps are accepted:
 
 ## Development
 
-Source: `src/extensions/checks/` (`runner.ts`, `parse.ts`, `render.ts`, `index.ts`). Tests, run singly from
+Source: `src/extensions/checks/` (`runner.ts`, `parse.ts`, `render.ts`, `index.ts`). The runner is shared with
+[graph](graph.md) command nodes; its `onOutput` option gets the output as it arrives (the graph's live view), past the
+1 MiB the result keeps. Tests, run singly from
 `packages/xpi-coding-agent`: `test/checks-runner.test.ts`, `test/checks-parse.test.ts`, `test/suite/checks.test.ts`
 (fake runner, faux provider), `test/suite/checks-tsc.test.ts` (the repo's own `tsc` in a temp project). Porting:
 [checks in the porting menu](porting.md#checks).

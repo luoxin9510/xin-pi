@@ -330,3 +330,54 @@ No blocking; three should-fix, six nits. What changed:
 - Not changed: the report's error-prefix search stays quadratic (it runs only on a branch that cannot be read);
   the suite's total test compares tokens and requests only, since faux usage has no cost (costs are covered by the
   package tests).
+
+## Review of milestone 2 (independent Opus, PR #144, commit 7368a5035, 2026-11-18)
+
+No blocking; two should-fix, three nits; all taken:
+
+- The live view's timers drew through a context that throws once the session is replaced (`/new`, `/resume` while a
+  command runs), in a timer callback nobody catches. The callbacks are guarded and end the view on an error; a
+  `session_shutdown` handler stops a running command and marks the extension closed, so nothing is written after.
+- `graph:command` took its visit from its position; a command run at `before_agent_start` has its message queued
+  behind the next node's entry. It is matched by node and start time, as the report does; tested.
+- The footer could be left on a stopped command's time when the command was slow to die: the clock does not draw
+  after the abort, and the `gone` path of `/graph goto` and `/graph start` syncs the footer.
+- The runner flushes its decoders at the end (a character cut at the end of the output comes as U+FFFD).
+- `graph:move` has `to`; the docs say what `graph:start`'s `node` and `visit` are.
+
+Round 2 (same reviewer, commit 06603fc78): all five closed; two nits, taken: a test for `session_shutdown` while a
+command runs (the command is aborted, nothing is written after it), and only `graph:command` has its `node` and
+`visit` replaced by the matched visit (`graph:blocked` keeps the node whose limits held).
+
+## By-hand run (O2.4, real Haiku 5.5, 2026-11-18)
+
+The repository's own `dev` graph, run end to end on xin-pi in a sandbox (`XPI_CODING_AGENT_DIR`, a copy of the
+login), from a clone at main 09fedf693 with that clone's build. The graph was a copy, `dev-e2e`: its model nodes on
+Haiku 5.5, its review subagent told to use Haiku, and review → merge made an `approve` edge. The task: the two nits
+#141 left (`branch` passed on a detached HEAD or another branch; `ci` waited five minutes when there was no PR).
+
+What happened: grill (7 questions) → spec → branch → build opened PR #145 → ci passed → review → build (a
+should-fix from an outside Opus review: `gh pr view` also found a merged PR) → ci → review → build (the spec was
+out of date) → ci → review → build (the PR body was out of date) → the `build -> ci` limit of 3 halted the graph
+(right: the head had not changed, its CI was green) → `/graph goto review` (refused while the turn ran, taken after
+it) → review → the merge was approved → merge ran `gh pr merge --merge --delete-branch`; PR #145 merged
+(fc08b4a77). 15 visits, 57m55s, three approvals asked.
+
+`/graph` showed every visit with its time, cost, cache and how it was left, the approvals, the halt and the Mermaid
+graph. `/graph --json` parsed; its totals against the session file summed by hand:
+
+| | report | session file |
+|---|---|---|
+| own (59 assistant messages, all Haiku) | $0.46548007 | $0.46548007 |
+| tools (7 `nested_tool_calls` usage entries) | $0.7297355 | $0.7297355 |
+| other | $0 | none |
+| total | $1.19521557 | $1.19521557 |
+
+Found, not fixed here (follow-ups):
+- The review node ran its reviewer subagent on Opus (`anthropic/claude-opus-5-5`) though the node text said Haiku,
+  saying AGENTS.md asks for Opus reviews; it once started a second reviewer because the first had not read AGENTS.md.
+  Those reviews are the $0.73 of tools. The report cannot say so: the usage entries name the model `auto`, so
+  `byModel` has them only as "nested calls", and `tools.requests` is 0 (the entries carry no request count).
+- After the end the Mermaid graph still marks `merge` as current, and the `merge -> end` edge is not drawn thick.
+- This run used main's code, so it checked milestone 1's report; the live footer, the command widget and the bus
+  events of milestone 2 are checked by the faux tests only.

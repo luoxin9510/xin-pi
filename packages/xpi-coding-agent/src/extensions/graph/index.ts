@@ -18,6 +18,7 @@ import {
 	END,
 	type EndReason,
 	exits,
+	formatDuration,
 	formatReport,
 	GRAPH_ASKED,
 	GRAPH_BLOCKED,
@@ -50,6 +51,7 @@ import type {
 	ExtensionContext,
 	SessionBoundaryDraft,
 } from "../../core/extensions/types.ts";
+import type { SessionEntry } from "../../core/session-manager.ts";
 import { isVirtualModel } from "../../core/virtual-models.ts";
 import { type CheckRunner, type RunResult, runCheckCommand } from "../checks/runner.ts";
 import { realPathOf } from "../protect/match.ts";
@@ -70,6 +72,46 @@ const APPROVE = "Approve";
 const SEND_BACK = "Send back";
 const STOP = "Stop the graph";
 const USAGE = "usage: /graph [--json] | /graph start <name> | /graph goto <node> | /graph stop";
+/** How many lines of a running command's output the widget shows. */
+const LIVE_LINES = 5;
+const LIVE_LINE_WIDTH = 200;
+
+/**
+ * The extension bus channel of each graph record (spec 02, section 7). Each event has `{ graph, node, visit, at }`
+ * and the record's own fields; `graph:command` has the command's details.
+ */
+export const GRAPH_EVENTS = {
+	[GRAPH_START]: "graph:start",
+	[GRAPH_MOVE]: "graph:move",
+	[GRAPH_NODE]: "graph:enter",
+	[GRAPH_COMMAND]: "graph:command",
+	[GRAPH_ASKED]: "graph:asked",
+	[GRAPH_BLOCKED]: "graph:blocked",
+	[GRAPH_HALT]: "graph:halt",
+	[GRAPH_END]: "graph:end",
+} as const;
+
+type RecordType = keyof typeof GRAPH_EVENTS;
+
+/** The graph record an entry is, if it is one: a custom entry of the graph, or a command node's message. */
+function recordOf(entry: SessionEntry): { type: RecordType; data: Record<string, unknown> } | undefined {
+	const fields = (value: unknown) =>
+		typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+	if (entry.type === "custom" && Object.hasOwn(GRAPH_EVENTS, entry.customType) && entry.customType !== GRAPH_COMMAND) {
+		return { type: entry.customType as RecordType, data: fields(entry.data) };
+	}
+	if (entry.type === "custom_message" && entry.customType === GRAPH_COMMAND) {
+		return { type: GRAPH_COMMAND, data: fields(entry.details) };
+	}
+	return undefined;
+}
+
+/** A line of command output as the widget shows it: no colour codes, the last state of a `\r` progress line. */
+function liveLine(line: string): string {
+	const plain = line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "");
+	const last = plain.slice(plain.lastIndexOf("\r") + 1);
+	return last.length > LIVE_LINE_WIDTH ? `${last.slice(0, LIVE_LINE_WIDTH - 1)}…` : last;
+}
 
 /** The same text in every node, so a move between two nodes on one model keeps the prompt cache. */
 const SECTION_TEXT = [
@@ -179,6 +221,145 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 			return readState(branch);
 		};
 
+		/**
+		 * The last graph record the bus was told of. In memory only: at `session_start` and `session_tree` it is set to
+		 * the branch's latest record without telling, so history is never told again; when it is not on the branch any
+		 * more, the same, and nothing is told that time.
+		 */
+		let told: { set: boolean; id?: string } = { set: false };
+		/** Set at `session_shutdown`: the context is gone, so a command that returns after it writes nothing. */
+		let closed = false;
+
+		const markLatest = (ctx: ExtensionContext) => {
+			told = { set: true, id: ctx.sessionManager.getBranch().findLast((entry) => recordOf(entry))?.id };
+		};
+
+		/** Tell the bus of the graph records on the branch after the last one told, in their order. */
+		const tell = (ctx: ExtensionContext) => {
+			if (!told.set) return markLatest(ctx);
+			const branch = ctx.sessionManager.getBranch();
+			let from = 0;
+			if (told.id !== undefined) {
+				const at = branch.findIndex((entry) => entry.id === told.id);
+				if (at < 0) return markLatest(ctx);
+				from = at + 1;
+			}
+			let graph = "";
+			let edges: { to?: unknown }[] = [];
+			let node = "";
+			let visit = 0;
+			/** The visits of this run so far: a command's message may land after its visit, so it is matched to one. */
+			let visits: { node: string; visit: number; at: string }[] = [];
+			for (const [index, entry] of branch.entries()) {
+				const record = recordOf(entry);
+				if (!record) continue;
+				if (record.type === GRAPH_START) {
+					const literal = record.data.graph as { name?: unknown; edges?: unknown } | undefined;
+					graph = typeof literal?.name === "string" ? literal.name : "";
+					edges = Array.isArray(literal?.edges) ? (literal.edges as { to?: unknown }[]) : [];
+					node = "";
+					visit = 0;
+					visits = [];
+				} else if (record.type === GRAPH_NODE && typeof record.data.node === "string") {
+					node = record.data.node;
+					visit += 1;
+					visits.push({ node, visit, at: String(record.data.at ?? entry.timestamp) });
+				}
+				if (index < from) continue;
+				told = { set: true, id: entry.id };
+				const at = record.data.at ?? record.data.startedAt ?? entry.timestamp;
+				const { graph: _literal, ...fields } = record.data;
+				let where = { node, visit };
+				if (record.type === GRAPH_COMMAND && typeof fields.node === "string") {
+					// By node and start time, as the report does: a message queued behind a turn lands after its visit.
+					const started = Date.parse(String(fields.startedAt));
+					const own =
+						visits.findLast(
+							(candidate) => candidate.node === fields.node && Date.parse(candidate.at) <= started,
+						) ?? visits.findLast((candidate) => candidate.node === fields.node);
+					if (own) where = { node: own.node, visit: own.visit };
+				}
+				const extra =
+					record.type === GRAPH_MOVE &&
+					typeof fields.edge === "number" &&
+					typeof edges[fields.edge]?.to === "string"
+						? { to: edges[fields.edge].to }
+						: {};
+				try {
+					// A record's own `node` (a block names the node whose limits held) wins, except for a command's message,
+					// whose visit is the one matched above.
+					const matched = record.type === GRAPH_COMMAND ? where : {};
+					pi.events.emit(GRAPH_EVENTS[record.type], { graph, ...where, at, ...fields, ...matched, ...extra });
+				} catch {
+					// a listener's error is not the graph's
+				}
+			}
+		};
+
+		/**
+		 * The live view of a command node that runs: the elapsed time in the footer each second, and the command with the
+		 * last lines of its output in a widget. Nothing without a UI. `stop` removes the widget; the caller sets the
+		 * footer back.
+		 */
+		const liveView = (
+			ctx: ExtensionContext,
+			graphName: string,
+			nodeName: string,
+			command: string,
+			signal: AbortSignal,
+		) => {
+			if (!ctx.hasUI) return undefined;
+			const started = Date.now();
+			let lines: string[] = [];
+			let partial = "";
+			let pending: ReturnType<typeof setTimeout> | undefined;
+			let stopped = false;
+			// The timers outlive nothing: a context that is gone (the session was replaced) throws, and that ends the view.
+			const guarded = (draw: () => void) => () => {
+				if (stopped) return;
+				try {
+					draw();
+				} catch {
+					view.stop();
+				}
+			};
+			const status = guarded(() => {
+				// A stopped command may take a while to die: its time is not shown over the status that follows.
+				if (signal.aborted) return;
+				ctx.ui.setStatus("graph", `graph ${graphName}: ${nodeName} ${formatDuration(Date.now() - started)}`);
+			});
+			const widget = guarded(() => {
+				pending = undefined;
+				const shown = [...lines, ...(partial === "" ? [] : [partial])].slice(-LIVE_LINES).map(liveLine);
+				ctx.ui.setWidget("graph", [`$ ${liveLine(command)}`, ...shown]);
+			});
+			const timer = setInterval(status, 1000);
+			timer.unref?.();
+			const view = {
+				output: (text: string) => {
+					if (stopped) return;
+					const parts = (partial + text).split("\n");
+					partial = parts.pop() ?? "";
+					lines = [...lines, ...parts].slice(-LIVE_LINES);
+					pending ??= setTimeout(widget, 200);
+				},
+				stop: () => {
+					if (stopped) return;
+					stopped = true;
+					clearInterval(timer);
+					if (pending !== undefined) clearTimeout(pending);
+					try {
+						ctx.ui.setWidget("graph", undefined);
+					} catch {
+						// the session is gone, and its widgets with it
+					}
+				},
+			};
+			status();
+			widget();
+			return view;
+		};
+
 		const say = (ctx: ExtensionContext, text: string, level: "info" | "warning" | "error" = "info") => {
 			if (ctx.hasUI) ctx.ui.notify(`graph: ${text}`, level);
 			else if (level === "info") console.log(`graph: ${text}`);
@@ -187,7 +368,10 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 
 		/** Every graph entry carries the time it was made: a draft is committed later, with others (spec 02, section 1). */
 		const stamp = <T extends object>(data: T): T & { at: string } => ({ ...data, at: new Date().toISOString() });
-		const append = (customType: string, data: object) => pi.appendEntry(customType, stamp(data));
+		const append = (ctx: ExtensionContext, customType: string, data: object) => {
+			pi.appendEntry(customType, stamp(data));
+			tell(ctx);
+		};
 		/** `duringRun`: whether the usage after the end may still be the graph's (the rest of the run that ended it). */
 		const endData = (ctx: ExtensionContext, reason: EndReason) => ({ reason, duringRun: !ctx.isIdle() });
 
@@ -254,14 +438,20 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 			say(ctx, `halted: ${reason}. ${how}`, "warning");
 		};
 
-		const direct: Sink = {
-			entry: (customType, data) => pi.appendEntry(customType, data),
-			message: (customType, content, details) =>
+		/** Straight to the session, and the bus is told of what is on the branch. */
+		const directFor = (ctx: ExtensionContext): Sink => ({
+			entry: (customType, data) => {
+				pi.appendEntry(customType, data);
+				tell(ctx);
+			},
+			message: (customType, content, details) => {
 				pi.sendMessage(
 					{ customType, content, display: true, ...(details === undefined ? {} : { details }) },
 					{ triggerTurn: false },
-				),
-		};
+				);
+				tell(ctx);
+			},
+		});
 
 		/**
 		 * Go on from where the branch is: enter a pending move, run command nodes, and stop at a model node, the end, or
@@ -316,15 +506,22 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 				commandRun = { abort, state };
 				let result: RunResult;
 				const startedAt = new Date();
+				const live = liveView(ctx, definition.name, state.node, node.run, abort.signal);
 				try {
-					result = await run(node.run, { cwd: ctx.cwd, timeoutMs: node.timeoutMs, signal: abort.signal });
+					result = await run(node.run, {
+						cwd: ctx.cwd,
+						timeoutMs: node.timeoutMs,
+						signal: abort.signal,
+						...(live ? { onOutput: live.output } : {}),
+					});
 				} finally {
+					live?.stop();
 					// Only its own handle: a graph started meanwhile may be running a command of its own.
 					if (commandRun?.abort === abort) commandRun = undefined;
 				}
 				// The command took time. If the graph was ended meanwhile, on the branch itself (and maybe another started),
 				// nothing more is written or run: the local copy cannot see that.
-				if (stateOf(ctx).status !== "running" || startOf() !== mine) return { kind: "gone" };
+				if (closed || stateOf(ctx).status !== "running" || startOf() !== mine) return { kind: "gone" };
 				if (result.aborted) {
 					const reason = `"${state.node}" was stopped while its command ran`;
 					write(GRAPH_HALT, { reason });
@@ -362,9 +559,13 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 
 		/** Go on outside a turn (`/graph start`, `/graph goto`): the entries go straight to the session. */
 		async function proceedNow(ctx: ExtensionCommandContext): Promise<void> {
-			const outcome = await proceed(ctx, direct, true);
+			const outcome = await proceed(ctx, directFor(ctx), true);
 			const state = stateOf(ctx);
-			if (outcome.kind === "gone") return;
+			if (outcome.kind === "gone") {
+				// The command's footer may have been drawn after the stop: show the state as it is.
+				if (!closed) sync(ctx, stateOf(ctx));
+				return;
+			}
 			if (outcome.kind === "end") {
 				say(ctx, `${outcome.graph} is finished`);
 				await restoreAfterEnd(ctx, state);
@@ -454,7 +655,7 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 					}
 					const route = `"${state.node}" -> "${choice.edge.to}"`;
 					const halt = (reason: string) => {
-						append(GRAPH_HALT, { reason });
+						append(ctx, GRAPH_HALT, { reason });
 						sync(ctx, stateOf(ctx));
 						haltNotice(ctx, reason, false);
 					};
@@ -491,9 +692,9 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 											: "dismissed",
 							askedAt,
 						};
-						append(GRAPH_ASKED, asked);
+						append(ctx, GRAPH_ASKED, asked);
 						if (answer === STOP) {
-							append(GRAPH_END, endData(ctx, "stopped"));
+							append(ctx, GRAPH_END, endData(ctx, "stopped"));
 							say(ctx, "stopped");
 							return stay("The user stopped the graph. End your turn.");
 						}
@@ -518,7 +719,7 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 						via: choice.edge.exit === "approve" ? "approve" : "model",
 						report: params.report,
 					};
-					append(GRAPH_MOVE, move);
+					append(ctx, GRAPH_MOVE, move);
 					const where = choice.edge.to === END ? "The graph ends" : `Node "${choice.edge.to}" starts`;
 					return stay(`Move accepted. ${where} when this turn ends: end your turn now.`);
 				},
@@ -581,7 +782,7 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 			if (!limits) return undefined;
 			const blocked = blockedBy(limits, { ...event, input: event.input as Record<string, unknown> }, ctx.cwd);
 			if (!blocked) return undefined;
-			append(GRAPH_BLOCKED, { tool: event.toolName, rule: blocked.rule, node: limits.node });
+			append(ctx, GRAPH_BLOCKED, { tool: event.toolName, rule: blocked.rule, node: limits.node });
 			say(ctx, `blocked ${event.toolName} in "${limits.node}" (${blocked.rule})`, "warning");
 			return { block: true, reason: blocked.reason };
 		});
@@ -635,6 +836,8 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 		});
 
 		pi.on("agent_settled", async (_event, ctx) => {
+			// The drafts of the turn end are on the branch now.
+			tell(ctx);
 			const state = stateOf(ctx);
 			await restoreAfterEnd(ctx, state);
 			sync(ctx, state);
@@ -648,7 +851,7 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 				return undefined;
 			}
 			if (state.status !== "running" || !state.pending) return undefined;
-			const outcome = await proceed(ctx, direct, false);
+			const outcome = await proceed(ctx, directFor(ctx), false);
 			if (outcome.kind === "end") {
 				say(ctx, `${outcome.graph} is finished`);
 				await restoreAfterEnd(ctx, stateOf(ctx));
@@ -672,13 +875,21 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 		});
 
 		pi.on("session_start", async (_event, ctx) => {
+			markLatest(ctx);
 			const state = stateOf(ctx);
 			if (state.status === "running") registerTool();
 			await restoreAfterEnd(ctx, state);
 			sync(ctx, state);
 		});
 
+		// The session is replaced or the process ends: a command that runs is stopped, and nothing is written after it.
+		pi.on("session_shutdown", async () => {
+			closed = true;
+			commandRun?.abort.abort();
+		});
+
 		pi.on("session_tree", async (_event, ctx) => {
+			markLatest(ctx);
 			const state = stateOf(ctx);
 			if (state.status === "running") registerTool();
 			sync(ctx, state);
@@ -694,7 +905,7 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 			}
 			if (state.status === "none") return;
 			commandRun?.abort.abort();
-			append(GRAPH_END, endData(ctx, "model_changed"));
+			append(ctx, GRAPH_END, endData(ctx, "model_changed"));
 			say(ctx, "ended: another model was selected", "warning");
 			sync(ctx, { status: "none" });
 		});
@@ -762,8 +973,8 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 				selection: { provider: selected.provider, id: selected.id, thinking: pi.getThinkingLevel() },
 			};
 			const first: NodeData = { node: definition.start, via: "start" };
-			append(GRAPH_START, begin);
-			append(GRAPH_NODE, first);
+			append(ctx, GRAPH_START, begin);
+			append(ctx, GRAPH_NODE, first);
 			registerTool();
 			selecting = true;
 			let selectedRouter: boolean;
@@ -773,7 +984,7 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 				selecting = false;
 			}
 			if (!selectedRouter) {
-				append(GRAPH_END, endData(ctx, "stopped"));
+				append(ctx, GRAPH_END, endData(ctx, "stopped"));
 				say(ctx, "could not select the graph model", "error");
 				return;
 			}
@@ -788,7 +999,7 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 				return;
 			}
 			commandRun?.abort.abort();
-			append(GRAPH_END, endData(ctx, "stopped"));
+			append(ctx, GRAPH_END, endData(ctx, "stopped"));
 			if (state.selection && isGraphModel(ctx.model)) await restore(ctx, state.selection);
 			sync(ctx, { status: "none" });
 			say(ctx, "stopped");
@@ -814,7 +1025,7 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 				return;
 			}
 			const jump: NodeData = { node: target, via: "goto" };
-			append(GRAPH_NODE, jump);
+			append(ctx, GRAPH_NODE, jump);
 			say(ctx, `"${state.node}" -> "${target}" (goto)`);
 			await proceedNow(ctx);
 		}
