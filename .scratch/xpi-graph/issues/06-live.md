@@ -21,9 +21,10 @@ milestone 1: `npm run check`, the tests, green CI, an independent Opus review, t
       `/tree`
       Done: `GRAPH_EVENTS`, `tell`, `markLatest`; tests in `graph-controls.test.ts` (order, dropped drafts) and
       `graph.test.ts` (resume, `/tree` there and back).
-- [ ] O2.4 by hand, real Haiku 5.5: after the end-to-end `dev` run, `/graph` and `/graph --json`; the report's
+- [x] O2.4 by hand, real Haiku 5.5: after the end-to-end `dev` run, `/graph` and `/graph --json`; the report's
       cost against the session's usage summed by hand; results in `decisions.md`
-      Waiting for a fresh login (the Anthropic token on this machine expired on 2026-11-17).
+      Done on 2026-11-18 (PR #145, made and merged by a Haiku copy of `dev`): the report's own and tools costs
+      equal the session's sums exactly; see "By-hand run" in `decisions.md`.
 - [x] O2.5 docs: `docs/graph.md` (live view, events), `docs/extensions.md` if it lists built-in events,
       `docs/porting.md` (the graph unit: widget and bus)
       Done, and `docs/checks.md` (`onOutput`).
