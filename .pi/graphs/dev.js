@@ -3,7 +3,7 @@
 //
 // What the shape guarantees:
 // - the spec node is entered only after you approved the grill, and the build node only after you approved the spec;
-// - the build starts on a branch that is not main (the `branch` node makes one);
+// - the build starts on a new branch made from main (the `branch` node makes it, and stops the graph on any other branch or a detached HEAD);
 // - the merge is a command the graph runs itself, and it is reached only through a CI pass that came after the last
 //   visit of build (`requires`).
 //
@@ -38,8 +38,9 @@ export default {
 			],
 		},
 		// Never build on main: a plain `git push` there would skip everything after this node.
+		// Only from main: on another branch, or a detached HEAD, the command fails, so no work lands on an old branch.
 		branch: {
-			run: 'test "$(git branch --show-current)" != main || git switch -c "dev-$(date +%Y%m%d-%H%M%S)"',
+			run: 'b=$(git branch --show-current); if [ "$b" != main ]; then if [ -z "$b" ]; then echo "branch: HEAD is detached; run from main"; else echo "branch: current branch is \\"$b\\", not main; run from main"; fi; echo "then: git switch main, and /graph goto branch"; exit 1; fi; git switch -c "dev-$(date +%Y%m%d-%H%M%S)"',
 		},
 		build: {
 			model: "anthropic/claude-haiku-5-5",
@@ -56,9 +57,10 @@ export default {
 				"--no-verify",
 			],
 		},
-		// A push registers its checks a little later: wait for the first one, then for all of them.
+		// First the branch needs a pull request: without one this fails at once. A push registers its checks a little later:
+		// wait for the first one, then for all of them.
 		ci: {
-			run: 'for i in $(seq 1 30); do [ -n "$(gh pr checks --json name --jq ".[].name" 2>/dev/null)" ] && break; sleep 10; done; gh pr checks --watch --fail-fast',
+			run: 'pr=$(gh pr view --json number --jq .number 2>&1) || { echo "ci: no pull request for branch \\"$(git branch --show-current)\\""; echo "$pr"; exit 1; }; for i in $(seq 1 30); do [ -n "$(gh pr checks --json name --jq ".[].name" 2>/dev/null)" ] && break; sleep 10; done; gh pr checks --watch --fail-fast',
 			timeout: "45m",
 		},
 		review: {
