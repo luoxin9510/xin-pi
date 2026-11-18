@@ -312,3 +312,21 @@ Six of seven findings and all nits of round 1 closed. New: one blocking, one sho
 
 All round 2 findings closed; nothing blocking or should-fix. Two nits, taken: the total is checked against the
 same entries the report uses; `graph.end` records `duringRun`, and after an end written while idle nothing counts.
+
+## Review of milestone 1 (independent Opus, PR #143, commit c4fedd934, 2026-11-18)
+
+No blocking; three should-fix, six nits. What changed:
+
+- `graph.end` written by `proceed` (a pending move to `end`, entered at a turn's end or before the next run) had
+  `duringRun: true` from `!ctx.isIdle()`, so a later turn started by a custom message would have been counted.
+  `proceed` now always writes `duringRun: false`; and after an end, counting also stops at any custom message
+  that is not the graph's.
+- A queued `graph.command` that lands after `graph.end` is matched to its visit (it was skipped); a command
+  message whose node has no visit that started before it is not put on a visit of another node.
+- `byModel`: the spec now says what the code does (nested calls under "nested calls"); usage under a virtual
+  model is put with the model that answered the visit even when it lands before that model's first answer.
+- `/graph` ends with the usage line again; the comment on `graph.asked` says what happens when the graph was
+  stopped while the question was open.
+- Not changed: the report's error-prefix search stays quadratic (it runs only on a branch that cannot be read);
+  the suite's total test compares tokens and requests only, since faux usage has no cost (costs are covered by the
+  package tests).

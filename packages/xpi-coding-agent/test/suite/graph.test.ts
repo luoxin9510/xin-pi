@@ -569,11 +569,15 @@ describe("graph extension", () => {
 		await harness.session.prompt("/graph start flow");
 		await harness.session.waitForIdle();
 		await harness.session.prompt("/graph");
-		expect(notes.at(-1)).toContain("node: check");
-		expect(notes.at(-1)).toContain("visited: plan -> build -> check");
-		expect(notes.at(-1)).toContain('"check" -> "build": 0/1');
+		const text = notes.at(-1) ?? "";
+		expect(text).toContain("· running · node check");
+		expect(text).toMatch(/\n1\s+plan\s+model\s.*model → build/);
+		expect(text).toMatch(/\n2\s+build\s+model\s.*model → check/);
+		expect(text).toMatch(/\n3\s+check\s+model\s.*\(now\)/);
+		expect(text).toContain('"check" -> "build": 0/1');
+		expect(text).toContain("flowchart LR");
 		await harness.session.prompt("/graph begin flow");
-		expect(notes.at(-1)).toContain("usage: /graph [start <name> | goto <node> | stop]");
+		expect(notes.at(-1)).toContain("usage: /graph [--json] | /graph start <name> | /graph goto <node> | /graph stop");
 	});
 
 	describe("a start that is refused", () => {

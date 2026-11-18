@@ -357,13 +357,17 @@ The options below come with the unit. Each says how to turn it off.
 - **Gives**: flow control by a graph. A file gives a flow nodes and edges; the model works freely inside a node
   and leaves it only by a declared edge, with the `next` tool, so a step cannot be skipped; each node can have its
   own model. A command node is a command the host runs itself (a check, a merge); an edge can ask the user to
-  approve; a node can carry commands it may not run and paths it may not write. `/graph`, `/graph start <name>`,
+  approve; a node can carry commands it may not run and paths it may not write. `/graph` (the report of the last
+  run: time, cost and cache per visit, approvals, blocks, the graph as Mermaid; `--json`), `/graph start <name>`,
   `/graph goto <node>`, `/graph stop`, the virtual model `graph/auto`. See [Graph](graph.md).
 - **Depends on**: codemode (the model reaches `next` only from a script; a graph does not start without it). The
   package `xpi-graph` imports nothing: it reads a parsed literal and a list of session entries and answers whether
-  the graph is valid, where the session is and where it may go. Its entry shape (`GraphEntry`) is what the host's
-  session entries must be assignable to: a `type`, and for custom entries `customType` and `data`, for custom
-  messages `customType`, for messages a `message` with a `role`.
+  the graph is valid, where the session is and where it may go, and folds the last run into a report (`report`,
+  `formatReport`, `mermaid`). Its entry shapes are what the host's session entries must be assignable to:
+  `GraphEntry` (a `type`, and for custom entries `customType` and `data`, for custom messages `customType`, for
+  messages a `message` with a `role`) and, for the report, `ReportEntry` (also a `timestamp`, a custom message's
+  `details`, a usage record's `kind`, `provider`, `model` and `usage`, and a message's `provider`, `model`, `usage`
+  and `content`).
 - **Host must have**: a virtual model whose router gets the extension context (it reads the session branch, no
   router state); a tool that is unlisted and reachable only from codemode, whose result can end the script and ask
   to end the turn; `agent_before_settle` that takes `custom` and `custom_message` drafts and can ask for one more
@@ -371,11 +375,11 @@ The options below come with the unit. Each says how to turn it off.
   settled is entered there); `context_with_system` with named sections of the leading system message;
   `session_compact`; `model_select` with a source that tells a restore from a choice; `tool_call` with the tool's
   effect, its input and `{ block, reason }`, fired for the calls a codemode script makes too (the limits);
-  `ui.select` (the approval); `appendEntry`, `sendMessage` with `triggerTurn`, `setModel`, `setThinkingLevel`,
+  `ui.select` (the approval); `appendEntry`, `sendMessage` with `triggerTurn` and `details`, `setModel`, `setThinkingLevel`,
   `ui.setStatus`, `ctx.isIdle()`, `ctx.signal`; child processes that inherit the environment (the limits of a
   node reach a subagent child through `XPI_GRAPH_LIMITS`).
 - **Copy (one unit)**: the package `packages/xpi-graph/` whole (`src/`: `types.ts`, `parse.ts`, `check.ts`,
-  `state.ts`, `index.ts`), `extensions/graph/` (`index.ts`, `files.ts`, `limits.ts`) and `utils/literal.ts`. Three
+  `state.ts`, `report.ts`, `index.ts`), `extensions/graph/` (`index.ts`, `files.ts`, `limits.ts`) and `utils/literal.ts`. Three
   files of other units come with it; copy them if you do not port those units: `projectDirs` of
   `extensions/subagent/discovery.ts` (the directories from the cwd up to the repository root),
   `extensions/checks/runner.ts` (it runs a command node: its own process group, a timeout, an abort) and
@@ -383,7 +387,7 @@ The options below come with the unit. Each says how to turn it off.
 - **Rewrite**: the provider and model ids (`graph`, `auto`), the tool name `next`, the directories
   (`.pi/graphs/`, `<agent dir>/graphs/`), and the texts the model reads (`SECTION_TEXT` and `enterText` in
   `index.ts`).
-- **Verify**: `packages/xpi-graph/test/` (the file format, each check, the state fold), `test/graph-files.test.ts`,
+- **Verify**: `packages/xpi-graph/test/` (the file format, each check, the state fold, the report), `test/graph-files.test.ts`,
   `test/suite/graph.test.ts` and `test/suite/graph-controls.test.ts` (vitest, offline, faux provider, a fake
   command runner).
 - **Linux**: a command node's command runs with `shell: true` in its own process group, which is killed on

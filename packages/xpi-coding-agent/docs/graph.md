@@ -107,7 +107,8 @@ changed after the check. With `notAfter: ["patch"]` the graph is refused, and th
 
 | Command | What it does |
 |---|---|
-| `/graph` | With no graph running: the graph files found. With one running: the graph, the node, the nodes visited and the counts of the looping edges out of the node. |
+| `/graph` | The report of the session's last run, running or ended (see [What a run shows](#what-a-run-shows)), with the counts of the looping edges out of the current node and the graph as Mermaid. With no run on the branch: the graph files found. |
+| `/graph --json` | The same report as JSON, and nothing else. |
 | `/graph start <name>` | Check the graph and enter its first node, which starts working at once. Without a UI (`xpi -p "/graph start <name>"`) the command returns when the graph has ended or waits for you. |
 | `/graph goto <node>` | Your own jump to any node, whatever the edges say. Recorded as a jump; the loop counts start again. Going to a command node runs its command. Not while a turn or a command runs. |
 | `/graph stop` | End the graph, stop a command it is running, and give back the model you had selected. |
@@ -208,6 +209,50 @@ The state of a graph is not kept anywhere else than in the session: each entry i
   does nothing useful: xpi says to use `/graph start`, and the request is answered by the model that was selected
   before the session's last graph, or, in a session that ran no graph, by the model that answered last.
 
+## What a run shows
+
+`/graph` shows the last run on the branch, while it runs and after it ended. It is computed from the session's
+entries each time, so a resumed session or another branch of the tree shows its own run.
+
+```
+ship (/repo/.pi/graphs/ship.js) · ended (done) in merge
+#  node    kind     model / command            time    cost             cache r/w  left by
+1  build   model    anthropic/claude-haiku-5-5  6m40s   $0.03            120k/9k    model → ci
+2  ci      command  gh pr checks --watch        4m55s   —                —          pass → review
+3  review  model    anthropic/claude-opus-5-5   3m10s   $0.41 (tools $0.35)  52k/2k  approve → merge
+4  merge   command  gh pr merge --merge          2.1s   —                —          ended (done)
+asked: review → merge approve (3)
+total 14m47s · $0.44 (tools $0.35) · anthropic/claude-haiku-5-5 $0.03 · anthropic/claude-opus-5-5 $0.06 · nested calls $0.35
+not counted: the cost of background agents (the session records it only as text)
+```
+
+Then the graph as Mermaid (`flowchart LR`), the current node and the edges taken marked, to paste into a pull request.
+
+- **A visit** is one entry into a node. Its time runs from its entry to the next node's entry (or the end, or now). A
+  command visit shows the command's own time. The time includes waits; `--json` has the time spent on approval
+  questions as `waitMs`.
+- **Cost and tokens** are summed from the session's records in the visit, in three parts: `own` (the node's model),
+  `tools` (what codemode scripts' nested calls spent: a subagent started with `Agent`, `models.*`; the session keeps
+  only their sum per script, so one subagent cannot be told apart from another call of the same script), and
+  `other` (cache refreshes, extension side calls, compaction and branch summaries). The cache column is the node's
+  own cache reads and writes.
+- **After the end** the rest of the run that ended the graph still counts: a script that answered "Stop the graph"
+  writes its result, with its subagent's cost, after the end. Nothing an idle session spends later counts, and after
+  an end written between turns (`/graph stop`) nothing does.
+- **Not counted:** the cost of background agents, which the session records only in the text of their message, and
+  anything before `/graph start`.
+- **Approvals.** Every answer is recorded (`graph.asked`), "Send back", "Stop the graph" and a closed question too,
+  and listed under `asked`.
+- **Blocks and halts** are listed with the visit they happened in.
+
+`/graph --json` gives the same as one JSON object (`schemaVersion: 1`): `status` (`running`, `ended`, `error`),
+`graph`, `path`, `startedAt`, `endedAt`, `endReason`, `node`, `halted`, `visits` (each with `node`, `kind`, `via`,
+`models`, `run`, `command` with the exit code, the time and the number of output lines, `startedAt`, `durationMs`,
+`waitMs`, `own`, `tools`, `other`, `left`, `pending`, `ended`), `asked`, `blocked`, `halts`, `total`, `byModel`,
+`edgesTaken` and `notCounted`. With a UI it is the text of an info notice (an RPC client gets it as the
+`extension_ui_request` it already reads); without one it is one line on stdout. With no run it is
+`{"schemaVersion":1,"status":"none"}`.
+
 ## What a graph does not guarantee
 
 A graph stops a model from skipping a step by mistake or by taking a shortcut. It does not stop a model that sets out
@@ -282,10 +327,15 @@ Custom entries in the session file, none of them sent to the model:
 | `graph.move` | `edge`, `via`, `report` | a move is accepted and not entered yet: from `next`, or a command's result |
 | `graph.halt` | `reason` | the graph halts |
 | `graph.blocked` | `tool`, `rule`, `node` | a limit blocked a call |
-| `graph.end` | `reason` (`done`, `stopped`, `model_changed`) | the graph is over |
+| `graph.asked` | `node`, `to`, `answer` (`approve`, `send_back`, `stop`, `dismissed`), `askedAt` | an approval question is answered, before what the answer causes |
+| `graph.end` | `reason` (`done`, `stopped`, `model_changed`), `duringRun` | the graph is over |
+
+Each of them also has `at`, the time it was made. That is not always the entry's own timestamp: the entries of a move
+entered at the end of a turn are committed together after the commands it runs.
 
 The messages the model sees are custom messages: `graph.enter` (a node's entry message), `graph.command` (a command
-node's result) and `graph.reminder`.
+node's result; its `details` hold `node`, `run`, `code`, `timedOut`, `startedAt`, `durationMs`, `lines` and
+`outcome`) and `graph.reminder`.
 
 ## Turning it off
 
@@ -294,8 +344,9 @@ tool and changes no request.
 
 ## Implementation
 
-- `packages/xpi-graph`: the file format (`parseGraph`), the checks (`checkGraph`) and the state folded from the
-  session's entries (`readState`, `exits`). It imports nothing of the workspace.
+- `packages/xpi-graph`: the file format (`parseGraph`), the checks (`checkGraph`), the state folded from the
+  session's entries (`readState`, `exits`) and the report of a run (`report`, `formatReport`, `mermaid`). It imports
+  nothing of the workspace.
 - `src/extensions/graph/`: `files.ts` finds and reads graph files; `limits.ts` holds the limits of a node;
   `index.ts` registers `graph/auto`, the `next` tool and `/graph`, enters a move at `agent_before_settle` or, for a
   move whose turn did not enter it, at `before_agent_start`, and runs command nodes with the runner of

@@ -45,8 +45,9 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
   `optional: true`.
 - `xpi-graph` (private) is flow control by a graph: a flow's hard rules as nodes and edges, so that a model can
   leave a node only by a declared edge (spec: `.scratch/xpi-graph/01-graph.md`; `packages/xpi-graph/README.md`).
-  The package holds the pure part: the file format (`parseGraph`), the checks at load (`checkGraph`) and the
-  state folded from the session branch (`readState`, `exits`). It imports nothing of the workspace. The built-in
+  The package holds the pure part: the file format (`parseGraph`), the checks at load (`checkGraph`), the
+  state folded from the session branch (`readState`, `exits`) and the report of a run (`report`, `formatReport`,
+  `mermaid`; spec: `.scratch/xpi-graph/02-observability.md`). It imports nothing of the workspace. The built-in
   `builtin:graph` runs a graph on it.
 - `xpi-relay` (private, built into `xpi-coding-agent`) holds relay's control flow, records and prompts behind a host
   interface (spec: `.scratch/xpi-relay/01-package.md`; user docs: [relay.md](../packages/xpi-coding-agent/docs/relay.md);
@@ -85,7 +86,9 @@ relative to the repo root; `coding-agent/` stands for `packages/xpi-coding-agent
     move is entered at `agent_before_settle`, so a node never changes in the middle of a turn. A command node is
     run by the extension with the runner of `checks` (`extensions/checks/runner.ts`); an `approve` edge asks the
     user with `ui.select`; the limits of a node (`limits.ts`: `deny` on command text, `readOnly` with the matcher
-    of `protect`) are applied at `tool_call` and reach subagent children through `XPI_GRAPH_LIMITS`. The
+    of `protect`) are applied at `tool_call` and reach subagent children through `XPI_GRAPH_LIMITS`. Every graph
+    entry carries its own time (`at`), and `/graph` is the report of the branch's last run (`--json` for programs).
+    The
     repository's own flows are two graphs, `.pi/graphs/dev.js` (grill, spec, build, CI, review, merge) and
     `.pi/graphs/release.js` (the release up to the tag); `test/repo-graphs.test.ts` loads them. User docs:
     [graph.md](../packages/xpi-coding-agent/docs/graph.md).

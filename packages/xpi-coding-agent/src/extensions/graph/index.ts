@@ -11,9 +11,15 @@
 import { Type } from "typebox";
 import type { Api, Model, ModelThinkingLevel } from "xpi-ai";
 import {
+	type AskedData,
+	type CommandDetails,
+	checkGraph,
 	type Edge,
 	END,
+	type EndReason,
 	exits,
+	formatReport,
+	GRAPH_ASKED,
 	GRAPH_BLOCKED,
 	GRAPH_COMMAND,
 	GRAPH_END,
@@ -25,11 +31,16 @@ import {
 	GRAPH_START,
 	type Graph,
 	type GraphEntry,
+	type GraphReport,
 	type GraphState,
 	type MoveData,
+	mermaid,
 	type NodeData,
+	parseGraph,
+	type ReportEntry,
 	type RunningState,
 	readState,
+	report,
 	type Selection,
 	type StartData,
 } from "xpi-graph";
@@ -58,6 +69,7 @@ const OUTPUT_LINES = 200;
 const APPROVE = "Approve";
 const SEND_BACK = "Send back";
 const STOP = "Stop the graph";
+const USAGE = "usage: /graph [--json] | /graph start <name> | /graph goto <node> | /graph stop";
 
 /** The same text in every node, so a move between two nodes on one model keeps the prompt cache. */
 const SECTION_TEXT = [
@@ -133,7 +145,7 @@ type Outcome =
 /** Where the entries and messages of a step go: drafts of a boundary, or straight to the session. */
 interface Sink {
 	entry(customType: string, data: unknown): void;
-	message(customType: string, content: string): void;
+	message(customType: string, content: string, details?: unknown): void;
 }
 
 /** `run` is the command runner; tests pass a fake. */
@@ -172,6 +184,12 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 			else if (level === "info") console.log(`graph: ${text}`);
 			else console.error(`graph: ${text}`);
 		};
+
+		/** Every graph entry carries the time it was made: a draft is committed later, with others (spec 02, section 1). */
+		const stamp = <T extends object>(data: T): T & { at: string } => ({ ...data, at: new Date().toISOString() });
+		const append = (customType: string, data: object) => pi.appendEntry(customType, stamp(data));
+		/** `duringRun`: whether the usage after the end may still be the graph's (the rest of the run that ended it). */
+		const endData = (ctx: ExtensionContext, reason: EndReason) => ({ reason, duringRun: !ctx.isIdle() });
 
 		const findModel = (ctx: ExtensionContext, ref: string): Model<Api> | undefined => {
 			const slash = ref.indexOf("/");
@@ -238,8 +256,11 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 
 		const direct: Sink = {
 			entry: (customType, data) => pi.appendEntry(customType, data),
-			message: (customType, content) =>
-				pi.sendMessage({ customType, content, display: true }, { triggerTurn: false }),
+			message: (customType, content, details) =>
+				pi.sendMessage(
+					{ customType, content, display: true, ...(details === undefined ? {} : { details }) },
+					{ triggerTurn: false },
+				),
 		};
 
 		/**
@@ -260,9 +281,10 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 					.getBranch()
 					.findLast((entry) => entry.type === "custom" && entry.customType === GRAPH_START)?.id;
 			const mine = startOf();
-			const write = (customType: string, data: unknown) => {
-				local.push({ type: "custom", customType, data });
-				sink.entry(customType, data);
+			const write = (customType: string, data: object) => {
+				const stamped = stamp(data);
+				local.push({ type: "custom", customType, data: stamped });
+				sink.entry(customType, stamped);
 			};
 			let came: { from: string; report?: string } | undefined;
 			for (;;) {
@@ -274,7 +296,9 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 				if (state.pending) {
 					const edge = definition.edges[state.pending.edge];
 					if (edge.to === END) {
-						write(GRAPH_END, { reason: "done" });
+						// A pending move is entered after its turn (at the turn's end, before the next run, or outside a
+						// turn): whatever run is going on now is not the graph's, even when one is.
+						write(GRAPH_END, { reason: "done", duringRun: false });
 						return { kind: "end", graph: definition.name };
 					}
 					const entered: NodeData = { node: edge.to, via: state.pending.via, edge: state.pending.edge };
@@ -291,6 +315,7 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 				const abort = new AbortController();
 				commandRun = { abort, state };
 				let result: RunResult;
+				const startedAt = new Date();
 				try {
 					result = await run(node.run, { cwd: ctx.cwd, timeoutMs: node.timeoutMs, signal: abort.signal });
 				} finally {
@@ -305,8 +330,19 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 					write(GRAPH_HALT, { reason });
 					return { kind: "halt", reason, onCommand: true };
 				}
-				sink.message(GRAPH_COMMAND, commandText(definition.name, state.node, node.run, result));
 				const via = result.code === 0 && !result.timedOut ? "pass" : "fail";
+				const output = result.output.replace(/\n+$/, "");
+				const details: CommandDetails = {
+					node: state.node,
+					run: node.run,
+					code: result.code,
+					timedOut: result.timedOut,
+					startedAt: startedAt.toISOString(),
+					durationMs: Date.now() - startedAt.getTime(),
+					lines: output === "" ? 0 : output.split("\n").length,
+					outcome: via,
+				};
+				sink.message(GRAPH_COMMAND, commandText(definition.name, state.node, node.run, result), details);
 				const word = via === "pass" ? "passed" : result.timedOut ? "timed out" : "failed";
 				const choice = exits(state).find((candidate) => candidate.edge.exit === via);
 				const reason = !choice
@@ -418,7 +454,7 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 					}
 					const route = `"${state.node}" -> "${choice.edge.to}"`;
 					const halt = (reason: string) => {
-						pi.appendEntry(GRAPH_HALT, { reason });
+						append(GRAPH_HALT, { reason });
 						sync(ctx, stateOf(ctx));
 						haltNotice(ctx, reason, false);
 					};
@@ -435,12 +471,29 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 								"This move needs the user's approval and nobody can be asked. The graph is halted: end your turn.",
 							);
 						}
+						const askedAt = new Date().toISOString();
 						const answer = await ctx.ui.select(
 							`Graph ${state.graph.name}: let "${state.node}" go on to "${choice.edge.to}"?`,
 							[APPROVE, SEND_BACK, STOP],
 						);
+						// The answer is recorded before the move or the end it causes, whatever it is. (A graph stopped while
+						// the question was open has its end first; the record then lands after it and only stays as data.)
+						const asked: Omit<AskedData, "at"> = {
+							node: state.node,
+							to: choice.edge.to,
+							answer:
+								answer === APPROVE
+									? "approve"
+									: answer === SEND_BACK
+										? "send_back"
+										: answer === STOP
+											? "stop"
+											: "dismissed",
+							askedAt,
+						};
+						append(GRAPH_ASKED, asked);
 						if (answer === STOP) {
-							pi.appendEntry(GRAPH_END, { reason: "stopped" });
+							append(GRAPH_END, endData(ctx, "stopped"));
 							say(ctx, "stopped");
 							return stay("The user stopped the graph. End your turn.");
 						}
@@ -465,7 +518,7 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 						via: choice.edge.exit === "approve" ? "approve" : "model",
 						report: params.report,
 					};
-					pi.appendEntry(GRAPH_MOVE, move);
+					append(GRAPH_MOVE, move);
 					const where = choice.edge.to === END ? "The graph ends" : `Node "${choice.edge.to}" starts`;
 					return stay(`Move accepted. ${where} when this turn ends: end your turn now.`);
 				},
@@ -528,7 +581,7 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 			if (!limits) return undefined;
 			const blocked = blockedBy(limits, { ...event, input: event.input as Record<string, unknown> }, ctx.cwd);
 			if (!blocked) return undefined;
-			pi.appendEntry(GRAPH_BLOCKED, { tool: event.toolName, rule: blocked.rule, node: limits.node });
+			append(GRAPH_BLOCKED, { tool: event.toolName, rule: blocked.rule, node: limits.node });
 			say(ctx, `blocked ${event.toolName} in "${limits.node}" (${blocked.rule})`, "warning");
 			return { block: true, reason: blocked.reason };
 		});
@@ -541,8 +594,14 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 			const drafts: SessionBoundaryDraft[] = [];
 			const sink: Sink = {
 				entry: (customType, data) => drafts.push({ type: "custom", customType, data }),
-				message: (customType, content) =>
-					drafts.push({ type: "custom_message", customType, display: true, content }),
+				message: (customType, content, details) =>
+					drafts.push({
+						type: "custom_message",
+						customType,
+						display: true,
+						content,
+						...(details === undefined ? {} : { details }),
+					}),
 			};
 			if (state.pending) {
 				const outcome = await proceed(ctx, sink, false);
@@ -565,7 +624,7 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 				return { entries: [...event.entries, ...drafts], continue: true };
 			}
 			const reason = `"${state.node}" ended its turn twice without a move`;
-			sink.entry(GRAPH_HALT, { reason });
+			sink.entry(GRAPH_HALT, stamp({ reason }));
 			haltNotice(ctx, reason, false);
 			return { entries: [...event.entries, ...drafts], continue: false };
 		});
@@ -635,7 +694,7 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 			}
 			if (state.status === "none") return;
 			commandRun?.abort.abort();
-			pi.appendEntry(GRAPH_END, { reason: "model_changed" });
+			append(GRAPH_END, endData(ctx, "model_changed"));
 			say(ctx, "ended: another model was selected", "warning");
 			sync(ctx, { status: "none" });
 		});
@@ -703,8 +762,8 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 				selection: { provider: selected.provider, id: selected.id, thinking: pi.getThinkingLevel() },
 			};
 			const first: NodeData = { node: definition.start, via: "start" };
-			pi.appendEntry(GRAPH_START, begin);
-			pi.appendEntry(GRAPH_NODE, first);
+			append(GRAPH_START, begin);
+			append(GRAPH_NODE, first);
 			registerTool();
 			selecting = true;
 			let selectedRouter: boolean;
@@ -714,7 +773,7 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 				selecting = false;
 			}
 			if (!selectedRouter) {
-				pi.appendEntry(GRAPH_END, { reason: "stopped" });
+				append(GRAPH_END, endData(ctx, "stopped"));
 				say(ctx, "could not select the graph model", "error");
 				return;
 			}
@@ -729,7 +788,7 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 				return;
 			}
 			commandRun?.abort.abort();
-			pi.appendEntry(GRAPH_END, { reason: "stopped" });
+			append(GRAPH_END, endData(ctx, "stopped"));
 			if (state.selection && isGraphModel(ctx.model)) await restore(ctx, state.selection);
 			sync(ctx, { status: "none" });
 			say(ctx, "stopped");
@@ -755,28 +814,73 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 				return;
 			}
 			const jump: NodeData = { node: target, via: "goto" };
-			pi.appendEntry(GRAPH_NODE, jump);
+			append(GRAPH_NODE, jump);
 			say(ctx, `"${state.node}" -> "${target}" (goto)`);
 			await proceedNow(ctx);
 		}
 
-		function status(ctx: ExtensionContext): void {
+		/** The report of the branch's last run (spec 02). */
+		const reportOf = (ctx: ExtensionContext): GraphReport | undefined => {
+			const branch: readonly ReportEntry[] = ctx.sessionManager.getBranch();
+			return report(branch, Date.now(), {
+				isVirtual: (key) => {
+					const slash = key.indexOf("/");
+					const model =
+						slash === -1 ? undefined : ctx.modelRegistry.find(key.slice(0, slash), key.slice(slash + 1));
+					return model ? isVirtualModel(model) : key === `${GRAPH_PROVIDER}/${GRAPH_MODEL}`;
+				},
+			});
+		};
+
+		/** Text for a program: no prefix, nothing else around it. */
+		const raw = (ctx: ExtensionContext, text: string) => {
+			if (ctx.hasUI) ctx.ui.notify(text, "info");
+			else console.log(text);
+		};
+
+		/** The graph of the last run, for its Mermaid text. */
+		const graphOfRun = (ctx: ExtensionContext): Graph | undefined => {
+			const begin = ctx.sessionManager
+				.getBranch()
+				.findLast((entry) => entry.type === "custom" && entry.customType === GRAPH_START);
+			if (begin?.type !== "custom") return undefined;
+			const data = begin.data as Partial<StartData> | undefined;
+			try {
+				return checkGraph(parseGraph(data?.graph));
+			} catch {
+				return undefined;
+			}
+		};
+
+		function status(ctx: ExtensionContext, json: boolean): void {
 			const state = stateOf(ctx);
-			if (state.status === "error") {
-				say(ctx, `cannot read the state: ${state.message}\nRun /graph stop.`, "error");
-			} else if (state.status === "running") {
-				const loops = exits(state)
-					.filter((choice) => choice.edge.max !== undefined)
-					.map((choice) => `  "${state.node}" -> "${choice.edge.to}": ${choice.count}/${choice.edge.max}`);
+			const run = reportOf(ctx);
+			if (json) {
+				raw(ctx, JSON.stringify(run ?? { schemaVersion: 1, status: "none" }));
+				return;
+			}
+			if (run) {
+				const loops =
+					state.status === "running"
+						? exits(state)
+								.filter((choice) => choice.edge.max !== undefined)
+								.map((choice) => `  "${state.node}" -> "${choice.edge.to}": ${choice.count}/${choice.edge.max}`)
+						: [];
+				const definition = graphOfRun(ctx);
 				say(
 					ctx,
 					[
-						`${state.graph.name} (${state.path})`,
-						`node: ${state.node}${state.halted === undefined ? "" : ` (halted: ${state.halted})`}`,
-						`visited: ${state.visited.join(" -> ")}`,
+						formatReport(run),
 						...(loops.length > 0 ? ["limits of the edges out:", ...loops] : []),
+						...(state.status === "error" ? ["Run /graph stop."] : []),
+						...(definition ? ["", mermaid(definition, run)] : []),
+						"",
+						USAGE,
 					].join("\n"),
+					state.status === "error" ? "error" : "info",
 				);
+			} else if (state.status === "error") {
+				say(ctx, `cannot read the state: ${state.message}\nRun /graph stop.`, "error");
 			} else {
 				const trusted = ctx.isProjectTrusted();
 				const files = discoverGraphs(ctx.cwd, trusted);
@@ -788,21 +892,23 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 						...(files.length > 0
 							? ["graphs:", ...files.map((file) => `  ${file.name} (${file.path})`)]
 							: ["no graph files found in:", ...dirs]),
-						"usage: /graph start <name> | /graph goto <node> | /graph stop",
+						USAGE,
 					].join("\n"),
 				);
 			}
 		}
 
 		pi.registerCommand("graph", {
-			description: "Flow control by a graph: show the state, or [start <name> | goto <node> | stop]",
+			description:
+				"Flow control by a graph: the report of the last run [--json], or [start <name> | goto <node> | stop]",
 			handler: async (args, ctx) => {
 				const [word, name, ...rest] = args.trim().split(/\s+/);
-				if (word === "" || word === undefined) return status(ctx);
+				if (word === "" || word === undefined) return status(ctx, false);
+				if (word === "--json" && name === undefined) return status(ctx, true);
 				if (word === "start" && name && rest.length === 0) return start(name, ctx);
 				if (word === "goto" && name && rest.length === 0) return goto(name, ctx);
 				if (word === "stop" && name === undefined) return stop(ctx);
-				say(ctx, "usage: /graph [start <name> | goto <node> | stop]", "warning");
+				say(ctx, USAGE, "warning");
 			},
 		});
 	};

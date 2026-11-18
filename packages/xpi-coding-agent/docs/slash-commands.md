@@ -90,7 +90,8 @@ Linux with the npm installation of xpi.
 | `/handover [instructions]` | [Relay](relay.md): give the work to the worker model now, without a plan from the lead |
 | `/handback` | [Relay](relay.md): wake the lead now; the worker reports where things stand |
 | `/relay` | [Relay](relay.md): show who has the work, the round and the two models |
-| `/graph` | [Graph](graph.md): the graph files found, or the state of the running graph |
+| `/graph` | [Graph](graph.md): the report of the session's last run (time, cost and cache per visit, approvals, blocks, the graph as Mermaid), or the graph files found |
+| `/graph --json` | [Graph](graph.md): the same report as JSON |
 | `/graph start <name>` | [Graph](graph.md): check a graph and enter its first node |
 | `/graph goto <node>` | [Graph](graph.md): your own jump to any node of the running graph; a command node runs its command |
 | `/graph stop` | [Graph](graph.md): end the running graph and give back the selected model |
