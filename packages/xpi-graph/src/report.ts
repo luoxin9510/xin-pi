@@ -505,7 +505,8 @@ export function mermaid(graph: Graph, run?: GraphReport): string {
 	return lines.join("\n");
 }
 
-function duration(msValue: number): string {
+/** A duration as `/graph` shows it: `0.4s`, `42s`, `3m12s`, `1h05m`. */
+export function formatDuration(msValue: number): string {
 	const seconds = Math.round(msValue / 1000);
 	if (msValue < 1000) return `${(msValue / 1000).toFixed(1)}s`;
 	if (seconds < 60) return `${seconds}s`;
@@ -543,7 +544,7 @@ export function formatReport(run: GraphReport): string {
 			visit.own.cacheRead + visit.own.cacheWrite === 0
 				? "—"
 				: `${tokens(visit.own.cacheRead)}/${tokens(visit.own.cacheWrite)}`;
-		const time = visit.command ? duration(visit.command.durationMs) : duration(visit.durationMs);
+		const time = visit.command ? formatDuration(visit.command.durationMs) : formatDuration(visit.durationMs);
 		const left = visit.left
 			? `${visit.left.via} → ${visit.left.to}`
 			: visit.ended
@@ -574,7 +575,7 @@ export function formatReport(run: GraphReport): string {
 		.map(([key, tally]) => `${key} ${money(tally.cost)}`);
 	const toolsTotal = run.total.tools.cost > 0 ? ` (tools ${money(run.total.tools.cost)})` : "";
 	lines.push(
-		`total ${duration(run.total.durationMs)} · ${money(run.total.cost)}${toolsTotal}${models.length > 0 ? ` · ${models.join(" · ")}` : ""}`,
+		`total ${formatDuration(run.total.durationMs)} · ${money(run.total.cost)}${toolsTotal}${models.length > 0 ? ` · ${models.join(" · ")}` : ""}`,
 	);
 	lines.push(`not counted: ${run.notCounted.join("; ")}`);
 	return lines.join("\n");

@@ -117,7 +117,10 @@ What happens while it runs:
 
 - **The model.** `/graph start` selects the virtual model `graph/auto`. It sends each request to the model of the
   current node. The footer shows the graph and the node, `graph ship: build`, and for a node entered by an edge with a
-  `max`, how often that edge was taken: `graph ship: build (1/3)`. While a command runs it shows `(running)`.
+  `max`, how often that edge was taken: `graph ship: build (1/3)`. While a command runs it shows the time it has run,
+  `graph ship: ci 3m12s`, refreshed each second, and a widget above the editor shows the command and the last 5
+  lines of its output (colour codes removed, a `\r` progress line at its last state). The widget goes when the
+  command ends, is stopped, or the graph is.
 - **Entering a model node.** The model gets a message with the node's name, the report of the node it comes from, the
   node's prompt, the paths it must not write, and the nodes it may go to with their labels. The role is in this
   message, not in the system prompt; the system prompt has one fixed section about graphs, the same in every node, so
@@ -253,6 +256,26 @@ Then the graph as Mermaid (`flowchart LR`), the current node and the edges taken
 `extension_ui_request` it already reads); without one it is one line on stdout. With no run it is
 `{"schemaVersion":1,"status":"none"}`.
 
+### Events for other extensions
+
+Each graph record on the branch is also told on the extension bus (`pi.events`), once, in the branch's order:
+
+| Channel | Record | Fields besides `graph`, `node`, `visit`, `at` |
+|---|---|---|
+| `graph:start` | `graph.start` | `path`, `selection` |
+| `graph:move` | `graph.move` | `edge`, `via`, `report` (accepted, not entered yet) |
+| `graph:enter` | `graph.node` | `via`, `edge`, `report` |
+| `graph:command` | `graph.command` | `run`, `code`, `timedOut`, `startedAt`, `durationMs`, `lines`, `outcome` |
+| `graph:asked` | `graph.asked` | `to`, `answer`, `askedAt` |
+| `graph:blocked` | `graph.blocked` | `tool`, `rule` |
+| `graph:halt` | `graph.halt` | `reason` |
+| `graph:end` | `graph.end` | `reason`, `duringRun` |
+
+An event is told only when its record is on the branch: after each write of the extension and when a run settles,
+so the records written at a turn's end come at its end, and a record that is dropped (a graph stopped while its
+command ran) is never told. A resumed session and a move in the session tree tell nothing of the records already
+there; only new ones.
+
 ## What a graph does not guarantee
 
 A graph stops a model from skipping a step by mistake or by taking a shortcut. It does not stop a model that sets out
@@ -353,5 +376,6 @@ tool and changes no request.
   [checks](checks.md) (its own process group, killed on timeout or abort).
 - Tests: `packages/xpi-graph/test/`, `test/graph-files.test.ts`, `test/graph-limits.test.ts`,
   `test/repo-graphs.test.ts` (the two graphs above load, and are refused with a control taken out),
-  `test/suite/graph.test.ts` and `test/suite/graph-controls.test.ts` (faux provider, a fake command runner).
+  `test/suite/graph.test.ts` and `test/suite/graph-controls.test.ts` (faux provider, a fake command runner; the
+  report, the live view and the events too), `test/checks-runner.test.ts` (`onOutput`).
 - Spec and decisions: `.scratch/xpi-graph/`.

@@ -43,6 +43,36 @@ afterEach(() => {
 });
 
 describe("runCheckCommand", () => {
+	it("tells onOutput the text as it arrives, in order, and keeps the same output as without it", async () => {
+		const cwd = tempDir();
+		const command = "echo one; sleep 0.2; echo two >&2; sleep 0.2; printf 'thr\\303\\251e\\n'";
+		const told: { text: string; at: number }[] = [];
+		const started = Date.now();
+		const watched = await runCheckCommand(command, {
+			cwd,
+			timeoutMs: 10_000,
+			onOutput: (text) => told.push({ text, at: Date.now() - started }),
+		});
+		const plain = await runCheckCommand(command, { cwd, timeoutMs: 10_000 });
+		expect(told.map((part) => part.text).join("")).toBe("one\ntwo\nthrée\n");
+		// The first line was told before the command ended.
+		expect(told[0].at).toBeLessThan(told.at(-1)?.at ?? 0);
+		expect(watched.output).toBe(plain.output);
+		expect(watched.code).toBe(0);
+	});
+
+	it("goes on when onOutput throws", async () => {
+		const result = await runCheckCommand("echo hi", {
+			cwd: tempDir(),
+			timeoutMs: 10_000,
+			onOutput: () => {
+				throw new Error("view broke");
+			},
+		});
+		expect(result.code).toBe(0);
+		expect(result.output).toBe("hi\n");
+	});
+
 	it("captures stdout and stderr and the exit code, in the given cwd", async () => {
 		const cwd = tempDir();
 		writeFileSync(join(cwd, "marker.txt"), "");

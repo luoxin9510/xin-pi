@@ -376,13 +376,15 @@ The options below come with the unit. Each says how to turn it off.
   `session_compact`; `model_select` with a source that tells a restore from a choice; `tool_call` with the tool's
   effect, its input and `{ block, reason }`, fired for the calls a codemode script makes too (the limits);
   `ui.select` (the approval); `appendEntry`, `sendMessage` with `triggerTurn` and `details`, `setModel`, `setThinkingLevel`,
-  `ui.setStatus`, `ctx.isIdle()`, `ctx.signal`; child processes that inherit the environment (the limits of a
+  `ui.setStatus`, `ui.setWidget` (a running command's last lines), `pi.events` (the `graph:*` events),
+  `session_tree` and `agent_settled` (when the events are told), `ctx.isIdle()`, `ctx.signal`; child processes that inherit the environment (the limits of a
   node reach a subagent child through `XPI_GRAPH_LIMITS`).
 - **Copy (one unit)**: the package `packages/xpi-graph/` whole (`src/`: `types.ts`, `parse.ts`, `check.ts`,
   `state.ts`, `report.ts`, `index.ts`), `extensions/graph/` (`index.ts`, `files.ts`, `limits.ts`) and `utils/literal.ts`. Three
   files of other units come with it; copy them if you do not port those units: `projectDirs` of
   `extensions/subagent/discovery.ts` (the directories from the cwd up to the repository root),
-  `extensions/checks/runner.ts` (it runs a command node: its own process group, a timeout, an abort) and
+  `extensions/checks/runner.ts` (it runs a command node: its own process group, a timeout, an abort, and `onOutput`
+  for the live view) and
   `extensions/protect/match.ts` (it matches a node's `readOnly` patterns).
 - **Rewrite**: the provider and model ids (`graph`, `auto`), the tool name `next`, the directories
   (`.pi/graphs/`, `<agent dir>/graphs/`), and the texts the model reads (`SECTION_TEXT` and `enterText` in

@@ -10,7 +10,12 @@ import { SessionManager } from "../../src/core/session-manager.ts";
 import { createToolDefinitionFromAgentTool } from "../../src/core/tools/tool-definition-wrapper.ts";
 import { createCodemodeExtension } from "../../src/extensions/codemode/index.ts";
 import { codemodeScripts } from "../../src/extensions/codemode/scripts.ts";
-import graphExtension, { GRAPH_MODEL, GRAPH_PROVIDER, GRAPH_SECTION } from "../../src/extensions/graph/index.ts";
+import graphExtension, {
+	GRAPH_EVENTS,
+	GRAPH_MODEL,
+	GRAPH_PROVIDER,
+	GRAPH_SECTION,
+} from "../../src/extensions/graph/index.ts";
 import { createHarness, createTestUiContext, getMessageText, getToolResult, type Harness } from "./harness.ts";
 
 // Three model nodes: `plan` on the large model, `build` on the small one, `check` on the model selected at the start.
@@ -68,6 +73,13 @@ describe("graph extension", () => {
 		} = {},
 	) {
 		const codemode = options.codemode ?? true;
+		/** What the extension bus was told (spec 02, section 7). */
+		const events: { channel: string; data: Record<string, unknown> }[] = [];
+		const listener = (pi: ExtensionAPI) => {
+			for (const channel of Object.values(GRAPH_EVENTS)) {
+				pi.events.on(channel, (data) => events.push({ channel, data: data as Record<string, unknown> }));
+			}
+		};
 		const harness = await createHarness({
 			// The first model is the one selected when a test starts.
 			models: [{ id: "medium" }, { id: "small" }, { id: "large", reasoning: true }],
@@ -82,6 +94,7 @@ describe("graph extension", () => {
 				...(options.tools ?? []).map(
 					(tool) => (pi: ExtensionAPI) => pi.registerTool(createToolDefinitionFromAgentTool(tool)),
 				),
+				listener,
 			],
 			...(options.sessionManager ? { sessionManager: options.sessionManager } : {}),
 		});
@@ -156,6 +169,7 @@ describe("graph extension", () => {
 		const note = (part: string) => notes.find((text) => text.includes(part));
 		return {
 			harness,
+			events,
 			notes,
 			statuses,
 			seen,
@@ -448,6 +462,57 @@ describe("graph extension", () => {
 		await second.harness.session.waitForIdle();
 		expect(second.models()).toEqual(["small", "medium"]);
 		expect(second.running().node).toBe("check");
+	});
+
+	it("tells the bus nothing again after a resume, and only what is new", async () => {
+		const sessionManager = SessionManager.inMemory();
+		const first = await setup({ sessionManager });
+		first.harness.setResponses([first.move("build"), first.say("Half built.")]);
+		await first.harness.session.prompt("/graph start flow");
+		await first.harness.session.waitForIdle();
+		expect(first.events.map((event) => event.channel)).toEqual([
+			"graph:start",
+			"graph:enter",
+			"graph:move",
+			"graph:enter",
+		]);
+
+		const second = await setup({ sessionManager });
+		const router = second.harness.session.modelRuntime.getModel(GRAPH_PROVIDER, GRAPH_MODEL);
+		if (router) await second.harness.session.setModel(router);
+		second.harness.setResponses([second.move("check"), second.say("Checking.")]);
+		await second.harness.session.prompt("go on");
+		await second.harness.session.waitForIdle();
+		expect(second.events.map((event) => `${event.channel} ${event.data.node}#${event.data.visit}`)).toEqual([
+			"graph:move build#2",
+			"graph:enter check#3",
+		]);
+	});
+
+	it("tells the bus nothing again after /tree, there and back, and goes on with what is new", async () => {
+		const { harness, events, move, say } = await setup();
+		harness.setResponses([say("Hello.")]);
+		await harness.session.prompt("hi");
+		await harness.session.waitForIdle();
+		const before = harness.sessionManager.getLeafId();
+		harness.setResponses([move("build"), say("Half built.")]);
+		await harness.session.prompt("/graph start flow");
+		await harness.session.waitForIdle();
+		const told = events.length;
+		expect(told).toBe(4);
+		// Back to before the graph, then forward again to the graph's branch: nothing is told either way.
+		if (!before) throw new Error("no leaf");
+		const graphLeaf = harness.sessionManager.getLeafId();
+		await harness.session.navigateTree(before);
+		harness.setResponses([say("On the old branch.")]);
+		await harness.session.prompt("still here?");
+		await harness.session.waitForIdle();
+		if (graphLeaf) await harness.session.navigateTree(graphLeaf);
+		harness.setResponses([say("Back.")]);
+		await harness.session.prompt("and now?");
+		await harness.session.waitForIdle();
+		// Only what is new on the branch: "build" ended a second turn without a move and halted.
+		expect(events.slice(told).map((event) => `${event.channel} ${event.data.node}`)).toEqual(["graph:halt build"]);
 	});
 
 	it("enters a move whose turn never settled before the next run", async () => {
