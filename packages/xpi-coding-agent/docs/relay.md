@@ -194,8 +194,8 @@ The acceptance commands are written by the model and run without asking, like th
 
 ## The step list
 
-A handover may carry `steps`: the plan again as short lines, one a step. It is optional and the lead decides; a round
-without it works as before, and so does `/handover`. With a list:
+With `relay.steps: true` (off by default) a handover may carry `steps`: the plan again as short lines, one a step. It
+is optional and the lead decides; a round without it works as before, and so does `/handover`. With a list:
 
 - **The worker** gets the list in its section, numbered, each line with its state (`[ ]`, `[x]`, `[-]`), at every
   request, so a compaction cannot lose it. It changes the list with a third unlisted tool, `step`, from the same script
@@ -219,11 +219,18 @@ without it works as before, and so does `/handover`. With a list:
 
 Nothing enforces the list. A hand back with open steps is a hand back; no reminder is sent and no run is continued for
 it. A tick is the worker's word, not a check: the acceptance commands stay the only hard test. Each tick changes the
-worker's section, so the worker's cached prefix is written again from there once per tick. `relay.steps: false` takes
-the field out of the lead's section (a list sent anyway is dropped) and makes `step` refuse. A round holds at most 30
+worker's section, so the worker's cached prefix is written again from there once per tick. With `relay.steps` off the
+lead's section does not name the field (a list sent anyway is dropped) and `step` refuses. A round holds at most 30
 steps; a step is one line of at most 160 characters (a longer one is cut, and a number or list marker in front is
 removed), and the widget shows eight rows, the far end of a longer list as `+N more`. A handover that did not take
 effect (cut off, or voided) has no list.
+
+Why it is off by default, measured on 2026-11-17 with the setting on: the lead gave a list in every handover (48 of
+48, Opus and Haiku), and with Haiku as the worker 90 of 92 steps of the small tasks and every step of the long ones
+were closed at the hand back. But on the long tasks the worker ticked all its steps in its last script in 4 of 5
+rounds, so the widget stood at 0/N for most of the round; one round ticked all seven steps done and handed back
+`blocked`; and whether the list changes the lead's cost was not shown. The list makes the record clearer; it does not
+yet show progress while the worker works.
 
 ## The hand-back record
 
@@ -593,7 +600,7 @@ rounds, not the size of the diff, so the default stays 20000.
     "leadContext": { "limit": "30%" },
     "warmLead": true,
     "quoteLead": true,
-    "steps": true,
+    "steps": false,
     "objective": "the user wants a correct result for as few of your (lead) tokens as possible. Worker tokens are not counted."
   }
 }
@@ -620,7 +627,7 @@ rounds, not the size of the diff, so the default stays 20000.
 | `leadContext.tierFraction`, `leadContext.maxCompactions` | `0.95`, `4` | As for the worker. A stuck lead always has its limit lifted, until the next handover or your next message. |
 | `warmLead` | `true` | Keep the lead's cached prefix warm with short refresh requests during a worker phase, while that costs less than writing it again. Must be `true` or `false`. |
 | `quoteLead` | `true` | In the worker's requests, quote the conversation up to the handover in one user message (see [The lead's work as a quote](#the-leads-work-as-a-quote)). `false`: the worker gets the lead's replies as assistant messages, as before. Must be `true` or `false`. |
-| `steps` | `true` | The lead may give a handover a list of steps, which the worker ticks off and you see above the editor (see [The step list](#the-step-list)). `false`: no such field, no list. Must be `true` or `false`. |
+| `steps` | `false` | The lead may give a handover a list of steps, which the worker ticks off and you see above the editor (see [The step list](#the-step-list)). Off by default (see there why). Must be `true` or `false`. |
 
 The values are read at each request, so a change applies to the next one. A wrong value ends the request with an
 error that names the key; a context limit below `compaction.keepRecentTokens` plus 20,000 is one too. The thinking level selected for `relay/auto` itself is not used.

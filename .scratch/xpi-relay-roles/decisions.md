@@ -98,7 +98,9 @@ nudge the model and continue a run with open items). Relay takes the core and no
 27. The hand-back record carries the list as the worker left it, before the report.
 28. A hand back with open steps is a hand back: no reminder, no continuation. The acceptance commands stay the only
     hard test.
-29. Setting `relay.steps`, default `true`.
+29. Setting `relay.steps`, default `true`. Changed on 2026-11-18 by the owner after the real runs (option A): default
+    `false`. The worker ticked at the hand back, not as it went, on long tasks; one round ticked everything done and
+    handed back blocked; the lead's cost was not shown not to rise. The feature stays for who turns it on.
 30. Verification: offline tests for every change of the list and the whole flow on the faux provider. Real: Opus as
     the lead on two long tasks twice, Haiku as the lead on the small tasks once, about $3.5. Reported: whether the
     lead gives steps, whether ticks match the work (against acceptance and the diff), the lead's cost, the cost of

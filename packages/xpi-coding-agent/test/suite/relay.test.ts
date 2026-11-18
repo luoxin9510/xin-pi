@@ -257,7 +257,10 @@ describe("relay", () => {
 	});
 
 	it("carries a step list from the handover to the worker's prompt, the widget and the record", async () => {
-		const { harness, seen, system, widgets, script, say, entries } = await createRelayHarness({ codemode: true });
+		const { harness, seen, system, widgets, script, say, entries } = await createRelayHarness({
+			codemode: true,
+			relay: { steps: true },
+		});
 		harness.setResponses([
 			script(
 				`await tools.handover({ plan: "PLAN", steps: ["STEP-ONE", "STEP-TWO", "STEP-THREE"], acceptance: ["true"] });`,
@@ -274,6 +277,11 @@ describe("relay", () => {
 		expect(seen.map((request) => request.model)).toEqual(["large", "small", "small", "large"]);
 		// The lead is told of the field; the worker gets the list with its state, in its section, at every request.
 		expect(system[0]).toContain("- steps (optional): The plan again as a list of short lines");
+		// Off by default: a relay without the setting does not tell the lead of the field.
+		const plain = await createRelayHarness({ codemode: true });
+		plain.harness.setResponses([plain.say("hi")]);
+		await plain.harness.session.prompt("hello");
+		expect(plain.system[0]).not.toContain("- steps");
 		expect(system[1]).toContain("1. [ ] STEP-ONE\n2. [ ] STEP-TWO\n3. [ ] STEP-THREE");
 		expect(system[1]).toContain('tools.step({ n, status: "done" })');
 		expect(system[2]).toContain("1. [x] STEP-ONE\n2. [ ] STEP-TWO");

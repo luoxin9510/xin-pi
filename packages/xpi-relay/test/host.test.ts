@@ -166,8 +166,9 @@ describe("createRelay against a fake host", () => {
 	});
 
 	describe("the step list", () => {
+		const STEPS = { ...config, steps: true };
 		it("is written with the handover, ticked by the worker only, and shown to the worker, the user and in /relay", async () => {
-			const { relay, call, entries, state, registered } = make();
+			const { relay, call, entries, state, registered } = make(STEPS);
 			state("lead", 0);
 			await relay.handover({ plan: "do it", steps: [" add a test ", "", "fix it"] }, undefined, call);
 			const written = entries.find((entry) => entry.type === "custom" && entry.customType === HANDOVER_ENTRY);
@@ -204,7 +205,7 @@ describe("createRelay against a fake host", () => {
 		});
 
 		it("shows no list for a handover that was cut off before the worker answered", async () => {
-			const { relay, call, state, message } = make();
+			const { relay, call, state, message } = make(STEPS);
 			state("lead", 0);
 			message(user("go"));
 			await relay.handover({ plan: "p", steps: ["a", "b"] }, undefined, call);
@@ -217,7 +218,7 @@ describe("createRelay against a fake host", () => {
 		});
 
 		it("refuses a wrong shape before anything is written, and has no list without steps", async () => {
-			const { relay, call, entries, state, registered } = make();
+			const { relay, call, entries, state, registered } = make(STEPS);
 			state("lead", 0);
 			await expect(relay.handover({ plan: "p", steps: "one" as never }, undefined, call)).rejects.toThrow(
 				"steps must be a list of strings",
@@ -246,8 +247,13 @@ describe("createRelay against a fake host", () => {
 			const step = registered[0].find((spec) => spec.name === "step")!;
 			await expect(step.execute({ n: 1, status: "done" }, undefined, call)).rejects.toThrow("Step lists are off");
 			expect(relay.stepsWidget(call)).toBeUndefined();
-			// and the lead of a relay with the default is told of it
-			const on = make();
+			// the default is off too: the lead of a relay without the setting is not told of it
+			const plain = make();
+			plain.models.set("faux/large", { id: "large" } as Model<Api>);
+			plain.state("lead", 0);
+			expect(plain.relay.section(plain.call)?.text).not.toContain("- steps");
+			// and the lead of a relay with step lists on is
+			const on = make(STEPS);
 			on.models.set("faux/large", { id: "large" } as Model<Api>);
 			on.state("lead", 0);
 			expect(on.relay.section(on.call)?.text).toContain(
@@ -454,7 +460,7 @@ describe("createRelay against a fake host", () => {
 
 	describe("tools and prompt", () => {
 		it("re-registers the tools as direct tools when codemode is off, and activates them only while relay is selected", () => {
-			const { relay, call, registered, activeTools, select, setActive } = make();
+			const { relay, call, registered, activeTools, select, setActive } = make({ ...config, steps: true });
 			relay.onBeforeAgentStart(call);
 			expect(registered.at(-1)?.map((spec) => spec.exposure)).toEqual(["direct", "direct", "direct"]);
 			expect(activeTools()).toEqual(["read", "handover", "handback", "step"]);
@@ -465,8 +471,8 @@ describe("createRelay against a fake host", () => {
 			setActive(["read", "codemode"]);
 			relay.onBeforeAgentStart(call);
 			expect(registered.at(-1)?.map((spec) => spec.exposure)).toEqual(["deferred", "deferred", "deferred"]);
-			// With step lists off the step tool is not declared in the direct fallback.
-			const off = make({ ...config, steps: false });
+			// With step lists off (the default) the step tool is not declared in the direct fallback.
+			const off = make();
 			off.relay.onBeforeAgentStart(off.call);
 			expect(off.activeTools()).toEqual(["read", "handover", "handback"]);
 		});
