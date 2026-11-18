@@ -233,3 +233,47 @@ One blocking finding, two should-fix, three nits. What changed:
 Both findings of round 3 are closed; nothing blocking. One nit, taken: `graph.move` records where the move came
 from (`via`), because a model's move may be entered at the next request of the same turn and a command result
 may not.
+
+# Spec 02: what a graph run shows
+
+## Grill 1 (2026-11-18). Accepted by the owner on 2026-11-18 ("全是")
+
+The owner asked for observability ("最好我们的xpi-graph要有可观测性").
+
+- O1. One source: the report is computed from the session's entries; no store of its own, as the graph's state.
+- O2. Accounting per visit: time, cost, input and output tokens, cache read and write, summed from the messages
+  between two `graph.node` entries; a subagent's cost counted where the session records it.
+- O3. `graph.command` gets structured details: exit code, duration, timed out, the number of output lines, pass or fail.
+- O4. A running command is visible: elapsed time in the footer, the last lines of its output in a widget, removed
+  when it ends.
+- O5. `/graph` shows a timeline, one line per visit (node, model or command, time, cost, cache, how it was left),
+  then the approvals, blocks and halts, and the totals; after the end it shows the last run.
+- O6. For programs: `/graph --json`, and events on the extension bus for entering, moving, halting, blocking and
+  ending. herdr and roost are not changed.
+- O7. A Mermaid graph in the report, with the current node and the edges taken marked. No full-screen view.
+- O8. Not in scope: a cost budget, stopping on overspend, OpenTelemetry. Recorded in the "later" table.
+- O9. The end-to-end run of the `dev` graph (waiting for a fresh login) goes first; the spec is written meanwhile.
+  Delivery as for spec 01: spec PR, then a branch, PR, green CI and an independent Opus review per milestone, merged
+  without asking; real-model runs on Haiku 5.5 only; no release, no npm.
+
+## Facts checked before the spec (2026-11-18, by reading the code)
+
+- A foreground subagent started with `Agent` from a codemode script is counted in that script's tool result:
+  `message.usage` of the `toolResult` entry holds the sum of the script's nested calls
+  (`core/agent-session.ts`, `core/nested-tool-calls.ts`). It cannot be told apart from `models.*` calls of the same
+  script. Calls of a background script made after its result was written are `usage` entries of kind
+  `nested_tool_calls`.
+- A background agent's cost is only in the text of its `subagent` message (`subagent/agent-tool.ts`
+  `agentEndMessage`): not counted, and the report says so.
+- Every session entry has an ISO `timestamp` (`core/session-manager.ts` `SessionEntryBase`).
+- `runCheckCommand` returns the output only at the end; `onOutput` is new.
+- Relay's `spendFact` (`xpi-relay/src/facts.ts`) returns text and covers assistant messages only; the package keeps
+  its own small fold.
+- Extension bus channels are named `name:event` (`docs/extensions.md`).
+
+## Choices made while writing the spec, put to the owner with it
+
+- `graph.asked` records the answer of every approval question, since "send back", "stop" and a dismissed question
+  leave nothing else on the branch (section 4).
+- The report covers the last run on the branch only.
+- `/graph --json` comes back as the notice's text, which RPC clients already receive.
