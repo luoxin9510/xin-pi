@@ -52,7 +52,9 @@ A command node's details (section 3) carry its own `startedAt` and `durationMs`.
 A visit is one entry into a node. Its entries (for usage) are those from its `graph.node` entry to the next
 `graph.node`. For the last visit of an ended run, the entries after `graph.end` count only for the rest of the agent
 run that wrote it: tool results and assistant messages (`own` and `tools`, never `other`) up to and including the
-first assistant message with no tool call, and never past a user message or the next `graph.start`. That way a run
+first assistant message with no tool call, and never past a user message or the next `graph.start`. `graph.end`
+records `duringRun` (whether an agent run was going on when it was written); after an end written while the session
+was idle (`/graph stop` between turns) nothing counts, so a turn another extension starts later is not the graph's. That way a run
 ended from inside a script (the approval's "stop") still counts the script's tool result and its subagent, which
 are written after `graph.end`, while the cache refreshes and extension calls of an idle session after the run do
 not grow its total. Its time (`startedAt`,
@@ -80,8 +82,9 @@ each visit:
 - how it was left: `via` (`model`, `approve`, `pass`, `fail`, `goto`) and the target; a pending move (accepted by
   `next`, not entered yet) as `pending: { to }`; or how the graph ended in it.
 
-Every usage the session records inside the run is counted, so the report's total equals the usage of those entries
-summed by hand. Not counted, and said so in the report and the docs: a background agent's cost, which the session
+Every usage the session records inside the run is counted, so the report's total equals the usage of the run's
+entries summed by hand, where the run's entries are those of the visits as defined above (after `graph.end`, the
+`other` kinds are left out on purpose); the suite test and the by-hand check sum over the same entries. Not counted, and said so in the report and the docs: a background agent's cost, which the session
 records only as text in the `subagent` message; usage before `graph.start`.
 
 Totals: the sum of the visits, and the sums per model. A usage recorded under a virtual model (`graph/auto`, as

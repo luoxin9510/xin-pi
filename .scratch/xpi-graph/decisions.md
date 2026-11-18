@@ -307,3 +307,8 @@ Six of seven findings and all nits of round 1 closed. New: one blocking, one sho
   refreshes of an idle session do not grow a finished run's total.
 - Nits: `cache_warm` records the real model (the claim was wrong); `recordUsage` writes only `ext:<purpose>`;
   `waitMs` is approval waits only; a queued `graph.command` is matched to its visit by node and start time.
+
+## Review of the spec, round 3 (same reviewer, commit 658a97f6f, 2026-11-18)
+
+All round 2 findings closed; nothing blocking or should-fix. Two nits, taken: the total is checked against the
+same entries the report uses; `graph.end` records `duringRun`, and after an end written while idle nothing counts.
