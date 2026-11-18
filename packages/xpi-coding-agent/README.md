@@ -34,7 +34,8 @@ What xin-pi adds to pi:
 - **Graph**: a flow written as nodes and edges in `.pi/graphs/<name>.js`, run with `/graph start <name>`. The model
   works freely inside a node and can leave it only by a declared edge, so a step of the flow cannot be skipped; each
   node can have its own model. A check or a merge is a command node that xpi runs itself; an edge can ask for your
-  approval; a node can carry a list of commands it may not run and paths it may not write
+  approval; a node can carry a list of commands it may not run and paths it may not write; `/graph` reports the time,
+  cost and cache of each visit, during the run and after it
   ([docs/graph.md](https://github.com/luoxin9510/xin-pi/blob/main/packages/xpi-coding-agent/docs/graph.md)).
 - **Protected paths**: the file tools cannot read `.env` files and private keys or write `.git/` and `node_modules/`;
   your own patterns go in the `protect` setting, `/protect off` lifts it for a session ([docs/protect.md](docs/protect.md)).

@@ -106,7 +106,11 @@ the current branch into the state. Resuming a session, or moving to another bran
 | `graph.move` | `edge`, `via`, `report` | a move is accepted and not entered yet |
 | `graph.halt` | `reason` | the graph stops and waits for the user |
 | `graph.blocked` | the call and the rule | a limit blocked a call (a record; the state ignores it) |
-| `graph.end` | `reason` | the graph is over |
+| `graph.asked` | `node`, `to`, `answer`, `askedAt` | an approval question is answered (a record; the state ignores it) |
+| `graph.end` | `reason`, `duringRun` | the graph is over |
+
+Each entry also carries `at`, when the host made it; the host may commit entries later than that (drafts of a turn's
+end), and the report goes by `at`.
 
 `readState` returns one of:
 
@@ -132,6 +136,26 @@ Rules of the fold:
 `exits(state)` lists the edges out of the current node, each with its index, its count, and `open: false` when it is
 at its `max`.
 
+## The report of a run
+
+`report(entries, now, { isVirtual })` folds the last run on the branch into a `GraphReport` (`schemaVersion: 1`),
+or returns undefined when the branch has none. Spec: `.scratch/xpi-graph/02-observability.md`.
+
+- One `VisitReport` per entry into a node: the models that answered (from the assistant messages, so a node with no
+  model shows the model that stood in), or the command and its result (`graph.command` details, matched to the visit
+  by node and start time, since a queued message can land after its visit); `startedAt` and `durationMs` from the
+  entries' `at`; `waitMs` from `graph.asked`; how it was left, a pending move, or the end.
+- Usage in three parts: `own` (assistant messages), `tools` (tool results with usage, `usage` records of kind
+  `nested_tool_calls`) and `other` by kind (other `usage` records, `compaction` and `branch_summary`).
+- After `graph.end`: when it was written during a run (`duringRun`), the rest of that run counts, `own` and `tools`
+  only, up to the first assistant message with no tool call and never past a user message; otherwise nothing.
+- `byModel`: own requests under the model that answered; `usage` records under their model, a virtual one
+  (`isVirtual`, default `graph/auto`) under the visit's model or `unknown`; tool results under `nested calls`.
+- A run whose entries cannot be read has `status: "error"` and the visits before the bad entry.
+
+`formatReport(report)` is the text of `/graph`; `mermaid(graph, report?)` the graph as a `flowchart LR`, with the
+visited nodes, the current one and the edges taken marked.
+
 ## Tests
 
 ```bash
@@ -140,4 +164,5 @@ node ../../node_modules/vitest/dist/cli.js --run
 ```
 
 `test/parse.test.ts` covers every field and every error, `test/check.test.ts` each structural check with a failing
-and a passing graph, `test/state.test.ts` the fold on hand-written branches.
+and a passing graph, `test/state.test.ts` the fold on hand-written branches, `test/report.test.ts` the report, its
+text and the Mermaid output.

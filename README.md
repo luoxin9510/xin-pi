@@ -27,7 +27,8 @@ to npm), environment variables are `XPI_*`, and these built-in extensions are ad
 - [graph](packages/xpi-coding-agent/docs/graph.md): a flow as nodes and edges in a file, run with `/graph start`. The
   model can leave a node only by a declared edge, so a step cannot be skipped, and each node can have its own model.
   A check or a merge is a command node that xpi runs itself, an edge can ask for your approval, and a node can carry
-  the commands it may not run and the paths it may not write.
+  the commands it may not run and the paths it may not write. `/graph` shows what each visit of a node took and cost,
+  while the graph runs and after it ended.
 - `upstream`: `/upstream` reports what upstream pi has that is worth porting.
 - `commit`: `/commit` drafts a commit message for the staged changes with a small model (setting `commit.model`,
   default `haiku`), opens it in an editor, and commits; hooks run and nothing is pushed or amended.
@@ -98,7 +99,7 @@ published to npm (it bundles the others).
 | **[xpi-evals](packages/xpi-evals)** | Real-model evals (private, not published) |
 | **[xpi-shadow-git](packages/xpi-shadow-git)** | A private git history over a workspace owned by another version control system, with `import` and `export` as the sync point (`xpi sg`; see [shadow-git](packages/xpi-coding-agent/docs/shadow-git.md)) |
 | **[xpi-relay](packages/xpi-relay)** | Relay: a lead model plans and reviews, a worker model builds, in one session; the control flow, records and host interface (private, ships inside `xpi-coding-agent`; see [relay](packages/xpi-coding-agent/docs/relay.md)) |
-| **[xpi-graph](packages/xpi-graph)** | Flow control by a graph: nodes and hard edges in one session; the file format, the checks at load and the state read from the session (private, ships inside `xpi-coding-agent`; see [graph](packages/xpi-coding-agent/docs/graph.md)) |
+| **[xpi-graph](packages/xpi-graph)** | Flow control by a graph: nodes and hard edges in one session; the file format, the checks at load, the state read from the session and the report of a run (private, ships inside `xpi-coding-agent`; see [graph](packages/xpi-coding-agent/docs/graph.md)) |
 | **[xpi-roost](packages/xpi-roost)** | Background sessions: the roost daemon, PTY host, the hub, schedules and their library (private, ships inside `xpi-coding-agent`) |
 
 ## Permissions & Containerization

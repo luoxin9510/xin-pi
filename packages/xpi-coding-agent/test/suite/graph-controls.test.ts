@@ -5,7 +5,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { type Context, type FauxResponseStep, fauxAssistantMessage, fauxToolCall } from "xpi-ai";
-import { GRAPH_BLOCKED, GRAPH_HALT, readState } from "xpi-graph";
+import { GRAPH_ASKED, GRAPH_BLOCKED, GRAPH_COMMAND, GRAPH_HALT, readState, report } from "xpi-graph";
 import type { RunResult } from "../../src/extensions/checks/runner.ts";
 import { createCodemodeExtension } from "../../src/extensions/codemode/index.ts";
 import { createGraphExtension, GRAPH_MODEL, GRAPH_PROVIDER } from "../../src/extensions/graph/index.ts";
@@ -156,10 +156,13 @@ describe("graph extension: controls", () => {
 			if (current.status !== "running") throw new Error(`expected a running graph, got ${JSON.stringify(current)}`);
 			return current;
 		};
+		/** The data of the graph entries of a type, without the time each carries (`at`, spec 02). */
 		const entries = (customType: string) =>
-			harness.sessionManager
-				.getBranch()
-				.flatMap((entry) => (entry.type === "custom" && entry.customType === customType ? [entry.data] : []));
+			harness.sessionManager.getBranch().flatMap((entry) => {
+				if (entry.type !== "custom" || entry.customType !== customType) return [];
+				const { at: _at, ...data } = entry.data as Record<string, unknown>;
+				return [data];
+			});
 		const selected = () => `${harness.session.model?.provider}/${harness.session.model?.id}`;
 		const toolText = () => getMessageText(getToolResult(harness, "codemode"));
 		const models = () => seen.map((request) => request.model);
@@ -629,6 +632,210 @@ describe("graph extension: controls", () => {
 			await go("/graph goto deploy");
 			expect(notes.at(-1)).toContain('no node "deploy" (nodes: build, ci, review, merge)');
 			expect(running().node).toBe("build");
+		});
+	});
+
+	// Spec 02: what a run shows.
+	describe("what a run shows", () => {
+		const graphEntries = (harness: Harness) =>
+			harness.sessionManager
+				.getBranch()
+				.filter((entry) => entry.type === "custom" && entry.customType.startsWith("graph."));
+		const commandDetails = (harness: Harness) =>
+			harness.sessionManager
+				.getBranch()
+				.flatMap((entry) =>
+					entry.type === "custom_message" && entry.customType === GRAPH_COMMAND ? [entry.details] : [],
+				);
+		const lastReport = (harness: Harness) => {
+			const result = report(harness.sessionManager.getBranch(), Date.now());
+			if (!result) throw new Error("no report");
+			return result;
+		};
+
+		it("records each command's result as data, every entry's time, and each approval's answer", async () => {
+			const { harness, answers, results, move, go } = await setup();
+			results["run-ci"] = [{ code: null, timedOut: true, output: "waiting\nstill waiting\n" }, { code: 0 }];
+			answers.push("Send back", "Approve");
+			harness.setResponses([move("ci"), move("ci", "fixed"), move("merge"), move("merge", "now")]);
+			await go("/graph start ship");
+			await go("it is fine, ask again");
+
+			expect(commandDetails(harness)).toEqual([
+				expect.objectContaining({
+					node: "ci",
+					run: "run-ci",
+					code: null,
+					timedOut: true,
+					lines: 2,
+					outcome: "fail",
+				}),
+				expect.objectContaining({ node: "ci", code: 0, timedOut: false, lines: 1, outcome: "pass" }),
+				expect.objectContaining({ node: "merge", run: "do-merge", outcome: "pass" }),
+			]);
+			for (const details of commandDetails(harness) as { startedAt: string; durationMs: number }[]) {
+				expect(Number.isNaN(Date.parse(details.startedAt))).toBe(false);
+				expect(details.durationMs).toBeGreaterThanOrEqual(0);
+			}
+			// Every graph entry carries its own time.
+			for (const entry of graphEntries(harness)) {
+				expect(entry.type === "custom" && typeof (entry.data as { at?: unknown }).at, entry.id).toBe("string");
+			}
+			const asked = graphEntries(harness).flatMap((entry) =>
+				entry.type === "custom" && entry.customType === GRAPH_ASKED ? [entry.data] : [],
+			);
+			expect(asked).toEqual([
+				expect.objectContaining({ node: "review", to: "merge", answer: "send_back" }),
+				expect.objectContaining({ node: "review", to: "merge", answer: "approve" }),
+			]);
+			// The approval is recorded before the move it allows.
+			const types = graphEntries(harness).map((entry) => (entry.type === "custom" ? entry.customType : ""));
+			expect(types.lastIndexOf(GRAPH_ASKED)).toBeLessThan(types.lastIndexOf("graph.move"));
+
+			const result = lastReport(harness);
+			expect(result.status).toBe("ended");
+			expect(result.endReason).toBe("done");
+			expect(result.visits.map((visit) => `${visit.node}:${visit.left?.via ?? visit.ended}`)).toEqual([
+				"build:model",
+				"ci:fail",
+				"build:model",
+				"ci:pass",
+				"review:approve",
+				"merge:done",
+			]);
+			expect(result.visits[1].command).toMatchObject({ timedOut: true });
+			expect(result.asked.map((record) => record.answer)).toEqual(["send_back", "approve"]);
+		});
+
+		it("records a dismissed question and a stop, the stop before the end, and counts the script that stopped", async () => {
+			const { harness, answers, move, say, go } = await setup();
+			answers.push(undefined, "Stop the graph");
+			harness.setResponses([move("ci"), move("merge"), move("merge", "again"), say("Stopped.")]);
+			await go("/graph start ship");
+			await go("ask me again");
+			const types = graphEntries(harness).map((entry) => (entry.type === "custom" ? entry.customType : ""));
+			const asked = graphEntries(harness).flatMap((entry) =>
+				entry.type === "custom" && entry.customType === GRAPH_ASKED
+					? [(entry.data as { answer: string }).answer]
+					: [],
+			);
+			expect(asked).toEqual(["dismissed", "stop"]);
+			expect(types.lastIndexOf(GRAPH_ASKED)).toBeLessThan(types.indexOf("graph.end"));
+			const end = graphEntries(harness).find((entry) => entry.type === "custom" && entry.customType === "graph.end");
+			expect(end?.type === "custom" && end.data).toMatchObject({ reason: "stopped", duringRun: true });
+
+			// The script that stopped the graph has its tool result after the end: it is the review's.
+			const branch = harness.sessionManager.getBranch();
+			const endAt = branch.findIndex((entry) => entry.type === "custom" && entry.customType === "graph.end");
+			expect(
+				branch.slice(endAt + 1).some((entry) => entry.type === "message" && entry.message.role === "toolResult"),
+			).toBe(true);
+			// The review's requests: from its entry to the end of that run (no user message comes after the end).
+			const enteredAt = branch.findLastIndex(
+				(entry) => entry.type === "custom" && entry.customType === "graph.node",
+			);
+			const requests = branch
+				.slice(enteredAt)
+				.filter((entry) => entry.type === "message" && entry.message.role === "assistant").length;
+			const result = lastReport(harness);
+			const review = result.visits.at(-1);
+			expect(review?.node).toBe("review");
+			expect(review?.ended).toBe("stopped");
+			expect(review?.own.requests).toBe(requests);
+			expect(requests).toBeGreaterThanOrEqual(2);
+		});
+
+		it("gives a model node its own time, not that of the command entered at its turn's end", async () => {
+			const { harness, answers, held, started, release, move, go } = await setup();
+			answers.push("Stop the graph");
+			held.add("run-ci");
+			harness.setResponses([move("ci"), move("merge")]);
+			const turn = harness.session.prompt("/graph start ship");
+			await started("run-ci");
+			await new Promise((resolve) => setTimeout(resolve, 400));
+			release["run-ci"]();
+			await turn;
+			await harness.session.waitForIdle();
+			await go("/graph");
+			const [build, ci] = lastReport(harness).visits;
+			expect(ci.command?.durationMs).toBeGreaterThanOrEqual(350);
+			expect(build.durationMs).toBeLessThan(300);
+			// Committed together, after the command: the times are the entries' own, not their timestamps.
+			const node = harness.sessionManager
+				.getBranch()
+				.find(
+					(entry) =>
+						entry.type === "custom" &&
+						entry.customType === "graph.node" &&
+						(entry.data as { node: string }).node === "ci",
+				);
+			expect(
+				node?.type === "custom" && Date.parse(node.timestamp) - Date.parse((node.data as { at: string }).at),
+			).toBeGreaterThanOrEqual(350);
+		});
+
+		it("marks an end written between turns, and the report's total is the session's usage summed by hand", async () => {
+			const { harness, move, say, go } = await setup();
+			harness.setResponses([move("ci"), say("Reviewing."), say("Still reviewing.")]);
+			await go("/graph start ship");
+			await go("/graph stop");
+			const end = graphEntries(harness).find((entry) => entry.type === "custom" && entry.customType === "graph.end");
+			expect(end?.type === "custom" && end.data).toMatchObject({ reason: "stopped", duringRun: false });
+			// Later turns are not the graph's.
+			harness.setResponses([say("After the graph.")]);
+			await go("hello");
+			const branch = harness.sessionManager.getBranch();
+			const startAt = branch.findIndex((entry) => entry.type === "custom" && entry.customType === "graph.start");
+			const endAt = branch.findIndex((entry) => entry.type === "custom" && entry.customType === "graph.end");
+			let input = 0;
+			let output = 0;
+			let requests = 0;
+			for (const entry of branch.slice(startAt, endAt)) {
+				if (entry.type === "message" && entry.message.role === "assistant") {
+					requests += 1;
+					input += entry.message.usage.input;
+					output += entry.message.usage.output;
+				}
+			}
+			const result = lastReport(harness);
+			expect(result.total.own).toMatchObject({ requests, input, output });
+			expect(requests).toBeGreaterThan(0);
+		});
+
+		it("shows the report with /graph after the end, and the same as JSON with --json", async () => {
+			const { harness, notes, answers, move, go } = await setup();
+			answers.push("Approve");
+			harness.setResponses([move("ci"), move("merge")]);
+			await go("/graph start ship");
+			await go("/graph");
+			const text = notes.at(-1) ?? "";
+			expect(text).toContain("graph: ship (");
+			expect(text).toContain("· ended (done) in merge");
+			expect(text).toMatch(/\n1\s+build\s+model\s+faux\/small\s/);
+			expect(text).toMatch(/\n2\s+ci\s+command\s+run-ci\s.*pass → review/);
+			expect(text).toContain("flowchart LR");
+			expect(text).toContain("class n3 current");
+			// What an RPC client receives: the notice's text, with nothing around the JSON.
+			await go("/graph --json");
+			const json = JSON.parse(notes.at(-1) ?? "");
+			expect(json).toMatchObject({ schemaVersion: 1, status: "ended", graph: "ship", endReason: "done" });
+			expect(json.visits.map((visit: { node: string }) => visit.node)).toEqual(["build", "ci", "review", "merge"]);
+		});
+
+		it("answers --json with no run, and without a UI on stdout", async () => {
+			const { notes, go } = await setup();
+			await go("/graph --json");
+			expect(JSON.parse(notes.at(-1) ?? "")).toEqual({ schemaVersion: 1, status: "none" });
+			const lines: string[] = [];
+			const log = console.log;
+			console.log = (text: string) => lines.push(text);
+			try {
+				const headless = await setup({ ui: false });
+				await headless.go("/graph --json");
+			} finally {
+				console.log = log;
+			}
+			expect(JSON.parse(lines.at(-1) ?? "")).toEqual({ schemaVersion: 1, status: "none" });
 		});
 	});
 });
