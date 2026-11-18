@@ -241,7 +241,9 @@ Then the graph as Mermaid (`flowchart LR`), the current node and the edges taken
   own cache reads and writes.
 - **After the end** the rest of the run that ended the graph still counts: a script that answered "Stop the graph"
   writes its result, with its subagent's cost, after the end. Nothing an idle session spends later counts, and after
-  an end written between turns (`/graph stop`) nothing does.
+  an end written between turns (`/graph stop`) nothing does. Counting after the end also stops at the first message
+  that is not the graph's (another extension's, a background agent's result), even one injected into the same run:
+  that can count a little less, never twice.
 - **Not counted:** the cost of background agents, which the session records only in the text of their message, and
   anything before `/graph start`.
 - **Approvals.** Every answer is recorded (`graph.asked`), "Send back", "Stop the graph" and a closed question too,
