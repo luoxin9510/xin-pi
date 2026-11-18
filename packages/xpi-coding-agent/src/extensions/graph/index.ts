@@ -227,6 +227,8 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 		 * more, the same, and nothing is told that time.
 		 */
 		let told: { set: boolean; id?: string } = { set: false };
+		/** Set at `session_shutdown`: the context is gone, so a command that returns after it writes nothing. */
+		let closed = false;
 
 		const markLatest = (ctx: ExtensionContext) => {
 			told = { set: true, id: ctx.sessionManager.getBranch().findLast((entry) => recordOf(entry))?.id };
@@ -243,26 +245,48 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 				from = at + 1;
 			}
 			let graph = "";
+			let edges: { to?: unknown }[] = [];
 			let node = "";
 			let visit = 0;
+			/** The visits of this run so far: a command's message may land after its visit, so it is matched to one. */
+			let visits: { node: string; visit: number; at: string }[] = [];
 			for (const [index, entry] of branch.entries()) {
 				const record = recordOf(entry);
 				if (!record) continue;
 				if (record.type === GRAPH_START) {
-					const literal = record.data.graph as { name?: unknown } | undefined;
+					const literal = record.data.graph as { name?: unknown; edges?: unknown } | undefined;
 					graph = typeof literal?.name === "string" ? literal.name : "";
+					edges = Array.isArray(literal?.edges) ? (literal.edges as { to?: unknown }[]) : [];
 					node = "";
 					visit = 0;
+					visits = [];
 				} else if (record.type === GRAPH_NODE && typeof record.data.node === "string") {
 					node = record.data.node;
 					visit += 1;
+					visits.push({ node, visit, at: String(record.data.at ?? entry.timestamp) });
 				}
 				if (index < from) continue;
 				told = { set: true, id: entry.id };
 				const at = record.data.at ?? record.data.startedAt ?? entry.timestamp;
 				const { graph: _literal, ...fields } = record.data;
+				let where = { node, visit };
+				if (record.type === GRAPH_COMMAND && typeof fields.node === "string") {
+					// By node and start time, as the report does: a message queued behind a turn lands after its visit.
+					const started = Date.parse(String(fields.startedAt));
+					const own =
+						visits.findLast(
+							(candidate) => candidate.node === fields.node && Date.parse(candidate.at) <= started,
+						) ?? visits.findLast((candidate) => candidate.node === fields.node);
+					if (own) where = { node: own.node, visit: own.visit };
+				}
+				const extra =
+					record.type === GRAPH_MOVE &&
+					typeof fields.edge === "number" &&
+					typeof edges[fields.edge]?.to === "string"
+						? { to: edges[fields.edge].to }
+						: {};
 				try {
-					pi.events.emit(GRAPH_EVENTS[record.type], { graph, node, visit, at, ...fields });
+					pi.events.emit(GRAPH_EVENTS[record.type], { graph, ...where, at, ...fields, ...where, ...extra });
 				} catch {
 					// a listener's error is not the graph's
 				}
@@ -274,36 +298,63 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 		 * last lines of its output in a widget. Nothing without a UI. `stop` removes the widget; the caller sets the
 		 * footer back.
 		 */
-		const liveView = (ctx: ExtensionContext, graphName: string, nodeName: string, command: string) => {
+		const liveView = (
+			ctx: ExtensionContext,
+			graphName: string,
+			nodeName: string,
+			command: string,
+			signal: AbortSignal,
+		) => {
 			if (!ctx.hasUI) return undefined;
 			const started = Date.now();
 			let lines: string[] = [];
 			let partial = "";
 			let pending: ReturnType<typeof setTimeout> | undefined;
-			const status = () =>
+			let stopped = false;
+			// The timers outlive nothing: a context that is gone (the session was replaced) throws, and that ends the view.
+			const guarded = (draw: () => void) => () => {
+				if (stopped) return;
+				try {
+					draw();
+				} catch {
+					view.stop();
+				}
+			};
+			const status = guarded(() => {
+				// A stopped command may take a while to die: its time is not shown over the status that follows.
+				if (signal.aborted) return;
 				ctx.ui.setStatus("graph", `graph ${graphName}: ${nodeName} ${formatDuration(Date.now() - started)}`);
-			const widget = () => {
+			});
+			const widget = guarded(() => {
 				pending = undefined;
 				const shown = [...lines, ...(partial === "" ? [] : [partial])].slice(-LIVE_LINES).map(liveLine);
 				ctx.ui.setWidget("graph", [`$ ${liveLine(command)}`, ...shown]);
-			};
-			status();
-			widget();
+			});
 			const timer = setInterval(status, 1000);
 			timer.unref?.();
-			return {
+			const view = {
 				output: (text: string) => {
+					if (stopped) return;
 					const parts = (partial + text).split("\n");
 					partial = parts.pop() ?? "";
 					lines = [...lines, ...parts].slice(-LIVE_LINES);
 					pending ??= setTimeout(widget, 200);
 				},
 				stop: () => {
+					if (stopped) return;
+					stopped = true;
 					clearInterval(timer);
 					if (pending !== undefined) clearTimeout(pending);
-					ctx.ui.setWidget("graph", undefined);
+					try {
+						ctx.ui.setWidget("graph", undefined);
+					} catch {
+						// the session is gone, and its widgets with it
+					}
 				},
 			};
+			status();
+			widget();
+			return view;
 		};
 
 		const say = (ctx: ExtensionContext, text: string, level: "info" | "warning" | "error" = "info") => {
@@ -452,7 +503,7 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 				commandRun = { abort, state };
 				let result: RunResult;
 				const startedAt = new Date();
-				const live = liveView(ctx, definition.name, state.node, node.run);
+				const live = liveView(ctx, definition.name, state.node, node.run, abort.signal);
 				try {
 					result = await run(node.run, {
 						cwd: ctx.cwd,
@@ -467,7 +518,7 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 				}
 				// The command took time. If the graph was ended meanwhile, on the branch itself (and maybe another started),
 				// nothing more is written or run: the local copy cannot see that.
-				if (stateOf(ctx).status !== "running" || startOf() !== mine) return { kind: "gone" };
+				if (closed || stateOf(ctx).status !== "running" || startOf() !== mine) return { kind: "gone" };
 				if (result.aborted) {
 					const reason = `"${state.node}" was stopped while its command ran`;
 					write(GRAPH_HALT, { reason });
@@ -507,7 +558,11 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 		async function proceedNow(ctx: ExtensionCommandContext): Promise<void> {
 			const outcome = await proceed(ctx, directFor(ctx), true);
 			const state = stateOf(ctx);
-			if (outcome.kind === "gone") return;
+			if (outcome.kind === "gone") {
+				// The command's footer may have been drawn after the stop: show the state as it is.
+				if (!closed) sync(ctx, stateOf(ctx));
+				return;
+			}
 			if (outcome.kind === "end") {
 				say(ctx, `${outcome.graph} is finished`);
 				await restoreAfterEnd(ctx, state);
@@ -822,6 +877,12 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 			if (state.status === "running") registerTool();
 			await restoreAfterEnd(ctx, state);
 			sync(ctx, state);
+		});
+
+		// The session is replaced or the process ends: a command that runs is stopped, and nothing is written after it.
+		pi.on("session_shutdown", async () => {
+			closed = true;
+			commandRun?.abort.abort();
 		});
 
 		pi.on("session_tree", async (_event, ctx) => {

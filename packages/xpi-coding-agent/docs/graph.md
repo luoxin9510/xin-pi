@@ -136,7 +136,8 @@ What happens while it runs:
   cannot report a result of its own. The command, how it ended and the last 200 lines of its output go into the
   session, so the next node reads them. Then the `pass` or `fail` edge is taken; several command nodes in a row run
   one after the other. To stop a command that runs, use `/graph stop` (it ends the graph); Escape does not reach a
-  command that runs between two turns.
+  command that runs between two turns. Leaving the session (`/new`, `/resume`, quitting) stops a command that runs,
+  and nothing more is written to the graph; the graph stays on the command node, which `/graph goto` runs again.
 - **An approval.** When the model chooses an `approve` edge you are asked: **Approve**, **Send back** or **Stop the
   graph**. After "Send back" the model stays in the node and your next message is the comment. Closing the question
   is not an approval. Without a UI nobody can approve, and the graph halts.
@@ -264,8 +265,8 @@ Each graph record on the branch is also told on the extension bus (`pi.events`),
 
 | Channel | Record | Fields besides `graph`, `node`, `visit`, `at` |
 |---|---|---|
-| `graph:start` | `graph.start` | `path`, `selection` |
-| `graph:move` | `graph.move` | `edge`, `via`, `report` (accepted, not entered yet) |
+| `graph:start` | `graph.start` | `path`, `selection` (`node` is `""` and `visit` is 0: no node is entered yet) |
+| `graph:move` | `graph.move` | `to`, `edge`, `via`, `report` (accepted, not entered yet) |
 | `graph:enter` | `graph.node` | `via`, `edge`, `report` |
 | `graph:command` | `graph.command` | `run`, `code`, `timedOut`, `startedAt`, `durationMs`, `lines`, `outcome` |
 | `graph:asked` | `graph.asked` | `to`, `answer`, `askedAt` |
@@ -276,7 +277,8 @@ Each graph record on the branch is also told on the extension bus (`pi.events`),
 An event is told only when its record is on the branch: after each write of the extension and when a run settles,
 so the records written at a turn's end come at its end, and a record that is dropped (a graph stopped while its
 command ran) is never told. A resumed session and a move in the session tree tell nothing of the records already
-there; only new ones.
+there; only new ones. `graph:command` carries the visit of its own command node, even when its message lands after
+the next node's entry (a command run before a run starts).
 
 ## What a graph does not guarantee
 

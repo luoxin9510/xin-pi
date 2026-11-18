@@ -864,7 +864,7 @@ describe("graph extension: controls", () => {
 		});
 
 		it("removes the widget when the graph is stopped while its command runs", async () => {
-			const { harness, held, started, write, widgets, move } = await setup();
+			const { harness, held, started, write, widgets, statuses, move } = await setup();
 			held.add("run-ci");
 			harness.setResponses([move("ci")]);
 			const turn = harness.session.prompt("/graph start ship");
@@ -875,6 +875,44 @@ describe("graph extension: controls", () => {
 			await harness.session.waitForIdle();
 			expect(widgets.some((lines) => lines?.[0] === "$ run-ci")).toBe(true);
 			expect(widgets.at(-1)).toBeUndefined();
+			// The footer is not left on the command's time.
+			expect(statuses.at(-1)).toBeUndefined();
+		});
+
+		it("stops the view's timers on a stopped command that is slow to die, and leaves the footer plain", async () => {
+			const { harness, held, started, slowToDie, letDie, statuses, widgets, say, go } = await setup();
+			harness.setResponses([say("Building."), say("Still building.")]);
+			await go("/graph start ship");
+			held.add("run-ci");
+			slowToDie.add("run-ci");
+			const jump = harness.session.prompt("/graph goto ci");
+			await started("run-ci");
+			await harness.session.prompt("/graph stop");
+			// The command takes over a second to die: the view's clock must not write its time meanwhile.
+			await new Promise((resolve) => setTimeout(resolve, 1200));
+			const after = statuses.length;
+			letDie["run-ci"]?.();
+			await jump;
+			expect(statuses.slice(after - 1).every((text) => !/: ci \d/.test(text ?? ""))).toBe(true);
+			expect(statuses.at(-1)).toBeUndefined();
+			expect(widgets.at(-1)).toBeUndefined();
+		});
+
+		it("tells a command run before the next run with the visit of its own node", async () => {
+			const { harness, events, say, go } = await setup();
+			harness.setResponses([say("Building."), say("Still building.")]);
+			await go("/graph start ship");
+			// A move that was accepted and whose turn never ended (a quit): it is entered before the next run.
+			harness.sessionManager.appendCustomEntry("graph.move", { edge: 0, via: "model", report: "built" });
+			harness.setResponses([say("Reviewing.")]);
+			await go("go on");
+			const command = events.find((event) => event.channel === "graph:command");
+			expect(command?.data).toMatchObject({ node: "ci", visit: 2, outcome: "pass" });
+			expect(events.filter((event) => event.channel === "graph:enter").map((event) => event.data.node)).toEqual([
+				"build",
+				"ci",
+				"review",
+			]);
 		});
 
 		it("tells the bus of each record of a run, in the branch's order, once", async () => {
@@ -906,6 +944,12 @@ describe("graph extension: controls", () => {
 				outcome: "pass",
 			});
 			expect(events.at(-1)?.data).toMatchObject({ reason: "done" });
+			expect(events.filter((event) => event.channel === "graph:move").map((event) => event.data.to)).toEqual([
+				"ci",
+				"review",
+				"merge",
+				"end",
+			]);
 			// Nothing is told twice.
 			await go("/graph");
 			harness.setResponses([say("After the graph.")]);

@@ -61,6 +61,16 @@ describe("runCheckCommand", () => {
 		expect(watched.code).toBe(0);
 	});
 
+	it("tells onOutput the bytes of a character the output ended in the middle of", async () => {
+		const told: string[] = [];
+		await runCheckCommand("printf 'ab\\303'", {
+			cwd: tempDir(),
+			timeoutMs: 10_000,
+			onOutput: (text) => told.push(text),
+		});
+		expect(told.join("")).toBe("ab�");
+	});
+
 	it("goes on when onOutput throws", async () => {
 		const result = await runCheckCommand("echo hi", {
 			cwd: tempDir(),

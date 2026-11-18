@@ -101,6 +101,9 @@ export const runCheckCommand: CheckRunner = (command, { cwd, timeoutMs, signal, 
 			if (pid !== undefined) untrackDetachedChildPid(pid);
 			child.stdout.destroy();
 			child.stderr.destroy();
+			// Bytes of a character the output ended in the middle of.
+			tell(decoders.out.end());
+			tell(decoders.err.end());
 			resolve({ ...result, output: Buffer.concat(chunks).toString("utf8"), code });
 		};
 		// After a kill the result ends once the grace is over, whether or not the pipes closed.

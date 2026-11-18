@@ -330,3 +330,17 @@ No blocking; three should-fix, six nits. What changed:
 - Not changed: the report's error-prefix search stays quadratic (it runs only on a branch that cannot be read);
   the suite's total test compares tokens and requests only, since faux usage has no cost (costs are covered by the
   package tests).
+
+## Review of milestone 2 (independent Opus, PR #144, commit 7368a5035, 2026-11-18)
+
+No blocking; two should-fix, three nits; all taken:
+
+- The live view's timers drew through a context that throws once the session is replaced (`/new`, `/resume` while a
+  command runs), in a timer callback nobody catches. The callbacks are guarded and end the view on an error; a
+  `session_shutdown` handler stops a running command and marks the extension closed, so nothing is written after.
+- `graph:command` took its visit from its position; a command run at `before_agent_start` has its message queued
+  behind the next node's entry. It is matched by node and start time, as the report does; tested.
+- The footer could be left on a stopped command's time when the command was slow to die: the clock does not draw
+  after the abort, and the `gone` path of `/graph goto` and `/graph start` syncs the footer.
+- The runner flushes its decoders at the end (a character cut at the end of the output comes as U+FFFD).
+- `graph:move` has `to`; the docs say what `graph:start`'s `node` and `visit` are.
