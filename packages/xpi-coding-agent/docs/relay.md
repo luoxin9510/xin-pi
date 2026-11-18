@@ -219,8 +219,8 @@ is optional and the lead decides; a round without it works as before, and so doe
 
 Nothing enforces the list. A hand back with open steps is a hand back; no reminder is sent and no run is continued for
 it. A tick is the worker's word, not a check: the acceptance commands stay the only hard test. Each tick changes the
-worker's section, so the worker's cached prefix is written again from there once per tick. With `relay.steps` off the
-lead's section does not name the field (a list sent anyway is dropped) and `step` refuses. A round holds at most 30
+worker's section, so the worker's cached prefix is written again from there once per tick. With `relay.steps` off
+neither the lead's section nor `handover`'s schema names the field (a list sent anyway is dropped) and `step` refuses. A round holds at most 30
 steps; a step is one line of at most 160 characters (a longer one is cut, and a number or list marker in front is
 removed), and the widget shows eight rows, the far end of a longer list as `+N more`. A handover that did not take
 effect (cut off, or voided) has no list.

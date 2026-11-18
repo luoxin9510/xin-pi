@@ -299,7 +299,7 @@ export function createRelay(host: RelayHost): Relay {
 		return { text };
 	}
 
-	const toolSpecs = (direct: boolean): ToolSpec[] => [
+	const toolSpecs = (direct: boolean, withSteps: boolean): ToolSpec[] => [
 		{
 			name: HANDOVER_TOOL,
 			label: "Handover",
@@ -311,7 +311,10 @@ export function createRelay(host: RelayHost): Relay {
 			defaultActive: false,
 			parameters: Type.Object({
 				plan: Type.String({ description: HANDOVER_FIELDS.plan }),
-				steps: Type.Optional(Type.Array(Type.String(), { description: HANDOVER_FIELDS.steps })),
+				// Declared only while step lists are on: a direct tool's schema is what the lead reads of it.
+				...(withSteps
+					? { steps: Type.Optional(Type.Array(Type.String(), { description: HANDOVER_FIELDS.steps })) }
+					: {}),
 				acceptance: Type.Optional(Type.Array(Type.String(), { description: HANDOVER_FIELDS.acceptance })),
 				criteria: Type.Optional(Type.String({ description: HANDOVER_FIELDS.criteria })),
 				findings: Type.Optional(Type.String({ description: HANDOVER_FIELDS.findings })),
@@ -359,9 +362,20 @@ export function createRelay(host: RelayHost): Relay {
 		},
 	];
 
+	/** Whether step lists are on under the settings now; wrong settings count as off. */
+	const stepsOn = () => {
+		try {
+			return config().steps;
+		} catch {
+			return false;
+		}
+	};
+	/** Whether `handover`'s schema was registered with `steps`. */
+	let registeredSteps = false;
 	const registerTools = (direct: boolean) => {
 		registeredDirect = direct;
-		host.registerTools(toolSpecs(direct));
+		registeredSteps = stepsOn();
+		host.registerTools(toolSpecs(direct, registeredSteps));
 	};
 	registerTools(false);
 
@@ -370,10 +384,7 @@ export function createRelay(host: RelayHost): Relay {
 		const active = host.activeTools();
 		const want = registeredDirect && isRelay(model);
 		// The step tool is declared only while step lists are on; wrong settings leave it out.
-		let wanted = HAND_TOOLS;
-		try {
-			if (config().steps) wanted = RELAY_TOOLS;
-		} catch {}
+		const wanted = stepsOn() ? RELAY_TOOLS : HAND_TOOLS;
 		const has =
 			wanted.every((name) => active.includes(name)) &&
 			RELAY_TOOLS.every((name) => wanted.includes(name) || !active.includes(name));
@@ -385,7 +396,7 @@ export function createRelay(host: RelayHost): Relay {
 	/** Register the tools the way codemode's state asks for, and only when that state changed since the last time. */
 	const syncRegistration = (model: { provider: string; id: string } | undefined) => {
 		const direct = codemodeOff();
-		if (direct !== registeredDirect) registerTools(direct);
+		if (direct !== registeredDirect || stepsOn() !== registeredSteps) registerTools(direct);
 		syncTools(model);
 	};
 

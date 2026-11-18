@@ -471,10 +471,17 @@ describe("createRelay against a fake host", () => {
 			setActive(["read", "codemode"]);
 			relay.onBeforeAgentStart(call);
 			expect(registered.at(-1)?.map((spec) => spec.exposure)).toEqual(["deferred", "deferred", "deferred"]);
-			// With step lists off (the default) the step tool is not declared in the direct fallback.
+			// With step lists off (the default) the step tool is not declared in the direct fallback, and handover's
+			// schema has no steps field: a direct tool's schema is what the lead reads of it.
 			const off = make();
 			off.relay.onBeforeAgentStart(off.call);
 			expect(off.activeTools()).toEqual(["read", "handover", "handback"]);
+			const props = (specs: typeof registered extends (infer T)[] ? T : never) =>
+				Object.keys(
+					(specs.find((spec) => spec.name === "handover")!.parameters as { properties: object }).properties,
+				);
+			expect(props(off.registered.at(-1)!)).not.toContain("steps");
+			expect(props(registered.at(-1)!)).toContain("steps");
 		});
 
 		it("gives the role section of the stored phase, none for another model, and leaves the prompt alone on bad settings", () => {

@@ -45,7 +45,7 @@ relay.onRequestStart({ routerState, previousRouterState }, call);
 | `settings()` | The `relay` block of the settings, read at each use (the package validates it). |
 | `keepRecentTokens()` | `compaction.keepRecentTokens` as resolved for the relay model, read at each use. A context limit below this plus 20,000 tokens is refused with an error that names its key. |
 | (context limits) | `relay.workerContext.limit` and `relay.leadContext.limit` are `"tier"`, `"off"`, a number of prompt tokens, or a percentage string such as `"30%"` (that share of the model's `contextWindow` from `findModel`, rounded down; no model or no window, no limit). Defaults: `"tier"` for the worker, `"30%"` for the lead. |
-| (`relay.steps`) | `false` by default; must be a boolean. Off: the lead's section does not name `steps`, a list sent anyway is dropped, `step` refuses and is not declared in the direct fallback. |
+| (`relay.steps`) | `false` by default; must be a boolean. Off: neither the lead's section nor `handover`'s schema names `steps` (the tools are registered again when it changes), a list sent anyway is dropped, `step` refuses and is not declared in the direct fallback. |
 | (`relay.quoteLead`) | `true` by default; must be a boolean. Read by `quoteLead`; nothing else is needed of the host. |
 | (`relay.warmLead`) | `true` by default; must be a boolean. When on, a worker request's route asks the host to keep the lead's cached prefix warm. Nothing else is needed of the host: relay reads the refreshes from the branch (`RelayEntry` of type `usage`, `kind` `cache_warm`, `note` `held prefix: lead`). |
 | `sendMessage(message, options)` | `/handover` and `/handback` send a message for the model. |
