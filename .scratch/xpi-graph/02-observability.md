@@ -89,9 +89,12 @@ entries summed by hand, where the run's entries are those of the visits as defin
 `other` kinds are left out on purpose); the suite test and the by-hand check sum over the same entries. Not counted, and said so in the report and the docs: a background agent's cost, which the session
 records only as text in the `subagent` message; usage before `graph.start`.
 
-Totals: the sum of the visits, and the sums per model. A usage recorded under a virtual model (`graph/auto`, as
-`nested_tool_calls` entries are during a graph) is put under the model that answered the visit,
-and under "unknown" when no model answered in it.
+Totals: the sum of the visits, and the sums per model. The nested calls of scripts (tool results with usage, and
+`nested_tool_calls` entries, which are recorded under `graph/auto` during a graph) are summed under "nested calls":
+the session does not record which model a nested call, a subagent for example, used. Any other usage recorded under
+a virtual model is put under the model that answered the visit, wherever in the visit it lands, and under
+"unknown" when no model answered in it. (Changed in milestone 1 after its review: the first text put the nested
+calls under the visit's model.)
 
 ### 3. A command node's result as data (O3)
 

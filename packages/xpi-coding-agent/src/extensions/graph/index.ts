@@ -296,7 +296,9 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 				if (state.pending) {
 					const edge = definition.edges[state.pending.edge];
 					if (edge.to === END) {
-						write(GRAPH_END, endData(ctx, "done"));
+						// A pending move is entered after its turn (at the turn's end, before the next run, or outside a
+						// turn): whatever run is going on now is not the graph's, even when one is.
+						write(GRAPH_END, { reason: "done", duringRun: false });
 						return { kind: "end", graph: definition.name };
 					}
 					const entered: NodeData = { node: edge.to, via: state.pending.via, edge: state.pending.edge };
@@ -474,7 +476,8 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 							`Graph ${state.graph.name}: let "${state.node}" go on to "${choice.edge.to}"?`,
 							[APPROVE, SEND_BACK, STOP],
 						);
-						// The answer is recorded before anything it causes, whatever it is.
+						// The answer is recorded before the move or the end it causes, whatever it is. (A graph stopped while
+						// the question was open has its end first; the record then lands after it and only stays as data.)
 						const asked: Omit<AskedData, "at"> = {
 							node: state.node,
 							to: choice.edge.to,
@@ -871,6 +874,8 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 						...(loops.length > 0 ? ["limits of the edges out:", ...loops] : []),
 						...(state.status === "error" ? ["Run /graph stop."] : []),
 						...(definition ? ["", mermaid(definition, run)] : []),
+						"",
+						USAGE,
 					].join("\n"),
 					state.status === "error" ? "error" : "info",
 				);

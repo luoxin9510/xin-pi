@@ -207,6 +207,48 @@ describe("report", () => {
 		expect(result.visits[3].command).toBeUndefined();
 	});
 
+	it("matches a command message that lands after the end, and never to a visit of another node", () => {
+		const result = run([
+			start(0),
+			enter("grill", "start", 0),
+			enter("build", "approve", 10, EDGE.approve),
+			enter("ci", "model", 20, EDGE.built),
+			// a details record for a node with no visit that started before it: kept off the other visits
+			command("merge", 21, 5000, "pass", 22),
+			end("stopped", 30, false),
+			// queued while a turn ran: it lands after the end
+			command("ci", 20, 9000, "pass", 40),
+		]);
+		expect(result.visits[2].command).toMatchObject({ node: "ci", durationMs: 9000 });
+		expect(result.visits.filter((visit) => visit.command?.node === "merge")).toEqual([]);
+	});
+
+	it("stops counting after the end at a message of something else", () => {
+		const result = run([
+			start(0),
+			enter("grill", "start", 0),
+			assistant(0.1, "anthropic/claude-opus-5-5", true),
+			end("stopped", 10),
+			toolResult(0.2),
+			// a background agent's result starts a turn of its own
+			{ type: "custom_message", customType: "subagent", timestamp: t(20) },
+			assistant(1),
+		]);
+		expect(result.total.cost).toBeCloseTo(0.3);
+	});
+
+	it("puts usage recorded under the virtual model with the model that answered the visit, wherever it lands", () => {
+		const result = run([
+			start(0),
+			enter("grill", "start", 0),
+			usageEntry("cache_warm", 0.01),
+			{ type: "compaction", usage: usage(0.02) },
+			assistant(0.1, "anthropic/claude-opus-5-5"),
+		]);
+		expect(result.byModel[UNKNOWN_MODEL]).toBeUndefined();
+		expect(result.byModel["anthropic/claude-opus-5-5"].cost).toBeCloseTo(0.13);
+	});
+
 	it("reads a command message without details as having no result", () => {
 		const result = run([
 			start(0),

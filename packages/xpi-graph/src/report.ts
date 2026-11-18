@@ -151,9 +151,10 @@ export interface GraphReport {
 	halts: HaltRecord[];
 	total: { durationMs: number; own: Tally; tools: Tally; other: Tally; cost: number };
 	/**
-	 * Cost and tokens by model: the node's own requests under the model that answered, `usage` entries under their
-	 * model (a virtual one replaced by the model that answered the visit, or "unknown"), and the nested calls of
-	 * scripts, whose model the session does not record, under "nested calls".
+	 * Cost and tokens by model: the node's own requests under the model that answered; the nested calls of scripts
+	 * (tool results, `nested_tool_calls` under a virtual model), whose model the session does not record, under
+	 * "nested calls"; other `usage` entries under their model, a virtual one replaced by the model that answered the
+	 * visit (or "unknown"); compaction and branch summaries under the model that answered the visit.
 	 */
 	byModel: Record<string, Tally>;
 	/** The edges taken, by index, in order. */
@@ -311,11 +312,34 @@ export function report(
 	};
 	// After the end: the rest of the agent run that wrote it, own and tools only.
 	let after: "no" | "counting" | "done" = "no";
+	// Usage with no model of its own goes to the model that answered its visit, known only when the loop is done.
+	const unattributed: { visit: VisitReport; usage: UsageLike; request: boolean }[] = [];
 
 	for (let index = first + 1; index < last; index++) {
 		const entry = entries[index];
 		const data = isFields(entry.data) ? entry.data : {};
-		if (after === "done") break;
+		// A command's message can land late, even after the end: it is matched to its visit whenever it comes.
+		if (entry.type === "custom_message" && entry.customType === GRAPH_COMMAND) {
+			const details = readDetails(entry.details);
+			if (details) {
+				// Matched by node and start time; never to a visit of another node.
+				const started = ms(details.startedAt) ?? 0;
+				const owner =
+					[...result.visits]
+						.reverse()
+						.find((candidate) => candidate.node === details.node && (ms(candidate.startedAt) ?? 0) <= started) ??
+					(visit?.node === details.node ? visit : undefined);
+				if (owner) owner.command = details;
+			}
+			continue;
+		}
+		if (after === "done") continue;
+		// After the end, a message of something else (another extension, a background agent) starts what is not the
+		// graph's.
+		if (after === "counting" && entry.type === "custom_message") {
+			after = "done";
+			continue;
+		}
 		if (entry.type === "custom") {
 			if (after !== "no") continue;
 			const at = atOf(entry) ?? "";
@@ -380,33 +404,19 @@ export function report(
 			}
 			continue;
 		}
-		if (entry.type === "custom_message" && entry.customType === GRAPH_COMMAND) {
-			if (after !== "no") continue;
-			const details = readDetails(entry.details);
-			if (details) {
-				// A message sent while another turn ran can land after its visit: match it by node and start time.
-				const started = ms(details.startedAt) ?? 0;
-				const owner =
-					[...result.visits]
-						.reverse()
-						.find((candidate) => candidate.node === details.node && (ms(candidate.startedAt) ?? 0) <= started) ??
-					visit;
-				if (owner) owner.command = details;
-			}
-			continue;
-		}
 		if (!visit) continue;
 		if (entry.type === "message" && entry.message) {
 			const { role } = entry.message;
 			if (role === "user") {
-				if (after === "counting") break;
+				if (after === "counting") after = "done";
 				continue;
 			}
 			if (role === "assistant" && entry.message.usage) {
 				const key = `${entry.message.provider ?? "?"}/${entry.message.model ?? "?"}`;
 				if (!isVirtual(key) && !visit.models.includes(key)) visit.models.push(key);
 				add(visit.own, entry.message.usage, true);
-				add(tallyOf(isVirtual(key) ? visitModel(visit) : key), entry.message.usage, true);
+				if (isVirtual(key)) unattributed.push({ visit, usage: entry.message.usage, request: true });
+				else add(tallyOf(key), entry.message.usage, true);
 				if (after === "counting" && !hasToolCall(entry.message.content)) after = "done";
 			} else if (role === "toolResult" && entry.message.usage) {
 				add(visit.tools, entry.message.usage);
@@ -426,16 +436,18 @@ export function report(
 			visit.other[kind] ??= emptyTally();
 			add(visit.other[kind], entry.usage);
 			const key = `${entry.provider ?? "?"}/${entry.model ?? "?"}`;
-			add(tallyOf(isVirtual(key) ? visitModel(visit) : key), entry.usage);
+			if (isVirtual(key)) unattributed.push({ visit, usage: entry.usage, request: false });
+			else add(tallyOf(key), entry.usage);
 			continue;
 		}
 		if ((entry.type === "compaction" || entry.type === "branch_summary") && entry.usage) {
 			if (after !== "no") continue;
 			visit.other[entry.type] ??= emptyTally();
 			add(visit.other[entry.type], entry.usage);
-			add(tallyOf(visitModel(visit)), entry.usage);
+			unattributed.push({ visit, usage: entry.usage, request: false });
 		}
 	}
+	for (const { visit: owner, usage, request } of unattributed) add(tallyOf(visitModel(owner)), usage, request);
 
 	if (result.status === "running" && visit) {
 		const from = ms(visit.startedAt);

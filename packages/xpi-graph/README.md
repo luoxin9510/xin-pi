@@ -149,8 +149,10 @@ or returns undefined when the branch has none. Spec: `.scratch/xpi-graph/02-obse
   `nested_tool_calls`) and `other` by kind (other `usage` records, `compaction` and `branch_summary`).
 - After `graph.end`: when it was written during a run (`duringRun`), the rest of that run counts, `own` and `tools`
   only, up to the first assistant message with no tool call and never past a user message; otherwise nothing.
-- `byModel`: own requests under the model that answered; `usage` records under their model, a virtual one
-  (`isVirtual`, default `graph/auto`) under the visit's model or `unknown`; tool results under `nested calls`.
+- `byModel`: own requests under the model that answered; the nested calls of scripts (tool results, and
+  `nested_tool_calls` records under a virtual model) under `nested calls`; other `usage` records under their model,
+  a virtual one (`isVirtual`, default `graph/auto`) under the model that answered the visit or `unknown`; compaction
+  and branch summaries under the model that answered the visit.
 - A run whose entries cannot be read has `status: "error"` and the visits before the bad entry.
 
 `formatReport(report)` is the text of `/graph`; `mermaid(graph, report?)` the graph as a `flowchart LR`, with the

@@ -705,6 +705,9 @@ describe("graph extension: controls", () => {
 			]);
 			expect(result.visits[1].command).toMatchObject({ timedOut: true });
 			expect(result.asked.map((record) => record.answer)).toEqual(["send_back", "approve"]);
+			// The end was entered after the merge's turn: the run that wrote it is not the graph's.
+			const end = graphEntries(harness).find((entry) => entry.type === "custom" && entry.customType === "graph.end");
+			expect(end?.type === "custom" && end.data).toMatchObject({ reason: "done", duringRun: false });
 		});
 
 		it("records a dismissed question and a stop, the stop before the end, and counts the script that stopped", async () => {
