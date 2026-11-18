@@ -26,9 +26,9 @@ export default {
 		patch: { run: "npm run release:patch", timeout: "20m" },
 		minor: { run: "npm run release:minor", timeout: "20m" },
 		// The bump has just pushed: its checks register a little later. Wait for the first one, then for all of them.
-		// Without a pull request on the branch this fails at once.
+		// Without an open pull request on the branch this fails at once.
 		ci: {
-			run: 'pr=$(gh pr view --json number --jq .number 2>&1) || { echo "ci: no pull request for branch \\"$(git branch --show-current)\\""; echo "$pr"; exit 1; }; for i in $(seq 1 30); do [ -n "$(gh pr checks --json name --jq ".[].name" 2>/dev/null)" ] && break; sleep 10; done; gh pr checks --watch --fail-fast',
+			run: 'pr=$(gh pr view --json number,state --jq \'select(.state=="OPEN").number\' 2>&1); st=$?; [ "$st" = 0 ] && [ -n "$pr" ] || { echo "ci: no open pull request for branch \\"$(git branch --show-current)\\""; echo "$pr"; exit 1; }; for i in $(seq 1 30); do [ -n "$(gh pr checks --json name --jq ".[].name" 2>/dev/null)" ] && break; sleep 10; done; gh pr checks --watch --fail-fast',
 			timeout: "45m",
 		},
 		fix: {

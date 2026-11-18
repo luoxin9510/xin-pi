@@ -294,7 +294,7 @@ The xin-pi repository keeps two graphs for its own work, in
   It shows a limit of the format: a graph has no variables, so "patch or minor" is two command nodes and the
   model picks one.
 
-Both first check that the branch has a pull request (without one, the node fails at once, with a message), then wait for the checks of that pull request with a small shell loop before `gh pr checks --watch`: a push registers
+Both first check that the branch has an open pull request (a closed or merged one does not count; without one, the node fails at once, with a message), then wait for the checks of that pull request with a small shell loop before `gh pr checks --watch`: a push registers
 its checks a little later, and a check that is not there yet would count as a failure.
 
 A graph of your own is short. This one runs a check until it passes, and goes back to the fix at most three

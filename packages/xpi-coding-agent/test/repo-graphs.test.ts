@@ -45,18 +45,27 @@ afterEach(() => {
 	for (const dir of made.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
+/** The environment with the variables that point git at another repository removed. */
+function cleanEnv(extra: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+	const env: NodeJS.ProcessEnv = { ...process.env, ...extra };
+	delete env.GIT_DIR;
+	delete env.GIT_WORK_TREE;
+	delete env.GIT_INDEX_FILE;
+	return env;
+}
+
 /** A command node's text, run with `sh -c` in `cwd`; `bin` is put first on `PATH` when given. */
 function runSh(command: string, cwd: string, bin?: string) {
 	const result = spawnSync("sh", ["-c", command], {
 		cwd,
 		encoding: "utf8",
-		env: bin ? { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` } : process.env,
+		env: cleanEnv(bin ? { PATH: `${bin}:${process.env.PATH ?? ""}` } : {}),
 	});
 	return { status: result.status, output: `${result.stdout}${result.stderr}` };
 }
 
 function git(cwd: string, ...args: string[]): string {
-	return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+	return execFileSync("git", args, { cwd, encoding: "utf8", env: cleanEnv({}) }).trim();
 }
 
 /** A temporary repository with one commit on `main`. */
@@ -81,12 +90,23 @@ function repoOnMain(): string {
 	return dir;
 }
 
-/** A directory with a fake `gh` that has no pull request, and a fake `sleep` that logs each call. */
-function fakeGh(): { bin: string; sleepLog: string } {
+/**
+ * A directory with a fake `gh` and a fake `sleep` (which logs each call). `gh pr view` prints `prView` with the
+ * `--jq` filter of the call applied by jq, as the real gh does; without `prView` it has no pull request. `gh pr checks`
+ * prints one check at once.
+ */
+function fakeGh(prView?: string): { bin: string; sleepLog: string } {
 	const bin = mkdtempSync(join(tmpdir(), "graph-fake-gh-"));
 	made.push(bin);
 	const sleepLog = join(bin, "sleep.log");
-	writeFileSync(join(bin, "gh"), "#!/bin/sh\necho 'no pull requests found for branch' >&2\nexit 1\n");
+	const view =
+		prView === undefined
+			? "  echo 'no pull requests found for branch' >&2\n  exit 1"
+			: `  expr=""; prev=""; for a in "$@"; do if [ "$prev" = --jq ]; then expr="$a"; fi; prev="$a"; done\n  printf '%s' '${prView}' | jq -r "$expr"\n  exit $?`;
+	writeFileSync(
+		join(bin, "gh"),
+		`#!/bin/sh\nif [ "$1" = pr ] && [ "$2" = checks ]; then echo build-check; exit 0; fi\nif [ "$1" = pr ] && [ "$2" = view ]; then\n${view}\nfi\necho "unexpected gh call: $*" >&2\nexit 1\n`,
+	);
 	writeFileSync(join(bin, "sleep"), `#!/bin/sh\necho called >> '${sleepLog}'\n`);
 	chmodSync(join(bin, "gh"), 0o755);
 	chmodSync(join(bin, "sleep"), 0o755);
@@ -107,6 +127,7 @@ describe("the commands that make the branch and wait for CI", () => {
 			const result = runSh(runOf("dev", "branch"), dir);
 			expect(result.status, result.output).toBe(0);
 			expect(git(dir, "branch", "--show-current")).toMatch(/^dev-\d{8}-\d{6}$/);
+			expect(git(dir, "rev-parse", "HEAD")).toBe(git(dir, "rev-parse", "main"));
 		});
 
 		it("fails on a detached HEAD and makes no branch", () => {
@@ -130,13 +151,30 @@ describe("the commands that make the branch and wait for CI", () => {
 	});
 
 	describe.each(["dev", "release"])("%s: ci", (name) => {
-		it("fails at once, without a wait, when the branch has no pull request", () => {
+		it("fails at once when the branch has no pull request", () => {
 			const dir = repoOnMain();
 			const { bin, sleepLog } = fakeGh();
 			const result = runSh(runOf(name, "ci"), dir, bin);
 			expect(result.status).not.toBe(0);
-			expect(result.output).toContain('ci: no pull request for branch "main"');
+			expect(result.output).toContain('ci: no open pull request for branch "main"');
 			expect(result.output).toContain("no pull requests found");
+			expect(existsSync(sleepLog)).toBe(false);
+		});
+
+		it.each(["MERGED", "CLOSED"])("fails at once when its pull request is %s", (state) => {
+			const dir = repoOnMain();
+			const { bin, sleepLog } = fakeGh(`{"number":1,"state":"${state}"}`);
+			const result = runSh(runOf(name, "ci"), dir, bin);
+			expect(result.status).not.toBe(0);
+			expect(result.output).toContain('ci: no open pull request for branch "main"');
+			expect(existsSync(sleepLog)).toBe(false);
+		});
+
+		it("passes with an open pull request, without a wait", () => {
+			const dir = repoOnMain();
+			const { bin, sleepLog } = fakeGh('{"number":1,"state":"OPEN"}');
+			const result = runSh(runOf(name, "ci"), dir, bin);
+			expect(result.status, result.output).toBe(0);
 			expect(existsSync(sleepLog)).toBe(false);
 		});
 	});
