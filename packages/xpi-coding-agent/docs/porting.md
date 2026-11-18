@@ -302,6 +302,8 @@ The options below come with the unit. Each says how to turn it off.
   `prepareRequest` does); `model_select`, `session_start`,
   `before_agent_start`, `tool_call` (`parentToolCallId` tells a direct call from a nested one); `pi.registerTool` at
   runtime with `exposure` and `listed`; `pi.setActiveTools` / `getActiveTools`; `pi.appendEntry`; `pi.sendMessage`;
+  `ctx.ui.setWidget` (the step list above the editor, from `Relay.stepsWidget`, set again at `request_start`,
+  `tool_execution_end`, `agent_end`, `session_start` and `model_select`; a host without such a place leaves it out);
   `ctx.ui.notify`; `ctx.modelRegistry.find`. It runs the acceptance commands through a shell and reads `git` for the
   diff the lead sees (optional: outside a repository, or in one without commits, there is no snapshot to diff against).
 - **Core change for a route context limit** (relay uses it for the worker's context limit): `ModelRoute.contextLimit` in

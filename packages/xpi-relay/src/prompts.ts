@@ -6,6 +6,7 @@ import { type ContextLimits, leadFacts } from "./facts.ts";
 import { LEAD_WORK_TAG } from "./quote.ts";
 import type { Handover } from "./record.ts";
 import { HANDBACK_TOOL, HANDOVER_TOOL, handoverResultStart } from "./router.ts";
+import { STEP_TOOL } from "./steps.ts";
 
 /** The section name in the leading system message. */
 export const RELAY_SECTION = "relay";
@@ -15,6 +16,7 @@ type Priced = Parameters<typeof leadFacts>[1];
 /** `handover` and `handback` take these fields; the tool schemas and the prompt both read them from here. */
 export const HANDOVER_FIELDS = {
 	plan: "The steps, in order, specific enough to follow without the lead.",
+	steps: "The plan again as a list of short lines, one a step, when the work has several separate steps. The worker ticks them off; you get the list back with the record, and the user watches it.",
 	acceptance:
 		"Shell commands that must exit 0 when the work is done (tests, a type check, a grep). Run in the session's directory after the worker hands back.",
 	criteria: "What done means beyond the commands. You review the result against this.",
@@ -53,7 +55,10 @@ export function leadSection(
 	return [
 		`<relay role="lead">`,
 		`You are the lead in relay mode; the worker is ${config.worker}. To give the work away call ${invoke(HANDOVER_TOOL, isDirect)}.`,
-		...fieldLines(HANDOVER_FIELDS, ["acceptance", "criteria", "findings", "stopWhen"]),
+		...fieldLines(
+			Object.fromEntries(Object.entries(HANDOVER_FIELDS).filter(([name]) => name !== "steps" || config.steps)),
+			["steps", "acceptance", "criteria", "findings", "stopWhen"],
+		),
 		...leadFacts(config, lead, worker, limits),
 		`</relay>`,
 	].join("\n");
@@ -68,6 +73,8 @@ export function workerSection(
 	config: RelayConfig,
 	isDirect: boolean,
 	quoted = false,
+	/** The round's step list as it stands, rendered (`renderSteps`); empty without one. */
+	steps: readonly string[] = [],
 ): string {
 	const lines = [
 		`<relay role="worker">`,
@@ -88,6 +95,7 @@ export function workerSection(
 				? `The handover (round ${handover.round}, given by the user):`
 				: `The handover (round ${handover.round}, from the lead):`,
 			...section("Plan", handover.plan),
+			...(steps.length > 0 ? ["Steps:", ...steps] : []),
 			...section("Criteria", handover.criteria),
 			...section("Findings", handover.findings),
 			...section("Stop when", handover.stopWhen),
@@ -97,6 +105,11 @@ export function workerSection(
 		"",
 		"Your duties:",
 		"- Carry out the plan as written. Everything earlier in this conversation is context you may rely on.",
+		...(steps.length > 0
+			? [
+					`- The handover has a step list. In the script that finishes a step, after the work succeeded, also call ${callOf(STEP_TOOL, isDirect).replace("{...}", '{ n, status: "done" }')} with the step's number: the user watches the list while you work, and the lead reads it with your report. A step you leave out: status "skipped" with a note. Work the plan did not list: ${callOf(STEP_TOOL, isDirect).replace("{...}", '{ add: "..." }')}.`,
+				]
+			: []),
 		`- When the work is done, hand back with status "done" and a report: what you changed, where you left the plan and why, what is unresolved.`,
 		`- When you cannot go on (the plan does not fit what you find, a stop condition is met, the same failure keeps coming back), hand back with status "blocked" and say what stops you. Do not improvise a different design.`,
 	);

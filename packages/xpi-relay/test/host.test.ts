@@ -155,13 +155,115 @@ describe("createRelay against a fake host", () => {
 		expect(readView(branch(true)).phase).toBe("worker");
 	});
 
-	it("registers the two hand tools as deferred tools at the start", () => {
+	it("registers the two hand tools and the step tool as deferred tools at the start", () => {
 		const { registered } = make();
 		expect(registered).toHaveLength(1);
 		expect(registered[0].map((spec) => [spec.name, spec.exposure, spec.listed, spec.defaultActive])).toEqual([
 			["handover", "deferred", false, false],
 			["handback", "deferred", false, false],
+			["step", "deferred", false, false],
 		]);
+	});
+
+	describe("the step list", () => {
+		const STEPS = { ...config, steps: true };
+		it("is written with the handover, ticked by the worker only, and shown to the worker, the user and in /relay", async () => {
+			const { relay, call, entries, state, registered } = make(STEPS);
+			state("lead", 0);
+			await relay.handover({ plan: "do it", steps: [" add a test ", "", "fix it"] }, undefined, call);
+			const written = entries.find((entry) => entry.type === "custom" && entry.customType === HANDOVER_ENTRY);
+			expect(written?.type === "custom" && written.data).toMatchObject({ steps: ["add a test", "fix it"] });
+			const step = registered[0].find((spec) => spec.name === "step")!;
+			// the lead has no steps to tick: the handover has not taken effect yet
+			await expect(step.execute({ n: 1, status: "done" }, undefined, call)).rejects.toThrow(
+				"Only the worker changes the step list",
+			);
+			state("worker", 1);
+			expect(relay.section(call)?.text).toContain("Steps:\n1. [ ] add a test\n2. [ ] fix it");
+			// how to tick is one of the worker's duties, named only when the round has a list
+			expect(relay.section(call)?.text).toContain(
+				'- The handover has a step list. In the script that finishes a step, after the work succeeded, also call tools.step({ n, status: "done" }) with the step\'s number',
+			);
+			expect((await step.execute({ n: 1, status: "done" }, undefined, call)).text).toBe("Step 1 done. Open: 2.");
+			expect((await step.execute({ add: "update the docs" }, undefined, call)).text).toBe(
+				"Added step 3. Open: 2, 3.",
+			);
+			await expect(step.execute({ n: 7, status: "done" }, undefined, call)).rejects.toThrow("from 1 to 3");
+			expect(entries.filter((entry) => entry.type === "custom" && entry.customType === "relay.step")).toHaveLength(
+				2,
+			);
+			expect(relay.section(call)?.text).toContain(
+				"1. [x] add a test\n2. [ ] fix it\n3. [ ] update the docs (added by the worker)",
+			);
+			expect(relay.stepsWidget(call)).toEqual([
+				"relay round 1 · worker (small) · 1/3",
+				"  ✓ 1 add a test",
+				"  ▸ 2 fix it",
+				"    3 update the docs (added by the worker)",
+			]);
+			expect(relay.commands.status(call).text).toContain("steps of round 1:\n  1. [x] add a test");
+		});
+
+		it("shows no list for a handover that was cut off before the worker answered", async () => {
+			const { relay, call, state, message } = make(STEPS);
+			state("lead", 0);
+			message(user("go"));
+			await relay.handover({ plan: "p", steps: ["a", "b"] }, undefined, call);
+			// in the moment between the handover and the worker's first request the list is already the worker's
+			expect(relay.stepsWidget(call)?.[0]).toBe("relay round 1 · worker (small) · 0/2");
+			// Esc, then a new message: the lead has the work, and the handover's entry is still on the branch
+			message(user("wait, something else"));
+			expect(relay.stepsWidget(call)).toBeUndefined();
+			expect(relay.commands.status(call).text).not.toContain("steps of round");
+		});
+
+		it("refuses a wrong shape before anything is written, and has no list without steps", async () => {
+			const { relay, call, entries, state, registered } = make(STEPS);
+			state("lead", 0);
+			await expect(relay.handover({ plan: "p", steps: "one" as never }, undefined, call)).rejects.toThrow(
+				"steps must be a list of strings",
+			);
+			expect(entries.some((entry) => entry.type === "custom" && entry.customType === HANDOVER_ENTRY)).toBe(false);
+			await relay.handover({ plan: "p" }, undefined, call);
+			state("worker", 1);
+			expect(relay.section(call)?.text).not.toContain("Steps:");
+			expect(relay.section(call)?.text).not.toContain("step list");
+			expect(relay.stepsWidget(call)).toBeUndefined();
+			const step = registered[0].find((spec) => spec.name === "step")!;
+			await expect(step.execute({ n: 1, status: "done" }, undefined, call)).rejects.toThrow(
+				"This round has no step list",
+			);
+		});
+
+		it("with relay.steps off: the lead is not told of the field, a list sent anyway is dropped, the tool refuses", async () => {
+			const { relay, call, entries, state, registered, models, select } = make({ ...config, steps: false });
+			models.set("faux/large", { id: "large" } as Model<Api>);
+			state("lead", 0);
+			expect(relay.section(call)?.text).not.toContain("- steps");
+			await relay.handover({ plan: "p", steps: ["a"] }, undefined, call);
+			const written = entries.find((entry) => entry.type === "custom" && entry.customType === HANDOVER_ENTRY);
+			expect(written?.type === "custom" && (written.data as { steps?: unknown }).steps).toBeUndefined();
+			state("worker", 1);
+			const step = registered[0].find((spec) => spec.name === "step")!;
+			await expect(step.execute({ n: 1, status: "done" }, undefined, call)).rejects.toThrow("Step lists are off");
+			expect(relay.stepsWidget(call)).toBeUndefined();
+			// the default is off too: the lead of a relay without the setting is not told of it
+			const plain = make();
+			plain.models.set("faux/large", { id: "large" } as Model<Api>);
+			plain.state("lead", 0);
+			expect(plain.relay.section(plain.call)?.text).not.toContain("- steps");
+			// and the lead of a relay with step lists on is
+			const on = make(STEPS);
+			on.models.set("faux/large", { id: "large" } as Model<Api>);
+			on.state("lead", 0);
+			expect(on.relay.section(on.call)?.text).toContain(
+				"- steps (optional): The plan again as a list of short lines",
+			);
+			select({ provider: "faux", id: "small" });
+			await expect(step.execute({ n: 1, status: "done" }, undefined, call)).rejects.toThrow(
+				/works only with the relay\/auto model/,
+			);
+		});
 	});
 
 	describe("handover", () => {
@@ -358,17 +460,28 @@ describe("createRelay against a fake host", () => {
 
 	describe("tools and prompt", () => {
 		it("re-registers the tools as direct tools when codemode is off, and activates them only while relay is selected", () => {
-			const { relay, call, registered, activeTools, select, setActive } = make();
+			const { relay, call, registered, activeTools, select, setActive } = make({ ...config, steps: true });
 			relay.onBeforeAgentStart(call);
-			expect(registered.at(-1)?.map((spec) => spec.exposure)).toEqual(["direct", "direct"]);
-			expect(activeTools()).toEqual(["read", "handover", "handback"]);
+			expect(registered.at(-1)?.map((spec) => spec.exposure)).toEqual(["direct", "direct", "direct"]);
+			expect(activeTools()).toEqual(["read", "handover", "handback", "step"]);
 			select({ provider: "faux", id: "small" });
 			relay.onModelSelect({ provider: "faux", id: "small" }, call);
 			expect(activeTools()).toEqual(["read"]);
 			// Codemode on again: back to deferred tools.
 			setActive(["read", "codemode"]);
 			relay.onBeforeAgentStart(call);
-			expect(registered.at(-1)?.map((spec) => spec.exposure)).toEqual(["deferred", "deferred"]);
+			expect(registered.at(-1)?.map((spec) => spec.exposure)).toEqual(["deferred", "deferred", "deferred"]);
+			// With step lists off (the default) the step tool is not declared in the direct fallback, and handover's
+			// schema has no steps field: a direct tool's schema is what the lead reads of it.
+			const off = make();
+			off.relay.onBeforeAgentStart(off.call);
+			expect(off.activeTools()).toEqual(["read", "handover", "handback"]);
+			const props = (specs: typeof registered extends (infer T)[] ? T : never) =>
+				Object.keys(
+					(specs.find((spec) => spec.name === "handover")!.parameters as { properties: object }).properties,
+				);
+			expect(props(off.registered.at(-1)!)).not.toContain("steps");
+			expect(props(registered.at(-1)!)).toContain("steps");
 		});
 
 		it("gives the role section of the stored phase, none for another model, and leaves the prompt alone on bad settings", () => {

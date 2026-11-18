@@ -124,6 +124,7 @@ export interface RelaySection {
 
 export interface HandoverParams {
 	plan: string;
+	steps?: string[];
 	acceptance?: string[];
 	criteria?: string;
 	findings?: string;

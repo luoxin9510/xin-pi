@@ -96,8 +96,15 @@ describe("relay", () => {
 		harness.session.agent.streamFunction = (model, context, options) => runtime.streamSimple(model, context, options);
 		/** What the user was told. */
 		const notes: string[] = [];
+		/** Every state of the step list's widget, as it was set (undefined: taken away). */
+		const widgets: (string[] | undefined)[] = [];
 		await harness.session.bindExtensions({
-			uiContext: createTestUiContext({ notify: (message) => notes.push(message) }),
+			uiContext: createTestUiContext({
+				notify: (message) => notes.push(message),
+				setWidget: ((key: string, content: unknown) => {
+					if (key === "relay-steps") widgets.push(content as string[] | undefined);
+				}) as never,
+			}),
 		});
 		await harness.session.setModel(runtime.getModel(RELAY_PROVIDER, RELAY_MODEL)!);
 		/** What each request saw, and which model got it. */
@@ -145,7 +152,7 @@ describe("relay", () => {
 				.getEntries()
 				.filter((entry) => entry.type === "custom" && entry.customType === customType)
 				.map((entry) => (entry as { data?: unknown }).data);
-		return { harness, seen, system, notes, call, script, parallel, say, abort, entries };
+		return { harness, seen, system, notes, widgets, call, script, parallel, say, abort, entries };
 	}
 
 	const HAND_OVER = `await tools.handover({ plan: "PLAN-STEP-ONE then PLAN-STEP-TWO", acceptance: ["true"], criteria: "CRITERIA-TEXT", findings: "FINDINGS-TEXT" });`;
@@ -247,6 +254,66 @@ describe("relay", () => {
 		await harness.session.prompt("thanks");
 		expect(seen.at(-1)?.model).toBe("large");
 		expect(seen.at(-1)?.text).not.toContain("WORKER-NOISE");
+	});
+
+	it("carries a step list from the handover to the worker's prompt, the widget and the record", async () => {
+		const { harness, seen, system, widgets, script, say, entries } = await createRelayHarness({
+			codemode: true,
+			relay: { steps: true },
+		});
+		harness.setResponses([
+			script(
+				`await tools.handover({ plan: "PLAN", steps: ["STEP-ONE", "STEP-TWO", "STEP-THREE"], acceptance: ["true"] });`,
+			),
+			// One script ticks a step and does work: a tick takes no response of its own.
+			script(`await tools.step({ n: 1, status: "done" }); await tools.echo({ text: "work" });`),
+			script(
+				`await tools.step({ n: 2, status: "skipped", note: "NOT-NEEDED" }); await tools.step({ add: "STEP-EXTRA" }); await tools.handback({ status: "done", report: "REPORT" });`,
+			),
+			say("reviewed"),
+		]);
+		await harness.session.prompt("build it");
+		await harness.session.waitForIdle();
+		expect(seen.map((request) => request.model)).toEqual(["large", "small", "small", "large"]);
+		// The lead is told of the field; the worker gets the list with its state, in its section, at every request.
+		expect(system[0]).toContain("- steps (optional): The plan again as a list of short lines");
+		// Off by default: a relay without the setting does not tell the lead of the field.
+		const plain = await createRelayHarness({ codemode: true });
+		plain.harness.setResponses([plain.say("hi")]);
+		await plain.harness.session.prompt("hello");
+		expect(plain.system[0]).not.toContain("- steps");
+		expect(system[1]).toContain("1. [ ] STEP-ONE\n2. [ ] STEP-TWO\n3. [ ] STEP-THREE");
+		expect(system[1]).toContain('tools.step({ n, status: "done" })');
+		expect(system[2]).toContain("1. [x] STEP-ONE\n2. [ ] STEP-TWO");
+		expect(entries("relay.step")).toMatchObject([
+			{ round: 1, n: 1, status: "done" },
+			{ round: 1, n: 2, status: "skipped", note: "NOT-NEEDED" },
+			{ round: 1, add: "STEP-EXTRA" },
+		]);
+		// The lead reads the list as the worker left it, open steps included: nothing stopped the hand back.
+		expect(seen[3].text).toContain(
+			"## Steps (ticked by the worker; not checked by anything)\n1. [x] STEP-ONE\n2. [-] STEP-TWO (skipped: NOT-NEEDED)\n3. [ ] STEP-THREE\n4. [ ] STEP-EXTRA (added by the worker)",
+		);
+		expect(seen[3].text).toContain("`true`: passed (exit 0)");
+		// The user's widget followed: the worker with the list, each change, then the hand back.
+		expect(widgets[0]).toEqual([
+			"relay round 1 · worker (small) · 0/3",
+			"  ▸ 1 STEP-ONE",
+			"    2 STEP-TWO",
+			"    3 STEP-THREE",
+		]);
+		expect(widgets.some((lines) => lines?.[0] === "relay round 1 · worker (small) · 1/3")).toBe(true);
+		expect(widgets.at(-1)).toEqual([
+			"relay round 1 · handed back to the lead · 2/4",
+			"  ✓ 1 STEP-ONE",
+			"  – 2 STEP-TWO (skipped: NOT-NEEDED)",
+			"  ▸ 3 STEP-THREE",
+			"    4 STEP-EXTRA (added by the worker)",
+		]);
+		// The next message of the user takes the list away.
+		harness.appendResponses([say("ok")]);
+		await harness.session.prompt("thanks");
+		expect(widgets.at(-1)).toBeUndefined();
 	});
 
 	it("with relay.quoteLead off, the worker gets the lead's replies as they are and the section that names them", async () => {

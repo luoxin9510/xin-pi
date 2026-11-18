@@ -4,7 +4,7 @@
 
 import { Type } from "typebox";
 import type { Api, Message, Model } from "xpi-ai";
-import { readRelayConfig } from "./config.ts";
+import { readRelayConfig, splitModelRef } from "./config.ts";
 import {
 	type Effect,
 	initialView,
@@ -35,6 +35,16 @@ import { quoteLeadWork } from "./quote.ts";
 import { type AcceptanceResult, acceptancePassed, buildRecord, describeAcceptance, type Handover } from "./record.ts";
 import { HANDBACK_TOOL, HANDOVER_TOOL, nextState, type RelayState, USER_HANDOVER_MARKER } from "./router.ts";
 import {
+	applyStep,
+	cleanSteps,
+	readSteps,
+	renderSteps,
+	STEP_ENTRY,
+	STEP_TOOL,
+	type StepParams,
+	stepsWidget,
+} from "./steps.ts";
+import {
 	assistantText,
 	DIRECT_ENTRY,
 	describeHistory,
@@ -60,7 +70,9 @@ import {
 import { describeChanges, runAcceptance, snapshot } from "./workspace.ts";
 
 /** The hand tools' names, for the active tool set in the direct fallback. */
-const RELAY_TOOLS = [HANDOVER_TOOL, HANDBACK_TOOL];
+const HAND_TOOLS = [HANDOVER_TOOL, HANDBACK_TOOL];
+/** Every tool relay registers, for taking them out of the active set. */
+const RELAY_TOOLS = [...HAND_TOOLS, STEP_TOOL];
 /** The steer `/handback` sends: not a state entry, only a message for the worker. */
 const REQUEST_ENTRY = "relay.request";
 const CODEMODE_TOOL = "codemode";
@@ -94,6 +106,11 @@ export interface Relay {
 	 * the full request messages, leading system message included. Undefined: send the messages as they are.
 	 */
 	quoteLead(messages: readonly Message[], call: RelayCall): Message[] | undefined;
+	/**
+	 * The lines of the step list for the user (who has the work, the round, the count, the steps), to show wherever
+	 * the host shows a few lines that stay. Undefined: show nothing.
+	 */
+	stepsWidget(call: RelayCall): string[] | undefined;
 	handover(params: HandoverParams, signal: AbortSignal | undefined, call: RelayCall): Promise<ToolOutcome>;
 	handback(params: HandbackParams, call: RelayCall): Promise<ToolOutcome>;
 	/**
@@ -231,12 +248,16 @@ export function createRelay(host: RelayHost): Relay {
 				? { type: "wrong_role", tool: "handover" }
 				: { type: "handover", byUser: false };
 		if (event.type === "handover" && !view.pending && !params.plan.trim()) throw new Error("plan is empty");
+		// A wrong shape is the lead's to correct before anything is written. With `relay.steps` off the lead was never
+		// told of the field, and a list it sends anyway is left out.
+		const steps = event.type === "handover" && config().steps ? cleanSteps(params.steps) : undefined;
 		const { effects } = transition(view, event, machineConfig());
 		const own: { handover?: Handover } = {};
 		if (effects.some((effect) => effect.type === "append_entry" && effect.entry === "relay.handover")) {
 			own.handover = {
 				round: view.round + 1,
 				plan: params.plan,
+				...(steps ? { steps } : {}),
 				acceptance: (params.acceptance ?? []).filter((command) => command.trim() !== ""),
 				criteria: params.criteria,
 				findings: params.findings,
@@ -263,7 +284,22 @@ export function createRelay(host: RelayHost): Relay {
 		return toolResult(result, event.type === "wrong_role" ? correction("handback", registeredDirect) : "");
 	}
 
-	const toolSpecs = (direct: boolean): ToolSpec[] => [
+	/** The worker ticks a step off, or adds one. No phase changes: it is one entry on the branch. */
+	async function step(params: StepParams, call: RelayCall): Promise<ToolOutcome> {
+		if (!isRelay(call.model))
+			throw new Error(`${STEP_TOOL} works only with the ${RELAY_PROVIDER}/${RELAY_MODEL} model`);
+		if (!config().steps) throw new Error("Step lists are off (relay.steps).");
+		const view = viewOf(call);
+		if (view.phase !== "worker" || view.pending) {
+			throw new Error("Only the worker changes the step list, while it has the work.");
+		}
+		const list = readSteps(call.entries);
+		const { data, text } = applyStep(list, params);
+		host.appendEntry(STEP_ENTRY, { ...data, round: list!.round, at: Date.now() });
+		return { text };
+	}
+
+	const toolSpecs = (direct: boolean, withSteps: boolean): ToolSpec[] => [
 		{
 			name: HANDOVER_TOOL,
 			label: "Handover",
@@ -275,6 +311,10 @@ export function createRelay(host: RelayHost): Relay {
 			defaultActive: false,
 			parameters: Type.Object({
 				plan: Type.String({ description: HANDOVER_FIELDS.plan }),
+				// Declared only while step lists are on: a direct tool's schema is what the lead reads of it.
+				...(withSteps
+					? { steps: Type.Optional(Type.Array(Type.String(), { description: HANDOVER_FIELDS.steps })) }
+					: {}),
 				acceptance: Type.Optional(Type.Array(Type.String(), { description: HANDOVER_FIELDS.acceptance })),
 				criteria: Type.Optional(Type.String({ description: HANDOVER_FIELDS.criteria })),
 				findings: Type.Optional(Type.String({ description: HANDOVER_FIELDS.findings })),
@@ -299,11 +339,43 @@ export function createRelay(host: RelayHost): Relay {
 			}),
 			execute: (params, _signal, call) => handback(params as HandbackParams, call),
 		},
+		{
+			name: STEP_TOOL,
+			label: "Step",
+			effect: "write",
+			description:
+				"Relay mode, the worker: mark a step of the handover's list done or skipped by its number, or add a step for work the plan did not list.",
+			exposure: direct ? "direct" : "deferred",
+			listed: false,
+			defaultActive: false,
+			parameters: Type.Object({
+				n: Type.Optional(Type.Integer({ description: "The step's number in the list, from 1." })),
+				status: Type.Optional(
+					Type.Union([Type.Literal("done"), Type.Literal("skipped")], {
+						description: 'With n: "done", or "skipped" for a step you leave out.',
+					}),
+				),
+				note: Type.Optional(Type.String({ description: "With skipped: why, in a few words." })),
+				add: Type.Optional(Type.String({ description: "A new step, one short line, added at the end." })),
+			}),
+			execute: (params, _signal, call) => step(params as StepParams, call),
+		},
 	];
 
+	/** Whether step lists are on under the settings now; wrong settings count as off. */
+	const stepsOn = () => {
+		try {
+			return config().steps;
+		} catch {
+			return false;
+		}
+	};
+	/** Whether `handover`'s schema was registered with `steps`. */
+	let registeredSteps = false;
 	const registerTools = (direct: boolean) => {
 		registeredDirect = direct;
-		host.registerTools(toolSpecs(direct));
+		registeredSteps = stepsOn();
+		host.registerTools(toolSpecs(direct, registeredSteps));
 	};
 	registerTools(false);
 
@@ -311,8 +383,12 @@ export function createRelay(host: RelayHost): Relay {
 	const syncTools = (model: { provider: string; id: string } | undefined) => {
 		const active = host.activeTools();
 		const want = registeredDirect && isRelay(model);
-		const has = RELAY_TOOLS.every((name) => active.includes(name));
-		if (want && !has) host.setActiveTools([...active.filter((name) => !RELAY_TOOLS.includes(name)), ...RELAY_TOOLS]);
+		// The step tool is declared only while step lists are on; wrong settings leave it out.
+		const wanted = stepsOn() ? RELAY_TOOLS : HAND_TOOLS;
+		const has =
+			wanted.every((name) => active.includes(name)) &&
+			RELAY_TOOLS.every((name) => wanted.includes(name) || !active.includes(name));
+		if (want && !has) host.setActiveTools([...active.filter((name) => !RELAY_TOOLS.includes(name)), ...wanted]);
 		else if (!want && active.some((name) => RELAY_TOOLS.includes(name))) {
 			host.setActiveTools(active.filter((name) => !RELAY_TOOLS.includes(name)));
 		}
@@ -320,7 +396,7 @@ export function createRelay(host: RelayHost): Relay {
 	/** Register the tools the way codemode's state asks for, and only when that state changed since the last time. */
 	const syncRegistration = (model: { provider: string; id: string } | undefined) => {
 		const direct = codemodeOff();
-		if (direct !== registeredDirect) registerTools(direct);
+		if (direct !== registeredDirect || stepsOn() !== registeredSteps) registerTools(direct);
 		syncTools(model);
 	};
 
@@ -449,7 +525,13 @@ export function createRelay(host: RelayHost): Relay {
 				return {
 					text:
 						storedState(branch).phase === "worker"
-							? workerSection(readPhase(branch).handover, cfg, registeredDirect, quoted)
+							? workerSection(
+									readPhase(branch).handover,
+									cfg,
+									registeredDirect,
+									quoted,
+									cfg.steps ? renderSteps(readSteps(branch)?.steps ?? []) : [],
+								)
 							: leadSection(
 									cfg,
 									call.findModel(cfg.lead),
@@ -475,6 +557,22 @@ export function createRelay(host: RelayHost): Relay {
 			const state = storedState(call.entries);
 			if (!enabled || state.phase !== "worker") return undefined;
 			return quoteLeadWork(messages, state.round);
+		},
+
+		stepsWidget(call) {
+			if (!isRelay(call.model)) return undefined;
+			try {
+				const cfg = config();
+				if (!cfg.steps) return undefined;
+				// A handover that was cut off before the worker answered (Esc, then a message) left its entry on the
+				// branch, but the lead has the work: no list then.
+				const view = viewOf(call);
+				const list = readSteps(call.entries);
+				if (!list || (!list.handedBack && view.phase !== "worker" && !view.pending)) return undefined;
+				return stepsWidget(call.entries, splitModelRef(cfg.worker).id);
+			} catch {
+				return undefined;
+			}
 		},
 
 		handover,
@@ -625,6 +723,7 @@ export function createRelay(host: RelayHost): Relay {
 							failedRounds: phase.failedRounds,
 							repairs: phase.repairs,
 							contextLine,
+							steps: renderSteps(readSteps(branch)?.steps ?? []),
 						});
 						const passed =
 							results.length > 0
@@ -735,6 +834,9 @@ export function createRelay(host: RelayHost): Relay {
 					if (registeredDirect) lines.push("codemode is off: the hand tools are direct tools");
 					const history = describeHistory(branch);
 					if (history.length > 0) lines.push("this round:", ...history.map((line) => `  ${line}`));
+					const list = cfg.steps ? readSteps(branch) : undefined;
+					if (list && (list.handedBack || view.phase === "worker" || view.pending))
+						lines.push(`steps of round ${list.round}:`, ...renderSteps(list.steps).map((line) => `  ${line}`));
 					const spend = spendFact(branch, cfg);
 					if (spend) lines.push(spend);
 					if (cfg.warmLead) {
