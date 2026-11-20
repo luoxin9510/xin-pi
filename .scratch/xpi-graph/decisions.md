@@ -416,3 +416,29 @@ Facts found: entries of a command entered at the end of a turn are drafts commit
 (`_runBeforeSettleBoundary`); reopening a session does not go on by itself; `_releaseNestedCalls` writes the
 session's selected model; `Usage` has no model; the Agent tool's output has `model` as `provider/id`.
 The summary of the eleven decisions was confirmed by the owner ("确认").
+
+## Review of spec 03, round 1 (independent Opus, commit 6bfad2614)
+
+Two blocking, seven should-fix, six nits; all taken in the spec:
+- Blocking: without a UI (`xpi -p`), a command started after the turn would be killed when the process ends (print
+  mode settles, then shuts down). Now `/graph start|goto` wait for idle and for no pending command run, in a loop,
+  and `session_shutdown` without a UI waits for a running command (shutdown handlers are awaited); with a UI it
+  aborts as now.
+- Blocking: "a command node that has not run in this visit" would start `gh pr merge` in an old session halted on
+  it (an abort writes a halt and no `graph.run`). Now a visit has a condition (halted, finished, interrupted, not
+  started) and only a not-started or replayable visit, not halted, with no run in this process, starts.
+- "Finished" by any later halt or node would hide the interruption once it was halted or left with goto: entries a
+  run writes carry its `startedAt` (`run` on its move and halt, `interrupted` on the halt for an interruption), and
+  only those finish it.
+- A new session is not written to disk before its first user or assistant message: a core API to persist it now,
+  called before the first `graph.run`.
+- A rerun at `before_agent_start` would hold the user's message for the whole command: new owner choice R12 (start
+  it, do not await it).
+- The paths of a queued follow-up, an aborted settle and a crash between the commit and the start are stated.
+- `usageByModel` through every path: the types in `xpi-agent-core` and `xpi-ai`, `agent-loop.ts`, the message-start
+  merge, the recorder's unreported part, `tool_result` hooks that replace `usage` (they drop the attribution).
+- The Agent tool's `model` may be a pattern, `graph/auto` or switched mid-run: the per-model usage now comes from the
+  child's own assistant messages; virtual models are never attributed. Codemode `models.*` calls are attributed too.
+- Nits: one key `Tools/unattributed`; the report maps `unknown/unattributed` to "nested calls"; the footer synced
+  before the command starts; a normal quit reads as interrupted (documented); the example uses `run` without
+  `kind`; `release.js` nodes classified one by one.
