@@ -381,3 +381,38 @@ Found, not fixed here (follow-ups):
 - After the end the Mermaid graph still marks `merge` as current, and the `merge -> end` edge is not drawn thick.
 - This run used main's code, so it checked milestone 1's report; the live footer, the command widget and the bus
   events of milestone 2 are checked by the faux tests only.
+
+## Spec 03 grill (step 1 of the ideas from pi-durable, 2026-11-20)
+
+Before it: a survey of pi-durable (local 9c9ce85, upstream README at edfe6b2ef), LangGraph 1.2, LangChain v1
+middleware and Deep Agents. The owner asked whether durable's strengths can be taken over: yes, as ideas; no code
+(durable's 34k lines import chord in 126 places and bring their own session, storage and scheduler). Three steps
+proposed: command-node replay (this spec), a model turn cut off by a crash (core), waits that do not hold a
+process (roost). The owner chose to start with step 1.
+
+Round 1, all as recommended ("全是"):
+- R1 Scope: `replay`, the intent entry, what happens after a crash; nested usage by model in the same spec as its
+  own ticket and PR (it changes the core). A model turn cut off by a crash is step 2.
+- R2 `replay: "safe" | "unsafe"` on command nodes, default `"unsafe"`: an author who forgets it does not get
+  `gh pr merge` run twice; a crash is rare, so the cost is an occasional `/graph goto`.
+- R3 Commands run outside the turn (the `/graph goto` path), so the intent can be written before the command runs.
+  The other way, an intent written next to the drafts of `agent_before_settle`, would land out of order.
+- R4 A new `graph.run` entry; `graph.command` unchanged.
+- R5 Every command node of the repository's two graphs states `replay`, asserted by a test.
+- R6 Suite tests with a simulated crash; by hand, `kill -9` during a command, without and with a Haiku node.
+- R7 Delivery as before: a spec PR for the owner, then per milestone a branch, a PR, CI, an Opus review, merged.
+
+Round 2, all as recommended ("全是"):
+- R8 `session_start` only tells (the process may only be looking); a safe command runs again at the next message or
+  `/graph goto`; an unsafe one halts on the command node, the halt written at the user's first action. One process
+  per session is assumed.
+- R9 A safe command interrupted 3 times in one visit is treated as unsafe.
+- R10 `interrupted ×N` in `/graph`, `runs` in `--json`, a `graph:run` event; no event for "interrupted".
+- R11 `usageByModel` on tool results, filled by the Agent tool; the recorder keeps it; a released scope writes one
+  usage entry per model and the unattributed rest under `unknown/unattributed`; the cost breakdown and the graph
+  report use it.
+
+Facts found: entries of a command entered at the end of a turn are drafts committed after it ran
+(`_runBeforeSettleBoundary`); reopening a session does not go on by itself; `_releaseNestedCalls` writes the
+session's selected model; `Usage` has no model; the Agent tool's output has `model` as `provider/id`.
+The summary of the eleven decisions was confirmed by the owner ("确认").
