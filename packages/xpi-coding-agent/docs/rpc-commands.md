@@ -39,6 +39,8 @@ Response:
 
 `data.disposition` is `"handled"` if an extension command or input handler consumed the prompt, `"queued"` if Pi queued it during a run, or `"started"` if Pi accepted it to start a run. This describes the submitted prompt, not independent work started by an extension or a guarantee of completion.
 
+**`/continue`**: a `prompt` whose message is exactly `/continue` goes on without a new message (after a run cut off by the end of the process, or one that ended on a provider error). The response carries `data.continue`: `{"disposition": "started", "continue": {"ran": true}}` when a run started, or `{"disposition": "handled", "continue": {"ran": false, "reason": "finished" | "stopped" | "none" | "busy"}}` when there was nothing to continue. `/continue` with arguments is not accepted.
+
 `success: true` means the prompt was accepted, queued, or handled immediately. `success: false` means the prompt was rejected before acceptance. Failures after acceptance are reported through the normal event and message stream, not as a second `response` for the same request id.
 
 The `images` field is optional. Each image uses `ImageContent` format: `{"type": "image", "data": "base64-encoded-data", "mimeType": "image/png"}`.
@@ -178,10 +180,13 @@ Response:
     "sessionName": "my-feature-work",
     "autoCompactionEnabled": true,
     "messageCount": 5,
-    "pendingMessageCount": 0
+    "pendingMessageCount": 0,
+    "interruptedRun": false
   }
 }
 ```
+
+`interruptedRun` is `true` when the current branch's last run was cut off by the end of the process and its last message is not a complete reply. The next `prompt`, or `/continue`, repairs it (see [Run markers and interrupted runs](session-format.md#run-markers-and-interrupted-runs)).
 
 The `model` field is a full [Model](#model-object) object, or omitted when no model is selected. The `sessionName` field is the display name set via `set_session_name`, or omitted if not set.
 

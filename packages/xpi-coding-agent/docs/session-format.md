@@ -193,6 +193,27 @@ Fields:
 - `display`: `true` = show in TUI with distinct styling, `false` = hidden
 - `details`: Optional extension-specific metadata (not sent to LLM)
 
+### Run markers and interrupted runs
+
+Each model run writes two hidden custom entries with `customType` `xpi.run`, which do not reach the model: one when the run starts and one when it ends.
+
+```json
+{"type":"custom","customType":"xpi.run","data":{"phase":"start","id":"r1","at":1732112400000}}
+{"type":"custom","customType":"xpi.run","data":{"phase":"end","id":"r1","at":1732112460000,"outcome":"completed"}}
+```
+
+`data` is `{ phase: "start" | "end", id, at, outcome? }`. `outcome` is on `end` only: `completed`, `aborted`, `error`, or `recovered` (a cut-off run that a later run closed).
+
+A run is cut off, because the process ended during it, when the current branch's last `xpi.run` entry is a `start` and no `end` for that run exists anywhere in the session file. Moving with `/tree` to a point inside a finished run is not cut off. A session written before the markers existed has none and is never cut off.
+
+When the next run starts (or `/continue` runs), the session repairs the branch and appends an `end` entry with outcome `recovered`:
+
+- Each tool call of the run's last assistant message without a result gets a `toolResult` message with `isError: true`, `details: { interrupted: true }` and a fixed text saying the call may have run in full, in part, or not at all.
+- A `custom_message` with `customType` `xpi.interrupted` and `display: true` tells the model the previous run stopped early. It is skipped if one already follows the open `start`.
+- When the run's last message is a complete reply, nothing was lost and only the `end` entry is written.
+
+`createBranchedSession` (`/fork`, `/clone`, creating a session from a path) appends an `end` entry with outcome `aborted` for each run started on the copied path and not ended on it, so a fork is never cut off. `forkFrom` copies the whole file, markers included, as they are.
+
 ### LabelEntry
 
 User-defined bookmark/marker on an entry.

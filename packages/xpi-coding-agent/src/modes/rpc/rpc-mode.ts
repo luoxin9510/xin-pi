@@ -19,6 +19,7 @@ import type {
 	ExtensionWidgetOptions,
 	WorkingIndicatorOptions,
 } from "../../core/extensions/index.ts";
+import { CONTINUE_COMMAND } from "../../core/interrupted-run.ts";
 import {
 	flushRawStdout,
 	takeOverStdout,
@@ -412,6 +413,27 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 				let preflightSucceeded = false;
 				// Extension commands run inside prompt(); defer shutdown requests until it settles.
 				activeCommands++;
+				// `/continue` answers with what it did (it runs through continueRun(), not prompt()).
+				if (command.message.trim() === CONTINUE_COMMAND) {
+					void session
+						.continueRun({
+							onStarted: () => {
+								preflightSucceeded = true;
+								output(success(id, "prompt", { disposition: "started", continue: { ran: true } }));
+							},
+						})
+						.then((result) => {
+							if (!result.ran) output(success(id, "prompt", { disposition: "handled", continue: result }));
+						})
+						.catch((e) => {
+							if (!preflightSucceeded) output(error(id, "prompt", e.message));
+						})
+						.finally(() => {
+							activeCommands--;
+							checkShutdownRequested();
+						});
+					return undefined;
+				}
 				void session
 					.prompt(command.message, {
 						images: command.images,
@@ -480,6 +502,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 					autoCompactionEnabled: session.autoCompactionEnabled,
 					messageCount: session.messages.length,
 					pendingMessageCount: session.pendingMessageCount,
+					interruptedRun: session.interruptedRun() !== undefined,
 				};
 				return success(id, "get_state", state);
 			}

@@ -380,6 +380,7 @@ async function startAgent(
 			...(input.name !== undefined && !stored ? { name: input.name } : {}),
 			description: input.description,
 			color: def.color,
+			callId: toolCallId,
 			...(launch
 				? {
 						teammate: {

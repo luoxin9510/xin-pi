@@ -31,6 +31,7 @@ import {
 } from "xpi-ai";
 import { APP_NAME, getAgentDir as getDefaultAgentDir, getSessionsDir } from "../config.ts";
 import { normalizePath, pathsEqual, resolvePath } from "../utils/paths.ts";
+import { openRunIds, RUN_CUSTOM_TYPE } from "./interrupted-run.ts";
 import {
 	type BashExecutionMessage,
 	type CustomMessage,
@@ -1724,6 +1725,20 @@ export class SessionManager {
 					: { ...entry, parentId: pathParentId },
 			);
 			pathParentId = entry.id;
+		}
+		// A run started on the path and not ended on it (the leaf is inside it, or it still runs) did not run in the new
+		// session: it is closed there, so the new session does not read as cut off by a crash (.scratch/xpi-durable).
+		for (const runId of openRunIds(pathWithoutLabels)) {
+			const end: CustomEntry = {
+				type: "custom",
+				id: generateId(new Set(pathWithoutLabels.map((e) => e.id))),
+				parentId: pathParentId,
+				timestamp: new Date().toISOString(),
+				customType: RUN_CUSTOM_TYPE,
+				data: { phase: "end", id: runId, at: Date.now(), outcome: "aborted" },
+			};
+			pathWithoutLabels.push(end);
+			pathParentId = end.id;
 		}
 
 		const newSessionId = createSessionId();

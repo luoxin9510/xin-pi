@@ -8,6 +8,7 @@
 
 import type { AssistantMessage, ImageContent } from "xpi-ai";
 import type { AgentSessionRuntime } from "../core/agent-session-runtime.ts";
+import { CONTINUE_COMMAND, continueResultText, INTERRUPTED_NOTICE } from "../core/interrupted-run.ts";
 import { flushRawStdout, waitForRawStdoutBackpressure, writeRawStdout } from "../core/output-guard.ts";
 import { killTrackedDetachedChildren } from "../utils/shell.ts";
 import { toJsonEvent } from "./json-event.ts";
@@ -134,16 +135,36 @@ export async function runPrintMode(runtimeHost: AgentSessionRuntime, options: Pr
 		}
 
 		await rebindSession();
+		if (session.interruptedRun()) console.error(INTERRUPTED_NOTICE);
+
+		// `/continue` runs through continueRun() so print mode can tell when it did not run: it says why on stderr and
+		// exits 0, without the check of the last message below (an aborted reply would otherwise exit 1).
+		let continueSkipped = false;
+		const send = async (text: string, images?: ImageContent[]): Promise<void> => {
+			continueSkipped = false;
+			const trimmed = text.trim();
+			if (trimmed !== CONTINUE_COMMAND && !trimmed.startsWith(`${CONTINUE_COMMAND} `)) {
+				if (images) await session.prompt(text, { images });
+				else await session.prompt(text);
+				return;
+			}
+			if (trimmed !== CONTINUE_COMMAND) throw new Error(`${CONTINUE_COMMAND} takes no arguments.`);
+			const result = await session.continueRun();
+			if (!result.ran) {
+				console.error(continueResultText(result.reason));
+				continueSkipped = true;
+			}
+		};
 
 		if (initialMessage) {
-			await session.prompt(initialMessage, { images: initialImages });
+			await send(initialMessage, initialImages);
 		}
 
 		for (const message of messages) {
-			await session.prompt(message);
+			await send(message);
 		}
 
-		if (mode === "text") {
+		if (mode === "text" && !continueSkipped) {
 			const state = session.state;
 			const lastMessage = state.messages[state.messages.length - 1];
 

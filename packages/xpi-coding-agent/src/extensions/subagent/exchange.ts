@@ -99,6 +99,7 @@ export interface ExchangeInfo {
 	description: string;
 	color?: string;
 	said?: string; // the user's message that started this exchange
+	callId?: string; // the `Agent` call's id, kept in the meta file (SubagentRecord.callId)
 	// A teammate's exchange (agent teams): the lead is told by an idle notice, not by an end message or a note. The prompt
 	// section is stored in its meta file at its first start.
 	teammate?: { name: string; team: string; teamPrompt?: string };
@@ -185,6 +186,7 @@ function runExchange(
 					model: spec.model,
 					thinking: spec.thinking,
 					color: info.color,
+					...(info.callId !== undefined ? { callId: info.callId } : {}),
 					...(spec.worktree ? { worktree: spec.worktree } : {}),
 					...(mate
 						? {

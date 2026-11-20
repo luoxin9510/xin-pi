@@ -39,6 +39,7 @@ const CORE: Record<string, How> = {
 	logout: { how: "picker" },
 	new: { how: "screen" },
 	compact: { how: "hub", args: "optional" },
+	continue: { how: "reply" },
 	resume: { how: "picker" },
 	reload: { how: "screen" },
 	quit: { how: "confirm" },

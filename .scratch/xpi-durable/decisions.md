@@ -86,3 +86,18 @@ so), and the owner may still change it.
 
 - **D1**: `/continue` after a run that ended on a provider error asks the model again from the same context.
   Recommended: yes; otherwise roost's restart after an error exit stops retrying, which it does today.
+
+## Found while implementing milestone 1 (author)
+
+- **"The branch's last marker is a start" is not enough.** The start is written before the run's user message, so a
+  leaf moved by `/tree` to any point inside a finished run, or a fork made from a user message, shows a start with no
+  end on the branch. The suite test of #8724 (an in-memory fork during a run) caught it. Now: cut off only when that
+  run has no `end` anywhere in the session file, and `createBranchedSession` (fork, clone) appends an `aborted` end
+  for each run its path leaves open. `forkFrom` copies the whole file, so it needs nothing. A crashed session cloned
+  from its leaf therefore reads as stopped, not cut off, in the clone; the original keeps its recovery.
+- Interactive mode queues input typed during a compaction unless it is an extension command; `/continue` is now
+  counted with them, so it reaches `prompt()` and is refused as busy instead of being queued.
+- The core shows `/continue`'s result through `ctx.ui.notify`, the same channel extension commands use, so
+  interactive mode and RPC show it and print mode (no UI) does not; print mode calls `continueRun()` itself.
+- Not covered by an automated test: `/continue` during a compaction (the harness cannot hold a compaction open);
+  the code path is the `busy` check, which the test during a run covers.

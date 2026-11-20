@@ -19,6 +19,8 @@ type FakeSession = {
 	subscribe: ReturnType<typeof vi.fn>;
 	prompt: ReturnType<typeof vi.fn>;
 	reload: ReturnType<typeof vi.fn>;
+	interruptedRun: ReturnType<typeof vi.fn>;
+	continueRun: ReturnType<typeof vi.fn>;
 };
 
 type FakeRuntimeHost = {
@@ -72,6 +74,8 @@ function createRuntimeHost(assistantMessage: AssistantMessage): FakeRuntimeHost 
 		subscribe: vi.fn(() => () => {}),
 		prompt: vi.fn(async () => {}),
 		reload: vi.fn(async () => {}),
+		interruptedRun: vi.fn(() => undefined),
+		continueRun: vi.fn(async () => ({ ran: false, reason: "finished" })),
 	};
 
 	return {
@@ -151,6 +155,53 @@ describe("runPrintMode", () => {
 
 		expect(exitCode).toBe(1);
 		expect(errorSpy).toHaveBeenCalled();
+	});
+
+	// .scratch/xpi-durable: `/continue` runs through continueRun(); when it does not run, print mode says why and exits
+	// 0, even when the last message is an aborted reply (roost would otherwise read the exit as a crash).
+	it("says why /continue did not run and exits 0, whatever the last reply", async () => {
+		const runtimeHost = createRuntimeHost(createAssistantMessage({ stopReason: "aborted" }));
+		runtimeHost.session.continueRun.mockResolvedValue({ ran: false, reason: "stopped" });
+		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+		const exitCode = await runPrintMode(runtimeHost as unknown as Parameters<typeof runPrintMode>[0], {
+			mode: "text",
+			initialMessage: "/continue",
+		});
+
+		expect(exitCode).toBe(0);
+		expect(runtimeHost.session.prompt).not.toHaveBeenCalled();
+		expect(errorSpy).toHaveBeenCalledWith("Nothing to continue: the last run was stopped.");
+	});
+
+	it("checks the reply of a /continue that ran, and tells about a cut-off run at open", async () => {
+		const runtimeHost = createRuntimeHost(createAssistantMessage({ text: "went on" }));
+		runtimeHost.session.interruptedRun.mockReturnValue({ startedAt: 1, danglingToolCalls: [] });
+		runtimeHost.session.continueRun.mockResolvedValue({ ran: true });
+		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+		const exitCode = await runPrintMode(runtimeHost as unknown as Parameters<typeof runPrintMode>[0], {
+			mode: "text",
+			initialMessage: " /continue ",
+		});
+
+		expect(exitCode).toBe(0);
+		expect(runtimeHost.session.continueRun).toHaveBeenCalledTimes(1);
+		expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("The last run stopped before it finished"));
+	});
+
+	it("refuses /continue with arguments", async () => {
+		const runtimeHost = createRuntimeHost(createAssistantMessage({ text: "done" }));
+		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+		const exitCode = await runPrintMode(runtimeHost as unknown as Parameters<typeof runPrintMode>[0], {
+			mode: "text",
+			initialMessage: "/continue now",
+		});
+
+		expect(exitCode).toBe(1);
+		expect(runtimeHost.session.continueRun).not.toHaveBeenCalled();
+		expect(errorSpy).toHaveBeenCalledWith("/continue takes no arguments.");
 	});
 
 	// A signal during the final disposal used to hit no handler and kill pi mid-dispose.

@@ -10,6 +10,7 @@ import type { ImageContent, Model } from "xpi-ai";
 import type { PromptDisposition, QueuedInputDisposition, SessionStats } from "../../core/agent-session.ts";
 import type { BashResult } from "../../core/bash-executor.ts";
 import type { CompactionResult } from "../../core/compaction/index.ts";
+import type { ContinueResult } from "../../core/interrupted-run.ts";
 import type { SessionEntry, SessionTreeNode } from "../../core/session-manager.ts";
 import type { SourceInfo } from "../../core/source-info.ts";
 
@@ -106,6 +107,8 @@ export interface RpcSessionState {
 	autoCompactionEnabled: boolean;
 	messageCount: number;
 	pendingMessageCount: number;
+	/** True when the branch's last run was cut off by the end of the process; the next prompt or `/continue` repairs it. */
+	interruptedRun: boolean;
 }
 
 // ============================================================================
@@ -115,7 +118,14 @@ export interface RpcSessionState {
 // Success responses with data
 export type RpcResponse =
 	// Prompting
-	| { id?: string; type: "response"; command: "prompt"; success: true; data: { disposition: PromptDisposition } }
+	| {
+			id?: string;
+			type: "response";
+			command: "prompt";
+			success: true;
+			/** `continue`: what `/continue` did; `disposition` is `started` when it ran, else `handled`. */
+			data: { disposition: PromptDisposition; continue?: ContinueResult };
+	  }
 	| { id?: string; type: "response"; command: "steer"; success: true; data: { disposition: QueuedInputDisposition } }
 	| {
 			id?: string;

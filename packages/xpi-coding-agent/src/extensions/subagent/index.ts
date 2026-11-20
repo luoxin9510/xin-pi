@@ -12,7 +12,7 @@ import { type Config, readConfig } from "./config.ts";
 import { discoverAgents, parseCliAgents, setCliAgents } from "./discovery.ts";
 import { bindHost, limitConcurrency } from "./exchange.ts";
 import { installPanel } from "./panel.ts";
-import { registry } from "./registry.ts";
+import { registry, type SubagentRecord } from "./registry.ts";
 import { setBuiltinMcp } from "./resolve.ts";
 import type { Run } from "./runs.ts";
 import { scriptHelpers } from "./script-helpers.ts";
@@ -414,4 +414,24 @@ export default function subagent(pi: ExtensionAPI) {
 		const line = runningLine(ctx.sessionManager.getSessionId());
 		return line ? { message: { customType: "subagent-status", content: line, display: false } } : undefined;
 	});
+
+	// A tool call cut off by the end of the process (the core's recovery, .scratch/xpi-durable): name the agents it had
+	// started, from their meta files, so the model can resume them. The child ended with the parent (its stdin closed).
+	pi.on("tool_result", (event, ctx) => {
+		if (event.parentToolCallId !== undefined) return undefined;
+		if ((event.details as { interrupted?: unknown } | undefined)?.interrupted !== true) return undefined;
+		const lines = interruptedAgentLines(registry.list(ctx.sessionManager.getSessionId()), event.toolCallId);
+		if (lines.length === 0) return undefined;
+		return { content: [...event.content, { type: "text" as const, text: lines.join("\n") }] };
+	});
+}
+
+/** One line per agent started under the model-issued call `callId` (the Agent call itself, or a script's nested one). */
+export function interruptedAgentLines(records: readonly SubagentRecord[], callId: string): string[] {
+	return records
+		.filter((r) => r.callId === callId || r.callId?.startsWith(`${callId}/`))
+		.map(
+			(r) =>
+				`Agent ${r.type}${r.description ? ` (${r.description})` : ""} agentId ${r.id} was running. Pass resume: "${r.id}" to continue it.`,
+		);
 }
