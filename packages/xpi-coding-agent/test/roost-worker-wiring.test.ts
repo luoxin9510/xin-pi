@@ -184,6 +184,35 @@ describe("worker wiring", () => {
 		}
 	});
 
+	it("/continue that ran nothing reports the row done at once, with why; a busy one changes nothing", async () => {
+		const daemon = await fakeDaemon();
+		const { pi, emit } = fakePi();
+		registerWorker(pi, { job: { id: "j1", token: "t", socket: daemon.socket }, reportIntervalMs: 20 });
+		const ctx = ctxOf();
+		try {
+			await emit("session_start", { reason: "startup" }, ctx);
+			await waitFor(() => daemon.requests.find((r) => r.op === "report"));
+			await emit("continue_skipped", { reason: "busy", message: "A run is in progress." }, ctx);
+			await new Promise((r) => setTimeout(r, 50));
+			expect(daemon.requests.some((r) => r.op === "report" && r.args.report.state === "done")).toBe(false);
+			await emit(
+				"continue_skipped",
+				{ reason: "finished", message: "Nothing to continue: the last run finished." },
+				ctx,
+			);
+			const done = await waitFor(() =>
+				daemon.requests.find((r) => r.op === "report" && r.args.report.state === "done"),
+			);
+			expect(done.args.report).toMatchObject({
+				status: "idle",
+				summary: "Nothing to continue: the last run finished.",
+			});
+		} finally {
+			await emit("session_shutdown", {}, ctx);
+			await daemon.close();
+		}
+	});
+
 	it("the recap sees the tracker's settled state of the same event (questions, tools)", async () => {
 		const { pi, emit, entries } = fakePi();
 		registerWorker(pi, { job: { id: "j1", token: "t", socket: join(dir, "no-daemon.sock") } });

@@ -493,6 +493,33 @@ describe("runs cut off by the end of the process", () => {
 			expect(harness.faux.state.callCount).toBe(0);
 			expect(harness.session.interruptedRun()).toBeDefined();
 		});
+
+		it("tells extensions (continue_skipped) when /continue sent as a prompt runs nothing, not when it runs", async () => {
+			const skipped: { reason: string; message: string }[] = [];
+			const harness = await harnessFor(undefined, {
+				extensionFactories: [
+					(pi) => {
+						pi.on("continue_skipped", (event) => {
+							skipped.push({ reason: event.reason, message: event.message });
+						});
+					},
+				],
+			});
+			await harness.session.prompt("/continue");
+			await harness.session.prompt("/continue now");
+			expect(skipped).toEqual([
+				{ reason: "none", message: "Nothing to continue." },
+				{ reason: "arguments", message: "/continue takes no arguments." },
+			]);
+			harness.setResponses([fauxAssistantMessage("done")]);
+			await harness.session.prompt("go");
+			await harness.session.prompt("/continue");
+			expect(skipped.at(-1)).toEqual({ reason: "finished", message: "Nothing to continue: the last run finished." });
+			expect(skipped).toHaveLength(3);
+			// continueRun() itself (print mode, RPC) returns the reason and does not fire the event
+			expect(await harness.session.continueRun()).toEqual({ ran: false, reason: "finished" });
+			expect(skipped).toHaveLength(3);
+		});
 	});
 });
 

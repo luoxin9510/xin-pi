@@ -1040,6 +1040,19 @@ pi.on("thinking_level_select", async (event, ctx) => {
 
 Use this to update extension UI when `pi.setThinkingLevel()`, model changes, or built-in thinking-level controls change the active thinking level.
 
+#### continue_skipped
+
+Fired when `/continue`, sent as a prompt (typed, `pi.sendUserMessage`, a CLI message), starts no run. This is notification-only; handler return values are ignored. `AgentSession.continueRun()` returns its reason instead and does not fire it.
+
+```typescript
+pi.on("continue_skipped", async (event, ctx) => {
+  // event.reason - "finished" | "stopped" | "none" | "busy" | "arguments"
+  // event.message - what the UI was told, e.g. "Nothing to continue: the last run finished."
+});
+```
+
+Use it where no one reads the notice: roost's worker marks its row done and shows the message. See [Sessions](sessions.md#after-the-process-ends-mid-run).
+
 <a id="tool-call-events"></a>
 
 ### Tool Events

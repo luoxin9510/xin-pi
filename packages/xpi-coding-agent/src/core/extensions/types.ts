@@ -1272,6 +1272,16 @@ export interface ModelSelectEvent {
 	source: ModelSelectSource;
 }
 
+/**
+ * Fired when `/continue`, sent as a prompt, starts no run: after a run that finished or was stopped, with nothing to
+ * continue, while a run is in progress, or with arguments. `message` is what the UI is told. Notification-only.
+ */
+export interface ContinueSkippedEvent {
+	type: "continue_skipped";
+	reason: "finished" | "stopped" | "none" | "busy" | "arguments";
+	message: string;
+}
+
 /** Fired when a new thinking level is selected */
 export interface ThinkingLevelSelectEvent {
 	type: "thinking_level_select";
@@ -1573,6 +1583,7 @@ export type ExtensionEvent =
 	| ToolExecutionEndEvent
 	| ModelSelectEvent
 	| ThinkingLevelSelectEvent
+	| ContinueSkippedEvent
 	| UserBashEvent
 	| InputEvent
 	| ToolCallEvent
@@ -1830,6 +1841,7 @@ export interface ExtensionAPI {
 	on(event: "tool_execution_end", handler: ExtensionHandler<ToolExecutionEndEvent>): () => void;
 	on(event: "model_select", handler: ExtensionHandler<ModelSelectEvent>): () => void;
 	on(event: "thinking_level_select", handler: ExtensionHandler<ThinkingLevelSelectEvent>): () => void;
+	on(event: "continue_skipped", handler: ExtensionHandler<ContinueSkippedEvent>): () => void;
 	on(event: "tool_call", handler: ExtensionHandler<ToolCallEvent, ToolCallEventResult>): () => void;
 	on(event: "tool_result", handler: ExtensionHandler<ToolResultEvent, ToolResultEventResult>): () => void;
 	on(event: "user_bash", handler: ExtensionHandler<UserBashEvent, UserBashEventResult>): () => void;

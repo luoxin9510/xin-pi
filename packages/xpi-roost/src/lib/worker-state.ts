@@ -188,6 +188,18 @@ export class WorkerTracker {
 		return true;
 	}
 
+	/**
+	 * A command that started no run said why (`/continue` with nothing to continue): that piece of work is over, and
+	 * the row shows the note instead of waiting for the first-prompt rule.
+	 */
+	commandNote(note: string): void {
+		if (this.running || this.dialogs.length > 0) return;
+		this.resetRun();
+		this.sawTurn = true;
+		this.settled = "done";
+		this.modelSummary = clip(note);
+	}
+
 	/** No turn started yet; called once FIRST_PROMPT_MS after session start. */
 	firstPromptTimeout(messageCount: number): void {
 		if (this.sawTurn || this.running || this.dialogs.length > 0) return;
