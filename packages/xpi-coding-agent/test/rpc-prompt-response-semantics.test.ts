@@ -8,6 +8,7 @@ import { AgentSession } from "../src/core/agent-session.ts";
 import type { AgentSessionRuntime } from "../src/core/agent-session-runtime.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import type { LoadExtensionsResult } from "../src/core/extensions/index.ts";
+import { findInterruptedRun } from "../src/core/interrupted-run.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
 import { runRpcMode } from "../src/modes/rpc/rpc-mode.ts";
@@ -596,7 +597,9 @@ describe("RPC shutdown triggers", () => {
 			await vi.waitFor(() => expect(runtimeHost.session.isStreaming).toBe(true));
 			process.stdin.emit("end");
 			await vi.waitFor(() => expect(exitSpy).toHaveBeenCalledWith(0));
-			expect(runtimeHost.session.interruptedRun()).toBeDefined();
+			// The run's start has no end on disk: the next process sees it cut off (this one never reports its own run).
+			const sm = runtimeHost.session.sessionManager;
+			expect(findInterruptedRun(sm.getBranch(), sm.getEntries())).toBeDefined();
 		} finally {
 			await cleanup();
 		}

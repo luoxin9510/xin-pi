@@ -2273,6 +2273,8 @@ export class AgentSession {
 	 * complete reply lost nothing and is not reported. Nothing is written: recovery waits for the next run or `/continue`.
 	 */
 	interruptedRun(): { startedAt: number; danglingToolCalls: ToolCall[] } | undefined {
+		// This process's own run is never cut off: while it runs, its start has no end yet.
+		if (this._isAgentRunActive || this._isEmittingAgentSettled) return undefined;
 		const run = findInterruptedRun(this.sessionManager.getBranch(), this.sessionManager.getEntries());
 		if (!run || run.replyComplete) return undefined;
 		return { startedAt: run.startedAt, danglingToolCalls: run.danglingToolCalls };
@@ -2357,9 +2359,18 @@ export class AgentSession {
 				this._writeRunEnd(cut.id, "recovered");
 				return { ran: false, reason: "finished" };
 			}
+			// D1 needs the provider error to be the reply the context ends with: a run whose start failed (a throwing
+			// before_agent_start handler, say) also ends as `error`, after a reply that is complete.
+			// Read from the branch: the agent's messages may not be loaded yet in a session just reopened.
+			const lastEntry = branch.findLast((entry) => entry.type === "message");
+			const last = lastEntry?.type === "message" ? lastEntry.message : undefined;
+			const errorTail =
+				last?.role === "assistant" && (last as AssistantMessage).stopReason === "error"
+					? (last as AssistantMessage)
+					: undefined;
 			if (!cut) {
 				const outcome = lastRunOutcome(branch, entries);
-				if (outcome !== "error") {
+				if (outcome !== "error" || !errorTail) {
 					return {
 						ran: false,
 						reason:
@@ -2372,12 +2383,8 @@ export class AgentSession {
 				this._modelRuntime.hasConfiguredAuth(this.model.provider) ||
 				(await this._modelRuntime.checkAuth(this.model.provider)) !== undefined;
 			if (!hasConfiguredAuth) throw new Error(formatNoApiKeyFoundMessage(this.model.provider));
-			if (!cut) {
-				const last = this.agent.state.messages.at(-1);
-				if (last?.role === "assistant" && (last as AssistantMessage).stopReason === "error") {
-					this._omitRecoveryAttempt(last as AssistantMessage);
-				}
-			}
+			// A cut-off run is repaired in _startRun: its note ends the context, after any failed reply.
+			if (!cut && errorTail) this._omitRecoveryAttempt(errorTail);
 		} finally {
 			this._promptPreflightCount--;
 		}

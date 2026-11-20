@@ -3,6 +3,7 @@
  * branch shows after a crash, the recovery at the next action, and `/continue`.
  */
 
+import { join } from "node:path";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentTool } from "xpi-agent-core";
@@ -297,6 +298,45 @@ describe("runs cut off by the end of the process", () => {
 			expect(notes).toHaveLength(1);
 		});
 
+		it("skips an attempt a retry left out of the context, so no result answers its calls", async () => {
+			// A stream interrupt (or overflow) retry omitted the attempt with a context_edit; the process died before the retry.
+			const sm = crashed((s) => {
+				const attempt = s.appendMessage(twoCalls());
+				s.appendContextEdit(attempt, null);
+			});
+			const run = findInterruptedRun(sm.getBranch(), sm.getEntries());
+			expect(run?.danglingToolCalls).toEqual([]);
+			expect(run?.replyComplete).toBe(false);
+			const harness = await harnessFor(sm, { tools: [echoTool([])] });
+			const requests: Message[][] = [];
+			harness.setResponses([
+				(context) => {
+					requests.push(context.messages);
+					return fauxAssistantMessage("ok");
+				},
+			]);
+			expect(await harness.session.continueRun()).toEqual({ ran: true });
+			expect(requests[0].some((m) => m.role === "toolResult")).toBe(false);
+		});
+
+		it("treats a failed reply at the tail as cut off, not complete", async () => {
+			const sm = crashed((s) =>
+				s.appendMessage(
+					fauxAssistantMessage([fauxToolCall("echo", { text: "a" }, { id: "t9" })], {
+						stopReason: "error",
+						errorMessage: "overloaded",
+					}),
+				),
+			);
+			const run = findInterruptedRun(sm.getBranch(), sm.getEntries());
+			expect(run).toMatchObject({ replyComplete: false, danglingToolCalls: [] });
+			const harness = await harnessFor(sm);
+			expect(harness.session.interruptedRun()).toBeDefined();
+			harness.setResponses([fauxAssistantMessage("answer")]);
+			expect(await harness.session.continueRun()).toEqual({ ran: true });
+			expect(harness.session.messages.at(-1)).toMatchObject({ role: "assistant", stopReason: "stop" });
+		});
+
 		it("closes a run that ended after a complete reply with no note", async () => {
 			const harness = await harnessFor(crashed((s) => s.appendMessage(fauxAssistantMessage("all done"))));
 			harness.setResponses([fauxAssistantMessage("ok")]);
@@ -387,6 +427,39 @@ describe("runs cut off by the end of the process", () => {
 			expect(harness.session.messages.at(-1)).toMatchObject({ role: "assistant", stopReason: "stop" });
 		});
 
+		it("does not retry after a run that failed to start, whose context ends with a complete reply", async () => {
+			const sm = SessionManager.inMemory();
+			sm.appendCustomEntry(RUN_CUSTOM_TYPE, { phase: "start", id: "ok", at: 1 });
+			sm.appendMessage(user("q"));
+			sm.appendMessage(fauxAssistantMessage("a"));
+			sm.appendCustomEntry(RUN_CUSTOM_TYPE, { phase: "end", id: "ok", at: 2, outcome: "completed" });
+			sm.appendCustomEntry(RUN_CUSTOM_TYPE, { phase: "start", id: "bad", at: 3 });
+			sm.appendCustomEntry(RUN_CUSTOM_TYPE, { phase: "end", id: "bad", at: 4, outcome: "error" });
+			const harness = await harnessFor(sm);
+			expect(await harness.session.continueRun()).toEqual({ ran: false, reason: "finished" });
+			expect(harness.faux.state.callCount).toBe(0);
+		});
+
+		it("asks again after a provider error in a session reopened from disk (D1)", async () => {
+			const first = await harnessFor(undefined, { settings: { retry: { enabled: false } } });
+			const file = SessionManager.create(first.tempDir, join(first.tempDir, "sessions"));
+			const writer = await harnessFor(file, { settings: { retry: { enabled: false } } });
+			writer.setResponses([fauxAssistantMessage("", { stopReason: "error", errorMessage: "overloaded" })]);
+			await writer.session.prompt("question");
+			const path = writer.sessionManager.getSessionFile();
+			expect(path).toBeDefined();
+			const reopened = await harnessFor(SessionManager.open(path!), { settings: { retry: { enabled: false } } });
+			const requests: Message[][] = [];
+			reopened.setResponses([
+				(context) => {
+					requests.push(context.messages);
+					return fauxAssistantMessage("answer");
+				},
+			]);
+			expect(await reopened.session.continueRun()).toEqual({ ran: true });
+			expect(requests[0].filter((m) => m.role !== "system").map((m) => m.role)).toEqual(["user"]);
+		});
+
 		it("is refused while a run is in progress, and never queued", async () => {
 			let release: () => void = () => {};
 			const gate: AgentTool = {
@@ -429,7 +502,7 @@ describe("subagent lines for an interrupted call", () => {
 
 	it("names the agents started by the call itself or by its script", () => {
 		const lines = interruptedAgentLines(
-			[record("a1", "call_1"), record("a2", "call_1/3"), record("a3", "call_2"), record("a4", undefined)],
+			[record("a1", "call_1"), record("a2", "call_1/Agent/3"), record("a3", "call_2"), record("a4", undefined)],
 			"call_1",
 		);
 		expect(lines).toEqual([

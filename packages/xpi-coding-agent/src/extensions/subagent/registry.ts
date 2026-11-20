@@ -53,7 +53,7 @@ export interface SubagentRecord {
 	thinking: string;
 	color?: string; // the agent definition's colour name, if any
 	sessionDir?: string; // where the child session and meta file live; unset for an in-memory parent
-	// The id of the `Agent` call that started its latest exchange (`<script call id>/<n>` when a codemode script made it), so
+	// The id of the `Agent` call that started its latest exchange (`<script call id>/Agent/<n>` when a codemode script made it), so
 	// a call cut off by the end of the process can name the agents it had started (.scratch/xpi-durable).
 	callId?: string;
 	worktree?: WorktreeRef; // set when the subagent is isolated: where it runs and the commit it started from

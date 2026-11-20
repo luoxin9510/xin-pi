@@ -127,15 +127,24 @@ export function findInterruptedRun(
 	const last = lastMarker(branch);
 	if (!last || last.marker.phase !== "start" || endOf(last.marker.id, entries)) return undefined;
 	const after = branch.slice(last.index + 1);
+	// Messages a retry left out of the model's context (an abandoned attempt and its results, `context_edit` with no
+	// replacement) are not where the run stands: answering their calls would put results with no call into the context.
+	const omitted = new Set(
+		after.flatMap((entry) => (entry.type === "context_edit" && entry.replacement === null ? [entry.targetId] : [])),
+	);
 
 	let lastMessage: SessionEntry | undefined;
 	let lastAssistantIndex = -1;
 	let noteWritten = false;
 	for (let i = 0; i < after.length; i++) {
 		const entry = after[i];
+		if (omitted.has(entry.id)) continue;
 		if (entry.type === "custom_message" && entry.customType === INTERRUPTED_CUSTOM_TYPE) noteWritten = true;
 		if (entry.type === "message" || entry.type === "custom_message") lastMessage = entry;
-		if (entry.type === "message" && entry.message.role === "assistant") lastAssistantIndex = i;
+		// A failed or aborted reply is left out of provider requests; its calls never ran.
+		if (entry.type === "message" && entry.message.role === "assistant" && !failedReply(entry.message)) {
+			lastAssistantIndex = i;
+		}
 	}
 
 	const danglingToolCalls: ToolCall[] = [];
@@ -155,9 +164,15 @@ export function findInterruptedRun(
 	const replyComplete =
 		lastMessage?.type === "message" &&
 		lastMessage.message.role === "assistant" &&
+		!failedReply(lastMessage.message) &&
 		!lastMessage.message.content.some((block) => block.type === "toolCall");
 
 	return { id: last.marker.id, startedAt: last.marker.at, danglingToolCalls, replyComplete, noteWritten };
+}
+
+/** A reply that ended on an error or an abort: provider requests leave it out. */
+function failedReply(message: AssistantMessage): boolean {
+	return message.stopReason === "error" || message.stopReason === "aborted";
 }
 
 /**

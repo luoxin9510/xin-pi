@@ -99,5 +99,14 @@ so), and the owner may still change it.
   counted with them, so it reaches `prompt()` and is refused as busy instead of being queued.
 - The core shows `/continue`'s result through `ctx.ui.notify`, the same channel extension commands use, so
   interactive mode and RPC show it and print mode (no UI) does not; print mode calls `continueRun()` itself.
+- Review 1 of PR #152 (independent Opus, at 79f1167ba): no blocking; 3 should-fix and 3 nits.
+  - Taken: an attempt a retry left out of the context (`context_edit` with no replacement) and a failed or aborted
+    reply no longer count as where the run stands (no results for their calls; a failed tail is cut off, not
+    complete); D1 runs only when the branch really ends with a provider error (read from the branch, so it works in
+    a session just reopened), not after a run that failed to start; `interruptedRun()` is undefined while this
+    process runs; the docs' `callId` format (`<id>/Agent/<n>`) and the `continue` trigger wording.
+  - Left: SendMessage (`talk.ts`) does not pass the call's id, so an interrupted SendMessage call does not name its
+    agent (the meta keeps the id of the call that started it, which already has a result, so nothing wrong is named);
+    `/continue` during `agent_settled` answers busy where a prompt would be deferred.
 - Not covered by an automated test: `/continue` during a compaction (the harness cannot hold a compaction open);
   the code path is the `busy` check, which the test during a run covers.
