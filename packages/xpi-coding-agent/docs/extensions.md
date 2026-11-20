@@ -406,6 +406,7 @@ Other operations change the current session without replacing the runtime:
 | `/name` or `pi.setSessionName()` | `session_info_changed` |
 | `/model` or model cycling (`Ctrl+P`) | `thinking_level_select` if the level changes or is clamped, then `model_select` |
 | Thinking-level change (settings, keybinding, `pi.setThinkingLevel()`) | `thinking_level_select` |
+| `/continue` that starts no run | `continue_skipped` |
 | `!` or `!!` command | `user_bash` (can intercept) |
 | Extension dialog or custom screen waits for the user | `ui_prompt_start`, `ui_prompt_end` |
 | Idle prompt-cache refresh, or refresh of a held prefix | `cache_warming_decision` |
@@ -1042,7 +1043,7 @@ Use this to update extension UI when `pi.setThinkingLevel()`, model changes, or 
 
 #### continue_skipped
 
-Fired when `/continue`, sent as a prompt (typed, `pi.sendUserMessage`, a CLI message), starts no run. This is notification-only; handler return values are ignored. `AgentSession.continueRun()` returns its reason instead and does not fire it.
+Fired when `/continue`, sent as a prompt (typed, `pi.sendUserMessage`, a CLI message), starts no run. This is notification-only; handler return values are ignored. `AgentSession.continueRun()` returns its reason instead and does not fire it; so does `/continue` sent over RPC `prompt` (the reason is in the response's `data.continue`).
 
 ```typescript
 pi.on("continue_skipped", async (event, ctx) => {

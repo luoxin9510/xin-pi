@@ -547,7 +547,7 @@ command line (`src/cli.ts`) and their library (`src/lib/`), plus the hub (`src/h
 - **Depends on**: the roost unit. Extension events (`session_start`, `session_shutdown`, `session_info_changed`,
   `session_tree`, `agent_start`, `agent_settled`, `message_end`, `tool_execution_start`/`end`,
   `ui_prompt_start`/`end`, `session_before_compact`, `session_compact`, `session_compact_failed`, `model_select`,
-  `thinking_level_select`), `pi.registerFlag` (`--bg`, `--bg-name`), `pi.registerCommand`, `pi.sendUserMessage`.
+  `thinking_level_select`, `continue_skipped`), `pi.registerFlag` (`--bg`, `--bg-name`), `pi.registerCommand`, `pi.sendUserMessage`.
 - **Copy (one unit)**: `coding-agent/src/extensions/roost/`, `index.ts` included; `getRoostEntries()` in `config.ts`.
 - **Rewrite**: the whole adapter is host code; keep its contracts (the job identity variables, the report ops, the
   session lock next to the session file).

@@ -170,5 +170,5 @@ The owner asked for the follow-up above to be fixed. The core now fires a notifi
 `continue_skipped` (`reason`: finished, stopped, none, busy, arguments; `message`: the notice text), when `/continue`
 sent as a prompt starts no run; `continueRun()` itself (print mode, RPC) returns the reason and does not fire it. The
 roost worker settles its row as `done` at once with the message as its summary (`WorkerTracker.commandNote`); `busy`
-changes nothing (the run in progress settles the row). Before: the row showed `working` for `FIRST_PROMPT_MS` (5 s),
-then `done` with the old last reply, and the reason went only to `notify`, which no one sees in a background worker.
+changes nothing (the run in progress settles the row), and so does a row already settled (a question waiting for someone who attached and typed `/continue`; review 1 of #154). Before: the row showed `working` for `FIRST_PROMPT_MS` (5 s),
+then `done` with no summary, and the reason went only to `notify`, which no one sees in a background worker.

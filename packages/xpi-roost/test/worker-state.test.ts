@@ -147,6 +147,14 @@ describe("WorkerTracker", () => {
 		expect(t.report()).toMatchObject({ state: "working", summary: null });
 		t.commandNote("ignored while running");
 		expect(t.report()).toMatchObject({ state: "working", summary: null });
+
+		// a question waiting for the user stays (someone attached and typed /continue)
+		const asked = new WorkerTracker();
+		asked.agentStart();
+		asked.assistantMessage({ content: [{ type: "text", text: "A or B?" }], stopReason: "stop" });
+		asked.agentSettled(false);
+		asked.commandNote("Nothing to continue: the last run finished.");
+		expect(asked.report()).toMatchObject({ state: "blocked", waitingFor: "question", question: "A or B?" });
 	});
 
 	it("a retried error that then succeeds is not failed (review B1)", () => {

@@ -190,10 +190,11 @@ export class WorkerTracker {
 
 	/**
 	 * A command that started no run said why (`/continue` with nothing to continue): that piece of work is over, and
-	 * the row shows the note instead of waiting for the first-prompt rule.
+	 * the row shows the note instead of waiting for the first-prompt rule. A row already settled (a question waiting,
+	 * a summary of the last run) keeps what it says.
 	 */
 	commandNote(note: string): void {
-		if (this.running || this.dialogs.length > 0) return;
+		if (this.running || this.dialogs.length > 0 || this.settled !== undefined) return;
 		this.resetRun();
 		this.sawTurn = true;
 		this.settled = "done";
