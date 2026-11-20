@@ -52,6 +52,22 @@ was xpi-graph spec 03 (`.scratch/xpi-graph/03-replay.md`).
   record the model-issued call.
 - Print mode exits 1 when the run ended on an error, and roost treats any non-zero exit as a crash. Hence D1.
 
+## Spec review 1 (independent Opus, at eee662e8d): 3 blocking, 7 should-fix, 4 nits, all taken
+
+- B1 `/continue` had no way into `_startRun`: a new `{ messageType: "continue" }` trigger, `agent.continue()` when
+  there is no starting message; today's `before_agent_start` handlers do not read the trigger (checked).
+- B2 D1 as written could not run: the final error message stays in the agent's messages; it is omitted first, as a
+  retry does.
+- B3 print mode exits 1 after an aborted tail, which roost would read as a crash: one `continueRun()` with a result;
+  print mode exits 0 when it does not run; RPC returns the result.
+- S1 roost has two more sites (the hub's `continue` command: now sends `/continue`; `/bg`: keeps its text, since its
+  run ends `aborted` on purpose). S2 roost's command table needs the new built-in. S3 `/continue` is refused while
+  compacting and runs inside the preflight reservation. S4 the agent's messages are rebuilt after recovery. S5 any
+  exit mid-run counts (SIGTERM, `/quit`, stdin end), children included. S6 a second process can recover a live
+  session: documented as a known limit (spec 03's one-process assumption; roost's lock warns). S7 docs list.
+- N1 wording on hidden entries; N2 the note is not written twice; N3 what `tool_result` carries for a call not run
+  here; N4 tests for an `agent_settled`-started run and `/continue` during compaction.
+
 ## New choice for the owner (with the spec PR)
 
 - **D1**: `/continue` after a run that ended on a provider error asks the model again from the same context.

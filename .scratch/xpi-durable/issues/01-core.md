@@ -10,9 +10,12 @@ PR: `npm run check`, the tests, green CI, an independent Opus review, the docs.
 - [ ] C1.3 the notice at open: interactive warning line, print-mode stderr, RPC `get_state.interruptedRun`
 - [ ] C1.4 recovery before a run starts and at `/continue`: interrupted tool results in call order through
       `tool_result`, the `xpi.interrupted` note, the `recovered` end marker last; a complete reply gets only the marker
-- [ ] C1.5 `/continue` in `prompt()` before extension commands; in `BUILTIN_SLASH_COMMANDS`; cut off → recover and
-      continue; after an error → continue (D1, if approved); otherwise "nothing to continue"; refused during a run and
-      with arguments; print mode and RPC
+- [ ] C1.5 `continueRun()` → `ContinueResult`; the `{ messageType: "continue" }` trigger (no starting message,
+      `agent.continue()`); cut off → recover and continue; after an error → omit it and continue (D1, if approved);
+      otherwise finished/stopped/none; busy during a run or compaction; recovery inside the preflight reservation
+- [ ] C1.5b `/continue` recognised in `prompt()` first (also while streaming or compacting: refused, never queued),
+      print mode (stderr, exit 0 without the error-tail check) and RPC (`data`); `/continue <args>` refused; added to
+      `BUILTIN_SLASH_COMMANDS` and roost's command table (`extensions/roost/commands.ts`)
 - [ ] C1.6 subagent: meta `callId` (the model-issued call, via `parentToolCallId` for scripts); `tool_result` handler
       adds the agentId line to an interrupted result and marks the record stopped; a test that a child exits when
       its parent dies

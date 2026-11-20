@@ -3,8 +3,9 @@
 Spec: `.scratch/xpi-durable/01-interrupted-turn.md` (sections 6–7). One PR (branch `durable-roost`), after
 milestone 1: the tests, green CI, an independent Opus review, the docs.
 
-- [ ] R2.1 roost's restart prompt is `/continue` (DM-5, a restart while working, a resume of a failed row), one
-      constant; a row with nothing to continue ends as done; tests
+- [ ] R2.1 roost's restart prompt is `/continue` (DM-5, both restarts while working, a resume of a failed row, the
+      hub's `continue` command with its new description), one constant; `/bg` keeps its text and its header says
+      why; a row with nothing to continue ends as done; tests
 - [ ] R2.2 graph tests: a model node cut off mid-tool then `/continue` stays on the node's model; `next` before the
       crash; the core's recovery and a command node's recovery in one action, core first
 - [ ] R2.3 docs: roost (DM-5), `docs/graph.md`, `docs/porting.md`
