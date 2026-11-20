@@ -545,7 +545,6 @@ describe("mermaid", () => {
 		]);
 		const drawnStopped = mermaid(graph, stopped);
 		expect(drawnStopped).toContain("  class n0,n1 visited");
-		expect(drawnStopped).not.toContain("current\n");
 		expect(
 			drawnStopped.split("\n").filter((line) => line.startsWith("  class ") && line.endsWith(" current")),
 		).toEqual([]);

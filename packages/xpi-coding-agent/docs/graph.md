@@ -258,7 +258,8 @@ not counted: the cost of background agents (the session records it only as text)
 ```
 
 Then the graph as Mermaid (`flowchart LR`), the current node and the edges taken marked, to paste into a pull request.
-After the end, a finished run marks `end` as current and its last edge as taken; a stopped one has no current node.
+After the end, a finished run marks `end` as current and its last edge as taken (`edgesTaken` in `--json` includes
+it); a run stopped or ended by a model change has no current node.
 
 - **A visit** is one entry into a node. Its time runs from its entry to the next node's entry (or the end, or now). A
   command visit shows the command's own time. The time includes waits; `--json` has the time spent on approval
