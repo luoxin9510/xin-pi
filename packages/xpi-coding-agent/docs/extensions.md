@@ -1143,7 +1143,9 @@ pi.on("tool_result", async (event, ctx) => {
     signal: ctx.signal,
   });
 
-  // Modify result:
+  // Modify result. A `usage` returned without `usageByModel` leaves all of it unattributed, even event.usage
+  // returned as it was; give both to keep the cost by model (event.usageByModel is the part of event.usage each
+  // physical model spent):
   return { content: [...], details: {...}, isError: false, usage: nestedModelUsage };
 });
 ```
@@ -2458,6 +2460,7 @@ pi.registerTool({
       content: [{ type: "text", text: "Done" }],  // Sent to LLM
       details: { data: result },                   // For rendering & state
       // usage: nestedModelResponse.usage,          // Optional nested LLM usage
+      // usageByModel: [{ provider, model, usage }], // Optional: the part of `usage` each physical model spent
       // Optional: stop after this tool batch when every finalized tool result
       // in the batch also returns terminate: true.
       terminate: true,

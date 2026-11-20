@@ -50,6 +50,53 @@ test("10: completed run: output is the last assistant text, usage summed, turns 
 	assert.deepEqual(t.updates, ["test task: turn 1, grep", "test task: turn 2, read", "test task: turn 3, read"]);
 });
 
+test("10b: the usage by model follows the model that answered each request, not the agent's model", async () => {
+	const s = sandbox();
+	const from = (provider: string, model: string, responseModel?: string) => ({
+		provider,
+		model,
+		...(responseModel ? { responseModel } : {}),
+	});
+	s.scenario({
+		lines: [
+			ev.session(),
+			ev.user("go"),
+			ev.assistant("", usage(100, 10, 0.5), { ...from("anthropic", "claude-haiku-5-5"), stopReason: "toolUse" }),
+			ev.tool("grep"),
+			ev.turnEnd(),
+			// switched mid-run; a router names the model that really answered in responseModel
+			ev.assistant("", usage(50, 5, 0.25), { ...from("openai", "router", "gpt-5"), stopReason: "toolUse" }),
+			ev.tool("read"),
+			ev.turnEnd(),
+			ev.assistant("", usage(0, 0, 0), { api: "pi-virtual", provider: "relay", model: "auto", stopReason: "error" }),
+			ev.assistant("final", usage(10, 20, 0.25), from("anthropic", "claude-haiku-5-5")),
+			ev.turnEnd(),
+			ev.settled(),
+		],
+	});
+	const t = await loadTool({}, { cwd: s.repo });
+	const result = await t.run({});
+	assert.equal(result.structuredContent.usage.cost.total, 1);
+	assert.deepEqual(
+		result.usageByModel.map(
+			(part: { provider: string; model: string; usage: { input: number; cost: { total: number } } }) => [
+				`${part.provider}/${part.model}`,
+				part.usage.input,
+				part.usage.cost.total,
+			],
+		),
+		[
+			["anthropic/claude-haiku-5-5", 110, 0.75],
+			["openai/gpt-5", 50, 0.25],
+		],
+	);
+	// A request whose routing failed names the virtual model: never attributed.
+	assert.ok(!result.usageByModel.some((part: { model: string }) => part.model === "auto"));
+	// It goes with the tool's usage, not into the agent's result.
+	assert.equal(result.structuredContent.usageByModel, undefined);
+	assert.equal(result.details.usageByModel, undefined);
+});
+
 test("11: maxTurns stops the child and returns partial", async () => {
 	const s = sandbox();
 	s.write(join(s.repo, ".pi/agents/short.md"), agentFile("name: short\ndescription: d\nmaxTurns: 2"));

@@ -11,6 +11,7 @@ import type {
 	ImagesContext,
 	ModelType,
 	ModelTypeMap,
+	ModelUsage,
 	TextContent,
 	ToolResultSignal,
 	Usage,
@@ -30,7 +31,7 @@ import { getCodemodeWorkerSpecifier, getQuickJSWasmPath } from "../../config.ts"
 import type { ExtensionToolContext, ToolNamespace } from "../../core/extensions/types.ts";
 import type { SessionEntry } from "../../core/session-manager.ts";
 import { formatSize, sliceHead, sliceTail } from "../../core/tools/truncate.ts";
-import { combineUsage } from "../../core/usage-totals.ts";
+import { combineUsage, mergeModelUsage } from "../../core/usage-totals.ts";
 import { writeOutputFile } from "../../utils/output-files.ts";
 import { Bm25Ranker, createToolSearchDocument, DEFAULT_TOOL_SEARCH_LIMIT } from "../tool-search/tool.ts";
 import { codemodeAddons } from "./addons.ts";
@@ -525,13 +526,15 @@ async function runCodemode(
 	const calls: CodemodeNestedCall[] = [];
 	// Usage of the script's `models.*` calls. Nested tool calls report theirs through the session.
 	let modelUsage: Usage | undefined;
+	let modelUsageByModel: ModelUsage[] | undefined;
 	// Images returned by `models.generateImages()`, to notice a script that never shows them.
 	let generatedImages = 0;
 	const addGeneratedImages = (count: number) => {
 		generatedImages += count;
 	};
-	const addModelUsage = (usage: Usage) => {
+	const addModelUsage = (usage: Usage, provider: string, model: string) => {
 		modelUsage = modelUsage ? combineUsage(modelUsage, usage) : usage;
+		modelUsageByModel = mergeModelUsage(modelUsageByModel, [{ provider, model, usage }]);
 	};
 
 	const snapshot = (): CodemodeToolDetails => ({ calls: calls.map((call) => ({ ...call })) });
@@ -750,6 +753,7 @@ async function runCodemode(
 		content: [{ type: "text", text: header }, ...output],
 		details,
 		...(modelUsage ? { usage: modelUsage } : {}),
+		...(modelUsageByModel ? { usageByModel: modelUsageByModel } : {}),
 		...(succeeded ? {} : { isError: true }),
 		...(endedByCall ? { terminate: true } : {}),
 		...(endedByCall && terminationSignal ? { signal: terminationSignal } : {}),
@@ -955,7 +959,7 @@ function createModelGlobals(
 	toolCallId: string,
 	calls: CodemodeNestedCall[],
 	publish: () => void,
-	addUsage: (usage: Usage) => void,
+	addUsage: (usage: Usage, provider: string, model: string) => void,
 	addGeneratedImages: (count: number) => void,
 ): CodemodeTool[] {
 	const limit = createLimiter(MAX_CONCURRENT_MODEL_CALLS);
@@ -1015,7 +1019,7 @@ function createModelGlobals(
 		if (result.errorMessage) record.error = truncateText(result.errorMessage, ERROR_PREVIEW_CHARS);
 		if (result.usage) {
 			record.cost = result.usage.cost.total;
-			addUsage(result.usage);
+			addUsage(result.usage, resolved.provider, resolved.id);
 		}
 		publish();
 		return result;

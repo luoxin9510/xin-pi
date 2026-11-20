@@ -185,13 +185,14 @@ interface ToolResultMessage<TDetails = any> {
   content: (TextContent | ImageContent)[];
   details?: TDetails;
   usage?: Usage;
+  usageByModel?: { provider: string; model: string; usage: Usage }[];
   nestedCalls?: NestedToolCalls;
   isError: boolean;
   timestamp: number;
 }
 ```
 
-`details` is tool-specific. Optional `usage` reports nested model work performed by the tool and contributes to full-session statistics, but it is not part of the main model-call usage. `nestedCalls` records bounded metadata about calls this tool made to other tools:
+`details` is tool-specific. Optional `usage` reports nested model work performed by the tool and contributes to full-session statistics, but it is not part of the main model-call usage. Optional `usageByModel` is the part of `usage` each physical model spent (a subagent's requests by the model that answered each, a codemode script's `models.*` calls by the model each resolved to, merged with the calls the tool made through `ctx.executeTool()`); its sum is at most `usage`, the rest is unattributed, and it never names a virtual model. Sessions written before it have no `usageByModel`. `nestedCalls` records bounded metadata about calls this tool made to other tools:
 
 ```typescript
 interface NestedToolCalls {

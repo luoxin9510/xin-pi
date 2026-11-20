@@ -120,6 +120,10 @@ Records model-attributed usage that is not an assistant message and does not par
 
 Usage entries contribute to session token and cost totals. Pi hides them from the conversation tree. Consumers should treat unknown `kind` values as normal usage rather than rejecting them.
 
+A codemode script that kept making calls after it moved to the background records their usage as `kind: "nested_tool_calls"` entries when it ends: one per physical model that spent it, and the rest under `provider: "unknown"`, `model: "unattributed"`. Sessions written before that have one entry under the model selected then (possibly a virtual one).
+
+The cost breakdown of `/session` groups usage by `provider/model`: assistant messages by the model that answered, a tool result's `usageByModel` by its models, and what no model is named for (the rest of a tool result's `usage`, `unknown/unattributed` entries) under `Tools/unattributed`; compaction and branch summaries under `Tools/summaries`. In sessions written before `usageByModel`, all of a tool result's usage is under `Tools/unattributed` (it was under `Tools/summaries`).
+
 ### CompactionEntry
 
 Created when context is compacted. Stores a summary of earlier messages and a complete system prompt/tool checkpoint.

@@ -133,6 +133,40 @@ describe("report", () => {
 		expect(result.byModel["anthropic/claude-haiku-5-5"].cost).toBeCloseTo(0.014);
 	});
 
+	it("puts nested usage under the model that spent it, and only the rest under 'nested calls'", () => {
+		const attributed: ReportEntry = {
+			type: "message",
+			message: {
+				role: "toolResult",
+				usage: usage(0.3),
+				// a subagent on Haiku inside a script; the script's own share is named for no model
+				usageByModel: [
+					{ provider: "anthropic", model: "claude-haiku-5-5", usage: usage(0.25) },
+					// never written so, but read safely: a virtual model stays with the rest
+					{ provider: "graph", model: "auto", usage: usage(0.01) },
+				],
+			},
+		};
+		const result = run([
+			start(0),
+			enter("grill", "start", 0),
+			user,
+			assistant(0.1, "anthropic/claude-opus-5-5", true),
+			attributed,
+			assistant(0.05),
+			usageEntry("nested_tool_calls", 0.04, "anthropic/claude-haiku-5-5"),
+			usageEntry("nested_tool_calls", 0.02, "unknown/unattributed"),
+		]);
+		const [grill] = result.visits;
+		// The visit's parts do not change: all of it is the tools' share.
+		expect(grill.tools.cost).toBeCloseTo(0.36);
+		expect(result.byModel["anthropic/claude-haiku-5-5"].cost).toBeCloseTo(0.29);
+		expect(result.byModel[NESTED_CALLS].cost).toBeCloseTo(0.07);
+		expect(result.byModel["unknown/unattributed"]).toBeUndefined();
+		expect(result.byModel["graph/auto"]).toBeUndefined();
+		expect(result.byModel["anthropic/claude-opus-5-5"].cost).toBeCloseTo(0.15);
+	});
+
 	it("puts a virtual model's usage under 'unknown' when no model answered in the visit", () => {
 		const result = run([start(0), enter("grill", "start", 0), usageEntry("cache_warm", 0.01)]);
 		expect(result.byModel[UNKNOWN_MODEL].cost).toBeCloseTo(0.01);

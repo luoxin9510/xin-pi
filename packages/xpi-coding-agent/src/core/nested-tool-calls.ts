@@ -15,8 +15,8 @@ import type {
 	AgentToolResult,
 	AgentToolUpdateCallback,
 } from "xpi-agent-core";
-import type { JsonObject, NestedToolCallRecord, NestedToolCalls, TextContent, Usage } from "xpi-ai";
-import { combineUsage } from "./usage-totals.ts";
+import type { JsonObject, ModelUsage, NestedToolCallRecord, NestedToolCalls, TextContent, Usage } from "xpi-ai";
+import { combineUsage, mergeModelUsage } from "./usage-totals.ts";
 
 /**
  * Limits of the nested-call record on a tool result: arguments
@@ -38,6 +38,8 @@ export interface NestedCallSummary {
 	calls: NestedToolCalls | undefined;
 	/** Summed `usage` of the nested results, added to the message's `usage`. */
 	usage: Usage | undefined;
+	/** The part of `usage` each physical model spent, merged into the message's `usageByModel`. */
+	usageByModel: ModelUsage[] | undefined;
 }
 
 /**
@@ -53,6 +55,9 @@ export class NestedCallRecorder {
 	private usage: Usage | undefined;
 	/** The part of `usage` that no `takeUnreportedUsage()` has handed out yet. */
 	private unreported: Usage | undefined;
+	/** `usage` and `unreported` by physical model, as far as the nested results named them. */
+	private byModel: ModelUsage[] | undefined;
+	private unreportedByModel: ModelUsage[] | undefined;
 
 	/** Record a call as it starts. Returns undefined when the call is dropped. */
 	start(toolCall: AgentToolCall): NestedToolCallRecord | undefined {
@@ -86,20 +91,26 @@ export class NestedCallRecorder {
 		if (isError && errorText) record.error = errorText.slice(0, NESTED_CALL_LIMITS.maxErrorChars);
 	}
 
-	addUsage(usage: Usage): void {
+	addUsage(usage: Usage, byModel?: readonly ModelUsage[]): void {
 		this.usage = this.usage ? combineUsage(this.usage, usage) : usage;
 		this.unreported = this.unreported ? combineUsage(this.unreported, usage) : usage;
+		this.byModel = mergeModelUsage(this.byModel, byModel);
+		this.unreportedByModel = mergeModelUsage(this.unreportedByModel, byModel);
 	}
 
-	/** Usage added since the last call of this method (or since the start): what no result message has counted yet. */
-	takeUnreportedUsage(): Usage | undefined {
-		const usage = this.unreported;
+	/**
+	 * Usage added since the last call of this method (or since the start): what no result message has counted yet, with
+	 * its part by model.
+	 */
+	takeUnreportedUsage(): { usage: Usage | undefined; usageByModel: ModelUsage[] | undefined } {
+		const taken = { usage: this.unreported, usageByModel: this.unreportedByModel };
 		this.unreported = undefined;
-		return usage;
+		this.unreportedByModel = undefined;
+		return taken;
 	}
 
-	get totalUsage(): Usage | undefined {
-		return this.usage;
+	get totalUsage(): { usage: Usage | undefined; usageByModel: ModelUsage[] | undefined } {
+		return { usage: this.usage, usageByModel: this.byModel };
 	}
 
 	/** Copy of the record so far, or undefined when no nested call was made. */
@@ -314,7 +325,7 @@ export class NestedToolCallRunner {
 
 		scope.recorder.finish(record, outcome.isError, textOf(outcome.result));
 		// Nested results are not persisted, so their usage is only counted through the recorder.
-		if (outcome.result.usage) scope.recorder.addUsage(outcome.result.usage);
+		if (outcome.result.usage) scope.recorder.addUsage(outcome.result.usage, outcome.result.usageByModel);
 		await this.host.emit({
 			type: "tool_execution_end",
 			toolCallId: toolCall.id,
@@ -337,7 +348,7 @@ export class NestedToolCallRunner {
 		if (scope.detached) scope.taken = true;
 		return {
 			calls: scope.recorder.snapshot(),
-			usage: scope.detached ? scope.recorder.takeUnreportedUsage() : scope.recorder.totalUsage,
+			...(scope.detached ? scope.recorder.takeUnreportedUsage() : scope.recorder.totalUsage),
 		};
 	}
 
@@ -372,7 +383,7 @@ export class NestedToolCallRunner {
 		this.detachedScopes.delete(token);
 		scope.detached = false;
 		if (!scope.taken) return undefined;
-		return { calls: scope.recorder.snapshot(), usage: scope.recorder.takeUnreportedUsage() };
+		return { calls: scope.recorder.snapshot(), ...scope.recorder.takeUnreportedUsage() };
 	}
 
 	/** Drop every scope except those of calls running below a detached one (detached scopes are kept apart). */

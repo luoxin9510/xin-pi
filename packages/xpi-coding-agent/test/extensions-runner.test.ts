@@ -1184,6 +1184,52 @@ describe("ExtensionRunner", () => {
 				isError: true,
 			});
 		});
+
+		it("keeps the usage by model unless a handler replaces the usage without it", async () => {
+			const usage = (total: number) => ({
+				input: 1,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 1,
+				cost: { input: total, output: 0, cacheRead: 0, cacheWrite: 0, total },
+			});
+			const byModel = [{ provider: "anthropic", model: "claude-haiku-5-5", usage: usage(0.1) }];
+			const event = {
+				type: "tool_result" as const,
+				toolName: "my_tool",
+				toolCallId: "call-3",
+				input: {},
+				content: [{ type: "text" as const, text: "base" }],
+				details: {},
+				isError: false,
+				usage: usage(0.2),
+				usageByModel: byModel,
+			};
+			const runnerWith = async (name: string, body: string) => {
+				const dir = path.join(tempDir, name);
+				fs.mkdirSync(dir, { recursive: true });
+				fs.writeFileSync(
+					path.join(dir, "hook.ts"),
+					`export default function(pi) { pi.on("tool_result", async () => (${body})); }`,
+				);
+				const loaded = await discoverAndLoadExtensions([path.join(dir, "hook.ts")], tempDir, tempDir);
+				return new ExtensionRunner(loaded.extensions, loaded.runtime, tempDir, sessionManager, modelRegistry);
+			};
+
+			const content = await (
+				await runnerWith("content", '{ content: [{ type: "text", text: "x" }] }')
+			).emitToolResult(event);
+			expect(content?.usageByModel).toEqual(byModel);
+			const replaced = await (
+				await runnerWith(
+					"usage",
+					"{ usage: { input: 2, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0.3, output: 0, cacheRead: 0, cacheWrite: 0, total: 0.3 } } }",
+				)
+			).emitToolResult(event);
+			expect(replaced?.usage?.cost.total).toBe(0.3);
+			expect(replaced?.usageByModel).toBeUndefined();
+		});
 	});
 
 	describe("provider registration", () => {

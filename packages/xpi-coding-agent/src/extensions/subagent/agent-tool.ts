@@ -1,7 +1,7 @@
 // The `Agent` tool (spec 7): discovery -> resolve -> concurrency slot -> run.
 
 import { type Static, Type } from "typebox";
-import { type JsonValue, StringEnum } from "xpi-ai";
+import { type JsonValue, type ModelUsage, StringEnum } from "xpi-ai";
 import type { ExtensionContext } from "../../core/extensions/types.ts";
 import { findWorkspace, sandboxRef } from "../shadow-git/workspace.ts";
 import { type AgentCallHandle, scripts } from "./background.ts";
@@ -248,7 +248,7 @@ async function executeAgent(
 	toolCallId: string,
 	started?: (spec: ChildSpec) => void, // called once the spec is resolved, before the agent is queued
 	launch?: TeamLaunch, // a teammate (team-start.ts)
-): Promise<AgentResult> {
+): Promise<AgentResult & { usageByModel?: ModelUsage[] }> {
 	if (input.isolation !== undefined && input.isolation !== "worktree") {
 		throw new Error(`invalid isolation "${input.isolation}": only "worktree" is supported`);
 	}
@@ -526,12 +526,15 @@ export function agentTool(
 				toolCallId,
 				handle ? (spec) => handle.started(spec.agentId) : undefined,
 			);
+			// The cost by model goes with the tool's usage, not into the agent's result.
+			const { usageByModel, ...shown } = result;
 			return {
-				content: [{ type: "text" as const, text: summary(result) }],
-				details: result as AgentResult | undefined,
-				structuredContent: result as unknown as JsonValue,
-				usage: result.usage,
-				isError: result.status === "failed",
+				content: [{ type: "text" as const, text: summary(shown) }],
+				details: shown as AgentResult | undefined,
+				structuredContent: shown as unknown as JsonValue,
+				usage: shown.usage,
+				...(usageByModel ? { usageByModel } : {}),
+				isError: shown.status === "failed",
 			};
 		},
 	};

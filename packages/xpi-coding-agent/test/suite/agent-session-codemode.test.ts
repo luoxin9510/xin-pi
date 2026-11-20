@@ -22,6 +22,7 @@ import {
 	createToolDefinitionFromAgentTool,
 	type TypeBoxAgentTool,
 } from "../../src/core/tools/tool-definition-wrapper.ts";
+import { getUsageCostBreakdown } from "../../src/core/usage-totals.ts";
 import { readCodemodeStore } from "../../src/extensions/codemode/execute.ts";
 import { createCodemodeExtension } from "../../src/extensions/codemode/index.ts";
 import {
@@ -418,6 +419,44 @@ describe("AgentSession codemode tool", () => {
 			persisted?.type === "message" && persisted.message.role === "toolResult" && persisted.message.usage,
 		).toEqual(result.usage);
 		expect(harness.session.getSessionStats().cost).toBe(0.5);
+	});
+
+	it("merges the nested results' usage by model into the result message, the rest unattributed", async () => {
+		const billedTool: AgentTool = {
+			name: "billed",
+			label: "Billed",
+			description: "Run a subagent",
+			parameters: Type.Object({}),
+			// 0.25 in all, 0.15 of it by Haiku: the rest is named for no model.
+			execute: async () => ({
+				content: [{ type: "text", text: "ran" }],
+				details: {},
+				usage: usage(100, 0.25),
+				usageByModel: [{ provider: "anthropic", model: "claude-haiku-5-5", usage: usage(60, 0.15) }],
+			}),
+		};
+		const harness = await setup([(pi) => pi.registerTool(createToolDefinitionFromAgentTool(billedTool))]);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("codemode", { code: "await tools.billed({}); await tools.billed({});" })], {
+				stopReason: "toolUse",
+			}),
+			fauxAssistantMessage("done"),
+		]);
+
+		await harness.session.prompt("go");
+
+		const persisted = harness.sessionManager
+			.getEntries()
+			.find((entry) => entry.type === "message" && entry.message.role === "toolResult");
+		const message =
+			persisted?.type === "message" && persisted.message.role === "toolResult" ? persisted.message : undefined;
+		expect(message?.usage?.cost.total).toBeCloseTo(0.5, 10);
+		expect(message?.usageByModel?.map((part) => [part.model, part.usage.input, part.usage.cost.total])).toEqual([
+			["claude-haiku-5-5", 120, expect.closeTo(0.3, 10)],
+		]);
+		const breakdown = getUsageCostBreakdown(harness.sessionManager.getEntries());
+		expect(breakdown.find((entry) => entry.key === "anthropic/claude-haiku-5-5")?.cost).toBeCloseTo(0.3, 10);
+		expect(breakdown.find((entry) => entry.key === "Tools/unattributed")?.cost).toBeCloseTo(0.2, 10);
 	});
 
 	it("keeps structured content that tool_result handlers replace along with the content", async () => {
@@ -937,6 +976,10 @@ describe("codemode models", () => {
 		expect(result.usage?.input).toBe(1800);
 		expect(result.usage?.cost.total).toBeCloseTo(0.006, 10);
 		expect(harness.session.getSessionStats().cost).toBeCloseTo(0.006, 10);
+		// All of it under the model each call resolved to (spec 03, section 7).
+		expect(result.usageByModel?.map((part) => [part.provider, part.model, part.usage.input])).toEqual([
+			["scorer", "judge", 1800],
+		]);
 	});
 
 	it("generates images with catalog auth and attaches them through image()", async () => {

@@ -55,6 +55,27 @@ describe("background codemode scripts: nested calls after the early return", () 
 					totalTokens: 150,
 					cost: { input: PAID_COST / 2, output: PAID_COST / 2, cacheRead: 0, cacheWrite: 0, total: PAID_COST },
 				},
+				// 60% of it by one model, as a subagent's result names it; the rest by none.
+				usageByModel: [
+					{
+						provider: "anthropic",
+						model: "claude-haiku-5-5",
+						usage: {
+							input: 60,
+							output: 30,
+							cacheRead: 0,
+							cacheWrite: 0,
+							totalTokens: 90,
+							cost: {
+								input: (PAID_COST * 0.6) / 2,
+								output: (PAID_COST * 0.6) / 2,
+								cacheRead: 0,
+								cacheWrite: 0,
+								total: PAID_COST * 0.6,
+							},
+						},
+					},
+				],
 			}),
 		};
 		const harness = await createHarness({
@@ -104,6 +125,16 @@ describe("background codemode scripts: nested calls after the early return", () 
 		await waitEnded();
 		expect(ended[0].outcome.background).toBe(true);
 		expect(harness.session.getSessionStats().cost - before).toBeCloseTo(2 * PAID_COST);
+		// One entry per model that spent it, and the rest under no model; never the session's selected model.
+		const usage = harness.sessionManager
+			.getEntries()
+			.flatMap((entry) => (entry.type === "usage" && entry.kind === "nested_tool_calls" ? [entry] : []));
+		expect(usage.map((entry) => [`${entry.provider}/${entry.model}`, entry.usage.input])).toEqual([
+			["anthropic/claude-haiku-5-5", 120],
+			["unknown/unattributed", 80],
+		]);
+		expect(usage[0].usage.cost.total).toBeCloseTo(1.2 * PAID_COST);
+		expect(usage[1].usage.cost.total).toBeCloseTo(0.8 * PAID_COST);
 	});
 
 	it("C4: a background script's calls still run after the session's messages are gone (no assistant message issued)", async () => {

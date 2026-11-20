@@ -160,7 +160,15 @@ import {
 import { type BashOperations, createLocalBashOperations } from "./tools/bash.ts";
 import { createAllToolDefinitions, FileStateStore, SchemeResolver } from "./tools/index.ts";
 import { createToolDefinitionFromAgentTool, resolveToolEffect } from "./tools/tool-definition-wrapper.ts";
-import { addUsageToTotals, combineUsage, createUsageTotals } from "./usage-totals.ts";
+import {
+	addUsageToTotals,
+	combineUsage,
+	createUsageTotals,
+	mergeModelUsage,
+	UNATTRIBUTED_MODEL,
+	UNATTRIBUTED_PROVIDER,
+	unattributedUsage,
+} from "./usage-totals.ts";
 import {
 	findLatestResponse,
 	getBranchSelection,
@@ -814,6 +822,7 @@ export class AgentSession {
 					...(result.signal ? { signal: structuredClone(result.signal) } : {}),
 					isError,
 					usage: result.usage,
+					...(result.usageByModel === undefined ? {} : { usageByModel: result.usageByModel }),
 				})
 			: undefined;
 
@@ -836,6 +845,7 @@ export class AgentSession {
 			structuredContent: hookResult ? hookResult.structuredContent : result.structuredContent,
 			isError: hookResult?.isError ?? isError,
 			usage: hookResult?.usage,
+			...(hookResult?.usageByModel === undefined ? {} : { usageByModel: hookResult.usageByModel }),
 		};
 	}
 
@@ -860,14 +870,17 @@ export class AgentSession {
 	private _releaseNestedCalls(callerId: string, scopeToken: object | undefined): void {
 		const summary = this._nestedToolCalls?.release(callerId, scopeToken);
 		if (!summary?.usage) return;
+		const note = `tool calls of ${callerId} after it returned`;
 		try {
-			this.sessionManager.appendUsage(
-				"nested_tool_calls",
-				this.model?.provider ?? "unknown",
-				this.model?.id ?? "unknown",
-				summary.usage,
-				`tool calls of ${callerId} after it returned`,
-			);
+			// One entry per model that spent it; the rest under no model (never the session's selection, which may be
+			// virtual or not the model that answered).
+			for (const part of summary.usageByModel ?? []) {
+				this.sessionManager.appendUsage("nested_tool_calls", part.provider, part.model, part.usage, note);
+			}
+			const rest = unattributedUsage(summary.usage, summary.usageByModel);
+			if (rest) {
+				this.sessionManager.appendUsage("nested_tool_calls", UNATTRIBUTED_PROVIDER, UNATTRIBUTED_MODEL, rest, note);
+			}
 		} catch (error) {
 			console.error(`Could not record the usage of ${callerId}: ${error instanceof Error ? error.message : error}`);
 		}
@@ -1312,6 +1325,8 @@ export class AgentSession {
 				if (summary?.calls) message.nestedCalls = summary.calls;
 				if (summary?.usage) {
 					message.usage = message.usage ? combineUsage(message.usage, summary.usage) : summary.usage;
+					const byModel = mergeModelUsage(message.usageByModel, summary.usageByModel);
+					if (byModel) message.usageByModel = byModel;
 				}
 			} else if (event.type === "agent_end") {
 				this._nestedToolCalls.clear();

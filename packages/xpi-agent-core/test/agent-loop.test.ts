@@ -2193,6 +2193,81 @@ describe("agentLoop with AgentMessage", () => {
 	});
 });
 
+describe("a tool result's usage by model", () => {
+	const spent = (input: number, total: number) => ({
+		input,
+		output: 0,
+		cacheRead: 0,
+		cacheWrite: 0,
+		totalTokens: input,
+		cost: { input: total, output: 0, cacheRead: 0, cacheWrite: 0, total },
+	});
+	const byHaiku = [{ provider: "anthropic", model: "claude-haiku-5-5", usage: spent(4, 0.4) }];
+	const bySonnet = [{ provider: "anthropic", model: "claude-sonnet-5-5", usage: spent(9, 0.9) }];
+
+	async function resultOf(afterToolCall?: AgentLoopConfig["afterToolCall"]): Promise<ToolResultMessage> {
+		const toolSchema = obj({});
+		const tool: AgentTool<typeof toolSchema, Record<string, never>> = {
+			name: "spend",
+			label: "Spend",
+			description: "Spends",
+			parameters: toolSchema,
+			async execute() {
+				return {
+					content: [{ type: "text", text: "done" }],
+					details: {},
+					usage: spent(5, 0.5),
+					usageByModel: byHaiku,
+				};
+			},
+		};
+		const config: AgentLoopConfig = {
+			model: createModel(),
+			convertToLlm: identityConverter,
+			afterToolCall: async (context, signal) => ({
+				...((await afterToolCall?.(context, signal)) ?? {}),
+				terminate: true,
+			}),
+		};
+		const stream = agentLoop([createUserMessage("go")], { messages: [], tools: [tool] }, config, undefined, () => {
+			const mockStream = createAssistantMessageEventStream();
+			queueMicrotask(() => {
+				const message = createAssistantMessage(
+					[{ type: "toolCall", id: "tool-1", name: "spend", arguments: {} }],
+					"toolUse",
+				);
+				mockStream.push({ type: "done", reason: "toolUse", message });
+			});
+			return mockStream;
+		});
+		const results: ToolResultMessage[] = [];
+		for await (const event of stream) {
+			if (event.type === "message_end" && event.message.role === "toolResult") results.push(event.message);
+		}
+		expect(results).toHaveLength(1);
+		return results[0]!;
+	}
+
+	it("is copied to the result message with the usage", async () => {
+		const message = await resultOf();
+		expect(message.usage?.cost.total).toBe(0.5);
+		expect(message.usageByModel).toEqual(byHaiku);
+	});
+
+	it("is kept by an afterToolCall that leaves the usage alone", async () => {
+		const message = await resultOf(async () => ({ content: [{ type: "text", text: "rewritten" }] }));
+		expect(message.usageByModel).toEqual(byHaiku);
+	});
+
+	it("is dropped by an afterToolCall that replaces the usage without it, and replaced by one that gives both", async () => {
+		const dropped = await resultOf(async () => ({ usage: spent(9, 0.9) }));
+		expect(dropped.usage?.cost.total).toBe(0.9);
+		expect(dropped.usageByModel).toBeUndefined();
+		const replaced = await resultOf(async () => ({ usage: spent(9, 0.9), usageByModel: bySonnet }));
+		expect(replaced.usageByModel).toEqual(bySonnet);
+	});
+});
+
 describe("agentLoopContinue with AgentMessage", () => {
 	it("should throw when context has no messages", () => {
 		const context: AgentContext = {

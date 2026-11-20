@@ -264,7 +264,7 @@ Then the graph as Mermaid (`flowchart LR`), the current node and the edges taken
   questions as `waitMs`.
 - **Cost and tokens** are summed from the session's records in the visit, in three parts: `own` (the node's model),
   `tools` (what codemode scripts' nested calls spent: a subagent started with `Agent`, `models.*`; the session keeps
-  only their sum per script, so one subagent cannot be told apart from another call of the same script), and
+  their sum per script and per model, so two subagents on the same model cannot be told apart), and
   `other` (cache refreshes, extension side calls, compaction and branch summaries). The cache column is the node's
   own cache reads and writes.
 - **After the end** the rest of the run that ended the graph still counts: a script that answered "Stop the graph"
@@ -272,6 +272,11 @@ Then the graph as Mermaid (`flowchart LR`), the current node and the edges taken
   an end written between turns (`/graph stop`) nothing does. Counting after the end also stops at the first message
   that is not the graph's (another extension's, a background agent's result), even one injected into the same run:
   that can count a little less, never twice.
+- **By model.** The total line names the model that spent each part: a node's own requests under the model that
+  answered, a subagent's requests under the model that answered each of them (not `graph/auto` or the agent's
+  `model` pattern), a script's `models.*` calls under their model. Only what no model is named for is under `nested
+  calls`. Sessions written before this (xpi with no `usageByModel`) have all nested usage there, and a background
+  script's later calls under the model selected then.
 - **Not counted:** the cost of background agents, which the session records only in the text of their message, and
   anything before `/graph start`.
 - **Approvals.** Every answer is recorded (`graph.asked`), "Send back", "Stop the graph" and a closed question too,

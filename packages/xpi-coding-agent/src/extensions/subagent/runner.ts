@@ -6,6 +6,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Readable, Writable } from "node:stream";
 import { type Static, Type } from "typebox";
+import type { ModelUsage } from "xpi-ai";
+import { mergeModelUsage } from "../../core/usage-totals.ts";
+import { isVirtualModel } from "../../core/virtual-models.ts";
 import { GROUPS, signalTree, trackTree } from "./process-tree.ts";
 import { type ChildSpec, STRUCTURED_OUTPUT_TOOL } from "./resolve.ts";
 import { MAX_STRUCTURED_ATTEMPTS, SCHEMA_FILE_ENV, STRUCTURED_REMINDER } from "./structured-output.ts";
@@ -33,6 +36,8 @@ export interface RunResult {
 	status: Status;
 	output: string;
 	usage: Usage;
+	/** `usage` by the physical model that answered each of the child's requests (a model switch, relay). */
+	usageByModel?: ModelUsage[];
 	turns: number;
 	durationMs: number;
 	error?: string;
@@ -79,6 +84,11 @@ interface AssistantMessage {
 	role: "assistant";
 	content: { type: string; text?: string }[];
 	usage: Usage;
+	/** The model that answered: physical, except on a request whose routing failed (then `api` is the virtual one's). */
+	api?: string;
+	provider?: string;
+	model?: string;
+	responseModel?: string;
 	stopReason: string;
 	errorMessage?: string;
 }
@@ -167,6 +177,16 @@ export function runChild(
 		const requests = new Map<string, (error: string | undefined) => void>(); // commands waiting for pi's response
 
 		const usage = emptyUsage();
+		let usageByModel: ModelUsage[] | undefined;
+		// Each request's usage, in the total and under the model that answered it.
+		const count = (m: AssistantMessage) => {
+			addUsage(usage, m.usage);
+			const model = m.responseModel ?? m.model;
+			// A request whose routing failed names the virtual model: its usage (none, as a rule) stays unattributed.
+			if (m.provider && model && !(m.api !== undefined && isVirtualModel({ api: m.api }))) {
+				usageByModel = mergeModelUsage(usageByModel, [{ provider: m.provider, model, usage: { ...m.usage } }]);
+			}
+		};
 		let output = "";
 		let turns = 0;
 		let lastTool: string | undefined;
@@ -241,7 +261,7 @@ export function runChild(
 				// After the last allowed turn only the end of the run matters, but its cost still counts.
 				if (hitMaxTurns && event.type !== "agent_settled") {
 					const m = event.message as AssistantMessage | undefined;
-					if (event.type === "message_end" && m?.role === "assistant") addUsage(usage, m.usage);
+					if (event.type === "message_end" && m?.role === "assistant") count(m);
 					return;
 				}
 				switch (event.type) {
@@ -249,7 +269,7 @@ export function runChild(
 						const message = event.message as AssistantMessage | { role: string };
 						if (message.role !== "assistant") break;
 						const m = message as AssistantMessage;
-						addUsage(usage, m.usage);
+						count(m);
 						const text = m.content
 							.filter((c) => c.type === "text")
 							.map((c) => c.text ?? "")
@@ -370,6 +390,7 @@ export function runChild(
 			const base = {
 				output: structured === undefined ? output : JSON.stringify(structured, null, 2),
 				usage,
+				...(usageByModel ? { usageByModel } : {}),
 				turns,
 				durationMs: Date.now() - started,
 				aborted: childAborted,

@@ -285,6 +285,47 @@ describe("NestedToolCallRunner after an early return (detached scripts)", () => 
 		expect((await runner.execute("call", "quick", {})).toolCall.id).toBe("call/4");
 	});
 
+	it("keeps the usage by model of the nested results, in the total and in the part no message counted", async () => {
+		const spending: AgentTool = {
+			...quick,
+			name: "spending",
+			async execute() {
+				// 0.005 in all: 0.003 by Haiku, 0.001 by Sonnet, 0.001 named for no model.
+				return {
+					content: [],
+					details: {},
+					usage: usage(5, 0.005),
+					usageByModel: [
+						{ provider: "anthropic", model: "claude-haiku-5-5", usage: usage(3, 0.003) },
+						{ provider: "anthropic", model: "claude-sonnet-5-5", usage: usage(1, 0.001) },
+					],
+				};
+			},
+		};
+		const { runner } = createRunner([spending]);
+		await runner.execute("call", "spending", {});
+		await runner.execute("call", "spending", {});
+		const total = runner.takeRecord("call");
+		expect(total?.usage?.cost.total).toBeCloseTo(0.01);
+		expect(total?.usageByModel?.map((part) => [part.model, part.usage.input])).toEqual([
+			["claude-haiku-5-5", 6],
+			["claude-sonnet-5-5", 2],
+		]);
+
+		// Detached: the take hands out what it saw, the release only what came after it.
+		runner.detach("call");
+		await runner.execute("call", "spending", {});
+		expect(runner.takeRecord("call")?.usageByModel?.map((part) => part.usage.input)).toEqual([3, 1]);
+		await runner.execute("call", "spending", {});
+		await runner.execute("call", "spending", {});
+		const released = runner.release("call");
+		expect(released?.usageByModel?.map((part) => [part.model, part.usage.cost.total])).toEqual([
+			["claude-haiku-5-5", expect.closeTo(0.006, 10)],
+			["claude-sonnet-5-5", expect.closeTo(0.002, 10)],
+		]);
+		expect(released?.usage?.cost.total).toBeCloseTo(0.01);
+	});
+
 	it("C2: a release before the result message took the record leaves everything to that take", async () => {
 		const { runner } = createRunner([quick]);
 		await runner.execute("call", "quick", {});

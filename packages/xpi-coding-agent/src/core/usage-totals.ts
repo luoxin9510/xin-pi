@@ -1,4 +1,4 @@
-import type { Usage } from "xpi-ai/compat";
+import type { ModelUsage, Usage } from "xpi-ai";
 import type { SessionEntry } from "./session-manager.ts";
 
 export interface UsageTotals {
@@ -53,6 +53,63 @@ export function combineUsage(first: Usage, second: Usage): Usage {
 	};
 }
 
+/** `provider`/`model` of a usage entry that holds nested usage no model could be named for. */
+export const UNATTRIBUTED_PROVIDER = "unknown";
+export const UNATTRIBUTED_MODEL = "unattributed";
+
+/** Both lists merged, usage of the same model summed. Undefined when both are empty. */
+export function mergeModelUsage(
+	first: readonly ModelUsage[] | undefined,
+	second: readonly ModelUsage[] | undefined,
+): ModelUsage[] | undefined {
+	const merged: ModelUsage[] = [];
+	for (const part of [...(first ?? []), ...(second ?? [])]) {
+		const same = merged.find((known) => known.provider === part.provider && known.model === part.model);
+		if (same) same.usage = combineUsage(same.usage, part.usage);
+		else merged.push({ ...part });
+	}
+	return merged.length > 0 ? merged : undefined;
+}
+
+/** `usage` less the attributed parts: what no model is named for. Undefined when nothing is left. */
+export function unattributedUsage(usage: Usage, byModel: readonly ModelUsage[] | undefined): Usage | undefined {
+	const left: Usage = {
+		...usage,
+		cost: { ...usage.cost },
+	};
+	for (const part of byModel ?? []) {
+		left.input -= part.usage.input;
+		left.output -= part.usage.output;
+		left.cacheRead -= part.usage.cacheRead;
+		left.cacheWrite -= part.usage.cacheWrite;
+		left.totalTokens -= part.usage.totalTokens;
+		left.cost.input -= part.usage.cost.input;
+		left.cost.output -= part.usage.cost.output;
+		left.cost.cacheRead -= part.usage.cost.cacheRead;
+		left.cost.cacheWrite -= part.usage.cost.cacheWrite;
+		left.cost.total -= part.usage.cost.total;
+	}
+	// Rounding of summed floats: a cent's fraction of a millionth is nothing.
+	const clamp = (value: number) => (value > 1e-9 ? value : 0);
+	left.input = clamp(left.input);
+	left.output = clamp(left.output);
+	left.cacheRead = clamp(left.cacheRead);
+	left.cacheWrite = clamp(left.cacheWrite);
+	left.totalTokens = clamp(left.totalTokens);
+	left.cost = {
+		...left.cost,
+		input: clamp(left.cost.input),
+		output: clamp(left.cost.output),
+		cacheRead: clamp(left.cost.cacheRead),
+		cacheWrite: clamp(left.cost.cacheWrite),
+		total: clamp(left.cost.total),
+	};
+	delete left.cacheWrite1h;
+	delete left.reasoning;
+	const empty = left.input + left.output + left.cacheRead + left.cacheWrite === 0 && left.cost.total === 0;
+	return empty ? undefined : left;
+}
+
 export interface UsageCostBreakdownEntry {
 	key: string;
 	cost: number;
@@ -62,31 +119,30 @@ export interface UsageCostBreakdownEntry {
 /** Group model-attributed usage by model and all other usage into a separate bucket. */
 export function getUsageCostBreakdown(entries: SessionEntry[]): UsageCostBreakdownEntry[] {
 	const totalsByKey = new Map<string, UsageTotals>();
-
-	for (const entry of entries) {
-		let key: string | undefined;
-		let usage: Usage | undefined;
-		if (entry.type === "message" && entry.message.role === "assistant") {
-			key = `${entry.message.provider}/${entry.message.responseModel ?? entry.message.model}`;
-			usage = entry.message.usage;
-		} else if (entry.type === "usage") {
-			key = `${entry.provider}/${entry.model}`;
-			usage = entry.usage;
-		} else if (entry.type === "message" && entry.message.role === "toolResult" && entry.message.usage) {
-			key = "Tools/summaries";
-			usage = entry.message.usage;
-		} else if ((entry.type === "branch_summary" || entry.type === "compaction") && entry.usage) {
-			key = "Tools/summaries";
-			usage = entry.usage;
-		}
-		if (!key || !usage) continue;
-
+	const count = (key: string, usage: Usage | undefined) => {
+		if (!usage) return;
 		let totals = totalsByKey.get(key);
 		if (!totals) {
 			totals = createUsageTotals();
 			totalsByKey.set(key, totals);
 		}
 		addUsageToTotals(totals, usage);
+	};
+
+	for (const entry of entries) {
+		if (entry.type === "message" && entry.message.role === "assistant") {
+			count(`${entry.message.provider}/${entry.message.responseModel ?? entry.message.model}`, entry.message.usage);
+		} else if (entry.type === "usage") {
+			const unattributed = entry.provider === UNATTRIBUTED_PROVIDER && entry.model === UNATTRIBUTED_MODEL;
+			count(unattributed ? "Tools/unattributed" : `${entry.provider}/${entry.model}`, entry.usage);
+		} else if (entry.type === "message" && entry.message.role === "toolResult" && entry.message.usage) {
+			// A tool's usage under the models that spent it; what it cannot name, apart.
+			const byModel = entry.message.usageByModel;
+			for (const part of byModel ?? []) count(`${part.provider}/${part.model}`, part.usage);
+			count("Tools/unattributed", unattributedUsage(entry.message.usage, byModel));
+		} else if ((entry.type === "branch_summary" || entry.type === "compaction") && entry.usage) {
+			count("Tools/summaries", entry.usage);
+		}
 	}
 
 	return Array.from(totalsByKey, ([key, totals]) => ({
