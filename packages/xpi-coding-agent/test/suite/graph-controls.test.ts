@@ -103,7 +103,7 @@ describe("graph extension: controls", () => {
 					write[command] = (text) => runOptions.onOutput?.(text);
 					return new Promise<RunResult>((resolve) => {
 						release[command] = () => resolve(base);
-						killFromOutside[command] = () => resolve({ ...base, code: null });
+						killFromOutside[command] = () => resolve({ ...base, code: null, signal: "SIGTERM" });
 						runOptions.signal?.addEventListener("abort", () => {
 							const die = () => resolve({ ...base, code: null, aborted: true });
 							if (slowToDie.has(command)) letDie[command] = die;
@@ -696,6 +696,23 @@ describe("graph extension: controls", () => {
 					.some((entry) => entry.type === "custom_message" && entry.customType === "graph.command"),
 			).toBe(false);
 			expect(context.running().runs).toEqual([{ startedAt: expect.any(String), finished: false }]);
+		});
+
+		it("records nothing for a command a signal from outside ended while xpi runs on, and says so", async () => {
+			const context = await setup();
+			context.held.add("run-ci");
+			context.harness.setResponses([context.move("ci"), context.say("Answered.")]);
+			void context.harness.session.prompt("/graph start ship");
+			await context.started("run-ci");
+			context.killFromOutside["run-ci"]();
+			await context.quiet();
+			expect(context.note("its command was ended by SIGTERM; it counts as interrupted")).toBeDefined();
+			expect(context.entries("graph.move")).toHaveLength(1);
+			expect(context.entries("graph.halt")).toEqual([]);
+			// The node is unsafe: the next message halts the graph rather than run it again.
+			await context.go("go on");
+			expect(context.ran.map((call) => call.command)).toEqual(["run-ci"]);
+			expect(context.running().halted).toContain("not replay-safe");
 		});
 
 		it("does not count the command that runs now as interrupted in /graph", async () => {

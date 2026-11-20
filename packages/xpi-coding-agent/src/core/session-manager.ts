@@ -1209,6 +1209,18 @@ export class SessionManager {
 	}
 
 	/**
+	 * Whether opening this session resumes it (its saved model selection is restored) rather than starts it. True with a
+	 * message, and with a saved selection and no message yet: an extension can have the session written before its first
+	 * message (`pi.persistSession()`, a graph whose command nodes ran with no model turn).
+	 */
+	isContinuing(): boolean {
+		return (
+			this.buildSessionContext().messages.length > 0 ||
+			this.getBranch().some((entry) => entry.type === "model_change")
+		);
+	}
+
+	/**
 	 * Write the session file now, though it has no user or assistant message yet (a session is otherwise written from
 	 * its first one). For a writer that must find its entries after a crash. Nothing for an in-memory session or one
 	 * already written.

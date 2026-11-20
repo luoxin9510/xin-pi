@@ -92,6 +92,15 @@ describe("runCheckCommand", () => {
 		expect(result.output).toContain("oops");
 		expect(result.timedOut).toBe(false);
 		expect(result.aborted).toBe(false);
+		expect(result.signal).toBeUndefined();
+	});
+
+	it("says which signal from outside ended the command", async () => {
+		const result = await runCheckCommand("kill -TERM $$; sleep 5", { cwd: tempDir(), timeoutMs: 10_000 });
+		expect(result.code).toBeNull();
+		expect(result.signal).toBe("SIGTERM");
+		expect(result.timedOut).toBe(false);
+		expect(result.aborted).toBe(false);
 	});
 
 	it("kills the whole process group on timeout", async () => {

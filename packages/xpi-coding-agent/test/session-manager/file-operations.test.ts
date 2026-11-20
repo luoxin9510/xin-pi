@@ -480,6 +480,19 @@ describe("SessionManager session file creation", () => {
 		expect(() => memory.persistNow()).not.toThrow();
 	});
 
+	it("continues a session with a message, or with a saved selection and no message; not an empty one", () => {
+		const empty = SessionManager.inMemory();
+		expect(empty.isContinuing()).toBe(false);
+		empty.appendCustomEntry("graph.start", {});
+		expect(empty.isContinuing()).toBe(false);
+		const selected = SessionManager.inMemory();
+		selected.appendModelChange("anthropic", "claude-haiku-5-5");
+		expect(selected.isContinuing()).toBe(true);
+		const talked = SessionManager.inMemory();
+		talked.appendMessage(userMsg("hi"));
+		expect(talked.isContinuing()).toBe(true);
+	});
+
 	it("appends later entries to the file without rewriting earlier ones", () => {
 		const session = SessionManager.create(tempDir, tempDir);
 		session.appendMessage(userMsg("first question"));

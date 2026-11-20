@@ -559,9 +559,19 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 				// The command took time. If the graph was ended meanwhile, on the branch itself (and maybe another started),
 				// nothing more is written or run: the local copy cannot see that.
 				if (closed || stateOf(ctx).status !== "running" || startOf() !== mine) return { kind: "gone" };
-				// The process is going away and a signal it did not send killed the command (a closed terminal, SIGTERM):
-				// that is an interruption, not a failure. Nothing is written, so the run stays without a result.
-				if (stopping && result.code === null && !result.timedOut && !result.aborted) return { kind: "gone" };
+				// A signal xpi did not send ended the command (a closed terminal or SIGTERM taking xpi down with it, a kill
+				// by hand): that is an interruption, not a failure, whatever the order of the shutdown. Nothing is written,
+				// so the run stays without a result and the next action follows the node's `replay`.
+				if (result.signal !== undefined && !result.timedOut && !result.aborted) {
+					if (!stopping) {
+						say(
+							ctx,
+							`"${state.node}": its command was ended by ${result.signal}; it counts as interrupted (any message, or /graph goto ${state.node})`,
+							"warning",
+						);
+					}
+					return { kind: "gone" };
+				}
 				if (result.aborted) {
 					const reason = `"${state.node}" was stopped while its command ran`;
 					const halt: HaltData = { reason, runStartedAt };

@@ -898,13 +898,7 @@ export async function main(args: string[], options?: MainOptions) {
 			options: sessionOptions,
 			cliThinkingFromModel,
 			diagnostics: sessionOptionDiagnostics,
-		} = buildSessionOptions(
-			parsed,
-			scopedModels,
-			sessionManager.buildSessionContext().messages.length > 0,
-			modelRuntime,
-			settingsManager,
-		);
+		} = buildSessionOptions(parsed, scopedModels, sessionManager.isContinuing(), modelRuntime, settingsManager);
 		diagnostics.push(...sessionOptionDiagnostics);
 
 		if (parsed.apiKey) {

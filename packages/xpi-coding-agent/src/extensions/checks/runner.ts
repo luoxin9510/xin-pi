@@ -35,6 +35,11 @@ export interface RunResult {
 	code: number | null;
 	timedOut: boolean;
 	aborted: boolean;
+	/**
+	 * The signal that ended the shell, when one did: the runner's own (`timedOut`, `aborted`) or one from outside (a
+	 * closed terminal, SIGTERM to xpi, a kill by hand). Absent when it exited by itself or could not start.
+	 */
+	signal?: NodeJS.Signals;
 }
 
 /** The runner as the extension sees it; tests pass a fake. */
@@ -92,6 +97,7 @@ export const runCheckCommand: CheckRunner = (command, { cwd, timeoutMs, signal, 
 		const kill = () => {
 			if (pid !== undefined) killProcessTree(pid);
 		};
+		let endedBy: NodeJS.Signals | null = null;
 		const finish = (code: number | null) => {
 			if (settled) return;
 			settled = true;
@@ -104,7 +110,12 @@ export const runCheckCommand: CheckRunner = (command, { cwd, timeoutMs, signal, 
 			// Bytes of a character the output ended in the middle of.
 			tell(decoders.out.end());
 			tell(decoders.err.end());
-			resolve({ ...result, output: Buffer.concat(chunks).toString("utf8"), code });
+			resolve({
+				...result,
+				output: Buffer.concat(chunks).toString("utf8"),
+				code,
+				...(endedBy ? { signal: endedBy } : {}),
+			});
 		};
 		// After a kill the result ends once the grace is over, whether or not the pipes closed.
 		const giveUp = () => {
@@ -124,8 +135,9 @@ export const runCheckCommand: CheckRunner = (command, { cwd, timeoutMs, signal, 
 		};
 		signal?.addEventListener("abort", onAbort, { once: true });
 
-		child.on("exit", (code) => {
+		child.on("exit", (code, signal) => {
 			exited = true;
+			endedBy ??= signal;
 			clearTimeout(timer);
 			// Output normally ends at once ("close"); a background child that holds the pipes gets the grace, then its
 			// group is killed so nothing of the check outlives it.
@@ -136,7 +148,10 @@ export const runCheckCommand: CheckRunner = (command, { cwd, timeoutMs, signal, 
 			}, EXIT_GRACE_MS);
 		});
 		// "close" fires after the pipes end, so all output is in.
-		child.on("close", (code) => finish(code));
+		child.on("close", (code, signal) => {
+			endedBy ??= signal;
+			finish(code);
+		});
 		child.on("error", (error) => {
 			chunks.push(Buffer.from(`${error.message}\n`));
 			finish(null);

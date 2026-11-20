@@ -278,8 +278,9 @@ Then the graph as Mermaid (`flowchart LR`), the current node and the edges taken
   and listed under `asked`.
 - **Blocks and halts** are listed with the visit they happened in.
 - **Interrupted runs.** A command visit whose command a crash cut off shows `interrupted ×N` after how it was left.
-  The command that runs now is not counted. Without a UI, a signal that ends xpi (a closed terminal, SIGTERM) and
-  kills the command on its way out counts as an interruption, not a failure: nothing is written for it.
+  The command that runs now is not counted. A command ended by a signal xpi did not send (a closed terminal or
+  SIGTERM taking xpi down, a kill by hand) counts as an interruption, not a failure: nothing is written for it, and
+  the next action follows its `replay`.
 
 `/graph --json` gives the same as one JSON object (`schemaVersion: 1`): `status` (`running`, `ended`, `error`),
 `graph`, `path`, `startedAt`, `endedAt`, `endReason`, `node`, `halted`, `visits` (each with `node`, `kind`, `via`,
