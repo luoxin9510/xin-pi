@@ -22,5 +22,5 @@ PR: `npm run check`, the tests, green CI, an independent Opus review, the docs.
       adds the agentId line to an interrupted result and marks the record stopped; a test that a child exits when
       its parent dies
 - [x] C1.7 docs: session-format, rpc, built-in command lists and README, extensions, sdk, subagent, porting
-- [ ] C1.8 by hand (in `decisions.md`), Haiku 5.5, sandbox: `kill -9` during a tool call → `/continue`; during a
+- [x] C1.8 by hand (in `decisions.md`), Haiku 5.5, sandbox: `kill -9` during a tool call → `/continue`; during a
       streaming reply → a message; during an Agent call

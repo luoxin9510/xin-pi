@@ -587,8 +587,8 @@ describe("RPC shutdown triggers", () => {
 	}
 
 	// .scratch/xpi-durable: a subagent child is an RPC process; when its parent dies, its stdin ends and it exits while
-	// the run goes on, so its session reads as cut off and a later `resume:` recovers it.
-	it("exits when stdin ends during a run, leaving the run cut off", async () => {
+	// it exits. (Its real shutdown also stops the run, as Esc does; here dispose is a stub, so the run is left open.)
+	it("exits when stdin ends during a run", async () => {
 		const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
 		vi.spyOn(process.stdin, "pause").mockImplementation(() => process.stdin);
 		const { lineHandler, runtimeHost, cleanup } = await startRpcMode({ withAuth: true, responseDelayMs: 5_000 });
@@ -597,7 +597,7 @@ describe("RPC shutdown triggers", () => {
 			await vi.waitFor(() => expect(runtimeHost.session.isStreaming).toBe(true));
 			process.stdin.emit("end");
 			await vi.waitFor(() => expect(exitSpy).toHaveBeenCalledWith(0));
-			// The run's start has no end on disk: the next process sees it cut off (this one never reports its own run).
+			// With the stub dispose the start has no end: a process that died here would leave the run cut off.
 			const sm = runtimeHost.session.sessionManager;
 			expect(findInterruptedRun(sm.getBranch(), sm.getEntries())).toBeDefined();
 		} finally {

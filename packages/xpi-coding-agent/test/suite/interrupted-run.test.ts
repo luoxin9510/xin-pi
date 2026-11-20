@@ -502,7 +502,7 @@ describe("subagent lines for an interrupted call", () => {
 
 	it("names the agents started by the call itself or by its script", () => {
 		const lines = interruptedAgentLines(
-			[record("a1", "call_1"), record("a2", "call_1/Agent/3"), record("a3", "call_2"), record("a4", undefined)],
+			[record("a1", "call_1"), record("a2", "call_1/3"), record("a3", "call_2"), record("a4", undefined)],
 			"call_1",
 		);
 		expect(lines).toEqual([
