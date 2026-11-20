@@ -1,7 +1,7 @@
 # Spec 01: a model run cut off by a crash, recovered by the core
 
-Status: draft for the owner's approval. Grill R1 (Q1–Q6) and R2 (Q7–Q12) accepted as recommended on 2026-11-20; one
-new choice found while writing (D1, section 5) is put to the owner with this PR. Reviewed once by an independent Opus
+Status: approved by the owner on 2026-11-20 (PR #151, "批准"; D1 taken as recommended). Grill R1 (Q1–Q6) and R2
+(Q7–Q12) accepted as recommended on 2026-11-20; one new choice found while writing (D1, section 5). Reviewed once by an independent Opus
 (3 blocking, 7 should-fix, 4 nits, all taken; a second pass found 2 should-fix and 2 nits, taken; see
 `decisions.md`).
 

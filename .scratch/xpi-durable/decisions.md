@@ -77,6 +77,11 @@ was xpi-graph spec 03 (`.scratch/xpi-graph/03-replay.md`).
 - New-3 `docs/extensions.md` says the exported `BeforeAgentStartEvent` union gains a variant.
 - New-4 where each recovery path keeps the branch still: the prompt path after `_isAgentRunActive` is set.
 
+## Approval (2026-11-20)
+
+The owner approved PR #151 ("批准"). D1 was not answered on its own; it is taken as recommended (the spec states it
+so), and the owner may still change it.
+
 ## New choice for the owner (with the spec PR)
 
 - **D1**: `/continue` after a run that ended on a provider error asks the model again from the same context.
