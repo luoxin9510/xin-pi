@@ -459,3 +459,6 @@ Round 3 (same reviewer, commit f8336f60e): round-2 findings closed; one should-f
 without a UI, `proceed` would go on into the next command node (in `release.js`, `sync` then main's CI then `tag`)
 inside the shutdown. Now the wait writes the one run's result and its move, then stops; the move stays pending.
 Verdict: ready for the owner with that change.
+
+Approved by the owner on 2026-11-20 ("批准，R12 按推荐"): the spec, and R12 as recommended (a command started at
+the next message is not awaited).

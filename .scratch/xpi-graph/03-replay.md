@@ -1,8 +1,7 @@
 # Spec 03: command nodes that survive a crash, and nested usage by model
 
-Status: draft for the owner's approval. Grill R1–R11 accepted as recommended on 2026-11-20 ("全是", twice), and
-the summary of the eleven decisions confirmed ("确认"); see `decisions.md`. Revised after review round 1 (2 blocking,
-7 should-fix); one point the review raised is a new choice for the owner, marked **Owner** below (R12).
+Status: approved by the owner on 2026-11-20 (PR #146, "批准，R12 按推荐"), after Grill R1–R11 (all as recommended),
+three review rounds by an independent Opus, and the new choice R12 taken as recommended; see `decisions.md`.
 
 This is step 1 of three steps that borrow ideas from upstream's `pi-durable` (no code is ported, chord is not
 brought in; spec 01's rule). Step 2 (a model turn cut off by a crash, in the core) and step 3 (waits that do not hold
