@@ -13,7 +13,9 @@ PR: `npm run check`, the tests, green CI, an independent Opus review, the docs.
 - [ ] C1.5 `continueRun()` → `ContinueResult`; the `{ messageType: "continue" }` trigger (no starting message,
       `agent.continue()`); cut off → recover and continue; after an error → omit it and continue (D1, if approved);
       otherwise finished/stopped/none; busy during a run or compaction; recovery inside the preflight reservation
-- [ ] C1.5b `/continue` recognised in `prompt()` first (also while streaming or compacting: refused, never queued),
+      (in `continueRun()`) or after `_isAgentRunActive` is set (at the top of `_startRun`)
+- [ ] C1.5b `/continue` recognised in `prompt()` first (also while streaming or compacting: refused as a notice,
+      never thrown, never queued),
       print mode (stderr, exit 0 without the error-tail check) and RPC (`data`); `/continue <args>` refused; added to
       `BUILTIN_SLASH_COMMANDS` and roost's command table (`extensions/roost/commands.ts`)
 - [ ] C1.6 subagent: meta `callId` (the model-issued call, via `parentToolCallId` for scripts); `tool_result` handler

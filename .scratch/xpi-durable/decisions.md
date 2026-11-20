@@ -68,6 +68,15 @@ was xpi-graph spec 03 (`.scratch/xpi-graph/03-replay.md`).
 - N1 wording on hidden entries; N2 the note is not written twice; N3 what `tool_result` carries for a call not run
   here; N4 tests for an `agent_settled`-started run and `/continue` during compaction.
 
+## Spec review 2 (same reviewer, the diff at ddc41605b): no blocking; 2 should-fix and 2 nits, all taken
+
+- New-1 the hub's `continue` nudges a running or idle worker; `/continue` would refuse or do nothing there, so it
+  keeps its text (listed under "Not changed" with `/bg`).
+- New-2 a thrown `busy` would end interactive mode (the editor callback does not catch): `prompt()` never throws for
+  `/continue`; the result is a notice, and `continueRun()` returns it.
+- New-3 `docs/extensions.md` says the exported `BeforeAgentStartEvent` union gains a variant.
+- New-4 where each recovery path keeps the branch still: the prompt path after `_isAgentRunActive` is set.
+
 ## New choice for the owner (with the spec PR)
 
 - **D1**: `/continue` after a run that ended on a provider error asks the model again from the same context.

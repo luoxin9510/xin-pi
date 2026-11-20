@@ -2,7 +2,8 @@
 
 Status: draft for the owner's approval. Grill R1 (Q1–Q6) and R2 (Q7–Q12) accepted as recommended on 2026-11-20; one
 new choice found while writing (D1, section 5) is put to the owner with this PR. Reviewed once by an independent Opus
-(3 blocking, 7 should-fix, 4 nits, all taken; see `decisions.md`).
+(3 blocking, 7 should-fix, 4 nits, all taken; a second pass found 2 should-fix and 2 nits, taken; see
+`decisions.md`).
 
 This is step 2 of the three steps that borrow ideas from upstream's `pi-durable` (step 1 was xpi-graph spec 03,
 command nodes that survive a crash; step 3, waits that do not hold a process, is not in this spec). No code is ported.
@@ -113,8 +114,9 @@ nothing was lost: only step 3 is written, with no note, and `/continue` then has
 The end marker is written last, so a crash during recovery leaves the run cut off, and the next action writes only
 what is still missing (calls that already got a result are skipped, and so is the note).
 
-Recovery runs inside the same preflight reservation as a prompt, so `/tree`, a compaction or a branch summary cannot
-change the branch while it writes. Half-streamed replies stay lost (Q4): they were never written.
+Nothing else can change the branch while recovery writes: at a prompt it runs at the top of `_startRun`, after
+`_isAgentRunActive` is set (which already blocks `/tree`, a compaction and a branch summary); in `continueRun()` it
+runs inside the same preflight reservation as a prompt, before `_startRun`. Half-streamed replies stay lost (Q4): they were never written.
 
 ### 4. Subagents (Q6)
 
@@ -157,8 +159,9 @@ extension commands and subagent names, and roost's command table, `extensions/ro
 for every built-in).
 
 - `prompt()` handles it first, before extension commands and before it queues text while streaming or compacting,
-  by calling `continueRun()`. A result with `ran: false` is shown as a notice where the session has a UI, and is
-  otherwise returned silently; `busy` throws, as a prompt refused for being busy does.
+  by calling `continueRun()`. It never throws for `/continue` (interactive mode calls `prompt()` from an editor
+  callback that does not catch): a result with `ran: false`, `busy` included, is shown as a notice where the session
+  has a UI and is otherwise dropped. A caller that needs the result calls `continueRun()`.
 - Interactive mode sends it through `prompt()` as any text (it is not in the hard-coded list); while a run streams or
   a compaction runs, the text reaches `prompt()` and is refused, never queued as a steering message.
 - Print mode (`xpi -p -c "/continue"`, and an initial message `/continue`) calls `continueRun()` itself. When it does
@@ -174,15 +177,16 @@ the prompt it gives the restarted worker is `/continue` instead of `Continue whe
 - the crash restart (`daemon/main.ts`, DM-5 timer);
 - the restart of a worker that was working (`respawn`, both places);
 - a resume of a failed row (`lib/resume.ts`);
-- the hub's `continue` command (`hub/agent-view.ts`), which sends `/continue` to the worker; its description becomes
-  `continue its run (xpi's /continue)`.
 
 These share one constant. A restart of a session that was never written still reuses the original command, as now.
 A row whose `/continue` finds nothing to continue ends as done (exit 0); the docs say so.
 
 **Not changed:** `/bg` (`extensions/roost/foreground.ts`). It interrupts a running turn on purpose, so that run ends
 `aborted`, not cut off, and `/continue` would have nothing to continue; the background session keeps going with
-"Continue where you left off." as now. Its header comment says why.
+"Continue where you left off." as now. Its header comment says why. Nor the hub's `continue` command
+(`hub/agent-view.ts`): it nudges a worker that is running or idle with a follow-up, which `/continue` would refuse
+(`busy`) or answer with "Nothing to continue"; it keeps sending that text. It is a hub command, not a session slash
+command, so the shared name does not clash.
 
 ### 7. Graphs (Q11)
 
@@ -200,11 +204,12 @@ action like a message for spec 03's command-node recovery. Tests only:
 - `docs/session-format.md`: `xpi.run`, `xpi.interrupted`, interrupted tool results.
 - `docs/rpc.md`: `get_state.interruptedRun`, `/continue` through `prompt` and its result.
 - The docs listing built-in commands, and the README where it lists them: `/continue`.
-- `docs/extensions.md`: the `continue` trigger of `before_agent_start`; `tool_result` for an interrupted result.
+- `docs/extensions.md`: the `continue` trigger of `before_agent_start` (the exported `BeforeAgentStartEvent` union
+  gains a third variant with no `prompt` and no `message`); `tool_result` for an interrupted result.
 - `docs/sdk.md` (or where `AgentSession` is described): `interruptedRun()`, `continueRun()`.
 - `docs/subagent.md`: the agentId in an interrupted result; children end with the parent and recover on `resume:`.
 - `docs/graph.md`: a model node cut off by a crash.
-- Roost: where DM-5 is described, the hub's `continue` command, roost's command table, `foreground.ts`'s header.
+- Roost: where DM-5 is described, roost's command table, `foreground.ts`'s header.
 - `docs/porting.md`: the core's run markers and recovery, `/continue`, roost's restart prompt.
 - The known limit of section 2 where the session lock or recovery is described.
 
@@ -221,13 +226,13 @@ action like a message for spec 03's command-node recovery. Tests only:
     with the note and no end) is repaired once more without a second note;
   - `continueRun()`: each result (`finished`, `stopped`, `none`, `busy` during a run and during a compaction), after
     an error with retries off (D1); `/continue` with arguments; through `prompt()`, in interactive mode while
-    streaming, in print mode (`-p -c "/continue"`: stderr and exit 0, also after an Esc) and over RPC (`data`);
+    streaming (the process stays up and shows the `busy` notice), in print mode (`-p -c "/continue"`: stderr and exit 0, also after an Esc) and over RPC (`data`);
   - the `continue` trigger reaches `before_agent_start` without `prompt` or `message`;
   - the notice in interactive and print mode; `get_state.interruptedRun`.
 - Subagent: a parent killed while an Agent call runs (a test RPC child): the child exits; the interrupted result
   names the agentId, also for an agent started by a codemode script; `resume:` of that child recovers its session.
-- Roost: the restart prompt is `/continue` in every place of section 6, `/bg` keeps its text, the command table has
-  the `continue` row.
+- Roost: the restart prompt is `/continue` in every place of section 6, `/bg` and the hub's `continue` keep their
+  text, the command table has the `continue` row.
 - Graph: the three cases of section 7.
 - By hand (recorded in `decisions.md`), Haiku 5.5 only, in a sandbox (`XPI_CODING_AGENT_DIR`, a copy of the auth with
   its expiry checked first): `kill -9` during a `sleep 30` in a script, reopen, `/continue`; `kill -9` while a reply
