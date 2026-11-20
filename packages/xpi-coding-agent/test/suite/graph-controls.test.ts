@@ -588,6 +588,139 @@ describe("graph extension: controls", () => {
 		});
 	});
 
+	describe("a model run cut off by the end of the process (.scratch/xpi-durable)", () => {
+		/**
+		 * What a session file holds at this moment: the first process is "killed" there. (The first harness lives on in
+		 * memory; it must not write into the session the second one opens.)
+		 */
+		const snapshot = (sessionManager: SessionManager): SessionManager => {
+			const header = sessionManager.getHeader();
+			if (!header) throw new Error("no session header");
+			return SessionManager.inMemory(undefined, undefined, [header, ...sessionManager.getEntries()]);
+		};
+		/** Wait until the branch has an assistant tool call after `after` entries, then "kill" the first process. */
+		async function killedAfterToolCall(sessionManager: SessionManager, after = 0): Promise<SessionManager> {
+			for (let i = 0; i < 300; i++) {
+				const hit = sessionManager
+					.getBranch()
+					.slice(after)
+					.some(
+						(entry) =>
+							entry.type === "message" &&
+							entry.message.role === "assistant" &&
+							entry.message.content.some((block) => block.type === "toolCall"),
+					);
+				if (hit) return snapshot(sessionManager);
+				await new Promise((resolve) => setTimeout(resolve, 10));
+			}
+			throw new Error("no tool call was written");
+		}
+		const HANG = "new Promise(() => {})";
+		const interruptedResults = (harness: Harness) =>
+			harness.sessionManager
+				.getBranch()
+				.flatMap((entry) =>
+					entry.type === "message" &&
+					entry.message.role === "toolResult" &&
+					(entry.message.details as { interrupted?: boolean } | undefined)?.interrupted
+						? [entry]
+						: [],
+				);
+
+		it("/continue goes on in the node whose run was cut off, on that node's model", async () => {
+			const sessionManager = SessionManager.inMemory();
+			const first = await setup({ sessionManager });
+			first.harness.setResponses([first.attempt(HANG)]);
+			void first.harness.session.prompt("/graph start ship");
+			const disk = await killedAfterToolCall(sessionManager);
+			const second = await setup({ sessionManager: disk });
+			await selectGraphModel(second.harness);
+			expect(second.harness.session.interruptedRun()?.danglingToolCalls).toHaveLength(1);
+			second.harness.setResponses([second.move("ci"), second.say("Reviewing.")]);
+			await second.go("/continue");
+			expect(interruptedResults(second.harness)).toHaveLength(1);
+			// The continued turn was the build node's (faux/small), then the graph went on as usual.
+			expect(second.models()).toEqual(["small", "large"]);
+			expect(second.seen[0].text).toContain("[xpi] The previous run stopped before it finished");
+			expect(second.running().node).toBe("review");
+		});
+
+		// The script had not reached `next`: nothing of a move is on disk. The node goes on (the model sees its interrupted
+		// call), moves again, and the graph follows.
+		it("a crash before the move was written: the node moves again", async () => {
+			const sessionManager = SessionManager.inMemory();
+			const first = await setup({ sessionManager });
+			first.harness.setResponses([first.attempt(HANG)]);
+			void first.harness.session.prompt("/graph start ship");
+			const disk = await killedAfterToolCall(sessionManager);
+			const second = await setup({ sessionManager: disk });
+			await selectGraphModel(second.harness);
+			second.harness.setResponses([second.move("ci"), second.say("Built."), second.say("Reviewing.")]);
+			await second.go("/continue");
+			expect(interruptedResults(second.harness)).toHaveLength(1);
+			expect(second.models()[0]).toBe("small");
+			expect(second.running().node).toBe("review");
+			expect(second.ran.map((call) => call.command)).toEqual(["run-ci"]);
+		});
+
+		// `next` writes the move at once; the script's result and the next node were not written yet. The move is entered
+		// before the continued run, as any move its turn did not enter: the command runs once, and the continued run is
+		// answered by the model selected before the graph while it does.
+		it("a crash right after the move was written: it is entered before the continued run", async () => {
+			const sessionManager = SessionManager.inMemory();
+			let disk: SessionManager | undefined;
+			const appendCustomEntry = sessionManager.appendCustomEntry.bind(sessionManager);
+			sessionManager.appendCustomEntry = (customType, data) => {
+				const id = appendCustomEntry(customType, data);
+				if (customType === "graph.move" && !disk) disk = snapshot(sessionManager);
+				return id;
+			};
+			const first = await setup({ sessionManager });
+			first.harness.setResponses([first.attempt(`tools.next({ to: "ci", report: "built" })`), first.say("x")]);
+			void first.harness.session.prompt("/graph start ship");
+			for (let i = 0; i < 300 && !disk; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+			if (!disk) throw new Error("no move was written");
+			const second = await setup({ sessionManager: disk });
+			await selectGraphModel(second.harness);
+			expect(second.harness.session.interruptedRun()?.danglingToolCalls).toHaveLength(1);
+			second.harness.setResponses([second.say("Going on."), second.say("Reviewing.")]);
+			await second.go("/continue");
+			expect(interruptedResults(second.harness)).toHaveLength(1);
+			expect(second.models()).toEqual(["medium", "large"]);
+			expect(second.ran.map((call) => call.command)).toEqual(["run-ci"]);
+			expect(second.running().node).toBe("review");
+		});
+
+		it("repairs the cut-off run before a command node's recovery in the same action", async () => {
+			const sessionManager = SessionManager.inMemory();
+			const SAFE = SHIP.replace(
+				`ci: { run: "run-ci", timeout: "5s" }`,
+				`ci: { run: "run-ci", timeout: "5s", replay: "safe" }`,
+			);
+			const first = await setup({ sessionManager, graphs: { ship: SAFE } });
+			first.held.add("run-ci");
+			first.harness.setResponses([first.move("ci"), first.attempt(HANG)]);
+			void first.harness.session.prompt("/graph start ship");
+			await first.started("run-ci");
+			const before = sessionManager.getBranch().length;
+			// While ci runs, a message starts a turn on the model selected before the graph; that turn is cut off too.
+			void first.harness.session.prompt("a question while ci runs");
+			const disk = await killedAfterToolCall(sessionManager, before);
+			const second = await setup({ sessionManager: disk, graphs: { ship: SAFE } });
+			await selectGraphModel(second.harness);
+			expect(second.harness.session.interruptedRun()).toBeDefined();
+			second.harness.setResponses([second.say("Answered."), second.say("Reviewing.")]);
+			await second.go("/continue");
+			const branch = second.harness.sessionManager.getBranch();
+			const repaired = branch.indexOf(interruptedResults(second.harness)[0]);
+			const rerun = branch.findLastIndex((entry) => entry.type === "custom" && entry.customType === "graph.run");
+			expect(repaired).toBeGreaterThan(0);
+			expect(rerun).toBeGreaterThan(repaired);
+			expect(second.ran.map((call) => call.command)).toEqual(["run-ci"]);
+			expect(second.running().node).toBe("review");
+		});
+	});
+
 	describe("commands after a turn (spec 03)", () => {
 		it("does not start a command after a turn cut off while it ended; the next message starts it, though it is unsafe", async () => {
 			const context = await setup({ abortAtSettle: true });

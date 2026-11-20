@@ -4,8 +4,9 @@
  *
  * - `/bg [prompt]` (alias `/background`) hands this conversation to the daemon and opens the hub. A turn that is
  *   running gets up to TOOL_WAIT_MS for its tool to finish (the left arrow again skips the wait), is interrupted, and
- *   picks up again in the background with "Continue where you left off." The session file is left first (its write
- *   lock goes with it) and only then does the daemon start the one new writer.
+ *   picks up again in the background with "Continue where you left off." (not xpi's `/continue`: the interrupted run
+ *   ended aborted, on purpose, so `/continue` would find nothing to continue). The session file is left first (its
+ *   write lock goes with it) and only then does the daemon start the one new writer.
  * - `/bg-fork [prompt]` copies the conversation into a new background session; this one carries on.
  * - The left arrow on an empty prompt (`leftArrowOpensAgents`, on by default) submits `/bg`: a conversation with
  *   messages moves, an empty one just opens the hub. A fixed key, listed in AGENTS.md's exemptions.

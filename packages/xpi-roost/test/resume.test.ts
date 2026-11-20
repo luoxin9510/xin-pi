@@ -48,7 +48,7 @@ function fakeDaemon() {
 describe("attach starts a session that is not running", () => {
 	it("a failed run carries on; a shell command, a finished or a stopped run just reopen", () => {
 		expect(resumePrompt(row({}))).toBe(CONTINUE);
-		expect(CONTINUE).toBe("Continue where you left off.");
+		expect(CONTINUE).toBe("/continue");
 		expect(resumePrompt(row({ kind: "shell" }))).toBeUndefined();
 		expect(resumePrompt(row({ state: "done" }))).toBeUndefined();
 		expect(resumePrompt(row({ state: "stopped" }))).toBeUndefined();
