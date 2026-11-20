@@ -39,7 +39,9 @@ export default {
 		},
 		// Never build on main: a plain `git push` there would skip everything after this node.
 		// Only from main: on another branch, or a detached HEAD, the command fails, so no work lands on an old branch.
+		// Safe to run again after a crash: if it made the branch, it is no longer on main and fails without a change.
 		branch: {
+			replay: "safe",
 			run: 'b=$(git branch --show-current); if [ "$b" != main ]; then if [ -z "$b" ]; then echo "branch: HEAD is detached; run from main"; else echo "branch: current branch is \\"$b\\", not main; run from main"; fi; echo "then: git switch main, and /graph goto branch"; exit 1; fi; git switch -c "dev-$(date +%Y%m%d-%H%M%S)"',
 		},
 		build: {
@@ -58,8 +60,9 @@ export default {
 			],
 		},
 		// First the branch needs an open pull request: without one this fails at once. A push registers its checks a little later:
-		// wait for the first one, then for all of them.
+		// wait for the first one, then for all of them. It only waits and reads, so it is safe to run again after a crash.
 		ci: {
+			replay: "safe",
 			run: 'pr=$(gh pr view --json number,state --jq \'select(.state=="OPEN").number\' 2>&1); st=$?; [ "$st" = 0 ] && [ -n "$pr" ] || { echo "ci: no open pull request for branch \\"$(git branch --show-current)\\""; echo "$pr"; exit 1; }; for i in $(seq 1 30); do [ -n "$(gh pr checks --json name --jq ".[].name" 2>/dev/null)" ] && break; sleep 10; done; gh pr checks --watch --fail-fast',
 			timeout: "45m",
 		},
@@ -70,7 +73,8 @@ export default {
 			deny: ["gh pr merge", "git push"],
 			readOnly: ["packages/**", "scripts/**", "docs/**", ".github/**", ".pi/**", "package.json", "package-lock.json"],
 		},
-		merge: { run: "gh pr merge --merge --delete-branch" },
+		// Not run again after a crash: the graph halts, and the user checks whether the merge happened.
+		merge: { run: "gh pr merge --merge --delete-branch", replay: "unsafe" },
 	},
 	edges: [
 		{ from: "grill", to: "spec", exit: "approve", label: "the decisions are settled" },

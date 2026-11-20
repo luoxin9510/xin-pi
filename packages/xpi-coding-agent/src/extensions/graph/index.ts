@@ -14,6 +14,7 @@ import {
 	type AskedData,
 	type CommandDetails,
 	checkGraph,
+	commandCondition,
 	type Edge,
 	END,
 	type EndReason,
@@ -29,16 +30,20 @@ import {
 	GRAPH_MOVE,
 	GRAPH_NODE,
 	GRAPH_REMINDER,
+	GRAPH_RUN,
 	GRAPH_START,
 	type Graph,
 	type GraphEntry,
 	type GraphReport,
 	type GraphState,
+	type HaltData,
+	interruptions,
 	type MoveData,
 	mermaid,
 	type NodeData,
 	parseGraph,
 	type ReportEntry,
+	type RunData,
 	type RunningState,
 	readState,
 	report,
@@ -75,15 +80,18 @@ const USAGE = "usage: /graph [--json] | /graph start <name> | /graph goto <node>
 /** How many lines of a running command's output the widget shows. */
 const LIVE_LINES = 5;
 const LIVE_LINE_WIDTH = 200;
+/** A replay-safe command interrupted this many times in one visit is treated as unsafe. */
+const MAX_INTERRUPTIONS = 3;
 
 /**
  * The extension bus channel of each graph record (spec 02, section 7). Each event has `{ graph, node, visit, at }`
- * and the record's own fields; `graph:command` has the command's details.
+ * and the record's own fields; `graph:command` has the command's details, `graph:run` the command about to run.
  */
 export const GRAPH_EVENTS = {
 	[GRAPH_START]: "graph:start",
 	[GRAPH_MOVE]: "graph:move",
 	[GRAPH_NODE]: "graph:enter",
+	[GRAPH_RUN]: "graph:run",
 	[GRAPH_COMMAND]: "graph:command",
 	[GRAPH_ASKED]: "graph:asked",
 	[GRAPH_BLOCKED]: "graph:blocked",
@@ -181,6 +189,8 @@ type Outcome =
 	| { kind: "halt"; reason: string; onCommand: boolean }
 	/** A command's result is recorded as a pending move: a turn runs, and the move is entered when it ends. */
 	| { kind: "wait" }
+	/** A command node is entered and its command is not run here; `at` is the entry's time, which names the visit. */
+	| { kind: "command"; at: string | undefined }
 	/** The graph was ended while a command ran (`/graph stop`, another model selected): nothing more is done. */
 	| { kind: "gone" };
 
@@ -193,7 +203,9 @@ interface Sink {
 /** `run` is the command runner; tests pass a fake. */
 export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 	const run = options.run ?? runCheckCommand;
-	return function graph(pi: ExtensionAPI) {
+	/** The commands started after a turn that have not ended, for `busy` and `quiet`. */
+	const tasks = new Set<Promise<void>>();
+	const extension = function graph(pi: ExtensionAPI) {
 		// A subagent child works inside its parent's node: it gets no command, no tool and no virtual model, only the
 		// limits of the node its parent was in when it started.
 		if (process.env.XPI_SUBAGENT_DEPTH) {
@@ -229,6 +241,18 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 		let told: { set: boolean; id?: string } = { set: false };
 		/** Set at `session_shutdown`: the context is gone, so a command that returns after it writes nothing. */
 		let closed = false;
+		/**
+		 * Set while a quit without a UI waits for a running command: its result and its move are written, and nothing
+		 * after that (no turn, no next node).
+		 */
+		let stopping = false;
+		/** The going-on this process started for a command node (spec 03, section 2), until it is done. */
+		let commandTask: Promise<void> | undefined;
+		/**
+		 * The visit of a command node this process entered at the end of a turn, by its `graph.node`'s `at`: its command
+		 * starts without a look at `replay`, because this process knows it has not run.
+		 */
+		let noted: string | undefined;
 
 		const markLatest = (ctx: ExtensionContext) => {
 			told = { set: true, id: ctx.sessionManager.getBranch().findLast((entry) => recordOf(entry))?.id };
@@ -457,12 +481,19 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 		 * Go on from where the branch is: enter a pending move, run command nodes, and stop at a model node, the end, or
 		 * a halt. The entries are written through `sink` and folded here as they are written, because the drafts of a
 		 * boundary are not on the branch yet. `mayWait`: outside a turn, a command's result is left as a pending move
-		 * when a turn has started meanwhile, so a node never changes in the middle of a turn.
+		 * when a turn has started meanwhile, so a node never changes in the middle of a turn. `runCommands`: false at the
+		 * end of a turn, where every entry is a draft; a command node is then entered and its command started after the
+		 * turn settled, so its `graph.run` is on disk before it runs (spec 03).
 		 *
 		 * A command runs under this function's own abort handle. Neither a command handler nor the end of a turn has an
 		 * abort signal of the core (the run is over by then), so `/graph stop` and a change of model abort it here.
 		 */
-		async function proceed(ctx: ExtensionContext, sink: Sink, mayWait: boolean): Promise<Outcome> {
+		async function proceed(
+			ctx: ExtensionContext,
+			sink: Sink,
+			mayWait: boolean,
+			runCommands = true,
+		): Promise<Outcome> {
 			const branch: readonly GraphEntry[] = ctx.sessionManager.getBranch();
 			const local: GraphEntry[] = [...branch];
 			/** Which graph this is: the entry that started it. A graph started after a stop is another one. */
@@ -499,13 +530,19 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 				}
 				const node = definition.nodes[state.node];
 				if (node.kind === "model") return { kind: "model", text: enterText(definition, state.node, came) };
+				if (!runCommands) return { kind: "command", at: state.enteredAt };
 
 				say(ctx, `running "${state.node}": ${node.run}`);
 				sync(ctx, state, state.node);
+				const startedAt = new Date();
+				const runStartedAt = startedAt.toISOString();
+				// The intent is on disk before the command runs: after a crash, a run with no result was interrupted.
+				pi.persistSession();
+				const intent: RunData = { node: state.node, run: node.run, replay: node.replay, startedAt: runStartedAt };
+				write(GRAPH_RUN, intent);
 				const abort = new AbortController();
 				commandRun = { abort, state };
 				let result: RunResult;
-				const startedAt = new Date();
 				const live = liveView(ctx, definition.name, state.node, node.run, abort.signal);
 				try {
 					result = await run(node.run, {
@@ -524,7 +561,8 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 				if (closed || stateOf(ctx).status !== "running" || startOf() !== mine) return { kind: "gone" };
 				if (result.aborted) {
 					const reason = `"${state.node}" was stopped while its command ran`;
-					write(GRAPH_HALT, { reason });
+					const halt: HaltData = { reason, runStartedAt };
+					write(GRAPH_HALT, halt);
 					return { kind: "halt", reason, onCommand: true };
 				}
 				const via = result.code === 0 && !result.timedOut ? "pass" : "fail";
@@ -534,7 +572,7 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 					run: node.run,
 					code: result.code,
 					timedOut: result.timedOut,
-					startedAt: startedAt.toISOString(),
+					startedAt: runStartedAt,
 					durationMs: Date.now() - startedAt.getTime(),
 					lines: output === "" ? 0 : output.split("\n").length,
 					outcome: via,
@@ -548,17 +586,28 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 						? undefined
 						: `"${state.node}" ${word} and "${state.node}" -> "${choice.edge.to}" was taken ${choice.count} times, its limit`;
 				if (!choice || reason !== undefined) {
-					write(GRAPH_HALT, { reason });
+					const halt: HaltData = { reason: reason ?? "", runStartedAt };
+					write(GRAPH_HALT, halt);
 					return { kind: "halt", reason: reason ?? "", onCommand: true };
 				}
-				const move: MoveData = { edge: choice.index, via, report: `Command node "${state.node}" ${word}.` };
+				const move: MoveData = {
+					edge: choice.index,
+					via,
+					report: `Command node "${state.node}" ${word}.`,
+					runStartedAt,
+				};
 				write(GRAPH_MOVE, move);
+				// A quit without a UI waits for this one run: its move is entered at the next run.
+				if (stopping) return { kind: "wait" };
 				if (mayWait && !ctx.isIdle()) return { kind: "wait" };
 			}
 		}
 
-		/** Go on outside a turn (`/graph start`, `/graph goto`): the entries go straight to the session. */
-		async function proceedNow(ctx: ExtensionCommandContext): Promise<void> {
+		/**
+		 * Go on outside a turn (`/graph start`, `/graph goto`, a command started after a turn): the entries go straight
+		 * to the session, and a model node that is reached starts a turn.
+		 */
+		async function goOn(ctx: ExtensionContext): Promise<void> {
 			const outcome = await proceed(ctx, directFor(ctx), true);
 			const state = stateOf(ctx);
 			if (outcome.kind === "gone") {
@@ -571,11 +620,77 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 				await restoreAfterEnd(ctx, state);
 			} else if (outcome.kind === "halt") haltNotice(ctx, outcome.reason, outcome.onCommand);
 			sync(ctx, stateOf(ctx));
-			if (outcome.kind !== "model") return;
+			if (outcome.kind !== "model" || stopping || closed) return;
 			pi.sendMessage({ customType: GRAPH_ENTER, content: outcome.text, display: true }, { triggerTurn: true });
-			// Without a UI (print mode) the process ends when the command returns: wait for the graph's turns.
-			if (!ctx.hasUI) await ctx.waitForIdle();
 		}
+
+		/**
+		 * Without a UI (print mode) the process ends when the command handler returns: wait until the session is idle and
+		 * no command this process started is pending. A command's end can start a turn, and a turn's end a command.
+		 */
+		async function settle(ctx: ExtensionCommandContext): Promise<void> {
+			for (;;) {
+				await ctx.waitForIdle();
+				const task = commandTask;
+				if (task) {
+					await task;
+					continue;
+				}
+				if (ctx.isIdle()) return;
+				// A host whose wait returns at once: let the turn go on before looking again.
+				await new Promise((resolve) => setTimeout(resolve, 20));
+			}
+		}
+
+		/**
+		 * Start the current command node's command and go on from its result, not awaited by the caller (spec 03,
+		 * section 2): the session stays idle while it runs. Nothing when a command of this process is going on already.
+		 */
+		const startCommand = (ctx: ExtensionContext) => {
+			if (commandTask !== undefined || commandRun !== undefined || closed) return;
+			noted = undefined;
+			const task = goOn(ctx)
+				.catch((error: unknown) => {
+					say(
+						ctx,
+						`the command failed to run: ${error instanceof Error ? error.message : String(error)}`,
+						"error",
+					);
+				})
+				.finally(() => {
+					if (commandTask === task) commandTask = undefined;
+					tasks.delete(task);
+				});
+			commandTask = task;
+			tasks.add(task);
+		};
+
+		/**
+		 * What may happen to the current visit of a command node whose command is not running in this process: start it,
+		 * halt because it may have run and may not run twice, or nothing (it finished, it is halted, it runs).
+		 */
+		const decide = (state: RunningState): "start" | "halt" | "none" => {
+			const node = state.graph.nodes[state.node];
+			if (node.kind !== "command" || commandTask !== undefined || commandRun !== undefined) return "none";
+			const condition = commandCondition(state);
+			if (condition !== "not_started" && condition !== "interrupted") return "none";
+			// This process entered the visit and knows its command has not run.
+			if (condition === "not_started" && state.enteredAt !== undefined && state.enteredAt === noted) return "start";
+			return node.replay === "safe" && interruptions(state) < MAX_INTERRUPTIONS ? "start" : "halt";
+		};
+
+		/** The halt of a visit whose command may have run and may not run again. */
+		const interruptedHalt = (state: RunningState): HaltData => {
+			const last = state.runs.at(-1);
+			const many = interruptions(state) >= MAX_INTERRUPTIONS;
+			const node = state.graph.nodes[state.node];
+			const reason = many
+				? `"${state.node}" was interrupted ${interruptions(state)} times while its command ran`
+				: node.kind === "command" && node.replay === "safe"
+					? `"${state.node}" was interrupted while its command ran`
+					: `"${state.node}" may have run its command (${last ? "it was interrupted" : "it has no record of starting"}), and it is not replay-safe`;
+			return last && !last.finished ? { reason, interrupted: last.startedAt } : { reason };
+		};
 
 		/**
 		 * Whether a nested call was made by a script of the latest assistant message on the branch, and that message
@@ -805,12 +920,13 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 					}),
 			};
 			if (state.pending) {
-				const outcome = await proceed(ctx, sink, false);
-				// The graph was ended while a command ran: the drafts of this step are dropped with it.
+				const outcome = await proceed(ctx, sink, false, false);
 				if (outcome.kind === "gone") return undefined;
 				if (outcome.kind === "end") say(ctx, `${outcome.graph} is finished`);
 				else if (outcome.kind === "halt") haltNotice(ctx, outcome.reason, outcome.onCommand);
 				else if (outcome.kind === "model") sink.message(GRAPH_ENTER, outcome.text);
+				// A command node: its entry is a draft now, and its command starts once the turn has settled.
+				else if (outcome.kind === "command") noted = outcome.at;
 				return { entries: [...event.entries, ...drafts], continue: outcome.kind === "model" };
 			}
 			// A turn that ended without a move. A node with an approval exit talks with the user, and so does a halted one.
@@ -835,12 +951,15 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 			if (isGraphModel(ctx.model)) sync(ctx, stateOf(ctx));
 		});
 
-		pi.on("agent_settled", async (_event, ctx) => {
+		pi.on("agent_settled", async (event, ctx) => {
 			// The drafts of the turn end are on the branch now.
 			tell(ctx);
 			const state = stateOf(ctx);
 			await restoreAfterEnd(ctx, state);
 			sync(ctx, state);
+			// The command node this turn's end entered: its command starts now. After an Esc it waits for the next action.
+			if (event.aborted || state.status !== "running" || noted === undefined || state.enteredAt !== noted) return;
+			if (decide(state) === "start") startCommand(ctx);
 		});
 
 		// A move whose turn did not enter it (a cut-off turn, a quit, a crash) is entered before the next run starts.
@@ -850,13 +969,30 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 				say(ctx, `cannot read the graph's state (${state.message}). Run /graph stop.`, "error");
 				return undefined;
 			}
-			if (state.status !== "running" || !state.pending) return undefined;
-			const outcome = await proceed(ctx, directFor(ctx), false);
+			if (state.status !== "running") return undefined;
+			if (!state.pending) {
+				// A command node whose command is not running here: it starts (not awaited, so this message is answered at
+				// once by the model selected before the graph), or the graph halts because it may have run (R8, R12).
+				const choice = decide(state);
+				if (choice === "start") startCommand(ctx);
+				else if (choice === "halt") {
+					const halt = interruptedHalt(state);
+					append(ctx, GRAPH_HALT, halt);
+					haltNotice(ctx, halt.reason, true);
+					sync(ctx, stateOf(ctx));
+				}
+				return undefined;
+			}
+			const outcome = await proceed(ctx, directFor(ctx), false, false);
 			if (outcome.kind === "end") {
 				say(ctx, `${outcome.graph} is finished`);
 				await restoreAfterEnd(ctx, stateOf(ctx));
 			} else if (outcome.kind === "halt") haltNotice(ctx, outcome.reason, outcome.onCommand);
 			sync(ctx, stateOf(ctx));
+			if (outcome.kind === "command") {
+				noted = outcome.at;
+				startCommand(ctx);
+			}
 			return outcome.kind === "model"
 				? { message: { customType: GRAPH_ENTER, content: outcome.text, display: true } }
 				: undefined;
@@ -880,10 +1016,36 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 			if (state.status === "running") registerTool();
 			await restoreAfterEnd(ctx, state);
 			sync(ctx, state);
+			// A command the last process did not live through: told only, since this process may only be looking (R8).
+			if (state.status === "running") {
+				const node = state.graph.nodes[state.node];
+				const condition = commandCondition(state);
+				const choice = decide(state);
+				if (node.kind === "command" && choice !== "none") {
+					const name = state.graph.name;
+					const goOnText = `(any message, or /graph goto ${state.node})`;
+					say(
+						ctx,
+						choice === "start"
+							? condition === "interrupted"
+								? `${name}: "${state.node}" was interrupted while its command ran; it runs again when you go on ${goOnText}`
+								: `${name}: "${state.node}" was entered and its command has no record of starting; it runs when you go on ${goOnText}`
+							: `${name}: "${state.node}" may have run its command (${interruptions(state) >= MAX_INTERRUPTIONS ? `interrupted ${interruptions(state)} times` : condition === "interrupted" ? "it was interrupted" : "it has no record"}). Check, then /graph goto ${state.node} to run it again, /graph goto <node> to go on, or /graph stop`,
+						"warning",
+					);
+				}
+			}
 		});
 
 		// The session is replaced or the process ends: a command that runs is stopped, and nothing is written after it.
-		pi.on("session_shutdown", async () => {
+		pi.on("session_shutdown", async (event, ctx) => {
+			// A quit without a UI (`xpi -p`) waits for a command this process started, so the process does not kill it; its
+			// result and move are written, and nothing after them. A quit with a UI, and a session replaced, stop it.
+			const task = commandTask;
+			if (event.reason === "quit" && !ctx.hasUI && task !== undefined && !closed) {
+				stopping = true;
+				await task;
+			}
 			closed = true;
 			commandRun?.abort.abort();
 		});
@@ -989,7 +1151,8 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 				return;
 			}
 			say(ctx, `${name} started in "${definition.start}"`);
-			await proceedNow(ctx);
+			await goOn(ctx);
+			if (!ctx.hasUI) await settle(ctx);
 		}
 
 		async function stop(ctx: ExtensionContext): Promise<void> {
@@ -1020,14 +1183,17 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 				say(ctx, `no node "${target}" (nodes: ${Object.keys(state.graph.nodes).join(", ")})`, "warning");
 				return;
 			}
-			if (!ctx.isIdle() || commandRun !== undefined) {
+			if (!ctx.isIdle() || commandRun !== undefined || commandTask !== undefined) {
 				say(ctx, "wait for the turn or the command that runs now, or stop it first", "warning");
 				return;
 			}
+			// A command that may have run and may not run twice: the record says so before the user's own jump.
+			if (decide(state) === "halt") append(ctx, GRAPH_HALT, interruptedHalt(state));
 			const jump: NodeData = { node: target, via: "goto" };
 			append(ctx, GRAPH_NODE, jump);
 			say(ctx, `"${state.node}" -> "${target}" (goto)`);
-			await proceedNow(ctx);
+			await goOn(ctx);
+			if (!ctx.hasUI) await settle(ctx);
 		}
 
 		/** The report of the branch's last run (spec 02). */
@@ -1123,6 +1289,14 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 			},
 		});
 	};
+	return Object.assign(extension, {
+		/** Whether a command started after a turn is still going on (tests: it is not part of the agent's run). */
+		busy: () => tasks.size > 0,
+		/** Wait until no command started after a turn is going on. */
+		quiet: async () => {
+			while (tasks.size > 0) await Promise.all(tasks);
+		},
+	});
 }
 
 export default createGraphExtension();

@@ -18,6 +18,7 @@ export const GRAPH_NAME = /^[a-z0-9][a-z0-9-]*$/;
 const NODE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 const MODEL_REF = /^[^/\s]+\/\S+$/;
 const TIMEOUT = /^([1-9][0-9]*)(s|m|h)$/;
+const REPLAY = /^(safe|unsafe)$/;
 const UNIT_MS = { s: 1000, m: 60_000, h: 3_600_000 };
 const EXITS: readonly Exit[] = ["model", "approve", "pass", "fail"];
 
@@ -100,15 +101,18 @@ function parseNode(problems: Problem[], at: string, value: unknown): GraphNode |
 		return undefined;
 	}
 	if (value.run !== undefined) {
-		const reader = new Reader(problems, at, value, ["run", "timeout"]);
+		const reader = new Reader(problems, at, value, ["run", "timeout", "replay"]);
 		const run = reader.text("run", true);
 		const timeout = reader.match("timeout", false, TIMEOUT, 'a number and a unit, as in "30s", "10m" or "1h"');
+		const replay = reader.match("replay", false, REPLAY, '"safe" or "unsafe"');
 		if (run === undefined || (reader.has("timeout") && timeout === undefined)) return undefined;
+		if (reader.has("replay") && replay === undefined) return undefined;
 		const parts = timeout === undefined ? null : TIMEOUT.exec(timeout);
 		const node: CommandNode = {
 			kind: "command",
 			run,
 			timeoutMs: parts ? Number(parts[1]) * UNIT_MS[parts[2] as keyof typeof UNIT_MS] : DEFAULT_TIMEOUT_MS,
+			replay: replay === "safe" ? "safe" : "unsafe",
 		};
 		return node;
 	}

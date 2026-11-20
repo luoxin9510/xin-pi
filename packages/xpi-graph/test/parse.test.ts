@@ -31,15 +31,44 @@ describe("parseGraph", () => {
 			deny: ["gh pr merge"],
 			readOnly: [],
 		});
-		expect(graph.nodes.ci).toEqual({ kind: "command", run: "gh pr checks --watch", timeoutMs: 30 * 60_000 });
+		expect(graph.nodes.ci).toEqual({
+			kind: "command",
+			run: "gh pr checks --watch",
+			timeoutMs: 30 * 60_000,
+			replay: "unsafe",
+		});
 		expect(graph.nodes.merge).toEqual({
 			kind: "command",
 			run: "gh pr merge --merge --delete-branch",
 			timeoutMs: DEFAULT_TIMEOUT_MS,
+			replay: "unsafe",
 		});
 		expect(graph.edges[5]).toEqual({ from: "review", to: "build", exit: "model", label: "findings to fix", max: 2 });
 		expect(graph.edges[3]).toEqual({ from: "ci", to: "build", exit: "fail" });
 		expect(graph.requires).toEqual([{ before: "merge", passed: "ci", notAfter: ["build"] }]);
+	});
+
+	it("reads replay on a command node, unsafe when absent, and rejects other values and replay on a model node", () => {
+		const raw = devGraph();
+		raw.nodes.ci.replay = "safe";
+		raw.nodes.merge.replay = "unsafe";
+		const graph = parseGraph(raw);
+		expect(graph.nodes.ci).toMatchObject({ kind: "command", replay: "safe" });
+		expect(graph.nodes.merge).toMatchObject({ kind: "command", replay: "unsafe" });
+		expect(parseGraph(devGraph()).nodes.ci).toMatchObject({ replay: "unsafe" });
+
+		const bad = devGraph();
+		bad.nodes.ci.replay = "yes";
+		bad.nodes.build.replay = "safe";
+		const problems = (() => {
+			try {
+				parseGraph(bad);
+				return [];
+			} catch (error) {
+				return error instanceof GraphError ? error.problems.map((problem) => problem.at) : [];
+			}
+		})();
+		expect(problems).toEqual(expect.arrayContaining(["nodes.ci.replay", "nodes.build.replay"]));
 	});
 
 	it("reads timeouts in seconds, minutes and hours", () => {

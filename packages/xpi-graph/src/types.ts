@@ -17,11 +17,19 @@ export interface ModelNode {
 	readOnly: string[];
 }
 
+/**
+ * Whether a command may run again after it may have run, fully or in part: after a crash, a safe command runs again and
+ * any other one stops the graph for the user.
+ */
+export type Replay = "safe" | "unsafe";
+
 /** A command the engine runs; its exit code picks the edge. */
 export interface CommandNode {
 	kind: "command";
 	run: string;
 	timeoutMs: number;
+	/** Absent in the file: `"unsafe"`. */
+	replay: Replay;
 }
 
 export type GraphNode = ModelNode | CommandNode;

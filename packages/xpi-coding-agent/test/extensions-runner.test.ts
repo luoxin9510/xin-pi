@@ -84,6 +84,7 @@ describe("ExtensionRunner", () => {
 		sendMessage: () => {},
 		sendUserMessage: () => {},
 		appendEntry: () => {},
+		persistSession: () => {},
 		setSessionName: () => {},
 		getSessionName: () => undefined,
 		setLabel: () => {},

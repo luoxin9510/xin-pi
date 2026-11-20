@@ -1839,6 +1839,15 @@ When not streaming, the message is sent immediately and triggers a new turn. Whe
 
 See [send-user-message.ts](../examples/extensions/send-user-message.ts) for a complete example.
 
+### pi.persistSession()
+
+Write the session file now. A session is written from its first user or assistant message; before that its entries are kept in memory only, and a crash loses them. Call this before an entry that must survive a crash in a session that may have no message yet (the graph extension does, before a command node's `graph.run`). Later entries are appended as they are made. Nothing for an in-memory session or one already written; a session written this way is listed by `/resume` as "(no messages)".
+
+```typescript
+pi.persistSession();
+pi.appendEntry("my-intent", { step: "deploy" });
+```
+
 ### pi.appendEntry(customType, data?)
 
 Persist extension data. Custom entries do NOT participate in LLM context. In interactive mode, they can also render inside the chat transcript when paired with `pi.registerEntryRenderer()`.

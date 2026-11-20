@@ -27,7 +27,7 @@ export default {
   nodes: {
     build:  { model: "anthropic/claude-haiku-5-5", prompt: "Build what the spec says and open a pull request.",
               deny: ["gh pr merge", "git push origin main"] },
-    ci:     { run: "gh pr checks --watch", timeout: "30m" },
+    ci:     { run: "gh pr checks --watch", timeout: "30m", replay: "safe" },
     review: { model: "anthropic/claude-opus-5-5", prompt: "Review the diff. List what is wrong, or say it is fine.",
               deny: ["gh pr merge", "git push origin main"], readOnly: ["**"] },
     merge:  { run: "gh pr merge --merge --delete-branch" },
@@ -57,7 +57,7 @@ export default {
 | Kind | Fields | What it is |
 |---|---|---|
 | Model node | `prompt` (required), `model`, `thinking`, `deny`, `readOnly` | A stretch of work by a model. `prompt` is its role. `model` is a `provider/model` reference to a physical model; without one the node uses the model you had selected when the graph started. |
-| Command node | `run` (required), `timeout` | One shell command that xpi runs. Its exit code picks the edge. `timeout` is `"30s"`, `"10m"` or `"1h"`; the default is 10 minutes, and a timeout counts as a failure. |
+| Command node | `run` (required), `timeout`, `replay` | One shell command that xpi runs. Its exit code picks the edge. `timeout` is `"30s"`, `"10m"` or `"1h"`; the default is 10 minutes, and a timeout counts as a failure. `replay` says what happens when xpi died while the command ran: `"safe"` runs it again, `"unsafe"` (the default) halts the graph (see [After a crash](#after-a-crash)). |
 
 `deny` and `readOnly` are the [limits of a node](#the-limits-of-a-node).
 
@@ -109,8 +109,8 @@ changed after the check. With `notAfter: ["patch"]` the graph is refused, and th
 |---|---|
 | `/graph` | The report of the session's last run, running or ended (see [What a run shows](#what-a-run-shows)), with the counts of the looping edges out of the current node and the graph as Mermaid. With no run on the branch: the graph files found. |
 | `/graph --json` | The same report as JSON, and nothing else. |
-| `/graph start <name>` | Check the graph and enter its first node, which starts working at once. Without a UI (`xpi -p "/graph start <name>"`) the command returns when the graph has ended or waits for you. |
-| `/graph goto <node>` | Your own jump to any node, whatever the edges say. Recorded as a jump; the loop counts start again. Going to a command node runs its command. Not while a turn or a command runs. |
+| `/graph start <name>` | Check the graph and enter its first node, which starts working at once. Without a UI (`xpi -p "/graph start <name>"`) the command returns when the graph has ended or waits for you, and no command it started is still running. |
+| `/graph goto <node>` | Your own jump to any node, whatever the edges say. Recorded as a jump; the loop counts start again. Going to a command node runs its command. Not while a turn or a command runs. From a command that may have run and may not run again, the halt is written first. |
 | `/graph stop` | End the graph, stop a command it is running, and give back the model you had selected. |
 
 What happens while it runs:
@@ -132,12 +132,17 @@ What happens while it runs:
   answers and its limits hold. A second `next` in the same visit is refused. So is one from a script that outlived the
   request that started it, such as a background script: by the time it calls, the session may be in another turn or
   another node, and a move belongs to the request that asked for it.
-- **A command node** is run by xpi in the session's directory when the graph enters it. The model is not asked and
-  cannot report a result of its own. The command, how it ended and the last 200 lines of its output go into the
-  session, so the next node reads them. Then the `pass` or `fail` edge is taken; several command nodes in a row run
-  one after the other. To stop a command that runs, use `/graph stop` (it ends the graph); Escape does not reach a
-  command that runs between two turns. Leaving the session (`/new`, `/resume`, quitting) stops a command that runs,
-  and nothing more is written to the graph; the graph stays on the command node, which `/graph goto` runs again.
+- **A command node** is run by xpi in the session's directory. The model is not asked and cannot report a result of
+  its own. Every command runs outside a turn: a turn that moves to a command node enters it when the turn ends, and
+  the command starts once the turn has settled, so the session is idle while it runs and a message you send then is
+  answered at once (by the model you had selected before the graph; the next node is entered when that turn ends).
+  Before it starts, xpi writes the session file (even one with no message yet) and a `graph.run` entry. The command,
+  how it ended and the last 200 lines of its output go into the session, so the next node reads them. Then the
+  `pass` or `fail` edge is taken; several command nodes in a row run one after the other. To stop a command that
+  runs, use `/graph stop` (it ends the graph); Escape does not reach it. A turn cut off by Escape as it ends does
+  not start the command; your next message does. Leaving the session (`/new`, `/resume`, quitting with a UI) stops
+  a command that runs, and nothing more is written to the graph; the graph stays on the command node. Quitting
+  without a UI (`xpi -p`) waits for the command and writes its result and move, then stops: no turn, no next node.
 - **An approval.** When the model chooses an `approve` edge you are asked: **Approve**, **Send back** or **Stop the
   graph**. After "Send back" the model stays in the node and your next message is the comment. Closing the question
   is not an approval. Without a UI nobody can approve, and the graph halts.
@@ -207,11 +212,33 @@ The state of a graph is not kept anywhere else than in the session: each entry i
   with your next message.
 - **Compaction** can summarise the node's role away, so after a compaction xpi sends the current node's message again.
   It starts no turn of its own.
+- **After a crash.** See [After a crash](#after-a-crash).
 - **The graph file is read once.** The whole graph is stored in the session when it starts. Editing the file changes
   the next start, not the graph that is running.
 - **Selecting another model** while a graph runs ends the graph. Selecting `graph/auto` by hand with no graph running
   does nothing useful: xpi says to use `/graph start`, and the request is answered by the model that was selected
   before the session's last graph, or, in a session that ran no graph, by the model that answered last.
+
+### After a crash
+
+When xpi dies (a crash, `kill -9`, a closed terminal) while a command node's command runs, the session has its
+`graph.run` and no result. When the session opens again, xpi only tells you what it found, and writes nothing: you
+may only be looking. Your next action decides (any message, or `/graph goto`):
+
+| The command node | Your next action |
+|---|---|
+| `replay: "safe"`, interrupted fewer than 3 times in this visit | runs it again (`/graph` shows `interrupted ×N`) |
+| `replay: "safe"`, interrupted 3 times | halts the graph: `graph.halt` with `interrupted` |
+| `replay: "unsafe"` (the default), interrupted | halts the graph: it may have run, and xpi does not know what it did |
+| entered, with no `graph.run` (an older xpi died before it) | `safe`: runs it; `unsafe`: halts |
+
+A halt on a command node is left as any other: check what the command did, then `/graph goto <node>` (the same node
+runs it again), another node, or `/graph stop`. A message is answered by the model you had selected before the
+graph, so you can ask it to look first.
+
+Mark `safe` only what can run twice with the same effect: waiting for CI, reading, a `git pull --ff-only`. A merge, a
+version bump, a tag or a publish are `unsafe`. Turn-level state is not part of this: a model turn cut off by a crash
+is not resumed, only the move it accepted (see [Resuming, branching, compaction](#resuming-branching-compaction)).
 
 ## What a run shows
 
@@ -250,11 +277,13 @@ Then the graph as Mermaid (`flowchart LR`), the current node and the edges taken
 - **Approvals.** Every answer is recorded (`graph.asked`), "Send back", "Stop the graph" and a closed question too,
   and listed under `asked`.
 - **Blocks and halts** are listed with the visit they happened in.
+- **Interrupted runs.** A command visit whose command a crash cut off shows `interrupted ×N` after how it was left.
 
 `/graph --json` gives the same as one JSON object (`schemaVersion: 1`): `status` (`running`, `ended`, `error`),
 `graph`, `path`, `startedAt`, `endedAt`, `endReason`, `node`, `halted`, `visits` (each with `node`, `kind`, `via`,
 `models`, `run`, `command` with the exit code, the time and the number of output lines, `startedAt`, `durationMs`,
-`waitMs`, `own`, `tools`, `other`, `left`, `pending`, `ended`), `asked`, `blocked`, `halts`, `total`, `byModel`,
+`waitMs`, `own`, `tools`, `other`, `left`, `pending`, `ended`, and for a command visit `runs`: each `graph.run` with
+`startedAt` and `finished`), `asked`, `blocked`, `halts`, `total`, `byModel`,
 `edgesTaken` and `notCounted`. With a UI it is the text of an info notice (an RPC client gets it as the
 `extension_ui_request` it already reads); without one it is one line on stdout. With no run it is
 `{"schemaVersion":1,"status":"none"}`.
@@ -266,19 +295,20 @@ Each graph record on the branch is also told on the extension bus (`pi.events`),
 | Channel | Record | Fields besides `graph`, `node`, `visit`, `at` |
 |---|---|---|
 | `graph:start` | `graph.start` | `path`, `selection` (`node` is `""` and `visit` is 0: no node is entered yet) |
-| `graph:move` | `graph.move` | `to`, `edge`, `via`, `report` (accepted, not entered yet) |
+| `graph:move` | `graph.move` | `to`, `edge`, `via`, `report`, `runStartedAt` (accepted, not entered yet) |
 | `graph:enter` | `graph.node` | `via`, `edge`, `report` |
+| `graph:run` | `graph.run` | `run`, `replay`, `startedAt` (the command is about to run) |
 | `graph:command` | `graph.command` | `run`, `code`, `timedOut`, `startedAt`, `durationMs`, `lines`, `outcome` |
 | `graph:asked` | `graph.asked` | `to`, `answer`, `askedAt` |
 | `graph:blocked` | `graph.blocked` | `tool`, `rule` |
-| `graph:halt` | `graph.halt` | `reason` |
+| `graph:halt` | `graph.halt` | `reason`, `runStartedAt`, `interrupted` |
 | `graph:end` | `graph.end` | `reason`, `duringRun` |
 
 An event is told only when its record is on the branch: after each write of the extension and when a run settles,
 so the records written at a turn's end come at its end, and a record that is dropped (a graph stopped while its
 command ran) is never told. A resumed session and a move in the session tree tell nothing of the records already
 there; only new ones. `graph:command` carries the visit of its own command node, even when its message lands after
-the next node's entry (a command run before a run starts).
+the next node's entry.
 
 ## What a graph does not guarantee
 
@@ -351,14 +381,15 @@ Custom entries in the session file, none of them sent to the model:
 |---|---|---|
 | `graph.start` | the graph as its file's literal, the file path, the selection to give back | `/graph start` |
 | `graph.node` | `node`, `via`, `edge`, `report` | a node is entered |
-| `graph.move` | `edge`, `via`, `report` | a move is accepted and not entered yet: from `next`, or a command's result |
-| `graph.halt` | `reason` | the graph halts |
+| `graph.move` | `edge`, `via`, `report`, `runStartedAt` (from a command's result: the `startedAt` of its run) | a move is accepted and not entered yet: from `next`, or a command's result |
+| `graph.run` | `node`, `run`, `replay`, `startedAt` | a command is about to run; with no result after it, it was interrupted |
+| `graph.halt` | `reason`, `runStartedAt` (a run's own halt), `interrupted` (the `startedAt` of the run a crash cut off) | the graph halts |
 | `graph.blocked` | `tool`, `rule`, `node` | a limit blocked a call |
 | `graph.asked` | `node`, `to`, `answer` (`approve`, `send_back`, `stop`, `dismissed`), `askedAt` | an approval question is answered, before what the answer causes |
 | `graph.end` | `reason` (`done`, `stopped`, `model_changed`), `duringRun` | the graph is over |
 
 Each of them also has `at`, the time it was made. That is not always the entry's own timestamp: the entries of a move
-entered at the end of a turn are committed together after the commands it runs.
+entered at the end of a turn are committed together when the turn settles.
 
 The messages the model sees are custom messages: `graph.enter` (a node's entry message), `graph.command` (a command
 node's result; its `details` hold `node`, `run`, `code`, `timedOut`, `startedAt`, `durationMs`, `lines` and
@@ -377,9 +408,10 @@ tool and changes no request.
 - `src/extensions/graph/`: `files.ts` finds and reads graph files; `limits.ts` holds the limits of a node;
   `index.ts` registers `graph/auto`, the `next` tool and `/graph`, enters a move at `agent_before_settle` or, for a
   move whose turn did not enter it, at `before_agent_start`, and runs command nodes with the runner of
-  [checks](checks.md) (its own process group, killed on timeout or abort).
+  [checks](checks.md) (its own process group, killed on timeout or abort), always outside a turn: started at
+  `agent_settled`, at `before_agent_start` or by `/graph start|goto`, after `pi.persistSession()` and a `graph.run`.
 - Tests: `packages/xpi-graph/test/`, `test/graph-files.test.ts`, `test/graph-limits.test.ts`,
   `test/repo-graphs.test.ts` (the two graphs above load, and are refused with a control taken out),
   `test/suite/graph.test.ts` and `test/suite/graph-controls.test.ts` (faux provider, a fake command runner; the
   report, the live view and the events too), `test/checks-runner.test.ts` (`onOutput`).
-- Spec and decisions: `.scratch/xpi-graph/`.
+- Spec and decisions: `.scratch/xpi-graph/` (`03-replay.md`: commands after a crash).

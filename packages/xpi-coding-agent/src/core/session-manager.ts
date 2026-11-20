@@ -1189,18 +1189,33 @@ export class SessionManager {
 
 		if (!this.flushed) {
 			if (!this._hasConversation()) return;
-			const fd = openSync(this.sessionFile, "wx");
-			try {
-				for (const e of this.fileEntries) {
-					writeFileSync(fd, `${JSON.stringify(e)}\n`);
-				}
-			} finally {
-				closeSync(fd);
-			}
-			this.flushed = true;
+			this._writeFile(this.sessionFile);
 		} else {
 			appendFileSync(this.sessionFile, `${JSON.stringify(entry)}\n`);
 		}
+	}
+
+	/** Create the session file with every entry so far; later entries are appended to it. */
+	private _writeFile(sessionFile: string): void {
+		const fd = openSync(sessionFile, "wx");
+		try {
+			for (const e of this.fileEntries) {
+				writeFileSync(fd, `${JSON.stringify(e)}\n`);
+			}
+		} finally {
+			closeSync(fd);
+		}
+		this.flushed = true;
+	}
+
+	/**
+	 * Write the session file now, though it has no user or assistant message yet (a session is otherwise written from
+	 * its first one). For a writer that must find its entries after a crash. Nothing for an in-memory session or one
+	 * already written.
+	 */
+	persistNow(): void {
+		if (!this.persist || !this.sessionFile || this.flushed) return;
+		this._writeFile(this.sessionFile);
 	}
 
 	private _appendEntry(entry: SessionEntry): void {

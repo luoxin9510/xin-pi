@@ -1909,6 +1909,14 @@ export interface ExtensionAPI {
 	/** Append a custom entry to the session for state persistence (not sent to LLM). */
 	appendEntry<T = unknown>(customType: string, data?: T): void;
 
+	/**
+	 * Write the session file now. A session is written from its first user or assistant message; before that, entries
+	 * are kept in memory only, and a crash loses them. Call this before an entry that must survive a crash in a session
+	 * that may have no message yet. Later entries are appended as they are made. Nothing for an in-memory session or
+	 * one already written.
+	 */
+	persistSession(): void;
+
 	// =========================================================================
 	// Session Metadata
 	// =========================================================================
@@ -2415,6 +2423,7 @@ export interface ExtensionActions {
 	sendMessage: SendMessageHandler;
 	sendUserMessage: SendUserMessageHandler;
 	appendEntry: AppendEntryHandler;
+	persistSession: () => void;
 	setSessionName: SetSessionNameHandler;
 	getSessionName: GetSessionNameHandler;
 	setLabel: SetLabelHandler;

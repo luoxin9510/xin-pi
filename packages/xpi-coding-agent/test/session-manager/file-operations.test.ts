@@ -464,6 +464,22 @@ describe("SessionManager session file creation", () => {
 		expect(SessionManager.open(file, tempDir).buildSessionContext().messages).toHaveLength(1);
 	});
 
+	// spec 03: an entry that must survive a crash in a session with no message yet
+	it("writes the file at once on persistNow, then appends; nothing for an in-memory session", () => {
+		const session = SessionManager.create(tempDir, tempDir);
+		session.appendCustomEntry("graph.start", { name: "release" });
+		expect(existsSync(session.getSessionFile()!)).toBe(false);
+		session.persistNow();
+		session.appendCustomEntry("graph.run", { node: "patch" });
+		expect(readSessionFileRoles(session.getSessionFile()!)).toEqual(["session", "custom", "custom"]);
+		// Twice is the same as once.
+		session.persistNow();
+		expect(readSessionFileRoles(session.getSessionFile()!)).toEqual(["session", "custom", "custom"]);
+		const memory = SessionManager.inMemory();
+		memory.appendCustomEntry("graph.run", { node: "patch" });
+		expect(() => memory.persistNow()).not.toThrow();
+	});
+
 	it("appends later entries to the file without rewriting earlier ones", () => {
 		const session = SessionManager.create(tempDir, tempDir);
 		session.appendMessage(userMsg("first question"));

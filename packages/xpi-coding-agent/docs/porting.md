@@ -377,9 +377,11 @@ The options below come with the unit. Each says how to turn it off.
   settled is entered there); `context_with_system` with named sections of the leading system message;
   `session_compact`; `model_select` with a source that tells a restore from a choice; `tool_call` with the tool's
   effect, its input and `{ block, reason }`, fired for the calls a codemode script makes too (the limits);
-  `ui.select` (the approval); `appendEntry`, `sendMessage` with `triggerTurn` and `details`, `setModel`, `setThinkingLevel`,
+  `ui.select` (the approval); `appendEntry`, `persistSession` (the session file written before a command's `graph.run`; a
+  host that always writes its sessions at once makes it a no-op), `sendMessage` with `triggerTurn` and `details`, `setModel`, `setThinkingLevel`,
   `ui.setStatus`, `ui.setWidget` (a running command's last lines), `pi.events` (the `graph:*` events),
-  `session_tree` and `agent_settled` (when the events are told), `ctx.isIdle()`, `ctx.signal`; child processes that inherit the environment (the limits of a
+  `session_tree` and `agent_settled` (when the events are told, and a command node's command starts; its `aborted`),
+  `session_shutdown` with its `reason` (a quit without a UI waits for a running command), `ctx.isIdle()`, `ctx.waitForIdle()`, `ctx.signal`; child processes that inherit the environment (the limits of a
   node reach a subagent child through `XPI_GRAPH_LIMITS`).
 - **Copy (one unit)**: the package `packages/xpi-graph/` whole (`src/`: `types.ts`, `parse.ts`, `check.ts`,
   `state.ts`, `report.ts`, `index.ts`), `extensions/graph/` (`index.ts`, `files.ts`, `limits.ts`) and `utils/literal.ts`. Three

@@ -269,6 +269,16 @@ describe("the repository's own graphs", () => {
 			]);
 		});
 
+		it("runs again after a crash the branch and the CI wait, never the merge (spec 03)", () => {
+			const graph = load(literal("dev"));
+			const replay = Object.fromEntries(
+				Object.entries(graph.nodes).flatMap(([id, node]) => (node.kind === "command" ? [[id, node.replay]] : [])),
+			);
+			expect(replay).toEqual({ branch: "safe", ci: "safe", merge: "unsafe" });
+			const raw = literal("dev");
+			for (const id of Object.keys(replay)) expect(raw.nodes[id].replay, id).toBeDefined();
+		});
+
 		it("limits its loops", () => {
 			const graph = load(literal("dev"));
 			const max = (from: string, to: string) =>
@@ -298,6 +308,25 @@ describe("the repository's own graphs", () => {
 				"tag",
 				"done",
 			]);
+		});
+
+		it("runs again after a crash only the commands that wait or read (spec 03)", () => {
+			const graph = load(literal("release"));
+			const replay = Object.fromEntries(
+				Object.entries(graph.nodes).flatMap(([id, node]) => (node.kind === "command" ? [[id, node.replay]] : [])),
+			);
+			expect(replay).toEqual({
+				patch: "unsafe",
+				minor: "unsafe",
+				ci: "safe",
+				merge: "unsafe",
+				sync: "safe",
+				"main-ci": "safe",
+				tag: "unsafe",
+			});
+			// Each is declared in the file, not left to the default.
+			const raw = literal("release");
+			for (const id of Object.keys(replay)) expect(raw.nodes[id].replay, id).toBeDefined();
 		});
 
 		it("runs the bump, the merge and the tag itself, and asks before the bump and the merge", () => {
