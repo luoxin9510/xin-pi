@@ -17,7 +17,8 @@ Spec: `.scratch/xpi-graph/03-replay.md` (sections 1–6). One PR (branch `graph-
       `proceed` with direct writes and `mayWait`, not awaited; never on a halted or finished visit or while
       `commandRun` is set
 - [ ] R1.6 without a UI: `/graph start|goto` wait in a loop for idle and no pending command run; `session_shutdown`
-      with reason `quit` waits for a running command, writes its result and starts no turn; other reasons and any
+      with reason `quit` waits for a running command, writes its result and its move, then stops (no turn, the next node not
+      entered, even a command node); other reasons and any
       shutdown with a UI abort as now
 - [ ] R1.7 after a crash: `session_start` tells and writes nothing; at `before_agent_start` (started, not awaited:
       R12) and `/graph goto` a visit noted by this process, or a safe run with fewer than 3 interruptions

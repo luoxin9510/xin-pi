@@ -80,8 +80,9 @@ node); the command's move is left pending until that turn ends; `/graph stop` st
 - `session_shutdown` with reason `quit` and without a UI waits for a running command to end (its own timeout bounds
   it) instead of aborting it, so a prompt that is not a `/graph` command (`xpi -p "go on"`) does not kill a command it
   led to. After the wait the run's result is written as usual (the `graph.command` message, then the move or the
-  halt; `closed` is set only after it), but no turn is started: the session is being disposed, so a move to a model
-  node stays pending and is entered at the next run. Other shutdown reasons (new, resume, fork, reload) and every
+  halt; `closed` is set only after it), and then the extension stops: no turn is started and the next node is not
+  entered, whatever its kind, so a chain of command nodes (`release.js`: `sync`, then main's CI, then `tag`) does
+  not go on inside a shutdown nobody watches. The move stays pending and is entered at the next run. Other shutdown reasons (new, resume, fork, reload) and every
   shutdown with a UI abort the command as now; on the next open that run reads as interrupted.
 
 ### 3. `graph.run`: the intent, written first (R4)
@@ -240,7 +241,8 @@ The session format gains one optional field on tool result messages; older sessi
     halts;
   - the first `graph.run` of a new session is on disk;
   - without a UI, `/graph start` returns only after a command started at a settle and the turns after it; a prompt
-    that leads to a command does not end before it (a `quit` shutdown waits, writes the result, starts no turn); a
+    that leads to a command does not end before it (a `quit` shutdown waits, writes the result and its move, starts no turn and does not enter
+    the next node, also when the pass edge leads to another command node); a
     `new` shutdown without a UI and any shutdown with a UI abort it;
   - the `graph:run` event order.
 - Core tests: per-model usage from a child's assistant messages, including a virtual model and a model switch; the

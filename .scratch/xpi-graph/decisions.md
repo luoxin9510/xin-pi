@@ -454,3 +454,8 @@ all taken:
 - Nits: a separate notice for "not started"; older sessions' tool-result usage moves to `Tools/unattributed`
   (documented); `/resume` keeps listing a session with graph entries and no message; R12's side effect after an
   Esc-cut turn is written in the spec.
+
+Round 3 (same reviewer, commit f8336f60e): round-2 findings closed; one should-fix, taken: during a `quit` wait
+without a UI, `proceed` would go on into the next command node (in `release.js`, `sync` then main's CI then `tag`)
+inside the shutdown. Now the wait writes the one run's result and its move, then stops; the move stays pending.
+Verdict: ready for the owner with that change.
