@@ -225,7 +225,7 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 		 * The command node whose command runs now: its abort handle, and the state the graph is in while it runs. At a
 		 * turn's end that state is not on the branch yet (its entries are still drafts), so the limits read it here.
 		 */
-		let commandRun: { abort: AbortController; state: RunningState } | undefined;
+		let commandRun: { abort: AbortController; state: RunningState; startedAt: string } | undefined;
 
 		const stateOf = (ctx: ExtensionContext): GraphState => {
 			// Assignable without a cast: a core entry type the package cannot read fails to compile here.
@@ -541,7 +541,7 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 				const intent: RunData = { node: state.node, run: node.run, replay: node.replay, startedAt: runStartedAt };
 				write(GRAPH_RUN, intent);
 				const abort = new AbortController();
-				commandRun = { abort, state };
+				commandRun = { abort, state, startedAt: runStartedAt };
 				let result: RunResult;
 				const live = liveView(ctx, definition.name, state.node, node.run, abort.signal);
 				try {
@@ -559,6 +559,9 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 				// The command took time. If the graph was ended meanwhile, on the branch itself (and maybe another started),
 				// nothing more is written or run: the local copy cannot see that.
 				if (closed || stateOf(ctx).status !== "running" || startOf() !== mine) return { kind: "gone" };
+				// The process is going away and a signal it did not send killed the command (a closed terminal, SIGTERM):
+				// that is an interruption, not a failure. Nothing is written, so the run stays without a result.
+				if (stopping && result.code === null && !result.timedOut && !result.aborted) return { kind: "gone" };
 				if (result.aborted) {
 					const reason = `"${state.node}" was stopped while its command ran`;
 					const halt: HaltData = { reason, runStartedAt };
@@ -627,6 +630,8 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 		/**
 		 * Without a UI (print mode) the process ends when the command handler returns: wait until the session is idle and
 		 * no command this process started is pending. A command's end can start a turn, and a turn's end a command.
+		 * This relies on the core awaiting the `agent_settled` handlers before `waitForIdle` resolves, so a command that
+		 * a turn's end starts is in `commandTask` by the time the loop looks.
 		 */
 		async function settle(ctx: ExtensionCommandContext): Promise<void> {
 			for (;;) {
@@ -682,12 +687,10 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 		/** The halt of a visit whose command may have run and may not run again. */
 		const interruptedHalt = (state: RunningState): HaltData => {
 			const last = state.runs.at(-1);
-			const many = interruptions(state) >= MAX_INTERRUPTIONS;
-			const node = state.graph.nodes[state.node];
-			const reason = many
-				? `"${state.node}" was interrupted ${interruptions(state)} times while its command ran`
-				: node.kind === "command" && node.replay === "safe"
-					? `"${state.node}" was interrupted while its command ran`
+			// A safe command halts only at the limit of interruptions; an unsafe one at once.
+			const reason =
+				interruptions(state) >= MAX_INTERRUPTIONS
+					? `"${state.node}" was interrupted ${interruptions(state)} times while its command ran`
 					: `"${state.node}" may have run its command (${last ? "it was interrupted" : "it has no record of starting"}), and it is not replay-safe`;
 			return last && !last.finished ? { reason, interrupted: last.startedAt } : { reason };
 		};
@@ -1200,6 +1203,8 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 		const reportOf = (ctx: ExtensionContext): GraphReport | undefined => {
 			const branch: readonly ReportEntry[] = ctx.sessionManager.getBranch();
 			return report(branch, Date.now(), {
+				// The command that runs now has no result yet, and is not an interrupted one.
+				...(commandRun ? { running: commandRun.startedAt } : {}),
 				isVirtual: (key) => {
 					const slash = key.indexOf("/");
 					const model =

@@ -96,8 +96,11 @@ export interface VisitReport {
 	run?: string;
 	/** A command node's result, when its message has details. */
 	command?: CommandDetails;
-	/** A command node's runs (`graph.run`), oldest first; `finished` is false for a run the process did not live through. */
-	runs?: { startedAt: string; finished: boolean }[];
+	/**
+	 * A command node's runs (`graph.run`), oldest first; `finished` is false for a run the process did not live through,
+	 * and for the one that runs now (`running`, see `ReportOptions.running`).
+	 */
+	runs?: { startedAt: string; finished: boolean; running?: true }[];
 	startedAt: string;
 	durationMs: number;
 	/** Time spent on approval questions in the visit. */
@@ -169,6 +172,8 @@ export interface GraphReport {
 export interface ReportOptions {
 	/** True for a virtual model (`provider/id`). Default: only `graph/auto`. */
 	isVirtual?: (key: string) => boolean;
+	/** The `startedAt` of the command that runs now, known only to the host: it is not counted as interrupted. */
+	running?: string;
 }
 
 export const NESTED_CALLS = "nested calls";
@@ -381,7 +386,8 @@ export function report(
 				};
 				result.visits.push(visit);
 			} else if (entry.customType === GRAPH_RUN && visit && typeof data.startedAt === "string") {
-				visit.runs = [...(visit.runs ?? []), { startedAt: data.startedAt, finished: false }];
+				const live = options.running === data.startedAt ? { running: true as const } : {};
+				visit.runs = [...(visit.runs ?? []), { startedAt: data.startedAt, finished: false, ...live }];
 			} else if (entry.customType === GRAPH_MOVE && visit && typeof data.edge === "number") {
 				const edge = graph.edges[data.edge];
 				if (edge) visit.pending = { to: edge.to };
@@ -566,7 +572,7 @@ export function formatReport(run: GraphReport): string {
 			: visit.ended
 				? `ended (${visit.ended})`
 				: `(now)${visit.pending ? ` → ${visit.pending.to} pending` : ""}`;
-		const interrupted = visit.runs?.filter((run) => !run.finished).length ?? 0;
+		const interrupted = visit.runs?.filter((run) => !run.finished && !run.running).length ?? 0;
 		const left = interrupted > 0 ? `${how} · interrupted ×${interrupted}` : how;
 		const tools = visit.tools.cost > 0 ? ` (tools ${money(visit.tools.cost)})` : "";
 		return [String(visit.visit), visit.node, visit.kind, cut(what, 28), time, `${cost}${tools}`, cache, left];

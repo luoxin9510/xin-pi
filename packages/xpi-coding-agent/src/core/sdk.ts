@@ -208,8 +208,11 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 
 	// Check if session has existing data to restore
 	const existingSession = sessionManager.buildSessionContext();
-	const hasExistingSession = existingSession.messages.length > 0;
 	const hasThinkingEntry = sessionManager.getBranch().some((entry) => entry.type === "thinking_level_change");
+	// A session with a saved selection is resumed as one, though it may have no message yet: an extension can have it
+	// written before its first message (`pi.persistSession()`, a graph whose command nodes ran with no model turn).
+	const hasExistingSession =
+		existingSession.messages.length > 0 || sessionManager.getBranch().some((entry) => entry.type === "model_change");
 
 	let model = options.model;
 	let modelFallbackMessage: string | undefined;

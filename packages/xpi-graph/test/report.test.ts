@@ -220,6 +220,27 @@ describe("report", () => {
 		expect(formatReport(result)).toContain("pass → review · interrupted ×1");
 	});
 
+	it("does not count the run the host says runs now as interrupted", () => {
+		const graphRun = (s: number) =>
+			custom(GRAPH_RUN, { node: "ci", run: "gh pr checks --watch", replay: "safe", startedAt: t(s), at: t(s) });
+		const entries = [
+			start(0),
+			enter("grill", "start", 1),
+			enter("build", "approve", 10, EDGE.approve),
+			enter("ci", "model", 20, EDGE.built),
+			graphRun(21),
+			graphRun(60),
+		];
+		const live = report(entries, T0 + 3600_000, { running: t(60) });
+		expect(live?.visits[2].runs).toEqual([
+			{ startedAt: t(21), finished: false },
+			{ startedAt: t(60), finished: false, running: true },
+		]);
+		expect(formatReport(live!)).toContain("(now) · interrupted ×1");
+		// Read from the session alone (another process, after a crash), both are interrupted.
+		expect(formatReport(run(entries))).toContain("(now) · interrupted ×2");
+	});
+
 	it("matches a queued command message to its own visit by node and start time", () => {
 		const result = run([
 			start(0),

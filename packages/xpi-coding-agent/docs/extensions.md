@@ -1841,7 +1841,7 @@ See [send-user-message.ts](../examples/extensions/send-user-message.ts) for a co
 
 ### pi.persistSession()
 
-Write the session file now. A session is written from its first user or assistant message; before that its entries are kept in memory only, and a crash loses them. Call this before an entry that must survive a crash in a session that may have no message yet (the graph extension does, before a command node's `graph.run`). Later entries are appended as they are made. Nothing for an in-memory session or one already written; a session written this way is listed by `/resume` as "(no messages)".
+Write the session file now. A session is written from its first user or assistant message; before that its entries are kept in memory only, and a crash loses them. Call this before an entry that must survive a crash in a session that may have no message yet (the graph extension does, before a command node's `graph.run`). Later entries are appended as they are made. Nothing for an in-memory session or one already written; a session written this way is listed by `/resume` as "(no messages)", and opening it restores its model selection as for any other session.
 
 ```typescript
 pi.persistSession();

@@ -156,7 +156,8 @@ or returns undefined when the branch has none. Spec: `.scratch/xpi-graph/02-obse
 - One `VisitReport` per entry into a node: the models that answered (from the assistant messages, so a node with no
   model shows the model that stood in), or the command and its result (`graph.command` details, matched to the visit
   by node and start time, since a queued message can land after its visit); `startedAt` and `durationMs` from the
-  entries' `at`; `waitMs` from `graph.asked`; how it was left, a pending move, or the end; a command visit's `runs`.
+  entries' `at`; `waitMs` from `graph.asked`; how it was left, a pending move, or the end; a command visit's `runs` (`options.running`: the `startedAt` of
+  the command the host runs now, marked `running` and not counted as interrupted).
 - Usage in three parts: `own` (assistant messages), `tools` (tool results with usage, `usage` records of kind
   `nested_tool_calls`) and `other` by kind (other `usage` records, `compaction` and `branch_summary`).
 - After `graph.end`: when it was written during a run (`duringRun`), the rest of that run counts, `own` and `tools`

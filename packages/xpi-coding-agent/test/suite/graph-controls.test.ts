@@ -93,6 +93,8 @@ describe("graph extension: controls", () => {
 		const letDie: Record<string, () => void> = {};
 		/** Output a held command writes while it runs: the test calls it (spec 02, the live view). */
 		const write: Record<string, (text: string) => void> = {};
+		/** End a held command as a signal from outside would (a closed terminal): no exit code, not aborted. */
+		const killFromOutside: Record<string, () => void> = {};
 		const graphExtension = createGraphExtension({
 			run: async (command, runOptions) => {
 				ran.push({ command, timeoutMs: runOptions.timeoutMs, cwd: runOptions.cwd });
@@ -101,6 +103,7 @@ describe("graph extension: controls", () => {
 					write[command] = (text) => runOptions.onOutput?.(text);
 					return new Promise<RunResult>((resolve) => {
 						release[command] = () => resolve(base);
+						killFromOutside[command] = () => resolve({ ...base, code: null });
 						runOptions.signal?.addEventListener("abort", () => {
 							const die = () => resolve({ ...base, code: null, aborted: true });
 							if (slowToDie.has(command)) letDie[command] = die;
@@ -235,6 +238,7 @@ describe("graph extension: controls", () => {
 			slowToDie,
 			letDie,
 			write,
+			killFromOutside,
 			widgets,
 			events,
 			started,
@@ -668,6 +672,44 @@ describe("graph extension: controls", () => {
 			expect(context.running().node).toBe("ci");
 			expect(context.running().pending).toBeDefined();
 			expect(context.models()).toEqual(["small"]);
+		});
+
+		it("without a UI, a quit by a signal that kills the command leaves its run interrupted, not failed", async () => {
+			const context = await setup({ ui: false });
+			context.held.add("run-ci");
+			context.harness.setResponses([context.move("ci")]);
+			void context.harness.session.prompt("/graph start ship");
+			await context.started("run-ci");
+			const shutdown = emitSessionShutdownEvent(context.harness.session.extensionRunner, {
+				type: "session_shutdown",
+				reason: "quit",
+			});
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			context.killFromOutside["run-ci"]();
+			await shutdown;
+			expect(context.entries("graph.run")).toHaveLength(1);
+			expect(context.entries("graph.move")).toHaveLength(1);
+			expect(context.entries("graph.halt")).toEqual([]);
+			expect(
+				context.harness.sessionManager
+					.getBranch()
+					.some((entry) => entry.type === "custom_message" && entry.customType === "graph.command"),
+			).toBe(false);
+			expect(context.running().runs).toEqual([{ startedAt: expect.any(String), finished: false }]);
+		});
+
+		it("does not count the command that runs now as interrupted in /graph", async () => {
+			const context = await setup();
+			context.held.add("run-ci");
+			context.harness.setResponses([context.move("ci"), context.say("Reviewing.")]);
+			void context.harness.session.prompt("/graph start ship");
+			await context.started("run-ci");
+			await context.harness.session.prompt("/graph");
+			const shown = context.notes.at(-1) ?? "";
+			expect(shown).toContain("(now)");
+			expect(shown).not.toContain("interrupted");
+			context.release["run-ci"]();
+			await context.quiet();
 		});
 
 		it("without a UI, a session replaced while the command runs stops it and writes nothing after it", async () => {

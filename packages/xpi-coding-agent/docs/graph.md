@@ -278,12 +278,14 @@ Then the graph as Mermaid (`flowchart LR`), the current node and the edges taken
   and listed under `asked`.
 - **Blocks and halts** are listed with the visit they happened in.
 - **Interrupted runs.** A command visit whose command a crash cut off shows `interrupted ×N` after how it was left.
+  The command that runs now is not counted. Without a UI, a signal that ends xpi (a closed terminal, SIGTERM) and
+  kills the command on its way out counts as an interruption, not a failure: nothing is written for it.
 
 `/graph --json` gives the same as one JSON object (`schemaVersion: 1`): `status` (`running`, `ended`, `error`),
 `graph`, `path`, `startedAt`, `endedAt`, `endReason`, `node`, `halted`, `visits` (each with `node`, `kind`, `via`,
 `models`, `run`, `command` with the exit code, the time and the number of output lines, `startedAt`, `durationMs`,
 `waitMs`, `own`, `tools`, `other`, `left`, `pending`, `ended`, and for a command visit `runs`: each `graph.run` with
-`startedAt` and `finished`), `asked`, `blocked`, `halts`, `total`, `byModel`,
+`startedAt`, `finished`, and `running` for the command that runs now), `asked`, `blocked`, `halts`, `total`, `byModel`,
 `edgesTaken` and `notCounted`. With a UI it is the text of an info notice (an RPC client gets it as the
 `extension_ui_request` it already reads); without one it is one line on stdout. With no run it is
 `{"schemaVersion":1,"status":"none"}`.

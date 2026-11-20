@@ -462,3 +462,40 @@ Verdict: ready for the owner with that change.
 
 Approved by the owner on 2026-11-20 ("批准，R12 按推荐"): the spec, and R12 as recommended (a command started at
 the next message is not awaited).
+
+## Spec 03, milestone 1: implementation (PR #147)
+
+Code review (fresh-context Opus, commit e53a157fa): no blocking; two should-fix and two nits, all taken:
+- Without a UI, a signal that ends xpi (SIGTERM, SIGHUP from a closed terminal) killed the command before the quit
+  wait got its result, and the wait wrote it as a `fail` with its move: an unsafe merge would read as finished. Now
+  a command that ends with no exit code, not timed out and not aborted by xpi, while xpi is stopping, writes
+  nothing: its run stays interrupted.
+- `/graph` counted the command that runs now as `interrupted ×1`. The host passes its `startedAt`
+  (`ReportOptions.running`); the report marks it `running` and does not count it.
+- Nits: an unreachable halt reason removed; `settle` states that it relies on `agent_settled` handlers being awaited
+  before `waitForIdle` resolves.
+
+Found by the by-hand runs, fixed in the same PR: a session written by `persistSession` before its first message
+(a command-only graph) was opened as a new one: the core restored the selection only for a session with messages, so
+it fell back to the default model (Opus, in a sandbox with no settings), wrote a second `model_change`, and the next
+message was not answered by the model selected before the graph. `createAgentSession` now resumes any session
+whose branch has a `model_change`.
+
+By-hand runs, 2026-11-20 (built `dist/bundle/cli.js`, `xpi -p`, sandbox `XPI_CODING_AGENT_DIR` with a copy of
+the auth, Haiku 5.5 selected; the command `echo start >> runs.log; sleep 15; echo end >> runs.log` counts its
+starts):
+1. `/graph start unsafe` (command node only, new session), `kill -9` while the command ran: the session file
+   existed with `graph.start`, `graph.node`, `graph.run` and no message. Reopened with `-c` and a message:
+   a notice, then `graph.halt {reason: "...may have run its command (it was interrupted), and it is not
+   replay-safe", interrupted: <its startedAt>}`; the command did not run again (1 start). The message was answered
+   by Opus: the restore bug above (two short replies, about $0.003 each; the only non-Haiku requests).
+2. `/graph start safe`, `kill -9`, reopened with a message: the notice, a second `graph.run`, the message
+   answered at once while the command ran, then the process waited about 15 s for it on quit: `graph.command`
+   with the second run's `startedAt`, `graph.move` with `runStartedAt`, no next node (the move to `end`
+   pending). `/graph` showed `(now) → end pending · interrupted ×1`.
+3. `/graph start mixed`: a Haiku 5.5 node moved to a safe command node; `kill -9` during the command. Reopened:
+   `graph/auto` restored with no new `model_change`, Haiku answered, the command ran again (2 starts), its move
+   pending.
+4. After the fixes: `/graph start unsafe` ended with SIGTERM during the command: only `graph.start`,
+   `graph.node`, `graph.run`; no `graph.command`, no move.
+5. After the fixes, run 2 again: `graph/auto` restored, no second `model_change`, Haiku answered, 2 starts.
