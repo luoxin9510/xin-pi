@@ -118,7 +118,8 @@ A session ends when its xpi exits or is stopped; its row stays, as done, failed 
 `cleanupDays` after it ended). A session whose xpi crashes while it works is restarted on its own, with xpi's `/continue`
 (it repairs the cut-off run, see [Sessions](sessions.md#after-the-process-ends-mid-run), and goes on without a message
 from you; after a provider error it asks the model again), up to three times in a row. Attaching to a failed session
-starts it the same way. A shell command's row goes away five minutes after the command ends. When
+starts it the same way. A session written by an xpi from before `/continue` (it has no run markers) is restarted with
+"Continue where you left off." instead. A shell command's row goes away five minutes after the command ends. When
 the machine restarts, or a session's host process dies, the session ends and does not resume on its own: reply to it,
 attach, or `xpi roost respawn` it to start it again from its session file.
 

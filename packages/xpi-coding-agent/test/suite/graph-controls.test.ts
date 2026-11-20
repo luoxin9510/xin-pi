@@ -590,10 +590,15 @@ describe("graph extension: controls", () => {
 
 	describe("a model run cut off by the end of the process (.scratch/xpi-durable)", () => {
 		/**
-		 * Wait until the branch has an assistant tool call after `after` entries, then "kill" the first process: return a
-		 * copy of what its session file holds at that moment. (The first harness lives on in memory; it must not write into
-		 * the session the second one opens.)
+		 * What a session file holds at this moment: the first process is "killed" there. (The first harness lives on in
+		 * memory; it must not write into the session the second one opens.)
 		 */
+		const snapshot = (sessionManager: SessionManager): SessionManager => {
+			const header = sessionManager.getHeader();
+			if (!header) throw new Error("no session header");
+			return SessionManager.inMemory(undefined, undefined, [header, ...sessionManager.getEntries()]);
+		};
+		/** Wait until the branch has an assistant tool call after `after` entries, then "kill" the first process. */
 		async function killedAfterToolCall(sessionManager: SessionManager, after = 0): Promise<SessionManager> {
 			for (let i = 0; i < 300; i++) {
 				const hit = sessionManager
@@ -605,11 +610,7 @@ describe("graph extension: controls", () => {
 							entry.message.role === "assistant" &&
 							entry.message.content.some((block) => block.type === "toolCall"),
 					);
-				if (hit) {
-					const header = sessionManager.getHeader();
-					if (!header) throw new Error("no session header");
-					return SessionManager.inMemory(undefined, undefined, [header, ...sessionManager.getEntries()]);
-				}
+				if (hit) return snapshot(sessionManager);
 				await new Promise((resolve) => setTimeout(resolve, 10));
 			}
 			throw new Error("no tool call was written");
@@ -644,12 +645,12 @@ describe("graph extension: controls", () => {
 			expect(second.running().node).toBe("review");
 		});
 
-		// The move lives in the script's result, which the process took with it: it is not entered. The node goes on (the
-		// model sees its interrupted call), moves again, and the graph follows.
-		it("a move asked for in a script the process ended during is lost; the node moves again", async () => {
+		// The script had not reached `next`: nothing of a move is on disk. The node goes on (the model sees its interrupted
+		// call), moves again, and the graph follows.
+		it("a crash before the move was written: the node moves again", async () => {
 			const sessionManager = SessionManager.inMemory();
 			const first = await setup({ sessionManager });
-			first.harness.setResponses([first.attempt(`tools.next({ to: "ci", report: "built" }).then(() => ${HANG})`)]);
+			first.harness.setResponses([first.attempt(HANG)]);
 			void first.harness.session.prompt("/graph start ship");
 			const disk = await killedAfterToolCall(sessionManager);
 			const second = await setup({ sessionManager: disk });
@@ -660,6 +661,34 @@ describe("graph extension: controls", () => {
 			expect(second.models()[0]).toBe("small");
 			expect(second.running().node).toBe("review");
 			expect(second.ran.map((call) => call.command)).toEqual(["run-ci"]);
+		});
+
+		// `next` writes the move at once; the script's result and the next node were not written yet. The move is entered
+		// before the continued run, as any move its turn did not enter: the command runs once, and the continued run is
+		// answered by the model selected before the graph while it does.
+		it("a crash right after the move was written: it is entered before the continued run", async () => {
+			const sessionManager = SessionManager.inMemory();
+			let disk: SessionManager | undefined;
+			const appendCustomEntry = sessionManager.appendCustomEntry.bind(sessionManager);
+			sessionManager.appendCustomEntry = (customType, data) => {
+				const id = appendCustomEntry(customType, data);
+				if (customType === "graph.move" && !disk) disk = snapshot(sessionManager);
+				return id;
+			};
+			const first = await setup({ sessionManager });
+			first.harness.setResponses([first.attempt(`tools.next({ to: "ci", report: "built" })`), first.say("x")]);
+			void first.harness.session.prompt("/graph start ship");
+			for (let i = 0; i < 300 && !disk; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+			if (!disk) throw new Error("no move was written");
+			const second = await setup({ sessionManager: disk });
+			await selectGraphModel(second.harness);
+			expect(second.harness.session.interruptedRun()?.danglingToolCalls).toHaveLength(1);
+			second.harness.setResponses([second.say("Going on."), second.say("Reviewing.")]);
+			await second.go("/continue");
+			expect(interruptedResults(second.harness)).toHaveLength(1);
+			expect(second.models()).toEqual(["medium", "large"]);
+			expect(second.ran.map((call) => call.command)).toEqual(["run-ci"]);
+			expect(second.running().node).toBe("review");
 		});
 
 		it("repairs the cut-off run before a command node's recovery in the same action", async () => {
@@ -681,7 +710,7 @@ describe("graph extension: controls", () => {
 			await selectGraphModel(second.harness);
 			expect(second.harness.session.interruptedRun()).toBeDefined();
 			second.harness.setResponses([second.say("Answered."), second.say("Reviewing.")]);
-			await second.go("go on");
+			await second.go("/continue");
 			const branch = second.harness.sessionManager.getBranch();
 			const repaired = branch.indexOf(interruptedResults(second.harness)[0]);
 			const rerun = branch.findLastIndex((entry) => entry.type === "custom" && entry.customType === "graph.run");

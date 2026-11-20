@@ -52,7 +52,7 @@ import {
 	type WorkerReport,
 } from "../lib/protocol.ts";
 import { argsProblem } from "../lib/protocol-schema.ts";
-import { CARRY_ON, CONTINUE } from "../lib/resume.ts";
+import { CARRY_ON, CONTINUE, marksRuns } from "../lib/resume.ts";
 import { createSchedules, type ScheduleRun } from "../lib/schedules.ts";
 import {
 	clearExit,
@@ -950,6 +950,8 @@ async function respawn(
 		if (!recs.has(id)) throw new OpError("not_found", `job ${id} was removed`);
 		const st = readState(id);
 		const written = !shell && existsSync(rec.sessionFile);
+		// a session from an xpi before run markers: /continue would find nothing to repair, so it is asked in words
+		if (prompt === CONTINUE && written && !marksRuns(rec.sessionFile)) prompt = CARRY_ON;
 		// M8: the model and thinking level it last reported running win over the dispatch's;
 		// before any report, the ones it was dispatched with (a hand-off's live values)
 		const command = respawnCommand(rec, written, prompt, {

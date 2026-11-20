@@ -419,7 +419,7 @@ The options below come with the unit. Each says how to turn it off.
 - **Verify**: `test/suite/interrupted-run.test.ts`, `test/print-mode.test.ts` and `test/rpc-prompt-response-semantics.test.ts` (vitest, singly).
 - **Linux**: no platform difference. **macOS**: the same.
 - **Known limit**: the core does not check whether another process is running the session; one process per session is assumed (roost's write lock warns).
-- **Roost**: the roost core restarts a crashed or failed session with `/continue` (`xpi-roost/src/lib/resume.ts`, `CONTINUE`); a run it stopped on purpose (a restart onto a new build, `/bg`) is restarted with the text `Continue where you left off.` (`CARRY_ON`), since its run ended aborted. A harness without `/continue` sets `CONTINUE` to a message of its own.
+- **Roost**: the roost core restarts a crashed or failed session with `/continue` (`xpi-roost/src/lib/resume.ts`, `CONTINUE`); a run it stopped on purpose (a restart onto a new build, `/bg`) is restarted with the text `Continue where you left off.` (`CARRY_ON`), since its run ended aborted; so is a session file with no `xpi.run` entries (`marksRuns`). A harness without `/continue` sets `CONTINUE` to a message of its own.
 - **Guide**: this entry; there is no separate porting guide.
 
 ## checks

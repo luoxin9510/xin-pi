@@ -19,6 +19,18 @@ export const CONTINUE = "/continue";
  */
 export const CARRY_ON = "Continue where you left off.";
 
+/**
+ * Whether a session file was written by an xpi that marks its runs (`xpi.run` entries): only then can `/continue` find
+ * and repair a cut-off run. A session from before that (one failed before an upgrade) gets `CARRY_ON` instead.
+ */
+export function marksRuns(sessionFile: string): boolean {
+	try {
+		return readFileSync(sessionFile, "utf8").includes(`"customType":"xpi.run"`);
+	} catch {
+		return false;
+	}
+}
+
 const START_TIMEOUT_MS = 15_000;
 
 /**

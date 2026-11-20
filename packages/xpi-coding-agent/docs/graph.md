@@ -242,9 +242,12 @@ version bump, a tag or a publish are `unsafe`.
 A model node's turn cut off by a crash is repaired by the core, as in any session (see
 [Sessions](sessions.md#after-the-process-ends-mid-run)): at your next message or `/continue`, its unfinished tool calls
 get interrupted results and the model is told; with `/continue` the turn goes on in the same node, on its model. A move
-the model asked for in a script that the crash cut off is lost with the script's result: the node is still current, and
-the model moves again. When a command node was also interrupted, the core's repair comes first, then the command node's
-rule above.
+is written the moment `tools.next` accepts it: one written before the crash is entered before the continued run (as any
+move its turn did not enter), and that run is answered by the model selected before the graph if the new node is a
+command node; a crash before `next` was reached leaves the node current, and the model moves again. When a command node
+was also interrupted, the core's repair comes first, then the command node's rule above. A safe command node cut off
+after its turn had ended runs again at your next message (as the notice says), not at `/continue`: there is no run
+for it to continue.
 
 ## What a run shows
 

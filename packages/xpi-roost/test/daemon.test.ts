@@ -728,9 +728,18 @@ describe("lifecycle", () => {
 		process.env.ROOST_RESUME_DELAYS_MS = "50";
 		const { client } = await startDaemon();
 		const { id } = await client.request("dispatch", args("sleep 0.2; exit 3"));
-		writeFileSync(readJob(id)!.sessionFile, "{}\n");
+		writeFileSync(readJob(id)!.sessionFile, `{"type":"custom","customType":"xpi.run","data":{"phase":"start"}}\n`);
 		await waitFor(() => (Number(readState(id)?.crashRestarts ?? 0) >= 1 ? true : undefined), 10000);
 		expect((readState(id)?.command as string[]).slice(-2)).toEqual(["--", "/continue"]);
+	});
+
+	it("DM-5: a session written before run markers is restarted in words: /continue would find nothing", async () => {
+		process.env.ROOST_RESUME_DELAYS_MS = "50";
+		const { client } = await startDaemon();
+		const { id } = await client.request("dispatch", args("sleep 0.2; exit 3"));
+		writeFileSync(readJob(id)!.sessionFile, "{}\n");
+		await waitFor(() => (Number(readState(id)?.crashRestarts ?? 0) >= 1 ? true : undefined), 10000);
+		expect((readState(id)?.command as string[]).slice(-2)).toEqual(["--", "Continue where you left off."]);
 	});
 
 	it("DM-4: reaps an idle unattached worker, keeps the row, and wakes it on reply", async () => {
@@ -1208,7 +1217,7 @@ describe("DM-5: a crashed run carries on; a session whose host is gone ends", ()
 		process.env.ROOST_RESUME_DELAYS_MS = "5000";
 		const { client } = await startDaemon();
 		const { id } = await client.request("dispatch", args("sleep 0.2; exit 3"));
-		writeFileSync(readJob(id)!.sessionFile, "{}\n");
+		writeFileSync(readJob(id)!.sessionFile, `{"type":"custom","customType":"xpi.run","data":{"phase":"start"}}\n`);
 		await waitFor(() => (typeof readState(id)?.resumeAt === "number" ? true : undefined));
 		// what attach (ensureLive) and Enter twice do: a respawn with no prompt
 		await client.request("respawn", { id });
