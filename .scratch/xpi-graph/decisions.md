@@ -381,3 +381,84 @@ Found, not fixed here (follow-ups):
 - After the end the Mermaid graph still marks `merge` as current, and the `merge -> end` edge is not drawn thick.
 - This run used main's code, so it checked milestone 1's report; the live footer, the command widget and the bus
   events of milestone 2 are checked by the faux tests only.
+
+## Spec 03 grill (step 1 of the ideas from pi-durable, 2026-11-20)
+
+Before it: a survey of pi-durable (local 9c9ce85, upstream README at edfe6b2ef), LangGraph 1.2, LangChain v1
+middleware and Deep Agents. The owner asked whether durable's strengths can be taken over: yes, as ideas; no code
+(durable's 34k lines import chord in 126 places and bring their own session, storage and scheduler). Three steps
+proposed: command-node replay (this spec), a model turn cut off by a crash (core), waits that do not hold a
+process (roost). The owner chose to start with step 1.
+
+Round 1, all as recommended ("全是"):
+- R1 Scope: `replay`, the intent entry, what happens after a crash; nested usage by model in the same spec as its
+  own ticket and PR (it changes the core). A model turn cut off by a crash is step 2.
+- R2 `replay: "safe" | "unsafe"` on command nodes, default `"unsafe"`: an author who forgets it does not get
+  `gh pr merge` run twice; a crash is rare, so the cost is an occasional `/graph goto`.
+- R3 Commands run outside the turn (the `/graph goto` path), so the intent can be written before the command runs.
+  The other way, an intent written next to the drafts of `agent_before_settle`, would land out of order.
+- R4 A new `graph.run` entry; `graph.command` unchanged.
+- R5 Every command node of the repository's two graphs states `replay`, asserted by a test.
+- R6 Suite tests with a simulated crash; by hand, `kill -9` during a command, without and with a Haiku node.
+- R7 Delivery as before: a spec PR for the owner, then per milestone a branch, a PR, CI, an Opus review, merged.
+
+Round 2, all as recommended ("全是"):
+- R8 `session_start` only tells (the process may only be looking); a safe command runs again at the next message or
+  `/graph goto`; an unsafe one halts on the command node, the halt written at the user's first action. One process
+  per session is assumed.
+- R9 A safe command interrupted 3 times in one visit is treated as unsafe.
+- R10 `interrupted ×N` in `/graph`, `runs` in `--json`, a `graph:run` event; no event for "interrupted".
+- R11 `usageByModel` on tool results, filled by the Agent tool; the recorder keeps it; a released scope writes one
+  usage entry per model and the unattributed rest under `unknown/unattributed`; the cost breakdown and the graph
+  report use it.
+
+Facts found: entries of a command entered at the end of a turn are drafts committed after it ran
+(`_runBeforeSettleBoundary`); reopening a session does not go on by itself; `_releaseNestedCalls` writes the
+session's selected model; `Usage` has no model; the Agent tool's output has `model` as `provider/id`.
+The summary of the eleven decisions was confirmed by the owner ("确认").
+
+## Review of spec 03, round 1 (independent Opus, commit 6bfad2614)
+
+Two blocking, seven should-fix, six nits; all taken in the spec:
+- Blocking: without a UI (`xpi -p`), a command started after the turn would be killed when the process ends (print
+  mode settles, then shuts down). Now `/graph start|goto` wait for idle and for no pending command run, in a loop,
+  and `session_shutdown` without a UI waits for a running command (shutdown handlers are awaited); with a UI it
+  aborts as now.
+- Blocking: "a command node that has not run in this visit" would start `gh pr merge` in an old session halted on
+  it (an abort writes a halt and no `graph.run`). Now a visit has a condition (halted, finished, interrupted, not
+  started) and only a not-started or replayable visit, not halted, with no run in this process, starts.
+- "Finished" by any later halt or node would hide the interruption once it was halted or left with goto: entries a
+  run writes carry its `startedAt` (`run` on its move and halt, `interrupted` on the halt for an interruption), and
+  only those finish it.
+- A new session is not written to disk before its first user or assistant message: a core API to persist it now,
+  called before the first `graph.run`.
+- A rerun at `before_agent_start` would hold the user's message for the whole command: new owner choice R12 (start
+  it, do not await it).
+- The paths of a queued follow-up, an aborted settle and a crash between the commit and the start are stated.
+- `usageByModel` through every path: the types in `xpi-agent-core` and `xpi-ai`, `agent-loop.ts`, the message-start
+  merge, the recorder's unreported part, `tool_result` hooks that replace `usage` (they drop the attribution).
+- The Agent tool's `model` may be a pattern, `graph/auto` or switched mid-run: the per-model usage now comes from the
+  child's own assistant messages; virtual models are never attributed. Codemode `models.*` calls are attributed too.
+- Nits: one key `Tools/unattributed`; the report maps `unknown/unattributed` to "nested calls"; the footer synced
+  before the command starts; a normal quit reads as interrupted (documented); the example uses `run` without
+  `kind`; `release.js` nodes classified one by one.
+
+Round 2 (same reviewer, commit 661047fcd): all round-1 findings closed; no blocking; three should-fix and four nits,
+all taken:
+- A not-started visit found at `session_start` (an older xpi that died during `/graph goto`, which writes
+  `graph.node` before running; or a crash between the commit and the start) may have run: it follows its `replay`
+  like an interrupted run. Only a visit this process noted starts without a look at `replay`.
+- The shutdown wait without a UI only for reason `quit`; the result is written after it, and no turn starts (a move
+  to a model node stays pending). "RPC without a client" dropped: the rule is `ctx.hasUI`.
+- `run` on `graph.move`/`graph.halt` renamed `runStartedAt`, so the key does not mean two things on the bus.
+- Nits: a separate notice for "not started"; older sessions' tool-result usage moves to `Tools/unattributed`
+  (documented); `/resume` keeps listing a session with graph entries and no message; R12's side effect after an
+  Esc-cut turn is written in the spec.
+
+Round 3 (same reviewer, commit f8336f60e): round-2 findings closed; one should-fix, taken: during a `quit` wait
+without a UI, `proceed` would go on into the next command node (in `release.js`, `sync` then main's CI then `tag`)
+inside the shutdown. Now the wait writes the one run's result and its move, then stops; the move stays pending.
+Verdict: ready for the owner with that change.
+
+Approved by the owner on 2026-11-20 ("批准，R12 按推荐"): the spec, and R12 as recommended (a command started at
+the next message is not awaited).
