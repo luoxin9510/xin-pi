@@ -202,7 +202,8 @@ extension types; `agent-loop.ts` copies it where it copies `usage`.
 **Where it is read.**
 - `getUsageCostBreakdown` puts a tool result message's `usageByModel` under each model; the unattributed rest of a
   tool result and usage entries under `unknown/unattributed` share one key, `Tools/unattributed`; compaction and
-  branch summaries stay under `Tools/summaries`.
+  branch summaries stay under `Tools/summaries`. In older sessions, tool-result usage moves from `Tools/summaries`
+  to `Tools/unattributed` (documented; the breakdown tests change with it).
 - The graph report's `byModel` puts a visit's nested usage under the model that spent it, and only the unattributed
   rest (including `unknown/unattributed` entries) under `nested calls`. The visit's `own` / `tools` / `other` split
   does not change.
@@ -214,7 +215,7 @@ The session format gains one optional field on tool result messages; older sessi
 ## Docs (in the same PRs)
 
 - `docs/graph.md`: `replay`; commands run outside the turn (what the user sees meanwhile, `xpi -p`); `graph.run` and
-  the `run` / `interrupted` fields in the entries table; what happens after a crash, a normal quit included;
+  the `runStartedAt` / `interrupted` fields in the entries table; what happens after a crash, a normal quit included;
   `interrupted ×N`, `runs`, `graph:run`; older sessions' nested usage.
 - `docs/extensions.md`: `usageByModel` on a tool's result and in `tool_result`; the session-persist API.
 - `docs/porting.md`: the graph unit (commands started at `agent_settled`, `graph.run`, the shutdown wait without a
@@ -225,19 +226,22 @@ The session format gains one optional field on tool result messages; older sessi
 ## Testing
 
 - Package tests (`xpi-graph`): `parseGraph` with `replay`; `readState` for each condition: finished (by message,
-  by a move or halt carrying `run`, by a message that landed late), interrupted, interrupted then halted then
+  by a move or halt carrying `runStartedAt`, by a message that landed late), interrupted, interrupted then halted then
   `goto` (the run stays interrupted), not started, halted (an old session halted on a command node is not started
-  again), repeated runs, an old session without `graph.run`; `report` with `runs`.
+  again), an old session that died during `/graph goto` of an unsafe node (it halts, the command does not run),
+  repeated runs, an old session without `graph.run`; `report` with `runs`.
 - Suite tests (fake runner):
   - a command entered at the end of a turn runs after the turn settled, with `graph.run` on the branch before it
     starts; a message typed during it is answered and the move waits; a queued follow-up runs first; an aborted
     settle does not start it;
   - after a simulated crash (a branch ending in `graph.run`, or in a command node's `graph.node`), `session_start`
     writes nothing; a safe or not-started command starts at the next message (not awaited) and at `/graph goto`; an
-    unsafe one halts with the reason; the third interrupted safe run halts;
+    unsafe one halts with the reason, also when it was not started and not noted; the third interrupted safe run
+    halts;
   - the first `graph.run` of a new session is on disk;
   - without a UI, `/graph start` returns only after a command started at a settle and the turns after it; a prompt
-    that leads to a command does not end before it (shutdown waits); with a UI, shutdown aborts it;
+    that leads to a command does not end before it (a `quit` shutdown waits, writes the result, starts no turn); a
+    `new` shutdown without a UI and any shutdown with a UI abort it;
   - the `graph:run` event order.
 - Core tests: per-model usage from a child's assistant messages, including a virtual model and a model switch; the
   recorder's per-model total and unreported part; a released scope writes one usage entry per model plus
