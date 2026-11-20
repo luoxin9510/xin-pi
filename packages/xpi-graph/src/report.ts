@@ -69,6 +69,8 @@ export interface ReportEntry extends GraphEntry {
 		provider?: string;
 		model?: string;
 		usage?: UsageLike;
+		/** A tool result's usage by the physical model that spent it. */
+		usageByModel?: { provider?: string; model?: string; usage?: UsageLike }[];
 		content?: unknown;
 	};
 }
@@ -157,10 +159,12 @@ export interface GraphReport {
 	halts: HaltRecord[];
 	total: { durationMs: number; own: Tally; tools: Tally; other: Tally; cost: number };
 	/**
-	 * Cost and tokens by model: the node's own requests under the model that answered; the nested calls of scripts
-	 * (tool results, `nested_tool_calls` under a virtual model), whose model the session does not record, under
-	 * "nested calls"; other `usage` entries under their model, a virtual one replaced by the model that answered the
-	 * visit (or "unknown"); compaction and branch summaries under the model that answered the visit.
+	 * Cost and tokens by model: the node's own requests under the model that answered; nested calls (a subagent, a
+	 * script's `models.*`) under the model that spent them (a tool result's `usageByModel`, `nested_tool_calls`
+	 * entries under a physical model), and only what no model is named for (the rest of a tool result, older
+	 * sessions' entries under a virtual model, `unknown/unattributed`) under "nested calls"; other `usage` entries
+	 * under their model, a virtual one replaced by the model that answered the visit (or "unknown"); compaction and
+	 * branch summaries under the model that answered the visit.
 	 */
 	byModel: Record<string, Tally>;
 	/** The edges taken, by index, in order. */
@@ -177,6 +181,8 @@ export interface ReportOptions {
 }
 
 export const NESTED_CALLS = "nested calls";
+/** The key of a `usage` entry for nested usage no model could be named for. */
+const UNATTRIBUTED = "unknown/unattributed";
 export const UNKNOWN_MODEL = "unknown";
 
 type Fields = Record<string, unknown>;
@@ -198,6 +204,33 @@ function add(into: Tally, usage: UsageLike | undefined, request = false): void {
 	into.cacheRead += num(usage.cacheRead);
 	into.cacheWrite += num(usage.cacheWrite);
 	into.cost += num(usage.cost?.total);
+}
+
+function tallyOfUsage(usage: UsageLike): Tally {
+	const tally = emptyTally();
+	add(tally, usage);
+	return tally;
+}
+
+function take(from: Tally, usage: UsageLike): void {
+	from.input -= num(usage.input);
+	from.output -= num(usage.output);
+	from.cacheRead -= num(usage.cacheRead);
+	from.cacheWrite -= num(usage.cacheWrite);
+	from.cost -= num(usage.cost?.total);
+}
+
+/** A remainder with the float noise of a subtraction taken away. */
+function clampTally(tally: Tally): Tally {
+	const clamp = (value: number) => (value > 1e-9 ? value : 0);
+	return {
+		requests: tally.requests,
+		input: clamp(tally.input),
+		output: clamp(tally.output),
+		cacheRead: clamp(tally.cacheRead),
+		cacheWrite: clamp(tally.cacheWrite),
+		cost: clamp(tally.cost),
+	};
 }
 
 function sum(into: Tally, from: Tally): void {
@@ -442,7 +475,14 @@ export function report(
 				if (after === "counting" && !hasToolCall(entry.message.content)) after = "done";
 			} else if (role === "toolResult" && entry.message.usage) {
 				add(visit.tools, entry.message.usage);
-				add(tallyOf(NESTED_CALLS), entry.message.usage);
+				const named = Array.isArray(entry.message.usageByModel) ? entry.message.usageByModel : [];
+				const rest = tallyOfUsage(entry.message.usage);
+				for (const part of named) {
+					if (typeof part?.provider !== "string" || typeof part.model !== "string" || !part.usage) continue;
+					add(tallyOf(`${part.provider}/${part.model}`), part.usage);
+					take(rest, part.usage);
+				}
+				sum(tallyOf(NESTED_CALLS), clampTally(rest));
 			}
 			continue;
 		}
@@ -450,7 +490,7 @@ export function report(
 			if (entry.kind === "nested_tool_calls") {
 				add(visit.tools, entry.usage);
 				const key = `${entry.provider ?? "?"}/${entry.model ?? "?"}`;
-				add(tallyOf(isVirtual(key) ? NESTED_CALLS : key), entry.usage);
+				add(tallyOf(isVirtual(key) || key === UNATTRIBUTED ? NESTED_CALLS : key), entry.usage);
 				continue;
 			}
 			if (after !== "no") continue;

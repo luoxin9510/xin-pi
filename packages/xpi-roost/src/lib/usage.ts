@@ -39,6 +39,8 @@ interface EntryLike {
 	message?: {
 		role?: unknown;
 		usage?: UsageLike;
+		/** A tool result's usage by the physical model that spent it. */
+		usageByModel?: unknown;
 		provider?: unknown;
 		model?: unknown;
 		responseModel?: unknown;
@@ -46,8 +48,10 @@ interface EntryLike {
 	};
 }
 
-/** pi's bucket for usage no model is named for (tool results, summaries). */
+/** pi's bucket for compaction and branch summaries. */
 export const SUMMARIES = "Tools/summaries";
+/** pi's bucket for tool usage no model is named for (the rest of a tool result, `unknown/unattributed` entries). */
+export const UNATTRIBUTED = "Tools/unattributed";
 
 const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : 0);
 
@@ -72,28 +76,48 @@ export function sessionUsage(entries: readonly unknown[], now: number, sub: bool
 	const day = localMidnight(now);
 	const u: UsageInfo = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, today: 0, day, sub, models: {} };
 	const models: Record<string, { cost: number; tokens: number }> = {};
+	const costOf = (usage: UsageLike) => n((usage.cost as { total?: unknown } | undefined)?.total);
+	const tokensOf = (usage: UsageLike) => n(usage.input) + n(usage.output) + n(usage.cacheRead) + n(usage.cacheWrite);
+	const addTo = (model: string, cost: number, tokens: number) => {
+		if (cost <= 0 && tokens <= 0) return;
+		models[model] ??= { cost: 0, tokens: 0 };
+		const m = models[model];
+		m.cost += cost;
+		m.tokens += tokens;
+	};
 	for (const raw of entries) {
 		const e = raw as EntryLike;
 		let usage: UsageLike | undefined;
 		let model = "other";
+		/** The parts of a tool result's usage named for a model, by `provider/model`. */
+		let named: [string, UsageLike][] = [];
 		// the same entries and keys as pi's getUsageCostBreakdown
 		if (e?.type === "usage") {
 			usage = e.usage;
-			if (typeof e.provider === "string" && typeof e.model === "string") model = `${e.provider}/${e.model}`;
+			if (typeof e.provider === "string" && typeof e.model === "string") {
+				model = e.provider === "unknown" && e.model === "unattributed" ? UNATTRIBUTED : `${e.provider}/${e.model}`;
+			}
 		} else if (e?.type === "message" && e.message?.role === "assistant") {
 			usage = e.message.usage;
 			const id = typeof e.message.responseModel === "string" ? e.message.responseModel : e.message.model;
 			if (typeof e.message.provider === "string" && typeof id === "string") model = `${e.message.provider}/${id}`;
 		} else if (e?.type === "message" && e.message?.role === "toolResult" && e.message.usage) {
 			usage = e.message.usage;
-			model = SUMMARIES;
+			model = UNATTRIBUTED;
+			const byModel = Array.isArray(e.message.usageByModel) ? (e.message.usageByModel as unknown[]) : [];
+			named = byModel.flatMap((part) => {
+				const p = part as { provider?: unknown; model?: unknown; usage?: UsageLike } | null;
+				return p && typeof p.provider === "string" && typeof p.model === "string" && p.usage
+					? [[`${p.provider}/${p.model}`, p.usage] as [string, UsageLike]]
+					: [];
+			});
 		} else if ((e?.type === "compaction" || e?.type === "branch_summary") && e.usage) {
 			usage = e.usage;
 			model = SUMMARIES;
 		}
 		if (!usage) continue;
-		const cost = n((usage.cost as { total?: unknown } | undefined)?.total);
-		const tokens = n(usage.input) + n(usage.output) + n(usage.cacheRead) + n(usage.cacheWrite);
+		const cost = costOf(usage);
+		const tokens = tokensOf(usage);
 		u.input += n(usage.input);
 		u.output += n(usage.output);
 		u.cacheRead += n(usage.cacheRead);
@@ -101,10 +125,15 @@ export function sessionUsage(entries: readonly unknown[], now: number, sub: bool
 		u.cost += cost;
 		const t = timeOf(e);
 		if (t !== undefined && t >= day) u.today += cost;
-		models[model] ??= { cost: 0, tokens: 0 };
-		const m = models[model];
-		m.cost += cost;
-		m.tokens += tokens;
+		// A tool result: each named part under its model, the rest under `model`.
+		let restCost = cost;
+		let restTokens = tokens;
+		for (const [key, part] of named) {
+			addTo(key, costOf(part), tokensOf(part));
+			restCost -= costOf(part);
+			restTokens -= tokensOf(part);
+		}
+		addTo(model, restCost > 1e-9 ? restCost : 0, restTokens > 0 ? restTokens : 0);
 	}
 	u.models = topModels(models);
 	return u;

@@ -278,9 +278,36 @@ describe("AgentSession.getSessionStats", () => {
 			cost: { ...createUsage(100).cost, total: 3 },
 		});
 
+		// A tool result's usage that names no model is unattributed (spec 03, section 7).
 		expect(getUsageCostBreakdown(sessionManager.getEntries())).toEqual([
-			{ key: "Tools/summaries", cost: 6, tokens: 300 },
+			{ key: "Tools/summaries", cost: 5, tokens: 200 },
+			{ key: "Tools/unattributed", cost: 1, tokens: 100 },
 			{ key: `${model.provider}/${model.id}`, cost: 0.5, tokens: 100 },
+		]);
+	});
+
+	it("puts a tool result's usage under the models that spent it, and the rest apart", () => {
+		const sessionManager = SessionManager.inMemory();
+		sessionManager.appendMessage(createUserMessage("hello", 1));
+		const priced = (tokens: number, total: number): Usage => ({
+			...createUsage(tokens),
+			cost: { ...createUsage(tokens).cost, total },
+		});
+		sessionManager.appendMessage({
+			...createToolResultMessage(priced(100, 1)),
+			usageByModel: [
+				{ provider: "anthropic", model: "claude-haiku-5-5", usage: priced(30, 0.25) },
+				{ provider: "openai", model: "gpt-5", usage: priced(50, 0.5) },
+			],
+		});
+		// A released background scope: one entry per model, the rest under unknown/unattributed.
+		sessionManager.appendUsage("nested_tool_calls", "anthropic", "claude-haiku-5-5", priced(10, 0.125));
+		sessionManager.appendUsage("nested_tool_calls", "unknown", "unattributed", priced(10, 0.125));
+
+		expect(getUsageCostBreakdown(sessionManager.getEntries())).toEqual([
+			{ key: "openai/gpt-5", cost: 0.5, tokens: 50 },
+			{ key: "anthropic/claude-haiku-5-5", cost: 0.375, tokens: 40 },
+			{ key: "Tools/unattributed", cost: 0.375, tokens: 30 },
 		]);
 	});
 

@@ -967,6 +967,13 @@ async function finalizeExecutedToolCall(
 					usage: afterResult.usage ?? result.usage,
 					terminate: afterResult.terminate ?? result.terminate,
 				};
+				// A new `usage` without its attribution leaves it all unattributed.
+				const usageByModel =
+					afterResult.usage !== undefined
+						? afterResult.usageByModel
+						: (afterResult.usageByModel ?? result.usageByModel);
+				if (usageByModel === undefined) delete result.usageByModel;
+				else result.usageByModel = usageByModel;
 				if (structuredContent === undefined) delete result.structuredContent;
 				else result.structuredContent = structuredContent;
 				isError = afterResult.isError ?? isError;
@@ -1013,6 +1020,7 @@ function createToolResultMessage(finalized: FinalizedToolCallOutcome): ToolResul
 		content: finalized.result.content ?? [],
 		details: finalized.result.details,
 		usage: finalized.result.usage,
+		...(finalized.result.usageByModel?.length ? { usageByModel: finalized.result.usageByModel } : {}),
 		...(finalized.result.signal ? { signal: finalized.result.signal } : {}),
 		isError: finalized.isError,
 		...(finalized.durationMs === undefined ? {} : { durationMs: finalized.durationMs }),

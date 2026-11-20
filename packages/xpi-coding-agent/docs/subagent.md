@@ -167,7 +167,7 @@ Result:
   output: string;       // the agent's last message; with `schema`, the JSON text of `structured`
   structured?: unknown; // with `schema`: the agent's result, matching the schema
   model: string;
-  usage: Usage;         // added to the session cost
+  usage: Usage;         // added to the session cost; the tool result's usageByModel splits it by the model that answered each request
   turns: number;
   durationMs: number;
   warnings: string[];

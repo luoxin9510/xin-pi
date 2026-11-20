@@ -7,6 +7,7 @@ import type {
 	JsonValue,
 	Message,
 	Model,
+	ModelUsage,
 	SimpleStreamOptions,
 	TextContent,
 	Tool,
@@ -103,6 +104,8 @@ export interface AfterToolCallResult {
 	isError?: boolean;
 	/** Usage from the final tool execution itself, if available. Not used for main LLM context accounting. */
 	usage?: Usage;
+	/** Replaces the result's attribution when given; a `usage` given without it drops the attribution. */
+	usageByModel?: ModelUsage[];
 	/**
 	 * Hint that the agent should stop after the current tool batch.
 	 * Early termination only happens when every finalized tool result in the batch sets this to true.
@@ -462,6 +465,11 @@ export interface AgentToolResult<T = JsonValue | undefined> {
 	structuredContent?: JsonValue;
 	/** Usage from the final tool execution itself, if available. Not used for main LLM context accounting. */
 	usage?: Usage;
+	/**
+	 * The part of `usage` each physical model spent (a subagent's requests, a codemode script's `models.*` calls). Its sum
+	 * is at most `usage`; the rest is unattributed. Never a virtual model.
+	 */
+	usageByModel?: ModelUsage[];
 	/**
 	 * Report a failure without throwing. The model sees `content` as an error result, like a thrown
 	 * error, but `details` and `structuredContent` are kept for the UI and programmatic callers.

@@ -32,6 +32,7 @@ import type {
 	JsonValue,
 	Message,
 	Model,
+	ModelUsage,
 	OAuthCredentials,
 	OAuthLoginCallbacks,
 	Provider,
@@ -1406,6 +1407,8 @@ interface ToolResultEventBase {
 	isError: boolean;
 	/** Usage from the tool execution itself, if available. */
 	usage?: Usage;
+	/** The part of `usage` each physical model spent (see `AgentToolResult.usageByModel`). */
+	usageByModel?: ModelUsage[];
 }
 
 export interface BashToolResultEvent extends ToolResultEventBase {
@@ -1613,7 +1616,10 @@ export interface ToolResultEventResult {
 	details?: unknown;
 	structuredContent?: JsonValue;
 	isError?: boolean;
+	/** Replaces the usage. Without `usageByModel` the new usage is all unattributed. */
 	usage?: Usage;
+	/** Replaces the attribution of the usage to physical models. */
+	usageByModel?: ModelUsage[];
 }
 
 export interface MessageEndEventResult {

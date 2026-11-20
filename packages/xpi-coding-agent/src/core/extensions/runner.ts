@@ -1272,6 +1272,12 @@ export class ExtensionRunner {
 					}
 					if (handlerResult.usage !== undefined) {
 						currentEvent.usage = handlerResult.usage;
+						// A new usage without its attribution is all unattributed.
+						if (handlerResult.usageByModel === undefined) delete currentEvent.usageByModel;
+						modified = true;
+					}
+					if (handlerResult.usageByModel !== undefined) {
+						currentEvent.usageByModel = handlerResult.usageByModel;
 						modified = true;
 					}
 				} catch (err) {
@@ -1297,6 +1303,7 @@ export class ExtensionRunner {
 			structuredContent: currentEvent.structuredContent,
 			isError: currentEvent.isError,
 			usage: currentEvent.usage,
+			...(currentEvent.usageByModel === undefined ? {} : { usageByModel: currentEvent.usageByModel }),
 		};
 	}
 

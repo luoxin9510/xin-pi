@@ -93,6 +93,16 @@ Paths below are relative to the repository root; `coding-agent/` stands for `pac
   `src/core/agent-session.ts`, `src/core/extensions/types.ts`, `runner.ts`); optional to the host (the call is
   `ctx.detachNestedCalls?.()`), but without it a script moved to the background loses its nested-call ids at
   `agent_end`.
+- **Usage by model** (optional to the host, spec 03 section 7): `usageByModel` on `AgentToolResult` /
+  `AfterToolCallResult` (`packages/xpi-agent-core/src/types.ts`), `ToolResultMessage` and the `ModelUsage` type
+  (`packages/xpi-ai/src/types.ts`) and the `tool_result` event and result (`src/core/extensions/types.ts`,
+  `runner.ts`: a handler's `usage` without it drops it); `agent-loop.ts` copies it with `usage`; the nested-call
+  recorder keeps it per model (`src/core/nested-tool-calls.ts`); `agent-session.ts` merges it into the result message
+  and writes one `nested_tool_calls` usage entry per model at `releaseNestedCalls()`, the rest under
+  `unknown/unattributed`; `getUsageCostBreakdown` (`src/core/usage-totals.ts`) reads it, with `Tools/unattributed`.
+  Codemode's `models.*` (`execute.ts`) and the subagent runner (`extensions/subagent/runner.ts`, from each assistant
+  message's `provider` and `responseModel`, else `model`) fill it. A host without it counts the same totals, all
+  unattributed.
 - **Calls that outlive the script** (host requirements, spec 09; the subagents unit relies on them): the sandbox
   option `outlives` (`packages/xpi-codemode`: on every end but an abort, the pending calls it names are not aborted and
   are recorded `released`); the add-on fields `outlives(target, sessionId)` and `describe(sessionId)` (`addons.ts`),

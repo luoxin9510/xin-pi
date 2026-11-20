@@ -673,6 +673,13 @@ export interface NestedToolCalls {
 	complete: boolean;
 }
 
+/** Usage spent by one physical model, part of a larger usage (a tool result's `usageByModel`). */
+export interface ModelUsage {
+	provider: string;
+	model: string;
+	usage: Usage;
+}
+
 /** A machine-readable signal a tool raises for its host; see `ToolResultMessage.signal`. */
 export interface ToolResultSignal {
 	type: string;
@@ -688,6 +695,11 @@ export type ToolResultMessage<TDetails = JsonValue> = IsJsonCompatible<TDetails>
 			details?: JsonRepresentation<TDetails>;
 			/** Usage from the tool execution itself, if available. Not part of main LLM context accounting. */
 			usage?: Usage;
+			/**
+			 * The part of `usage` each physical model spent (a subagent's requests, a codemode script's `models.*` calls). Its sum
+			 * is at most `usage`; the rest is unattributed. Never a virtual model.
+			 */
+			usageByModel?: ModelUsage[];
 			/** Calls this tool made to other tools. Kept for the session record; not sent to the model. */
 			nestedCalls?: NestedToolCalls;
 			/**

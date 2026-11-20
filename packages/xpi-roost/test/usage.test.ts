@@ -78,13 +78,51 @@ describe("M24 usage", () => {
 		expect(u.input).toBe(410);
 		expect(u.models["anthropic/claude-opus-5-5"]).toEqual({ cost: 1.75, tokens: 400 });
 		expect(u.models["openai/gpt-5"]!.cost).toBeCloseTo(0.15);
-		expect(u.models["Tools/summaries"]!.cost).toBeCloseTo(0.09);
+		expect(u.models["Tools/summaries"]!.cost).toBeCloseTo(0.07);
+		expect(u.models["Tools/unattributed"]!.cost).toBeCloseTo(0.02);
 		expect(u.models["openrouter/x/y"]!.cost).toBeCloseTo(0.2);
 		expect(u.models.other!.cost).toBeCloseTo(0.01);
 		expect(u.day).toBe(localMidnight(now));
 		// a day later, today's share is gone
 		expect(todayOf(u, now + 24 * 3600_000)).toBe(0);
 		expect(todayOf(u, now)).toBeCloseTo(0.7);
+	});
+
+	it("puts a tool result's usage under the models that spent it, the rest and unattributed entries apart", () => {
+		const now = Date.now();
+		const usage = (cost: number, input: number) => ({
+			input,
+			output: 0,
+			cacheRead: 0,
+			cacheWrite: 0,
+			cost: { total: cost },
+		});
+		const u = sessionUsage(
+			[
+				{
+					type: "message",
+					message: {
+						role: "toolResult",
+						timestamp: now,
+						usage: usage(0.5, 50),
+						usageByModel: [{ provider: "anthropic", model: "claude-haiku-5-5", usage: usage(0.3, 30) }],
+					},
+				},
+				{
+					type: "usage",
+					provider: "unknown",
+					model: "unattributed",
+					timestamp: new Date(now).toISOString(),
+					usage: usage(0.1, 10),
+				},
+			],
+			now,
+			false,
+		);
+		expect(u.cost).toBeCloseTo(0.6);
+		expect(u.models["anthropic/claude-haiku-5-5"]).toEqual({ cost: 0.3, tokens: 30 });
+		expect(u.models["Tools/unattributed"]!.cost).toBeCloseTo(0.3);
+		expect(u.models["Tools/unattributed"]!.tokens).toBe(30);
 	});
 
 	it("keeps the largest models and sums the rest; takes nothing malformed", () => {
