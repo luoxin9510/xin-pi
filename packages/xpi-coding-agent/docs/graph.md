@@ -280,7 +280,10 @@ Then the graph as Mermaid (`flowchart LR`), the current node and the edges taken
 - **Interrupted runs.** A command visit whose command a crash cut off shows `interrupted ×N` after how it was left.
   The command that runs now is not counted. A command ended by a signal xpi did not send (a closed terminal or
   SIGTERM taking xpi down, a kill by hand) counts as an interruption, not a failure: nothing is written for it, and
-  the next action follows its `replay`.
+  the next action follows its `replay`. xpi cannot tell that signal from one the command brought on itself (killed
+  for its memory, a crash of a lone program the shell handed over to), so such an end counts as interrupted too: a
+  safe node runs again (up to 3 times), an unsafe one halts. A program that dies inside a longer shell command gives
+  the shell an exit code above 128, which is a failure as before.
 
 `/graph --json` gives the same as one JSON object (`schemaVersion: 1`): `status` (`running`, `ended`, `error`),
 `graph`, `path`, `startedAt`, `endedAt`, `endReason`, `node`, `halted`, `visits` (each with `node`, `kind`, `via`,
