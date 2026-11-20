@@ -171,7 +171,8 @@ or returns undefined when the branch has none. Spec: `.scratch/xpi-graph/02-obse
 - A run whose entries cannot be read has `status: "error"` and the visits before the bad entry.
 
 `formatReport(report)` is the text of `/graph`; `mermaid(graph, report?)` the graph as a `flowchart LR`, with the
-visited nodes, the current one and the edges taken marked.
+visited nodes, the current one and the edges taken marked. After the end no node is current: a finished run marks
+`end` and the edge to it as taken, a stopped one marks no current node.
 
 ## Tests
 

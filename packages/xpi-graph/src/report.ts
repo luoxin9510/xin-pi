@@ -353,6 +353,8 @@ export function report(
 	};
 	// After the end: the rest of the agent run that wrote it, own and tools only.
 	let after: "no" | "counting" | "done" = "no";
+	/** The edge of the move accepted and not entered yet: an end is entered by no `graph.node`. */
+	let pendingEdge: number | undefined;
 	/** A run is finished by an entry that carries its `startedAt`, wherever it lands. */
 	const finish = (startedAt: unknown) => {
 		if (typeof startedAt !== "string") return;
@@ -403,6 +405,7 @@ export function report(
 					visit.pending = undefined;
 				}
 				if (typeof data.edge === "number") result.edgesTaken.push(data.edge);
+				pendingEdge = undefined;
 				visit = {
 					visit: result.visits.length + 1,
 					node: data.node,
@@ -423,7 +426,10 @@ export function report(
 				visit.runs = [...(visit.runs ?? []), { startedAt: data.startedAt, finished: false, ...live }];
 			} else if (entry.customType === GRAPH_MOVE && visit && typeof data.edge === "number") {
 				const edge = graph.edges[data.edge];
-				if (edge) visit.pending = { to: edge.to };
+				if (edge) {
+					visit.pending = { to: edge.to };
+					pendingEdge = data.edge;
+				}
 				finish(data.runStartedAt);
 			} else if (entry.customType === GRAPH_HALT && visit && typeof data.reason === "string") {
 				result.halts.push({ visit: visit.visit, node: visit.node, reason: data.reason, at });
@@ -451,6 +457,11 @@ export function report(
 				result.endedAt = at;
 				const reason = data.reason as EndReason;
 				result.endReason = reason;
+				// The edge to `end` that finished the graph was taken.
+				if (reason === "done" && pendingEdge !== undefined && graph.edges[pendingEdge]?.to === END) {
+					result.edgesTaken.push(pendingEdge);
+				}
+				pendingEdge = undefined;
 				if (visit) {
 					visit.ended = reason;
 					visit.pending = undefined;
@@ -561,9 +572,18 @@ export function mermaid(graph: Graph, run?: GraphReport): string {
 		const visited = [...new Set(run.visits.map((visit) => visit.node))];
 		lines.push("  classDef visited fill:#e8f0fe,stroke:#4a6fa5");
 		lines.push("  classDef current fill:#fff3c4,stroke:#b08800,stroke-width:3px");
-		const others = visited.filter((node) => node !== run.node);
+		// After the end no node is current: a finished graph marks `end`, a stopped one nothing.
+		const current =
+			run.status === "ended" ? (run.endReason === "done" ? END : undefined) : (run.node as string | undefined);
+		const others = visited.filter((node) => node !== current);
 		if (others.length > 0) lines.push(`  class ${others.map((node) => ids.get(node)).join(",")} visited`);
-		if (run.node !== undefined && ids.has(run.node)) lines.push(`  class ${ids.get(run.node)} current`);
+		if (
+			current !== undefined &&
+			ids.has(current) &&
+			(current !== END || graph.edges.some((edge) => edge.to === END))
+		) {
+			lines.push(`  class ${ids.get(current)} current`);
+		}
 		if (links.length > 0) lines.push(`  linkStyle ${links.join(",")} stroke-width:3px`);
 	}
 	return lines.join("\n");

@@ -30,7 +30,7 @@ export default {
 		// Without an open pull request on the branch this fails at once.
 		ci: {
 			replay: "safe",
-			run: 'pr=$(gh pr view --json number,state --jq \'select(.state=="OPEN").number\' 2>&1); st=$?; [ "$st" = 0 ] && [ -n "$pr" ] || { echo "ci: no open pull request for branch \\"$(git branch --show-current)\\""; echo "$pr"; exit 1; }; for i in $(seq 1 30); do [ -n "$(gh pr checks --json name --jq ".[].name" 2>/dev/null)" ] && break; sleep 10; done; gh pr checks --watch --fail-fast',
+			run: 'err=$(mktemp); pr=$(gh pr view --json number,state --jq \'select(.state=="OPEN").number\' 2>"$err"); st=$?; [ "$st" = 0 ] && [ -n "$pr" ] || { echo "ci: no open pull request for branch \\"$(git branch --show-current)\\""; cat "$err"; rm -f "$err"; exit 1; }; rm -f "$err"; for i in $(seq 1 30); do [ -n "$(gh pr checks --json name --jq ".[].name" 2>/dev/null)" ] && break; sleep 10; done; gh pr checks --watch --fail-fast',
 			timeout: "45m",
 		},
 		fix: {
