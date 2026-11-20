@@ -85,6 +85,7 @@ export type {
 	ContextEventResult,
 	ContextUsage,
 	ContextWithSystemEvent,
+	ContinueSkippedEvent,
 	CustomEntryDraft,
 	CustomMessageEntryDraft,
 	CustomToolCallEvent,

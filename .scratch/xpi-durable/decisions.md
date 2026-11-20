@@ -163,3 +163,12 @@ roost sends); a safe command node cut off after its turn ended runs again at the
 (`docs/graph.md` says so). Left as is: after a `/continue` that runs nothing, a respawned row shows `working` until
 the first-prompt timeout marks it done (the notice goes to `notify`, which a background worker shows to no one); a
 small follow-up, not this milestone.
+
+## Follow-up: a row after a /continue that ran nothing (2026-11-21)
+
+The owner asked for the follow-up above to be fixed. The core now fires a notification-only extension event,
+`continue_skipped` (`reason`: finished, stopped, none, busy, arguments; `message`: the notice text), when `/continue`
+sent as a prompt starts no run; `continueRun()` itself (print mode, RPC) returns the reason and does not fire it. The
+roost worker settles its row as `done` at once with the message as its summary (`WorkerTracker.commandNote`); `busy`
+changes nothing (the run in progress settles the row), and so does a row already settled (a question waiting for someone who attached and typed `/continue`; review 1 of #154). Before: the row showed `working` for `FIRST_PROMPT_MS` (5 s),
+then `done` with no summary, and the reason went only to `notify`, which no one sees in a background worker.

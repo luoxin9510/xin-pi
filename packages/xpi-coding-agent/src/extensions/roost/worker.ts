@@ -345,6 +345,13 @@ export function registerWorker(pi: ExtensionAPI, opts: WorkerOptions = {}): bool
 		send();
 		replies.pump();
 	});
+	// `/continue` that ran nothing (a restart found the run had finished): the row is done now and says why
+	pi.on("continue_skipped", (event) => {
+		if (event.reason === "busy") return;
+		tracker.commandNote(event.message);
+		send();
+		replies.pump();
+	});
 	pi.on("ui_prompt_start", (event) => {
 		dialogOpen++;
 		clearTimeout(customTimer);

@@ -131,6 +131,32 @@ describe("WorkerTracker", () => {
 		expect(started.report()).toMatchObject({ state: "working" });
 	});
 
+	it("a command that ran nothing settles the row at once and says why; not while a run or dialog is on", () => {
+		const t = new WorkerTracker();
+		t.commandNote("Nothing to continue: the last run finished.");
+		expect(t.report()).toMatchObject({
+			state: "done",
+			status: "idle",
+			summary: "Nothing to continue: the last run finished.",
+		});
+		// the first-prompt rule finds the work over
+		t.firstPromptTimeout(0);
+		expect(t.report()).toMatchObject({ state: "done", waitingFor: null });
+		// the next run's row is its own
+		t.agentStart();
+		expect(t.report()).toMatchObject({ state: "working", summary: null });
+		t.commandNote("ignored while running");
+		expect(t.report()).toMatchObject({ state: "working", summary: null });
+
+		// a question waiting for the user stays (someone attached and typed /continue)
+		const asked = new WorkerTracker();
+		asked.agentStart();
+		asked.assistantMessage({ content: [{ type: "text", text: "A or B?" }], stopReason: "stop" });
+		asked.agentSettled(false);
+		asked.commandNote("Nothing to continue: the last run finished.");
+		expect(asked.report()).toMatchObject({ state: "blocked", waitingFor: "question", question: "A or B?" });
+	});
+
 	it("a retried error that then succeeds is not failed (review B1)", () => {
 		const t = new WorkerTracker();
 		t.agentStart();

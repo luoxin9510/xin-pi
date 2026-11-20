@@ -91,6 +91,7 @@ import {
 	type AgentActivityOutcome,
 	type BoundaryContextPreview,
 	type ContextUsage,
+	type ContinueSkippedEvent,
 	type ExecuteToolOptions,
 	type ExtensionCommandContextActions,
 	type ExtensionErrorListener,
@@ -2395,15 +2396,17 @@ export class AgentSession {
 	/** `/continue` typed as a prompt: never throws for a run that cannot start; says why where there is a UI. */
 	private async _promptContinue(text: string): Promise<void> {
 		const ctx = this._extensionRunner.createContext();
-		const say = (message: string) => {
+		// told to the UI and to extensions (`continue_skipped`: a background worker has no one to read the notice)
+		const say = async (reason: ContinueSkippedEvent["reason"], message: string) => {
 			if (ctx.hasUI) ctx.ui.notify(message, "warning");
+			await this._extensionRunner.emit({ type: "continue_skipped", reason, message });
 		};
 		if (text !== CONTINUE_COMMAND) {
-			say(`${CONTINUE_COMMAND} takes no arguments.`);
+			await say("arguments", `${CONTINUE_COMMAND} takes no arguments.`);
 			return;
 		}
 		const result = await this.continueRun();
-		if (!result.ran) say(continueResultText(result.reason));
+		if (!result.ran) await say(result.reason, continueResultText(result.reason));
 	}
 
 	/**
