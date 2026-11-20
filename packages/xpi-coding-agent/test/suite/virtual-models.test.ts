@@ -379,7 +379,9 @@ describe("AgentSession virtual models", () => {
 			return { ...defaultRoute(request, ctx), state: { turns: turns + 1 } };
 		};
 		const customTypes = (harness: Harness) =>
-			harness.sessionManager.getBranch().flatMap((entry) => (entry.type === "custom" ? [entry.customType] : []));
+			harness.sessionManager
+				.getBranch()
+				.flatMap((entry) => (entry.type === "custom" && entry.customType !== "xpi.run" ? [entry.customType] : []));
 
 		it("fires once per request, after the state entry and before the context transforms", async () => {
 			const log: Log = [];

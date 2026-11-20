@@ -8,6 +8,7 @@ import { AgentSession } from "../src/core/agent-session.ts";
 import type { AgentSessionRuntime } from "../src/core/agent-session-runtime.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import type { LoadExtensionsResult } from "../src/core/extensions/index.ts";
+import { findInterruptedRun } from "../src/core/interrupted-run.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
 import { runRpcMode } from "../src/modes/rpc/rpc-mode.ts";
@@ -585,6 +586,25 @@ describe("RPC shutdown triggers", () => {
 		return { ...started, exitSpy, finishDispose };
 	}
 
+	// .scratch/xpi-durable: a subagent child is an RPC process; when its parent dies, its stdin ends and it exits while
+	// it exits. (Its real shutdown also stops the run, as Esc does; here dispose is a stub, so the run is left open.)
+	it("exits when stdin ends during a run", async () => {
+		const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+		vi.spyOn(process.stdin, "pause").mockImplementation(() => process.stdin);
+		const { lineHandler, runtimeHost, cleanup } = await startRpcMode({ withAuth: true, responseDelayMs: 5_000 });
+		try {
+			lineHandler(JSON.stringify({ id: "p", type: "prompt", message: "work" }));
+			await vi.waitFor(() => expect(runtimeHost.session.isStreaming).toBe(true));
+			process.stdin.emit("end");
+			await vi.waitFor(() => expect(exitSpy).toHaveBeenCalledWith(0));
+			// With the stub dispose the start has no end: a process that died here would leave the run cut off.
+			const sm = runtimeHost.session.sessionManager;
+			expect(findInterruptedRun(sm.getBranch(), sm.getEntries())).toBeDefined();
+		} finally {
+			await cleanup();
+		}
+	});
+
 	// fcatuhe's report on #11599: Paseo closes stdin and sends SIGTERM together.
 	it("lets a shutdown started by stdin EOF finish when one SIGTERM follows", async () => {
 		const { runtimeHost, exitSpy, finishDispose, cleanup } = await startWithSlowDispose();
@@ -632,6 +652,53 @@ describe("RPC shutdown triggers", () => {
 			process.emit("SIGTERM");
 			expect(exitSpy).toHaveBeenCalledTimes(1);
 			expect(exitSpy).toHaveBeenCalledWith(143);
+		} finally {
+			await cleanup();
+		}
+	});
+});
+
+// .scratch/xpi-durable: `/continue` through `prompt` answers with what it did.
+describe("RPC /continue", () => {
+	afterEach(() => {
+		rpcIo.outputLines = [];
+		rpcIo.lineHandler = undefined;
+	});
+
+	it("answers handled with the reason when there is nothing to continue", async () => {
+		const { lineHandler, cleanup } = await startRpcMode({ withAuth: true, responseDelayMs: 0 });
+		try {
+			lineHandler(JSON.stringify({ id: "c1", type: "prompt", message: "/continue" }));
+			await vi.waitFor(() => expect(getPromptResponses(rpcIo.outputLines, "c1")).toHaveLength(1));
+			expect(getPromptResponses(rpcIo.outputLines, "c1")[0]).toMatchObject({
+				success: true,
+				data: { disposition: "handled", continue: { ran: false, reason: "none" } },
+			});
+		} finally {
+			await cleanup();
+		}
+	});
+
+	it("answers started when it continues a cut-off run, and get_state says so before", async () => {
+		const { lineHandler, runtimeHost, cleanup } = await startRpcMode({ withAuth: true, responseDelayMs: 0 });
+		try {
+			const sm = runtimeHost.session.sessionManager;
+			sm.appendCustomEntry("xpi.run", { phase: "start", id: "dead", at: 1 });
+			sm.appendMessage({ role: "user", content: [{ type: "text", text: "work" }], timestamp: 1 });
+			lineHandler(JSON.stringify({ id: "s1", type: "get_state" }));
+			await vi.waitFor(() =>
+				expect(parseOutputLines(rpcIo.outputLines).find((r) => r.id === "s1")).toMatchObject({
+					data: { interruptedRun: true },
+				}),
+			);
+			lineHandler(JSON.stringify({ id: "c2", type: "prompt", message: "/continue" }));
+			await vi.waitFor(() => expect(getPromptResponses(rpcIo.outputLines, "c2")).toHaveLength(1));
+			expect(getPromptResponses(rpcIo.outputLines, "c2")[0]).toMatchObject({
+				success: true,
+				data: { disposition: "started", continue: { ran: true } },
+			});
+			await vi.waitFor(() => expect(runtimeHost.session.isStreaming).toBe(false));
+			expect(runtimeHost.session.interruptedRun()).toBeUndefined();
 		} finally {
 			await cleanup();
 		}

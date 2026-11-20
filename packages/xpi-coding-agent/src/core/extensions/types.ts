@@ -1043,8 +1043,19 @@ export interface BeforeAgentStartCustomEvent extends BeforeAgentStartEventBase {
 	message: CustomMessage;
 }
 
-/** Fired before a run starts from a user message or an idle custom message with `triggerTurn`. */
-export type BeforeAgentStartEvent = BeforeAgentStartUserEvent | BeforeAgentStartCustomEvent;
+/**
+ * A run started by `/continue` (`AgentSession.continueRun()`) with no new message: after a run cut off by the end of the
+ * process, or after one that ended on a provider error. It has no `prompt` and no `message`.
+ */
+export interface BeforeAgentStartContinueEvent extends BeforeAgentStartEventBase {
+	messageType: "continue";
+}
+
+/** Fired before a run starts from a user message, an idle custom message with `triggerTurn`, or `/continue`. */
+export type BeforeAgentStartEvent =
+	| BeforeAgentStartUserEvent
+	| BeforeAgentStartCustomEvent
+	| BeforeAgentStartContinueEvent;
 
 /** Fired when an agent loop starts */
 export interface AgentStartEvent {

@@ -13,6 +13,7 @@
  * Modes use this class and add their own I/O layer on top.
  */
 
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { basename, dirname } from "node:path";
 import {
@@ -115,12 +116,28 @@ import {
 	type ToolExposure,
 	type ToolInfo,
 	type ToolLoadout,
+	type ToolResultEvent,
 	type TreePreparation,
 	type TurnStartEvent,
 	wrapRegisteredTools,
 } from "./extensions/index.ts";
 import { type BeforeAgentStartTrigger, emitSessionShutdownEvent } from "./extensions/runner.ts";
 import { findGitPaths } from "./footer-data-provider.ts";
+import {
+	CONTINUE_COMMAND,
+	type ContinueResult,
+	continueResultText,
+	findInterruptedRun,
+	hasRun,
+	INTERRUPTED_CUSTOM_TYPE,
+	INTERRUPTED_NOTE_TEXT,
+	INTERRUPTED_TOOL_RESULT_TEXT,
+	lastRunOutcome,
+	RUN_CUSTOM_TYPE,
+	type RunMarker,
+	type RunOutcome,
+	type ToolCall,
+} from "./interrupted-run.ts";
 import { createToolNameMatcher, isMcpToolName } from "./mcp-servers.ts";
 import { type BashExecutionMessage, type CustomMessage, convertToLlm } from "./messages.ts";
 import { DEFAULT_MODEL_ALIASES } from "./model-aliases.ts";
@@ -2165,9 +2182,14 @@ export class AgentSession {
 		this._streamInterruptCount = 0;
 		this._pendingStreamInterrupt = undefined;
 		let messages: AgentMessage[];
+		let runId: string | undefined;
 		try {
+			// A run cut off by the end of the process is repaired first; the run is active, so the branch cannot move.
+			await this._recoverInterruptedRun();
+			runId = this._writeRunStart();
 			messages = await this._prepareRun(trigger);
 		} catch (error) {
+			if (runId !== undefined) this._writeRunEnd(runId, "error");
 			this._isAgentRunActive = false;
 			this._flushPendingBashMessages();
 			this._flushPendingCustomMessages();
@@ -2186,8 +2208,11 @@ export class AgentSession {
 		// The run records the loadout in the transcript; restored tools that did not register by now
 		// are dropped, so a tool that never registers does not stay pending.
 		this._pendingToolNames.clear();
+		let threw = false;
 		try {
-			await this.agent.prompt(messages);
+			// `/continue` adds no starting message; anything queued for the next turn still goes first.
+			if (messages.length > 0) await this.agent.prompt(messages);
+			else await this.agent.continue();
 			while (!this._agentRunAbortRequested) {
 				if (await this._handlePostAgentRun()) {
 					if (this._agentRunAbortRequested) break;
@@ -2198,14 +2223,187 @@ export class AgentSession {
 				if (this._agentRunAbortRequested) break;
 				await this.agent.continue();
 			}
+		} catch (error) {
+			threw = true;
+			throw error;
 		} finally {
 			if (this._agentRunAbortRequested) this._finishCancelledRetry();
 			this._failedResponse = undefined;
 			this._runSystemPromptOptions = undefined;
 			this._flushPendingBashMessages();
 			this._flushPendingCustomMessages();
+			if (runId !== undefined) this._writeRunEnd(runId, this._runOutcome(threw));
 			await this._emitAgentSettled();
 		}
+	}
+
+	// =========================================================================
+	// Runs cut off by the end of the process (.scratch/xpi-durable/01-interrupted-turn.md)
+	// =========================================================================
+
+	private _writeRunStart(): string {
+		const id = randomUUID();
+		this.sessionManager.appendCustomEntry(RUN_CUSTOM_TYPE, {
+			phase: "start",
+			id,
+			at: Date.now(),
+		} satisfies RunMarker);
+		return id;
+	}
+
+	private _writeRunEnd(id: string, outcome: RunOutcome): void {
+		this.sessionManager.appendCustomEntry(RUN_CUSTOM_TYPE, {
+			phase: "end",
+			id,
+			at: Date.now(),
+			outcome,
+		} satisfies RunMarker);
+	}
+
+	/** How the run that is ending ended: Esc or `abort()`, a provider error left last, a throw, or completed. */
+	private _runOutcome(threw: boolean): RunOutcome {
+		if (this._agentRunAbortRequested) return "aborted";
+		if (threw) return "error";
+		const last = this.agent.state.messages[this.agent.state.messages.length - 1];
+		return last?.role === "assistant" && (last as AssistantMessage).stopReason === "error" ? "error" : "completed";
+	}
+
+	/**
+	 * The run the current branch shows as cut off by the end of the process, or undefined. A run whose last message is a
+	 * complete reply lost nothing and is not reported. Nothing is written: recovery waits for the next run or `/continue`.
+	 */
+	interruptedRun(): { startedAt: number; danglingToolCalls: ToolCall[] } | undefined {
+		// This process's own run is never cut off: while it runs, its start has no end yet.
+		if (this._isAgentRunActive || this._isEmittingAgentSettled) return undefined;
+		const run = findInterruptedRun(this.sessionManager.getBranch(), this.sessionManager.getEntries());
+		if (!run || run.replyComplete) return undefined;
+		return { startedAt: run.startedAt, danglingToolCalls: run.danglingToolCalls };
+	}
+
+	/**
+	 * Repair a run cut off by the end of the process: an interrupted result for each tool call left without one (through
+	 * `tool_result`, so extensions may add to it), the note the model sees, then the run's end marker, written last so a
+	 * crash here leaves the run cut off. Runs no tool. Returns false when the branch was not cut off.
+	 */
+	private async _recoverInterruptedRun(): Promise<boolean> {
+		const run = findInterruptedRun(this.sessionManager.getBranch(), this.sessionManager.getEntries());
+		if (!run) return false;
+		for (const call of run.danglingToolCalls) {
+			let content: (TextContent | ImageContent)[] = [{ type: "text", text: INTERRUPTED_TOOL_RESULT_TEXT }];
+			let details: unknown = { interrupted: true };
+			let isError = true;
+			if (this._extensionRunner.hasHandlers("tool_result")) {
+				const result = await this._extensionRunner.emitToolResult({
+					type: "tool_result",
+					toolName: call.name,
+					toolCallId: call.id,
+					input: (call.arguments ?? {}) as Record<string, unknown>,
+					content,
+					details,
+					isError,
+				} as ToolResultEvent);
+				if (result?.content) content = result.content;
+				if (result?.details !== undefined) details = result.details;
+				if (result?.isError !== undefined) isError = result.isError;
+			}
+			const message = {
+				role: "toolResult",
+				toolCallId: call.id,
+				toolName: call.name,
+				content,
+				details,
+				isError,
+				timestamp: Date.now(),
+			} as ToolResultMessage;
+			const entryId = this.sessionManager.appendMessage(message);
+			this._entryIdsByMessage.set(message, entryId);
+			this._emit({ type: "message_start", message });
+			this._emit({ type: "message_end", message });
+		}
+		if (!run.replyComplete && !run.noteWritten) {
+			this.sessionManager.appendCustomMessageEntry(INTERRUPTED_CUSTOM_TYPE, INTERRUPTED_NOTE_TEXT, true);
+		}
+		this._writeRunEnd(run.id, "recovered");
+		this._refreshFinalizedContext();
+		if (!run.replyComplete && !run.noteWritten) {
+			const note = this.agent.state.messages.at(-1);
+			if (note?.role === "custom") {
+				this._emit({ type: "message_start", message: note });
+				this._emit({ type: "message_end", message: note });
+			}
+		}
+		return true;
+	}
+
+	/**
+	 * `/continue`: go on without a new message. After a run cut off by the end of the process, it is repaired and
+	 * continued; after a run that ended on a provider error, the error is left out of the context, as a retry does, and
+	 * the model is asked again. Otherwise nothing runs, and the result says why. Resolves when the run it started ends.
+	 */
+	async continueRun(options?: { onStarted?: () => void }): Promise<ContinueResult> {
+		if (
+			this._isAgentRunActive ||
+			this._isEmittingAgentSettled ||
+			this.isCompacting ||
+			this._branchSummaryAbortController !== undefined
+		) {
+			return { ran: false, reason: "busy" };
+		}
+		this._promptPreflightCount++;
+		try {
+			const branch = this.sessionManager.getBranch();
+			const entries = this.sessionManager.getEntries();
+			const cut = findInterruptedRun(branch, entries);
+			if (cut?.replyComplete) {
+				// The process ended after a complete reply: nothing to continue; close the run.
+				this._writeRunEnd(cut.id, "recovered");
+				return { ran: false, reason: "finished" };
+			}
+			// D1 needs the provider error to be the reply the context ends with: a run whose start failed (a throwing
+			// before_agent_start handler, say) also ends as `error`, after a reply that is complete.
+			// Read from the branch: the agent's messages may not be loaded yet in a session just reopened.
+			const lastEntry = branch.findLast((entry) => entry.type === "message");
+			const last = lastEntry?.type === "message" ? lastEntry.message : undefined;
+			const errorTail =
+				last?.role === "assistant" && (last as AssistantMessage).stopReason === "error"
+					? (last as AssistantMessage)
+					: undefined;
+			if (!cut) {
+				const outcome = lastRunOutcome(branch, entries);
+				if (outcome !== "error" || !errorTail) {
+					return {
+						ran: false,
+						reason:
+							outcome === "aborted" ? "stopped" : outcome === undefined && !hasRun(branch) ? "none" : "finished",
+					};
+				}
+			}
+			if (!this.model) throw new Error(formatNoModelSelectedMessage());
+			const hasConfiguredAuth =
+				this._modelRuntime.hasConfiguredAuth(this.model.provider) ||
+				(await this._modelRuntime.checkAuth(this.model.provider)) !== undefined;
+			if (!hasConfiguredAuth) throw new Error(formatNoApiKeyFoundMessage(this.model.provider));
+			// A cut-off run is repaired in _startRun: its note ends the context, after any failed reply.
+			if (!cut && errorTail) this._omitRecoveryAttempt(errorTail);
+		} finally {
+			this._promptPreflightCount--;
+		}
+		await this._startRun({ messageType: "continue" }, options?.onStarted);
+		return { ran: true };
+	}
+
+	/** `/continue` typed as a prompt: never throws for a run that cannot start; says why where there is a UI. */
+	private async _promptContinue(text: string): Promise<void> {
+		const ctx = this._extensionRunner.createContext();
+		const say = (message: string) => {
+			if (ctx.hasUI) ctx.ui.notify(message, "warning");
+		};
+		if (text !== CONTINUE_COMMAND) {
+			say(`${CONTINUE_COMMAND} takes no arguments.`);
+			return;
+		}
+		const result = await this.continueRun();
+		if (!result.ran) say(continueResultText(result.reason));
 	}
 
 	/**
@@ -2235,7 +2433,7 @@ export class AgentSession {
 		const messages: AgentMessage[] = [];
 		if (trigger.messageType === "custom") {
 			messages.push(trigger.message);
-		} else {
+		} else if (trigger.messageType === "user") {
 			// Normalize images after before_agent_start so extension-driven model selection
 			// determines the resize profile used for the request and history.
 			const normalized = await this._normalizePromptImages(trigger.images);
@@ -2422,6 +2620,14 @@ export class AgentSession {
 		}
 		const expandPromptTemplates = options?.expandPromptTemplates ?? true;
 		const preflightResult = options?.preflightResult;
+		// `/continue` is built in and comes first: never queued while streaming or compacting, never thrown for a run
+		// that cannot start (interactive mode calls this from an editor callback that does not catch).
+		const trimmed = text.trim();
+		if (expandPromptTemplates && (trimmed === CONTINUE_COMMAND || trimmed.startsWith(`${CONTINUE_COMMAND} `))) {
+			preflightResult?.("handled");
+			await this._promptContinue(trimmed);
+			return;
+		}
 		// Handle extension commands first (execute immediately, even during streaming)
 		// Extension commands manage their own LLM interaction via pi.sendMessage()
 		if (expandPromptTemplates && text.startsWith("/")) {

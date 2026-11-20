@@ -21,6 +21,7 @@ import {
 import type { VirtualModelDefinition } from "../virtual-models.ts";
 import type {
 	AgentBeforeSettleEvent,
+	BeforeAgentStartContinueEvent,
 	BeforeAgentStartCustomEvent,
 	BeforeAgentStartEvent,
 	BeforeAgentStartEventResult,
@@ -164,7 +165,8 @@ function isUserBashEventResult(value: unknown): value is UserBashEventResult {
 /** The message that starts a run: the before_agent_start event without its prompt fields. */
 export type BeforeAgentStartTrigger =
 	| Pick<BeforeAgentStartUserEvent, "messageType" | "prompt" | "images">
-	| Pick<BeforeAgentStartCustomEvent, "messageType" | "message">;
+	| Pick<BeforeAgentStartCustomEvent, "messageType" | "message">
+	| Pick<BeforeAgentStartContinueEvent, "messageType">;
 
 /** Combined result from all before_agent_start handlers. */
 interface BeforeAgentStartCombinedResult {

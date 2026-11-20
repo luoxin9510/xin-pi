@@ -410,6 +410,17 @@ The options below come with the unit. Each says how to turn it off.
   timeout or abort. **macOS**: the same.
 - **Guide**: this entry, [Graph](graph.md) and `packages/xpi-graph/README.md`.
 
+## run markers and /continue
+
+- **Gives**: the core records when each model run starts and ends (hidden `xpi.run` entries). A session whose process ended mid-run is shown as cut off on reopening; the next message or `/continue` repairs the branch (interrupted tool results, an `xpi.interrupted` note, a `recovered` end marker) and goes on. Nothing is re-run. Forks close open runs as `aborted`. See [Sessions](sessions.md#after-the-process-ends-mid-run) and [Session File Format](session-format.md#run-markers-and-interrupted-runs).
+- **Depends on**: no other unit. The session file and its custom entries and custom messages. The subagent unit adds one line per interrupted `Agent` call (`callId` in the meta file, `interruptedAgentLines` and a `tool_result` handler in `extensions/subagent/index.ts`); it is optional.
+- **Copy (core change)**: `core/interrupted-run.ts` (markers, `findInterruptedRun`, constants); in `core/agent-session.ts` the run start and end writes (`_writeRunStart`), `interruptedRun()`, `_recoverInterruptedRun`, `continueRun()`, and the `/continue` check in `prompt()`; in `core/session-manager.ts` `createBranchedSession` closing open runs as `aborted`; in `core/extensions/types.ts` the `"continue"` case of `BeforeAgentStartEvent`.
+- **Rewrite**: the surfaces: the open notice in `modes/interactive/interactive-mode.ts` (`renderInitialMessages`), `/continue` in `modes/print-mode.ts` (reason to stderr, exit 0 when nothing runs; with arguments, exit 1), and in rpc `get_state.interruptedRun` and `data.continue` of the `prompt` response (`modes/rpc/rpc-mode.ts`, `rpc-types.ts`).
+- **Verify**: `test/suite/interrupted-run.test.ts`, `test/print-mode.test.ts` and `test/rpc-prompt-response-semantics.test.ts` (vitest, singly).
+- **Linux**: no platform difference. **macOS**: the same.
+- **Known limit**: the core does not check whether another process is running the session; one process per session is assumed (roost's write lock warns).
+- **Guide**: this entry; there is no separate porting guide.
+
 ## checks
 
 - **Gives**: after a turn that changed something, the project's own check commands (`checks.commands`: type checker,

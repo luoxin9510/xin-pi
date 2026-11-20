@@ -176,6 +176,8 @@ Result:
 }
 ```
 
+If the process ends while an `Agent` call runs, the call's interrupted result (see [Sessions](sessions.md#after-the-process-ends-mid-run)) lists each agent started under it: `Agent <type> (<description>) agentId <id> was running. Pass resume: "<id>" to continue it.` The agent's meta file records the call's id as `callId` (`<script call id>/<n>` for an agent a codemode script made) to make this possible. A child (an RPC process) exits when its stdin ends, so it ends with its parent: its shutdown stops the run as Esc does (an `aborted` run in its session), and `resume:` goes on from there.
+
 A child that fails returns `status: "failed"` instead of throwing, so scripts keep the structured result. Bad input
 (unknown agent, no usable tools, unknown `resume` id) throws. A model value that is not a known alias is passed to
 `--model` unchanged, and the child fails with pi's own error.

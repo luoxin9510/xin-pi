@@ -95,6 +95,7 @@ import type {
 } from "../../core/extensions/index.ts";
 import { FooterDataProvider, type ReadonlyFooterDataProvider } from "../../core/footer-data-provider.ts";
 import { configureHttpDispatcher, formatHttpIdleTimeoutMs } from "../../core/http-dispatcher.ts";
+import { CONTINUE_COMMAND, INTERRUPTED_NOTICE } from "../../core/interrupted-run.ts";
 import { type AppKeybinding, KeybindingsManager } from "../../core/keybindings.ts";
 import { createCompactionSummaryMessage, createCustomMessage } from "../../core/messages.ts";
 import {
@@ -4391,6 +4392,8 @@ export class InteractiveMode {
 			const times = compactionCount === 1 ? "1 time" : `${compactionCount} times`;
 			this.showStatus(`Session compacted ${times}`);
 		}
+		// A run cut off by the end of the process: say so; the next message or /continue repairs it.
+		if (this.session.interruptedRun()) this.showWarning(INTERRUPTED_NOTICE);
 	}
 
 	private renderProjectTrustWarningIfNeeded(): void {
@@ -4950,6 +4953,8 @@ export class InteractiveMode {
 
 		const spaceIndex = text.indexOf(" ");
 		const commandName = spaceIndex === -1 ? text.slice(1) : text.slice(1, spaceIndex);
+		// `/continue` is built in but runs at once like these: prompt() refuses it while compacting, never queued.
+		if (`/${commandName}` === CONTINUE_COMMAND) return true;
 		return !!extensionRunner.getCommand(commandName);
 	}
 

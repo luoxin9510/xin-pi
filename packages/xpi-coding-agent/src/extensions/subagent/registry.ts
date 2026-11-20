@@ -53,6 +53,9 @@ export interface SubagentRecord {
 	thinking: string;
 	color?: string; // the agent definition's colour name, if any
 	sessionDir?: string; // where the child session and meta file live; unset for an in-memory parent
+	// The id of the `Agent` call that started its latest exchange (`<script call id>/<n>` when a codemode script made it), so
+	// a call cut off by the end of the process can name the agents it had started (.scratch/xpi-durable).
+	callId?: string;
 	worktree?: WorktreeRef; // set when the subagent is isolated: where it runs and the commit it started from
 	// Agent teams: a teammate keeps `teammate: true`, its team's name and the prompt section frozen at its first start in
 	// its meta file, so after /resume, /reload or a crash its name still continues it as a member (team.ts).
@@ -90,6 +93,7 @@ export interface SubagentStart {
 	model: string;
 	thinking: string;
 	color?: string;
+	callId?: string; // the `Agent` call's id (see SubagentRecord.callId)
 	worktree?: WorktreeRef; // omit the key (not undefined) for a non-isolated exchange: a resume keeps the stored one
 	teammate?: true; // omit the keys for a plain subagent
 	team?: string;
@@ -430,6 +434,7 @@ class Registry {
 				thinking: meta.thinking ?? "",
 				color: meta.color,
 				sessionDir: dir,
+				...(typeof meta.callId === "string" ? { callId: meta.callId } : {}),
 				...(meta.worktree ? { worktree: meta.worktree } : {}),
 				...(meta.teammate === true && typeof meta.team === "string"
 					? {

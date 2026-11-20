@@ -62,6 +62,14 @@ Compaction can fail if the provider is unavailable or cannot accept the summariz
 
 See [Compaction Reference](compaction.md) for thresholds, retained boundaries, branch-summary behavior, and extension hooks.
 
+## After the process ends mid-run
+
+If the process ends while the model is running (a crash, `kill`, a closed laptop, quitting during a reply), the session file keeps everything written so far. When you reopen it, a warning says the last run stopped before it finished. Send a message to go on, or run `/continue` to go on without one.
+
+Either way, the session first repairs the branch: each tool call that had no result gets an error result marked as interrupted, and the model is told the run stopped early, so it checks half-done work before going on. Nothing is re-run: a tool that was running may have finished, partly finished or not started, and the model decides whether to repeat it. `/continue` prints why when there is nothing to continue (the last run finished or was stopped with Esc). After a run that ended on a provider error, `/continue` asks the model again.
+
+A run is only seen as cut off in sessions written by a version that records run markers. The core does not check whether another process is using the same session; keep to one process per session. Print mode treats `/continue` as a message and prints the reason to stderr when nothing runs. See [Session File Format](session-format.md#run-markers-and-interrupted-runs).
+
 ## Control session storage
 
 By default, Pi stores sessions under `~/.pi/agent/sessions/`, grouped by working directory. Use `--session-dir`, `XPI_CODING_AGENT_SESSION_DIR`, or the `sessionDir` setting to choose another location. The CLI option has highest precedence.

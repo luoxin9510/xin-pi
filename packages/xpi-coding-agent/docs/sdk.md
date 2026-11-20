@@ -71,6 +71,8 @@ A steering message enters after the current assistant turn and its tool calls. A
 
 `abort()` stops the active operation and waits for the session to become idle. `waitForIdle()` waits without aborting it.
 
+`interruptedRun()` returns `{ startedAt, danglingToolCalls }` when the current branch's last run was cut off by the end of the process and lost something, otherwise `undefined`; it writes nothing. `continueRun()` goes on without a new message and resolves when the run it started ends, with `{ ran: true }` or `{ ran: false, reason }` where `reason` is `finished`, `stopped`, `none` or `busy`. Sending `/continue` through `prompt()` does the same when prompt templates are expanded; `sendUserMessage()` sends it as plain text. See [Sessions](sessions.md#after-the-process-ends-mid-run).
+
 ## Subscribing to events
 
 Subscribe before prompting when the host needs streamed output:

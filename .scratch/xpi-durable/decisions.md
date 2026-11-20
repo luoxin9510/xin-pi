@@ -86,3 +86,43 @@ so), and the owner may still change it.
 
 - **D1**: `/continue` after a run that ended on a provider error asks the model again from the same context.
   Recommended: yes; otherwise roost's restart after an error exit stops retrying, which it does today.
+
+## Found while implementing milestone 1 (author)
+
+- **"The branch's last marker is a start" is not enough.** The start is written before the run's user message, so a
+  leaf moved by `/tree` to any point inside a finished run, or a fork made from a user message, shows a start with no
+  end on the branch. The suite test of #8724 (an in-memory fork during a run) caught it. Now: cut off only when that
+  run has no `end` anywhere in the session file, and `createBranchedSession` (fork, clone) appends an `aborted` end
+  for each run its path leaves open. `forkFrom` copies the whole file, so it needs nothing. A crashed session cloned
+  from its leaf therefore reads as stopped, not cut off, in the clone; the original keeps its recovery.
+- Interactive mode queues input typed during a compaction unless it is an extension command; `/continue` is now
+  counted with them, so it reaches `prompt()` and is refused as busy instead of being queued.
+- The core shows `/continue`'s result through `ctx.ui.notify`, the same channel extension commands use, so
+  interactive mode and RPC show it and print mode (no UI) does not; print mode calls `continueRun()` itself.
+- Review 1 of PR #152 (independent Opus, at 79f1167ba): no blocking; 3 should-fix and 3 nits.
+  - Taken: an attempt a retry left out of the context (`context_edit` with no replacement) and a failed or aborted
+    reply no longer count as where the run stands (no results for their calls; a failed tail is cut off, not
+    complete); D1 runs only when the branch really ends with a provider error (read from the branch, so it works in
+    a session just reopened), not after a run that failed to start; `interruptedRun()` is undefined while this
+    process runs; the docs' `callId` format (`<id>/Agent/<n>`) and the `continue` trigger wording.
+  - Left: SendMessage (`talk.ts`) does not pass the call's id, so an interrupted SendMessage call does not name its
+    agent (the meta keeps the id of the call that started it, which already has a result, so nothing wrong is named);
+    `/continue` during `agent_settled` answers busy where a prompt would be deferred.
+- By hand (C1.8), 2026-11-20, Haiku 5.5, sandbox (`XPI_CODING_AGENT_DIR`, a copy of the auth with 475 min left,
+  deleted afterwards), the bundle built from 0bac47ecb, print mode:
+  1. `sleep 30 && echo slept > slept.txt` through bash, `kill -9` 1.5 s after the tool call was written. Reopened with
+     `-p -c "/continue"`: the notice on stderr; an interrupted result for the call, the note, the `recovered` end, then
+     a new run. Haiku first checked for `slept.txt` (absent), then ran the command again and finished. Exit 0.
+  2. A 700-word essay, `kill -9` while it streamed (before any reply was written). Reopened with a message: the note,
+     no half reply; Haiku answered the new message (and remarked that nothing needed checking, a side effect of the
+     note).
+  3. An `Agent` call from a codemode script (`sleep 25 && ls | wc -l`), `kill -9` 4 s after the call. No child process
+     was left. The meta file had `callId: <script call id>/1`; the interrupted result named the agent ("agentId
+     5zcmnapd3x1i was running. Pass resume: ..."). `/continue`: Haiku resumed that agent instead of starting a new
+     one and reported 2. Exit 0.
+  - Found: the child does not die as a crash. Its stdin ends, its RPC shutdown aborts the run, and its session has an
+    `aborted` end; `resume:` goes on from there (the bash call it ran got the usual aborted result). The spec said its
+    session would be cut off; `docs/subagent.md` now says what happens. The nested id is `<script call id>/<n>`, as first
+    written (review 1's `/Agent/` was wrong; matching is by prefix either way).
+- Not covered by an automated test: `/continue` during a compaction (the harness cannot hold a compaction open);
+  the code path is the `busy` check, which the test during a run covers.

@@ -623,11 +623,11 @@ pi.on("session_shutdown", async (event, ctx) => {
 
 Fired before a run starts, after input handling and expansion. Can inject a message and/or modify the system prompt.
 
-`event.messageType` says what started the run: `"user"` for a prompt or `pi.sendUserMessage()`, with `prompt` and `images`; `"custom"` for `pi.sendMessage(..., { triggerTurn: true })` while idle, with the starting `message` and no `prompt`.
+`event.messageType` says what started the run: `"user"` for a prompt or `pi.sendUserMessage()`, with `prompt` and `images`; `"custom"` for `pi.sendMessage(..., { triggerTurn: true })` while idle, with the starting `message` and no `prompt`; `"continue"` for `/continue` (a message after a cut-off run is still `"user"`), with neither `prompt` nor `message`. The exported `BeforeAgentStartEvent` union includes `BeforeAgentStartContinueEvent` for this case.
 
 ```typescript
 pi.on("before_agent_start", async (event, ctx) => {
-  // event.messageType - "user" | "custom"
+  // event.messageType - "user" | "custom" | "continue"
   // event.prompt, event.images - user's prompt text and images (messageType "user")
   // event.message - the custom message that starts the run (messageType "custom")
   // event.systemPrompt - current chained system prompt for this handler
@@ -1115,6 +1115,8 @@ pi.on("tool_call", (event) => {
 #### tool_result
 
 Fired after tool execution finishes and before `tool_execution_end` plus the final tool result message events are emitted. **Can modify result.**
+
+When a session reopens after the process ended mid-run, `tool_result` also fires for the interrupted results of calls this process did not run: `event.isError` is true, `event.details.interrupted` is `true`, there is no `parentToolCallId` or `usage`, and the tool may not be registered. See [Run markers and interrupted runs](session-format.md#run-markers-and-interrupted-runs).
 
 In parallel tool mode, `tool_result` and `tool_execution_end` may interleave in tool completion order, while final `toolResult` message events are still emitted later in assistant source order.
 
