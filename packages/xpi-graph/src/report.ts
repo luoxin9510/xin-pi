@@ -479,6 +479,8 @@ export function report(
 				const rest = tallyOfUsage(entry.message.usage);
 				for (const part of named) {
 					if (typeof part?.provider !== "string" || typeof part.model !== "string" || !part.usage) continue;
+					// A virtual model is never named; one that is (a hand-written result) stays in the rest.
+					if (isVirtual(`${part.provider}/${part.model}`)) continue;
 					add(tallyOf(`${part.provider}/${part.model}`), part.usage);
 					take(rest, part.usage);
 				}

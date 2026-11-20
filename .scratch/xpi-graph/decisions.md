@@ -499,3 +499,22 @@ starts):
 4. After the fixes: `/graph start unsafe` ended with SIGTERM during the command: only `graph.start`,
    `graph.node`, `graph.run`; no `graph.command`, no move.
 5. After the fixes, run 2 again: `graph/auto` restored, no second `model_change`, Haiku answered, 2 starts.
+
+## Spec 03, milestone 2: nested usage by model (PR #148)
+
+Code review (fresh-context Opus, commit bebd65393): no blocking; two should-fix and three nits:
+- Taken: a restarted subagent (`r`) added the earlier runs' `usage` to the result but kept only the last run's
+  `usageByModel`, so the earlier cost read as unattributed. `exchange.ts` now merges them too.
+- Taken: a child request whose routing failed names the virtual model on its message (`api: "pi-virtual"`); the
+  runner attributed it (usage 0, but a virtual key). The runner skips it, and the graph report keeps a virtual part
+  of a tool result's `usageByModel` with the unattributed rest.
+- Taken (nit): `docs/extensions.md` says that returning `event.usage` unchanged without `usageByModel` also drops
+  the attribution (by design: the hook's `usage` replaces).
+- Left (nits): a `usageByModel` larger than `usage` is clamped, not reported; `executeAgent`'s wider return type
+  reaches the background and registry paths, which the reviewer checked and found unaffected.
+
+By hand (U1.10), 2026-11-20: a one-node graph on Haiku 5.5 whose script starts one subagent on Haiku 5.5 (`xpi -p
+"/graph start sub"`, sandbox as above). The codemode result has `usage` $0.00111 and `usageByModel` with all of it
+under `anthropic/claude-haiku-5-5`. `/graph`: `total 4s · $0.0027 (tools $0.0011) · anthropic/claude-haiku-5-5
+$0.0027`, no `nested calls` row. The `/session` breakdown (`getUsageCostBreakdown` on the file): one row,
+`anthropic/claude-haiku-5-5 $0.00270`, nothing under `Tools/*`. Cost $0.0027.

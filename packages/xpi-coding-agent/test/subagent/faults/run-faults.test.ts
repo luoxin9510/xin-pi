@@ -68,6 +68,7 @@ test("10b: the usage by model follows the model that answered each request, not 
 			ev.assistant("", usage(50, 5, 0.25), { ...from("openai", "router", "gpt-5"), stopReason: "toolUse" }),
 			ev.tool("read"),
 			ev.turnEnd(),
+			ev.assistant("", usage(0, 0, 0), { api: "pi-virtual", provider: "relay", model: "auto", stopReason: "error" }),
 			ev.assistant("final", usage(10, 20, 0.25), from("anthropic", "claude-haiku-5-5")),
 			ev.turnEnd(),
 			ev.settled(),
@@ -89,6 +90,8 @@ test("10b: the usage by model follows the model that answered each request, not 
 			["openai/gpt-5", 50, 0.25],
 		],
 	);
+	// A request whose routing failed names the virtual model: never attributed.
+	assert.ok(!result.usageByModel.some((part: { model: string }) => part.model === "auto"));
 	// It goes with the tool's usage, not into the agent's result.
 	assert.equal(result.structuredContent.usageByModel, undefined);
 	assert.equal(result.details.usageByModel, undefined);

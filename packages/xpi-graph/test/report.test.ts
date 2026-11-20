@@ -140,7 +140,11 @@ describe("report", () => {
 				role: "toolResult",
 				usage: usage(0.3),
 				// a subagent on Haiku inside a script; the script's own share is named for no model
-				usageByModel: [{ provider: "anthropic", model: "claude-haiku-5-5", usage: usage(0.25) }],
+				usageByModel: [
+					{ provider: "anthropic", model: "claude-haiku-5-5", usage: usage(0.25) },
+					// never written so, but read safely: a virtual model stays with the rest
+					{ provider: "graph", model: "auto", usage: usage(0.01) },
+				],
 			},
 		};
 		const result = run([
@@ -159,6 +163,7 @@ describe("report", () => {
 		expect(result.byModel["anthropic/claude-haiku-5-5"].cost).toBeCloseTo(0.29);
 		expect(result.byModel[NESTED_CALLS].cost).toBeCloseTo(0.07);
 		expect(result.byModel["unknown/unattributed"]).toBeUndefined();
+		expect(result.byModel["graph/auto"]).toBeUndefined();
 		expect(result.byModel["anthropic/claude-opus-5-5"].cost).toBeCloseTo(0.15);
 	});
 

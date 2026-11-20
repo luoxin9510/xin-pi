@@ -1143,8 +1143,9 @@ pi.on("tool_result", async (event, ctx) => {
     signal: ctx.signal,
   });
 
-  // Modify result. A new `usage` without `usageByModel` leaves all of it unattributed; give both to keep the
-  // cost by model (event.usageByModel is the part of event.usage each physical model spent):
+  // Modify result. A `usage` returned without `usageByModel` leaves all of it unattributed, even event.usage
+  // returned as it was; give both to keep the cost by model (event.usageByModel is the part of event.usage each
+  // physical model spent):
   return { content: [...], details: {...}, isError: false, usage: nestedModelUsage };
 });
 ```

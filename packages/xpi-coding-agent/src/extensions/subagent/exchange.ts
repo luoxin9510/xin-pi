@@ -5,6 +5,7 @@
 
 import { existsSync, readdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
+import { mergeModelUsage } from "../../core/usage-totals.ts";
 import type { Config } from "./config.ts";
 import { registry } from "./registry.ts";
 import type { ChildSpec, ParentContext } from "./resolve.ts";
@@ -268,7 +269,14 @@ function runExchange(
 			for (const earlier of restarted) {
 				const usage = structuredClone(earlier.usage);
 				addUsage(usage, run.usage);
-				run = { ...run, usage, turns: earlier.turns + run.turns, durationMs: earlier.durationMs + run.durationMs };
+				const usageByModel = mergeModelUsage(earlier.usageByModel, run.usageByModel);
+				run = {
+					...run,
+					usage,
+					...(usageByModel ? { usageByModel } : {}),
+					turns: earlier.turns + run.turns,
+					durationMs: earlier.durationMs + run.durationMs,
+				};
 			}
 			return { ...run, ...kept };
 		} finally {

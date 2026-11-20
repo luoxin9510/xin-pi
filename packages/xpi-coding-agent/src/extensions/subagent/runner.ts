@@ -8,6 +8,7 @@ import type { Readable, Writable } from "node:stream";
 import { type Static, Type } from "typebox";
 import type { ModelUsage } from "xpi-ai";
 import { mergeModelUsage } from "../../core/usage-totals.ts";
+import { isVirtualModel } from "../../core/virtual-models.ts";
 import { GROUPS, signalTree, trackTree } from "./process-tree.ts";
 import { type ChildSpec, STRUCTURED_OUTPUT_TOOL } from "./resolve.ts";
 import { MAX_STRUCTURED_ATTEMPTS, SCHEMA_FILE_ENV, STRUCTURED_REMINDER } from "./structured-output.ts";
@@ -83,7 +84,8 @@ interface AssistantMessage {
 	role: "assistant";
 	content: { type: string; text?: string }[];
 	usage: Usage;
-	/** The physical model that answered (an assistant message never names a virtual one). */
+	/** The model that answered: physical, except on a request whose routing failed (then `api` is the virtual one's). */
+	api?: string;
 	provider?: string;
 	model?: string;
 	responseModel?: string;
@@ -180,7 +182,8 @@ export function runChild(
 		const count = (m: AssistantMessage) => {
 			addUsage(usage, m.usage);
 			const model = m.responseModel ?? m.model;
-			if (m.provider && model) {
+			// A request whose routing failed names the virtual model: its usage (none, as a rule) stays unattributed.
+			if (m.provider && model && !(m.api !== undefined && isVirtualModel({ api: m.api }))) {
 				usageByModel = mergeModelUsage(usageByModel, [{ provider: m.provider, model, usage: { ...m.usage } }]);
 			}
 		};

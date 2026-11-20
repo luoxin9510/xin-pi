@@ -19,7 +19,11 @@ const until = async (what: string, pred: () => boolean, ms = 8000) => {
 const stuck = () => ({
 	lines: [
 		ev.session(),
-		ev.assistant("thinking", usage(10, 5, 0.01), { stopReason: "toolUse" }),
+		ev.assistant("thinking", usage(10, 5, 0.01), {
+			stopReason: "toolUse",
+			provider: "anthropic",
+			model: "claude-haiku-5-5",
+		}),
 		ev.tool("bash"),
 		ev.turnEnd({ stopReason: "toolUse" }),
 	],
@@ -27,7 +31,12 @@ const stuck = () => ({
 	abortSettles: true,
 });
 const fine = (text: string) => ({
-	lines: [ev.session(), ev.assistant(text, usage(10, 5, 0.02)), ev.turnEnd(), ev.settled()],
+	lines: [
+		ev.session(),
+		ev.assistant(text, usage(10, 5, 0.02), { provider: "openai", model: "gpt-5" }),
+		ev.turnEnd(),
+		ev.settled(),
+	],
 });
 
 async function setup(sessionId: string) {
@@ -53,9 +62,21 @@ test("restart: the agent starts over with the same task; its call gets the secon
 
 	s.scenario(fine("second start"));
 	assert.equal(registry.restart(id), undefined);
-	const r = (await call).structuredContent;
+	const result = await call;
+	const r = result.structuredContent;
 	assert.equal(r.status, "completed");
 	assert.equal(r.output, "second start");
+	// The cost by model of both starts, not only the last one's.
+	assert.deepEqual(
+		result.usageByModel.map((part: { provider: string; model: string; usage: { cost: { total: number } } }) => [
+			`${part.provider}/${part.model}`,
+			part.usage.cost.total,
+		]),
+		[
+			["anthropic/claude-haiku-5-5", 0.01],
+			["openai/gpt-5", 0.02],
+		],
+	);
 	assert.equal(r.agentId, id, "the same agent");
 	assert.equal(r.turns, 2, "turns of both starts");
 	assert.ok(Math.abs(r.usage.cost.total - 0.03) < 1e-9, `cost of both starts, got ${r.usage.cost.total}`);
