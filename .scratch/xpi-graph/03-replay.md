@@ -58,9 +58,11 @@ halted). The engine starts a command only on a visit that is not halted, not fin
 `graph.node` (a draft, as now) and returns without `continue`. It notes in memory that this process entered the
 visit. At `agent_settled`, if the turn was not aborted and the noted visit is the current one and may start, the
 extension updates the footer (`sync`) and then goes on as `/graph goto` does (`proceed` with direct writes and
-`mayWait`), started from the hook and not awaited by it. A visit entered at a settle that was aborted (Esc during the
-boundary), or one whose start never happened (a crash between the commit and the start), is **not started**; it
-starts at the user's next action (section 4), like an interrupted safe run.
+`mayWait`), started from the hook and not awaited by it. Only a visit this process noted in memory starts without a
+look at its `replay`. A visit entered at a settle that was aborted (Esc during the boundary) is **not started** and
+noted, so it starts at the user's next action (section 4). A not-started visit this process did not note (found at
+`session_start`: a crash between the commit and the start, or an older xpi that died during `/graph goto`, which
+writes `graph.node` before it runs the command) may have run, so it follows its `replay` like an interrupted run.
 
 A pending move to a model node or to `end` is entered at the end of the turn as now. A follow-up message the user
 queued during the turn keeps the agent run going (`_runBeforeSettleBoundary` continues when messages are queued);
@@ -70,14 +72,17 @@ the command then starts when that run settles.
 runs; a message the user sends starts a turn answered by the model selected before the graph (the node is a command
 node); the command's move is left pending until that turn ends; `/graph stop` stops the command; Esc does not.
 
-**Without a UI** (`xpi -p`, RPC without a client): a command the extension started holds the process.
+**Without a UI** (`ctx.hasUI` false, as in `xpi -p`): a command the extension started holds the process.
 - The extension keeps the promise of the command run it started (`commandRun`).
 - `/graph start` and `/graph goto` without a UI return when the graph has ended, halted or waits for the user, as
   documented now: they wait in a loop for the session to be idle and for no command run to be pending, since a
   command's end can start a model turn and a turn's end can start a command.
-- `session_shutdown` without a UI waits for a running command to end (its own timeout bounds it) instead of
-  aborting it, so a prompt that is not a `/graph` command (`xpi -p "go on"`) does not kill a command it led to.
-  With a UI, quitting aborts the command as now; on the next open that run reads as interrupted.
+- `session_shutdown` with reason `quit` and without a UI waits for a running command to end (its own timeout bounds
+  it) instead of aborting it, so a prompt that is not a `/graph` command (`xpi -p "go on"`) does not kill a command it
+  led to. After the wait the run's result is written as usual (the `graph.command` message, then the move or the
+  halt; `closed` is set only after it), but no turn is started: the session is being disposed, so a move to a model
+  node stays pending and is entered at the next run. Other shutdown reasons (new, resume, fork, reload) and every
+  shutdown with a UI abort the command as now; on the next open that run reads as interrupted.
 
 ### 3. `graph.run`: the intent, written first (R4)
 
@@ -93,12 +98,13 @@ the halt). `startedAt` is the same value as the command details' `startedAt` and
 **The session file is written first.** A session is not written to disk until it has a user or assistant message
 (`SessionManager._persist`); a graph started as the first thing in a session, on a command node, would leave nothing
 to reopen. Before the first `graph.run` the extension asks the session to be written now, through a small core
-addition (an extension API to persist the session, named in the milestone).
+addition (an extension API to persist the session, named in the milestone). The milestone checks how `/resume`
+lists a session that has graph entries and no message, and keeps it listed.
 
 **Finished or interrupted.** Every entry a run writes as its result carries the run's `startedAt`: the `graph.command`
 message (`details.startedAt`, as now), the move it leads to (`graph.move` with `via: "pass" | "fail"` gets
-`run: startedAt`), and a halt it causes (stopped while running, no edge, an edge at its limit: `graph.halt` gets
-`run: startedAt`). A run is **finished** when the branch has any entry carrying its `startedAt` in one of these
+`runStartedAt`), and a halt it causes (stopped while running, no edge, an edge at its limit: `graph.halt` gets
+`runStartedAt`). A run is **finished** when the branch has any entry carrying its `startedAt` in one of these
 fields, wherever it landed (a message can be queued behind a turn the user started). A `graph.run` with none is
 **interrupted**: the process ended while the command ran. Entries written for other reasons later in the visit (a
 halt written because the run was interrupted, a `/graph goto`) do not finish it.
@@ -113,22 +119,26 @@ At `session_start` the extension reads the state. With an interrupted or not-sta
 **only tells** (nothing is written: the process that opened the session may only be looking, such as a viewer or the
 roost hub):
 
-- replay-safe, or not started: `graph dev: "ci" was interrupted while its command ran; it runs again when you go on
+- replay-safe, interrupted: `graph dev: "ci" was interrupted while its command ran; it runs again when you go on
   (any message, or /graph goto ci)`;
-- not replay-safe: `graph dev: "merge" was interrupted while its command ran; it may have run. Check, then /graph
-  goto merge to run it again, /graph goto <node> to go on, or /graph stop`.
+- replay-safe, not started: `graph dev: "ci" was entered and its command has no record of starting; it runs when you
+  go on (any message, or /graph goto ci)`;
+- not replay-safe, interrupted or not started: `graph dev: "merge" may have run its command (it was interrupted, or
+  has no record). Check, then /graph goto merge to run it again, /graph goto <node> to go on, or /graph stop`.
 
 Then, at the user's first action that would go on (`before_agent_start`, `/graph goto`):
 
-- **not started, or safe with fewer than 3 interrupted runs in this visit**: the command starts, a new `graph.run`
-  first, and the graph goes on from its result.
+- **noted by this process (section 2), or safe with fewer than 3 interrupted runs in this visit**: the command
+  starts, a new `graph.run` first, and the graph goes on from its result.
   - **Owner (R12)**: at `before_agent_start` the command is started and not awaited, as at the end of a turn
     (section 2): the user's message is answered at once by the model selected before the graph, and the command's
     move waits for that turn to end. The other way, awaiting it, holds the message for the whole command (a
-    `gh pr checks --watch` can take 10 minutes or more), which is how a pending command is entered today.
-- **unsafe, or safe and interrupted 3 times in this visit (R9)**: the extension writes `graph.halt { reason,
-  interrupted: startedAt }` (`"merge" was interrupted while its command ran, and it is not replay-safe`, or `… was
-  interrupted 3 times`), and the graph is halted on the command node with the rules of spec 01 for a halt there: the
+    `gh pr checks --watch` can take 10 minutes or more), which is how a pending command is entered today. A side
+    effect: after a turn cut off by Esc whose move leads through a command node to a model node, the next message is
+    answered by the pre-graph model, not by that model node.
+- **unsafe and not noted, or safe and interrupted 3 times in this visit (R9)**: the extension writes `graph.halt {
+  reason, interrupted: startedAt }` (no `startedAt` for a visit that was not started) (`"merge" may have run its
+  command, and it is not replay-safe`, or `… was interrupted 3 times`), and the graph is halted on the command node with the rules of spec 01 for a halt there: the
   pre-graph model answers, the union of all `deny` lists holds, `next` is refused, only `/graph goto` and
   `/graph stop` move it. `/graph goto` writes the halt first, then its own move.
 

@@ -442,3 +442,15 @@ Two blocking, seven should-fix, six nits; all taken in the spec:
 - Nits: one key `Tools/unattributed`; the report maps `unknown/unattributed` to "nested calls"; the footer synced
   before the command starts; a normal quit reads as interrupted (documented); the example uses `run` without
   `kind`; `release.js` nodes classified one by one.
+
+Round 2 (same reviewer, commit 661047fcd): all round-1 findings closed; no blocking; three should-fix and four nits,
+all taken:
+- A not-started visit found at `session_start` (an older xpi that died during `/graph goto`, which writes
+  `graph.node` before running; or a crash between the commit and the start) may have run: it follows its `replay`
+  like an interrupted run. Only a visit this process noted starts without a look at `replay`.
+- The shutdown wait without a UI only for reason `quit`; the result is written after it, and no turn starts (a move
+  to a model node stays pending). "RPC without a client" dropped: the rule is `ctx.hasUI`.
+- `run` on `graph.move`/`graph.halt` renamed `runStartedAt`, so the key does not mean two things on the bus.
+- Nits: a separate notice for "not started"; older sessions' tool-result usage moves to `Tools/unattributed`
+  (documented); `/resume` keeps listing a session with graph entries and no message; R12's side effect after an
+  Esc-cut turn is written in the spec.
