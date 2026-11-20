@@ -126,3 +126,26 @@ so), and the owner may still change it.
     written (review 1's `/Agent/` was wrong; matching is by prefix either way).
 - Not covered by an automated test: `/continue` during a compaction (the harness cannot hold a compaction open);
   the code path is the `busy` check, which the test during a run covers.
+
+## Found while implementing milestone 2 (author)
+
+- **Roost's restart of a working session keeps its text.** `xpi roost restart` / `respawn --all` (restart onto a new
+  build) asks the host to terminate the worker; xpi's shutdown aborts the run (as Esc does), so its session has an
+  `aborted` end and `/continue` would say "Nothing to continue". That path keeps "Continue where you left off."
+  (`CARRY_ON`), like `/bg`. `/continue` (`CONTINUE`) is used where the process ended without ending its run: the DM-5
+  crash restart, a start by other means while that restart waits, and the resume of a failed row. Both constants are
+  in `xpi-roost/src/lib/resume.ts` (a file of their own would put the package's entry points over their file budget). The hub's `continue` command is unchanged.
+- **A move in a cut-off script is lost.** Spec section 7 said a move asked for before the crash is entered at the
+  next run. In codemode the move is made by `next` inside a script whose result the process took with it, and the
+  graph writes the move only when the turn ends, so nothing of it is on disk. The node is still current; the model sees
+  the interrupted result and moves again (tested; `docs/graph.md` says so).
+- The graph tests "kill" the first process by copying its session entries at that moment: the first harness lives on
+  in memory and would otherwise keep writing into the session the second one opens.
+- By hand (R2.4), 2026-11-20, Haiku 5.5, sandbox roost (its own daemon: `XPI_CODING_AGENT_DIR` names its own roost
+  home and socket directory), the bundle built from this branch: `xpi --bg "Run the shell command: sleep 30 && echo
+  roost > roost.txt. Then say done."`, then `kill -9` of the worker's xpi while bash ran. The daemon logged "restarts
+  by itself (crash): worker killed by SIGKILL; continuing in 1 s (automatic restart 1 of 3)"; the new worker got
+  `/continue` (no user message in the transcript); recovery wrote the interrupted result, the note and the
+  `recovered` end. Haiku found no `roost.txt`, saw with `ps` that the old `sleep 30` was still running (the killed xpi's
+  child), waited for it instead of running it again, and finished ("done" row). The sandbox daemon was stopped and
+  the auth copy deleted.

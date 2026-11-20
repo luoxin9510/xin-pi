@@ -52,6 +52,7 @@ import {
 	type WorkerReport,
 } from "../lib/protocol.ts";
 import { argsProblem } from "../lib/protocol-schema.ts";
+import { CARRY_ON, CONTINUE } from "../lib/resume.ts";
 import { createSchedules, type ScheduleRun } from "../lib/schedules.ts";
 import {
 	clearExit,
@@ -75,7 +76,6 @@ import { ROOST_BUILD, ROOST_VERSION } from "../lib/version.ts";
 
 /** How long a stop waits for a host to go before it is killed (ROOST_STOP_WAIT_MS: tests shorten it). */
 const WAIT_MS = Number(roostEnv("STOP_WAIT_MS")) || 6000;
-const CONTINUE = "Continue where you left off.";
 /**
  * DM-5: automatic restarts of a session whose agent process crashed mid-run, in a row, and
  * the pause before each (ROOST_RESUME_DELAYS_MS="1000,5000,15000" changes them; tests
@@ -930,8 +930,8 @@ async function respawn(
 		if (roster.has(id)) {
 			// a running command is never killed to be run again (respawn --all after an upgrade)
 			if (!opts.restart || shell) return { id, started: false };
-			// a turn cut short by the restart carries on in the new worker
-			if (!prompt && readState(id)?.state === "working") prompt = CONTINUE;
+			// a turn cut short by the restart carries on in the new worker (its shutdown aborted the run: no /continue)
+			if (!prompt && readState(id)?.state === "working") prompt = CARRY_ON;
 			// spec 03: attached terminals and the hub see a restart, not an end, until the new host is up (or this fails)
 			restarting = true;
 			priorState = readState(id)?.state;

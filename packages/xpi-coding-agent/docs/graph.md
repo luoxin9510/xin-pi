@@ -237,8 +237,14 @@ runs it again), another node, or `/graph stop`. A message is answered by the mod
 graph, so you can ask it to look first.
 
 Mark `safe` only what can run twice with the same effect: waiting for CI, reading, a `git pull --ff-only`. A merge, a
-version bump, a tag or a publish are `unsafe`. Turn-level state is not part of this: a model turn cut off by a crash
-is not resumed, only the move it accepted (see [Resuming, branching, compaction](#resuming-branching-compaction)).
+version bump, a tag or a publish are `unsafe`.
+
+A model node's turn cut off by a crash is repaired by the core, as in any session (see
+[Sessions](sessions.md#after-the-process-ends-mid-run)): at your next message or `/continue`, its unfinished tool calls
+get interrupted results and the model is told; with `/continue` the turn goes on in the same node, on its model. A move
+the model asked for in a script that the crash cut off is lost with the script's result: the node is still current, and
+the model moves again. When a command node was also interrupted, the core's repair comes first, then the command node's
+rule above.
 
 ## What a run shows
 

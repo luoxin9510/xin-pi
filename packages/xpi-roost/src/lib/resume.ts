@@ -6,8 +6,19 @@ import { hostSocketPath } from "./paths.ts";
 import type { JobRow } from "./protocol.ts";
 import { screenPath } from "./store.ts";
 
-/** M5a (DM-7): what a failed run is restarted with, so it carries on. */
-export const CONTINUE = "Continue where you left off.";
+/**
+ * M5a (DM-7), DM-5: what a run the process ended (a crash, a failed run) is restarted with: xpi's `/continue`, which
+ * repairs the cut-off run (or asks again after a provider error) and goes on without a user message in the transcript
+ * (.scratch/xpi-durable). It says "nothing to continue" for a run that had finished.
+ */
+export const CONTINUE = "/continue";
+
+/**
+ * What a run roost stopped on purpose (a restart onto a new build) is restarted with. Its shutdown aborted the run, as
+ * Esc does, so `/continue` would find nothing to continue: the model is asked to carry on in words.
+ */
+export const CARRY_ON = "Continue where you left off.";
+
 const START_TIMEOUT_MS = 15_000;
 
 /**

@@ -115,8 +115,10 @@ compaction, a few messages at a time.
 ## When a session ends
 
 A session ends when its xpi exits or is stopped; its row stays, as done, failed or stopped, until you delete it (or
-`cleanupDays` after it ended). A session whose xpi crashes while it works is restarted on its own, with "Continue where
-you left off.", up to three times in a row. A shell command's row goes away five minutes after the command ends. When
+`cleanupDays` after it ended). A session whose xpi crashes while it works is restarted on its own, with xpi's `/continue`
+(it repairs the cut-off run, see [Sessions](sessions.md#after-the-process-ends-mid-run), and goes on without a message
+from you; after a provider error it asks the model again), up to three times in a row. Attaching to a failed session
+starts it the same way. A shell command's row goes away five minutes after the command ends. When
 the machine restarts, or a session's host process dies, the session ends and does not resume on its own: reply to it,
 attach, or `xpi roost respawn` it to start it again from its session file.
 
@@ -411,7 +413,8 @@ and per session, and exits 1 if anything failed:
    reported as `ended while the daemon restarted` and counts as a failure. Then one request restarts the others,
    each in its own new process.
 
-A session that was working carries on in its new process, with "Continue where you left off."; one that was idle comes
+A session that was working carries on in its new process, with "Continue where you left off." (its shutdown stopped the
+run as Esc does, so there is nothing for `/continue` to repair); one that was idle comes
 back showing where it left off. Sessions that are not running are left alone and load the installed code when they next
 start; shell sessions are never restarted.
 
