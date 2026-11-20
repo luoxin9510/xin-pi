@@ -1,15 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
+	commandCondition,
 	exits,
 	GRAPH_BLOCKED,
+	GRAPH_COMMAND,
 	GRAPH_END,
 	GRAPH_HALT,
 	GRAPH_MOVE,
 	GRAPH_NODE,
 	GRAPH_REMINDER,
+	GRAPH_RUN,
 	GRAPH_START,
 	type GraphEntry,
 	type GraphState,
+	interruptions,
 	type RunningState,
 	readState,
 } from "../src/index.ts";
@@ -35,6 +39,16 @@ const end = (reason: string) => custom(GRAPH_END, { reason });
 const user: GraphEntry = { type: "message", message: { role: "user" } };
 const assistant: GraphEntry = { type: "message", message: { role: "assistant" } };
 const reminder: GraphEntry = { type: "custom_message", customType: GRAPH_REMINDER };
+const run = (node: string, startedAt: string) =>
+	custom(GRAPH_RUN, { node, run: "gh pr checks --watch", replay: "safe", startedAt, at: startedAt });
+const commandMessage = (node: string, startedAt: string): GraphEntry => ({
+	type: "custom_message",
+	customType: GRAPH_COMMAND,
+	details: { node, startedAt, code: 0, outcome: "pass" },
+});
+const at = (minute: number) => `2026-11-20T10:${String(minute).padStart(2, "0")}:00.000Z`;
+const enterAt = (node: string, via: string, edge: number | undefined, minute: number) =>
+	custom(GRAPH_NODE, { node, via, ...(edge === undefined ? {} : { edge }), at: at(minute) });
 
 /** A branch that started the dev graph and is in `build` after the approval. */
 const toBuild = [
@@ -283,6 +297,84 @@ describe("readState", () => {
 				ended: { selection, reason: "stopped" },
 			});
 		});
+	});
+});
+
+describe("command runs", () => {
+	const inCi = [...toBuild, enterAt("ci", "model", EDGE.built, 1)];
+
+	it("is not started on a command node with no run, and undefined on a model node", () => {
+		expect(commandCondition(running(inCi))).toBe("not_started");
+		expect(commandCondition(running(toBuild))).toBeUndefined();
+	});
+
+	it("is interrupted when the last run has nothing that carries its start", () => {
+		const state = running([...inCi, run("ci", at(2))]);
+		expect(state.runs).toEqual([{ startedAt: at(2), finished: false }]);
+		expect(commandCondition(state)).toBe("interrupted");
+		expect(interruptions(state)).toBe(1);
+	});
+
+	it("is finished by its message, wherever it lands, or by the move or halt that carries its start", () => {
+		const byMessage = running([...inCi, run("ci", at(2)), user, assistant, commandMessage("ci", at(2))]);
+		expect(commandCondition(byMessage)).toBe("finished");
+		const byMove = running([
+			...inCi,
+			run("ci", at(2)),
+			custom(GRAPH_MOVE, { edge: EDGE.ciPass, via: "pass", runStartedAt: at(2) }),
+		]);
+		expect(byMove.runs[0].finished).toBe(true);
+		expect(commandCondition(byMove)).toBe("finished");
+		const byHalt = running([
+			...inCi,
+			run("ci", at(2)),
+			custom(GRAPH_HALT, { reason: "no edge", runStartedAt: at(2) }),
+		]);
+		expect(byHalt.runs[0].finished).toBe(true);
+		expect(commandCondition(byHalt)).toBe("halted");
+	});
+
+	it("keeps a run interrupted when a halt for it, then a goto, follow", () => {
+		const halted = [...inCi, run("ci", at(2)), custom(GRAPH_HALT, { reason: "interrupted", interrupted: at(2) })];
+		const state = running(halted);
+		expect(state.runs[0].finished).toBe(false);
+		expect(commandCondition(state)).toBe("halted");
+		// A goto to the same node is a new visit: its runs start again.
+		const again = running([...halted, enterAt("ci", "goto", undefined, 5)]);
+		expect(again.runs).toEqual([]);
+		expect(commandCondition(again)).toBe("not_started");
+	});
+
+	it("counts the runs of the visit, and a message of another run or node changes nothing", () => {
+		const state = running([
+			...inCi,
+			run("ci", at(2)),
+			run("ci", at(3)),
+			commandMessage("ci", at(1)),
+			commandMessage("review", at(3)),
+			run("ci", at(4)),
+		]);
+		expect(state.runs.map((one) => one.finished)).toEqual([false, false, false]);
+		expect(interruptions(state)).toBe(2 + 1);
+		expect(commandCondition(state)).toBe("interrupted");
+	});
+
+	it("rejects a run that is not on the current command node", () => {
+		expect(errorOf([...toBuild, run("build", at(2))])).toContain("not on the command node");
+		expect(errorOf([...inCi, custom(GRAPH_RUN, { node: "ci" })])).toContain("no startedAt");
+	});
+
+	it("reads an older session without graph.run: a result finishes the visit, a halt halts it, nothing is not started", () => {
+		const message = running([...inCi, commandMessage("ci", at(2))]);
+		expect(commandCondition(message)).toBe("finished");
+		// An older move out of a command node, with no run named.
+		const moved = running([...inCi, move(EDGE.ciPass, "pass")]);
+		expect(commandCondition(moved)).toBe("finished");
+		expect(commandCondition(running([...inCi, halt('"ci" was stopped while its command ran')]))).toBe("halted");
+		// An older xpi that died while it ran the command of a goto: the node is entered and nothing else.
+		expect(commandCondition(running([...toBuild, enterAt("merge", "goto", undefined, 1)]))).toBe("not_started");
+		// A message older than the visit is an earlier visit's.
+		expect(commandCondition(running([...inCi, commandMessage("ci", at(0))]))).toBe("not_started");
 	});
 });
 

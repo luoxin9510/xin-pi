@@ -8,6 +8,7 @@ import { type Context, type FauxResponseStep, fauxAssistantMessage, fauxToolCall
 import { GRAPH_ASKED, GRAPH_BLOCKED, GRAPH_COMMAND, GRAPH_HALT, readState, report } from "xpi-graph";
 import { emitSessionShutdownEvent } from "../../src/core/extensions/runner.ts";
 import type { ExtensionAPI } from "../../src/core/extensions/types.ts";
+import { SessionManager } from "../../src/core/session-manager.ts";
 import type { RunResult } from "../../src/extensions/checks/runner.ts";
 import { createCodemodeExtension } from "../../src/extensions/codemode/index.ts";
 import { createGraphExtension, GRAPH_EVENTS, GRAPH_MODEL, GRAPH_PROVIDER } from "../../src/extensions/graph/index.ts";
@@ -48,6 +49,9 @@ const COMMANDS = `export default {
 };
 `;
 
+type NodeLike = { node?: string; via?: string };
+type MoveLike = { via?: string };
+
 function textOf(context: Context): string {
 	return context.messages
 		.map((message) => {
@@ -69,7 +73,15 @@ describe("graph extension: controls", () => {
 		delete process.env[LIMITS_ENV];
 	});
 
-	async function setup(options: { ui?: boolean; graphs?: Record<string, string> } = {}) {
+	async function setup(
+		options: {
+			ui?: boolean;
+			graphs?: Record<string, string>;
+			sessionManager?: SessionManager;
+			/** Cut off the next turn while it ends (Esc during `agent_before_settle`). */
+			abortAtSettle?: boolean;
+		} = {},
+	) {
 		/** How each command ends, in order; a command with nothing left passes. */
 		const results: Record<string, Partial<RunResult>[]> = {};
 		const ran: { command: string; timeoutMs: number; cwd: string }[] = [];
@@ -81,6 +93,8 @@ describe("graph extension: controls", () => {
 		const letDie: Record<string, () => void> = {};
 		/** Output a held command writes while it runs: the test calls it (spec 02, the live view). */
 		const write: Record<string, (text: string) => void> = {};
+		/** End a held command as a signal from outside would (a closed terminal): no exit code, not aborted. */
+		const killFromOutside: Record<string, () => void> = {};
 		const graphExtension = createGraphExtension({
 			run: async (command, runOptions) => {
 				ran.push({ command, timeoutMs: runOptions.timeoutMs, cwd: runOptions.cwd });
@@ -89,6 +103,7 @@ describe("graph extension: controls", () => {
 					write[command] = (text) => runOptions.onOutput?.(text);
 					return new Promise<RunResult>((resolve) => {
 						release[command] = () => resolve(base);
+						killFromOutside[command] = () => resolve({ ...base, code: null, signal: "SIGTERM" });
 						runOptions.signal?.addEventListener("abort", () => {
 							const die = () => resolve({ ...base, code: null, aborted: true });
 							if (slowToDie.has(command)) letDie[command] = die;
@@ -108,16 +123,24 @@ describe("graph extension: controls", () => {
 		};
 		/** What the extension bus was told, in order (spec 02, section 7). */
 		const events: { channel: string; data: Record<string, unknown> }[] = [];
+		let abortAtSettle = options.abortAtSettle ?? false;
 		const listener = (pi: ExtensionAPI) => {
 			for (const channel of Object.values(GRAPH_EVENTS)) {
 				pi.events.on(channel, (data) => events.push({ channel, data: data as Record<string, unknown> }));
 			}
+			pi.on("agent_before_settle", async (_event, ctx) => {
+				if (!abortAtSettle) return undefined;
+				abortAtSettle = false;
+				ctx.abort();
+				return undefined;
+			});
 		};
 		const harness = await createHarness({
 			// The first model is the one selected when a test starts.
 			models: [{ id: "medium" }, { id: "small" }, { id: "large", reasoning: true }],
 			initialActiveToolNames: ["read", "write", "bash", "codemode"],
 			extensionFactories: [createCodemodeExtension(), graphExtension, listener],
+			...(options.sessionManager ? { sessionManager: options.sessionManager } : {}),
 		});
 		harnesses.push(harness);
 		const runtime = harness.session.modelRuntime;
@@ -185,9 +208,22 @@ describe("graph extension: controls", () => {
 		const toolText = () => getMessageText(getToolResult(harness, "codemode"));
 		const models = () => seen.map((request) => request.model);
 		const note = (part: string) => notes.find((text) => text.includes(part));
+		/** Until the session is idle and no command started after a turn goes on: one can start the other. */
+		const quiet = async () => {
+			for (let i = 0; i < 100; i++) {
+				await harness.session.waitForIdle();
+				if (graphExtension.busy()) {
+					await graphExtension.quiet();
+					continue;
+				}
+				await new Promise((resolve) => setTimeout(resolve, 5));
+				if (harness.session.isIdle && !graphExtension.busy()) return;
+			}
+			throw new Error("the graph did not come to rest");
+		};
 		const go = async (text: string) => {
 			await harness.session.prompt(text);
-			await harness.session.waitForIdle();
+			await quiet();
 		};
 		return {
 			harness,
@@ -202,6 +238,7 @@ describe("graph extension: controls", () => {
 			slowToDie,
 			letDie,
 			write,
+			killFromOutside,
 			widgets,
 			events,
 			started,
@@ -217,7 +254,15 @@ describe("graph extension: controls", () => {
 			models,
 			note,
 			go,
+			quiet,
+			graphExtension,
 		};
+	}
+
+	/** The graph model selected again, as the core does for a resumed session from its last selection. */
+	async function selectGraphModel(harness: Harness) {
+		const router = harness.session.modelRuntime.getModel(GRAPH_PROVIDER, GRAPH_MODEL);
+		if (router) await harness.session.setModel(router);
 	}
 
 	describe("command nodes", () => {
@@ -341,8 +386,8 @@ describe("graph extension: controls", () => {
 			expect(seen[1].text).not.toContain("line 250\n");
 		});
 
-		it("stops a command that runs at a turn's end with /graph stop, and runs nothing after it", async () => {
-			const { harness, answers, held, started, ran, move, state, selected, models, entries } = await setup();
+		it("stops a command started after a turn's end with /graph stop, and runs nothing after it", async () => {
+			const { harness, answers, held, started, ran, move, state, selected, models, entries, quiet } = await setup();
 			answers.push("Approve");
 			held.add("run-ci");
 			harness.setResponses([move("ci")]);
@@ -356,13 +401,21 @@ describe("graph extension: controls", () => {
 			});
 			await harness.session.prompt("/graph stop");
 			await turn;
-			await harness.session.waitForIdle();
+			await quiet();
 			// The command was aborted, the graph is over, and nothing went on from the command's result.
 			expect(ran.map((call) => call.command)).toEqual(["run-ci"]);
 			expect(state()).toMatchObject({ status: "none", ended: { reason: "stopped" } });
 			expect(models()).toEqual(["small"]);
 			expect(selected()).toBe("faux/medium");
-			expect(entries("graph.node")).toEqual([{ node: "build", via: "start" }]);
+			// The command node was entered when the turn ended, and its run recorded before it started (spec 03).
+			expect(entries("graph.node")).toEqual([
+				{ node: "build", via: "start" },
+				{ node: "ci", via: "model", edge: 0, report: "done, on to ci" },
+			]);
+			expect(entries("graph.run")).toEqual([
+				{ node: "ci", run: "run-ci", replay: "unsafe", startedAt: expect.any(String) },
+			]);
+			expect(entries("graph.halt")).toEqual([]);
 			expect(process.env[LIMITS_ENV]).toBeUndefined();
 		});
 
@@ -416,6 +469,280 @@ describe("graph extension: controls", () => {
 			expect(state()).toMatchObject({ status: "none", ended: { reason: "done" } });
 			expect(selected()).toBe("faux/medium");
 			expect(harness.getPendingResponseCount()).toBe(0);
+		});
+	});
+
+	describe("after a crash (spec 03)", () => {
+		const SAFE = SHIP.replace(
+			`ci: { run: "run-ci", timeout: "5s" }`,
+			`ci: { run: "run-ci", timeout: "5s", replay: "safe" }`,
+		);
+
+		/**
+		 * A first process that died while `ci` ran: its `graph.run` is on the branch with no result. `more` adds what an
+		 * earlier life left too. The second process opens the same session.
+		 */
+		async function crashed(graph: string, more?: (sessionManager: SessionManager, startedAt: string) => void) {
+			const sessionManager = SessionManager.inMemory();
+			const first = await setup({ sessionManager, graphs: { ship: graph } });
+			first.held.add("run-ci");
+			first.harness.setResponses([first.move("ci")]);
+			void first.harness.session.prompt("/graph start ship");
+			await first.started("run-ci");
+			const run = first.entries("graph.run")[0] as { startedAt: string };
+			more?.(sessionManager, run.startedAt);
+			const second = await setup({ sessionManager, graphs: { ship: graph } });
+			await selectGraphModel(second.harness);
+			return second;
+		}
+
+		it("tells and writes nothing when the session opens; a safe command runs again at the next message, answered at once", async () => {
+			const second = await crashed(SAFE);
+			expect(second.note('"ci" was interrupted while its command ran; it runs again when you go on')).toBeDefined();
+			// The extension wrote nothing when the session opened: its last entry is still the run with no result.
+			const customs = second.harness.sessionManager.getBranch().filter((entry) => entry.type === "custom");
+			expect(customs.at(-1)).toMatchObject({ customType: "graph.run" });
+			second.harness.setResponses([second.say("Answered while ci runs."), second.say("Reviewing.")]);
+			await second.go("go on");
+			expect(second.ran.map((call) => call.command)).toEqual(["run-ci"]);
+			// The message went to the model selected before the graph; the next node came after that turn.
+			expect(second.models()).toEqual(["medium", "large"]);
+			expect(second.running().node).toBe("review");
+			const runs = second.entries("graph.run") as { startedAt: string }[];
+			expect(runs).toHaveLength(2);
+			expect(second.entries("graph.move").at(-1)).toMatchObject({ via: "pass", runStartedAt: runs[1].startedAt });
+			expect(second.entries("graph.halt")).toEqual([]);
+		});
+
+		it("halts an unsafe command at the next message, and does not run it again", async () => {
+			const second = await crashed(SHIP);
+			expect(second.note('"ci" may have run its command (it was interrupted)')).toBeDefined();
+			expect(second.entries("graph.halt")).toEqual([]);
+			second.harness.setResponses([second.say("The graph is halted.")]);
+			await second.go("go on");
+			expect(second.ran).toEqual([]);
+			const [run] = second.entries("graph.run") as { startedAt: string }[];
+			expect(second.entries("graph.halt")).toEqual([
+				{
+					reason: '"ci" may have run its command (it was interrupted), and it is not replay-safe',
+					interrupted: run.startedAt,
+				},
+			]);
+			expect(second.models()).toEqual(["medium"]);
+			// The rules of a halt on a command node: the model cannot move.
+			expect(second.running().halted).toContain("not replay-safe");
+		});
+
+		it("/graph goto writes the halt of an unsafe command first, then its own entry, and runs the node it goes to", async () => {
+			const second = await crashed(SHIP);
+			second.harness.setResponses([second.say("Reviewing.")]);
+			await second.go("/graph goto ci");
+			const branch = second.harness.sessionManager.getBranch();
+			const halt = branch.findIndex((entry) => entry.type === "custom" && entry.customType === "graph.halt");
+			const jump = branch.findIndex(
+				(entry) =>
+					entry.type === "custom" && entry.customType === "graph.node" && (entry.data as NodeLike).via === "goto",
+			);
+			expect(halt).toBeGreaterThan(0);
+			expect(jump).toBeGreaterThan(halt);
+			expect(second.ran.map((call) => call.command)).toEqual(["run-ci"]);
+			expect(second.running().node).toBe("review");
+		});
+
+		it("halts a safe command interrupted three times in one visit", async () => {
+			const second = await crashed(SAFE, (sessionManager) => {
+				for (const minute of [1, 2]) {
+					sessionManager.appendCustomEntry("graph.run", {
+						node: "ci",
+						run: "run-ci",
+						replay: "safe",
+						startedAt: `2099-01-01T00:0${minute}:00.000Z`,
+						at: `2099-01-01T00:0${minute}:00.000Z`,
+					});
+				}
+			});
+			expect(second.note('"ci" may have run its command (interrupted 3 times)')).toBeDefined();
+			second.harness.setResponses([second.say("Halted.")]);
+			await second.go("go on");
+			expect(second.ran).toEqual([]);
+			expect(second.entries("graph.halt")).toEqual([
+				{ reason: '"ci" was interrupted 3 times while its command ran', interrupted: "2099-01-01T00:02:00.000Z" },
+			]);
+		});
+
+		it("treats a command node entered with no record of a run (an older xpi died in /graph goto) by its replay", async () => {
+			const sessionManager = SessionManager.inMemory();
+			const first = await setup({ sessionManager });
+			first.harness.setResponses([first.say("Building.")]);
+			await first.go("/graph start ship");
+			sessionManager.appendCustomEntry("graph.node", { node: "merge", via: "goto", at: new Date().toISOString() });
+			const second = await setup({ sessionManager });
+			await selectGraphModel(second.harness);
+			expect(second.note('"merge" may have run its command (it has no record)')).toBeDefined();
+			second.harness.setResponses([second.say("Halted.")]);
+			await second.go("go on");
+			expect(second.ran).toEqual([]);
+			expect(second.entries("graph.halt")).toEqual([
+				{ reason: '"merge" may have run its command (it has no record of starting), and it is not replay-safe' },
+			]);
+		});
+	});
+
+	describe("commands after a turn (spec 03)", () => {
+		it("does not start a command after a turn cut off while it ended; the next message starts it, though it is unsafe", async () => {
+			const context = await setup({ abortAtSettle: true });
+			context.harness.setResponses([context.move("ci"), context.say("Answered."), context.say("Reviewing.")]);
+			await context.go("/graph start ship");
+			expect(context.ran).toEqual([]);
+			expect(context.running().node).toBe("ci");
+			// This process entered the node and knows the command has not run.
+			await context.go("go on");
+			expect(context.ran.map((call) => call.command)).toEqual(["run-ci"]);
+			expect(context.running().node).toBe("review");
+			expect(context.entries("graph.halt")).toEqual([]);
+		});
+
+		it("answers a message typed while the command runs at once, and enters the next node when that turn ends", async () => {
+			const context = await setup();
+			context.held.add("run-ci");
+			const sayAndRelease: FauxResponseStep = (request, streamOptions, state, model) => {
+				context.release["run-ci"]();
+				const step = context.say("Still waiting for ci.");
+				return typeof step === "function" ? step(request, streamOptions, state, model) : step;
+			};
+			context.harness.setResponses([context.move("ci"), sayAndRelease, context.say("Reviewing.")]);
+			await context.harness.session.prompt("/graph start ship");
+			await context.started("run-ci");
+			await context.go("status?");
+			expect(context.models()).toEqual(["small", "medium", "large"]);
+			expect(context.running().node).toBe("review");
+			// The command's move was written during that turn and entered at its end.
+			const branch = context.harness.sessionManager.getBranch();
+			const moved = branch.findIndex(
+				(entry) =>
+					entry.type === "custom" && entry.customType === "graph.move" && (entry.data as MoveLike).via === "pass",
+			);
+			const answer = branch.findIndex(
+				(entry) =>
+					entry.type === "message" &&
+					entry.message.role === "assistant" &&
+					getMessageText(entry.message).includes("Still waiting"),
+			);
+			const review = branch.findIndex(
+				(entry) =>
+					entry.type === "custom" &&
+					entry.customType === "graph.node" &&
+					(entry.data as NodeLike).node === "review",
+			);
+			expect(moved).toBeGreaterThan(-1);
+			expect(review).toBeGreaterThan(answer);
+			expect(review).toBeGreaterThan(moved);
+		});
+
+		it("without a UI, /graph start returns only when the command after a turn and the turns after it are done", async () => {
+			const context = await setup({ ui: false });
+			context.harness.setResponses([context.move("ci"), context.move("merge")]);
+			await context.harness.session.prompt("/graph start ship");
+			expect(context.graphExtension.busy()).toBe(false);
+			expect(context.ran.map((call) => call.command)).toEqual(["run-ci"]);
+			expect(context.running().node).toBe("review");
+			expect(context.running().halted).toContain("needs the user's approval");
+		});
+
+		it("without a UI, a quit waits for the command, writes its result and move, and goes no further", async () => {
+			const context = await setup({ ui: false });
+			context.held.add("run-ci");
+			context.harness.setResponses([context.move("ci"), context.say("Reviewing.")]);
+			void context.harness.session.prompt("/graph start ship");
+			await context.started("run-ci");
+			let done = false;
+			const shutdown = emitSessionShutdownEvent(context.harness.session.extensionRunner, {
+				type: "session_shutdown",
+				reason: "quit",
+			}).then(() => {
+				done = true;
+			});
+			await new Promise((resolve) => setTimeout(resolve, 50));
+			expect(done).toBe(false);
+			context.release["run-ci"]();
+			await shutdown;
+			const [run] = context.entries("graph.run") as { startedAt: string }[];
+			expect(context.entries("graph.move").at(-1)).toMatchObject({ via: "pass", runStartedAt: run.startedAt });
+			// The move to review stays pending: no turn, no next node.
+			expect(context.running().node).toBe("ci");
+			expect(context.running().pending).toBeDefined();
+			expect(context.models()).toEqual(["small"]);
+		});
+
+		it("without a UI, a quit by a signal that kills the command leaves its run interrupted, not failed", async () => {
+			const context = await setup({ ui: false });
+			context.held.add("run-ci");
+			context.harness.setResponses([context.move("ci")]);
+			void context.harness.session.prompt("/graph start ship");
+			await context.started("run-ci");
+			const shutdown = emitSessionShutdownEvent(context.harness.session.extensionRunner, {
+				type: "session_shutdown",
+				reason: "quit",
+			});
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			context.killFromOutside["run-ci"]();
+			await shutdown;
+			expect(context.entries("graph.run")).toHaveLength(1);
+			expect(context.entries("graph.move")).toHaveLength(1);
+			expect(context.entries("graph.halt")).toEqual([]);
+			expect(
+				context.harness.sessionManager
+					.getBranch()
+					.some((entry) => entry.type === "custom_message" && entry.customType === "graph.command"),
+			).toBe(false);
+			expect(context.running().runs).toEqual([{ startedAt: expect.any(String), finished: false }]);
+		});
+
+		it("records nothing for a command a signal from outside ended while xpi runs on, and says so", async () => {
+			const context = await setup();
+			context.held.add("run-ci");
+			context.harness.setResponses([context.move("ci"), context.say("Answered.")]);
+			void context.harness.session.prompt("/graph start ship");
+			await context.started("run-ci");
+			context.killFromOutside["run-ci"]();
+			await context.quiet();
+			expect(context.note("its command was ended by SIGTERM; it counts as interrupted")).toBeDefined();
+			expect(context.entries("graph.move")).toHaveLength(1);
+			expect(context.entries("graph.halt")).toEqual([]);
+			// The node is unsafe: the next message halts the graph rather than run it again.
+			await context.go("go on");
+			expect(context.ran.map((call) => call.command)).toEqual(["run-ci"]);
+			expect(context.running().halted).toContain("not replay-safe");
+		});
+
+		it("does not count the command that runs now as interrupted in /graph", async () => {
+			const context = await setup();
+			context.held.add("run-ci");
+			context.harness.setResponses([context.move("ci"), context.say("Reviewing.")]);
+			void context.harness.session.prompt("/graph start ship");
+			await context.started("run-ci");
+			await context.harness.session.prompt("/graph");
+			const shown = context.notes.at(-1) ?? "";
+			expect(shown).toContain("(now)");
+			expect(shown).not.toContain("interrupted");
+			context.release["run-ci"]();
+			await context.quiet();
+		});
+
+		it("without a UI, a session replaced while the command runs stops it and writes nothing after it", async () => {
+			const context = await setup({ ui: false });
+			context.held.add("run-ci");
+			context.harness.setResponses([context.move("ci")]);
+			void context.harness.session.prompt("/graph start ship");
+			await context.started("run-ci");
+			await emitSessionShutdownEvent(context.harness.session.extensionRunner, {
+				type: "session_shutdown",
+				reason: "new",
+			});
+			await context.graphExtension.quiet();
+			expect(context.entries("graph.move")).toHaveLength(1);
+			expect(context.entries("graph.halt")).toEqual([]);
+			expect(context.running().node).toBe("ci");
 		});
 	});
 
@@ -769,8 +1096,8 @@ describe("graph extension: controls", () => {
 			expect(requests).toBeGreaterThanOrEqual(2);
 		});
 
-		it("gives a model node its own time, not that of the command entered at its turn's end", async () => {
-			const { harness, answers, held, started, release, move, go } = await setup();
+		it("gives each visit its own time, a command's included, and records the run before it starts", async () => {
+			const { harness, answers, held, started, release, move, go, quiet } = await setup();
 			answers.push("Stop the graph");
 			held.add("run-ci");
 			harness.setResponses([move("ci"), move("merge")]);
@@ -779,23 +1106,28 @@ describe("graph extension: controls", () => {
 			await new Promise((resolve) => setTimeout(resolve, 400));
 			release["run-ci"]();
 			await turn;
-			await harness.session.waitForIdle();
+			await quiet();
 			await go("/graph");
 			const [build, ci] = lastReport(harness).visits;
 			expect(ci.command?.durationMs).toBeGreaterThanOrEqual(350);
+			expect(ci.durationMs).toBeGreaterThanOrEqual(350);
 			expect(build.durationMs).toBeLessThan(300);
-			// Committed together, after the command: the times are the entries' own, not their timestamps.
-			const node = harness.sessionManager
-				.getBranch()
-				.find(
-					(entry) =>
-						entry.type === "custom" &&
-						entry.customType === "graph.node" &&
-						(entry.data as { node: string }).node === "ci",
-				);
-			expect(
-				node?.type === "custom" && Date.parse(node.timestamp) - Date.parse((node.data as { at: string }).at),
-			).toBeGreaterThanOrEqual(350);
+			// The command node's entry and its run are on the branch before the command ends, not committed after it.
+			const written = (type: string) =>
+				harness.sessionManager
+					.getBranch()
+					.find(
+						(entry) =>
+							entry.type === "custom" &&
+							entry.customType === type &&
+							(entry.data as { node: string }).node === "ci",
+					);
+			for (const type of ["graph.node", "graph.run"]) {
+				const entry = written(type);
+				expect(
+					entry?.type === "custom" && Date.parse(entry.timestamp) - Date.parse((entry.data as { at: string }).at),
+				).toBeLessThan(300);
+			}
 		});
 
 		it("marks an end written between turns, and the report's total is the session's usage summed by hand", async () => {
@@ -847,7 +1179,7 @@ describe("graph extension: controls", () => {
 		});
 
 		it("shows a running command's elapsed time and last lines, and removes the widget when it ends", async () => {
-			const { harness, held, started, release, write, widgets, statuses, move, say } = await setup();
+			const { harness, held, started, release, write, widgets, statuses, move, say, quiet } = await setup();
 			held.add("run-ci");
 			harness.setResponses([move("ci"), say("Reviewing."), say("Still reviewing.")]);
 			const turn = harness.session.prompt("/graph start ship");
@@ -859,7 +1191,7 @@ describe("graph extension: controls", () => {
 			expect(statuses.some((text) => /^graph ship: ci (0\.\ds|1s)$/.test(text ?? ""))).toBe(true);
 			release["run-ci"]();
 			await turn;
-			await harness.session.waitForIdle();
+			await quiet();
 			expect(widgets.at(-1)).toBeUndefined();
 			expect(statuses.at(-1)).toMatch(/^graph ship: review/);
 		});
@@ -943,12 +1275,14 @@ describe("graph extension: controls", () => {
 				"graph:enter build#1",
 				"graph:move build#1",
 				"graph:enter ci#2",
+				"graph:run ci#2",
 				"graph:command ci#2",
 				"graph:move ci#2",
 				"graph:enter review#3",
 				"graph:asked review#3",
 				"graph:move review#3",
 				"graph:enter merge#4",
+				"graph:run merge#4",
 				"graph:command merge#4",
 				"graph:move merge#4",
 				"graph:end merge#4",
@@ -961,6 +1295,11 @@ describe("graph extension: controls", () => {
 				run: "run-ci",
 				outcome: "pass",
 			});
+			expect(events.find((event) => event.channel === "graph:run")?.data).toMatchObject({
+				run: "run-ci",
+				replay: "unsafe",
+				startedAt: expect.any(String),
+			});
 			expect(events.at(-1)?.data).toMatchObject({ reason: "done" });
 			expect(events.filter((event) => event.channel === "graph:move").map((event) => event.data.to)).toEqual([
 				"ci",
@@ -972,25 +1311,27 @@ describe("graph extension: controls", () => {
 			await go("/graph");
 			harness.setResponses([say("After the graph.")]);
 			await go("hello");
-			expect(events).toHaveLength(13);
+			expect(events).toHaveLength(15);
 		});
 
-		it("tells nothing of the drafts of a graph stopped while its command ran", async () => {
-			const { harness, held, started, events, move } = await setup();
+		it("tells what a graph stopped while its command ran wrote, and nothing after the stop", async () => {
+			const { harness, held, started, events, move, quiet } = await setup();
 			held.add("run-ci");
 			harness.setResponses([move("ci")]);
 			const turn = harness.session.prompt("/graph start ship");
 			await started("run-ci");
 			await harness.session.prompt("/graph stop");
 			await turn;
-			await harness.session.waitForIdle();
+			await quiet();
 			expect(events.map((event) => event.channel)).toEqual([
 				"graph:start",
 				"graph:enter",
 				"graph:move",
+				"graph:enter",
+				"graph:run",
 				"graph:end",
 			]);
-			expect(events.at(-1)?.data).toMatchObject({ reason: "stopped", node: "build" });
+			expect(events.at(-1)?.data).toMatchObject({ reason: "stopped", node: "ci" });
 		});
 
 		it("answers --json with no run, and without a UI on stdout", async () => {

@@ -316,6 +316,28 @@ describe("createAgentSession with virtual models", () => {
 		expect(session.model).toMatchObject({ provider: "late", id: "auto" });
 	});
 
+	it("restores the selection of a session written before its first message (spec 03, persistSession)", async () => {
+		const { runtime } = await createRuntime();
+		const sessionManager = SessionManager.inMemory(tempDir);
+		sessionManager.appendModelChange("faux", "large");
+		sessionManager.appendThinkingLevelChange("high");
+		sessionManager.appendModelChange("router", "auto");
+		sessionManager.appendCustomEntry("graph.run", { node: "wait" });
+		const { session } = await createAgentSession({
+			cwd: tempDir,
+			agentDir: tempDir,
+			modelRuntime: runtime,
+			sessionManager,
+			resourceLoader: createTestResourceLoader(),
+		});
+		onTestFinished(() => session.dispose());
+
+		expect(session.model).toMatchObject({ provider: "router", id: "auto" });
+		expect(session.thinkingLevel).toBe("high");
+		// Resumed, not started: no second selection is written.
+		expect(sessionManager.getBranch().filter((entry) => entry.type === "model_change")).toHaveLength(2);
+	});
+
 	it("falls back to the physical model when the virtual model is not registered", async () => {
 		const { runtime } = await createRuntime();
 		runtime.unregisterVirtualModel("router", "auto");

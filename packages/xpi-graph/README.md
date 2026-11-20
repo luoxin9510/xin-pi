@@ -55,7 +55,7 @@ export default {
 | `name` | Lower-case letters, digits and dashes. |
 | `start` | The node the graph begins in. |
 | `nodes.<id>` with `prompt` | A model node. `model` (`provider/model`; absent: the model selected at the start), `thinking`, `deny` (command text the node may not run), `readOnly` (gitignore patterns of paths it may not write). |
-| `nodes.<id>` with `run` | A command node: one shell command and a `timeout` (`"30s"`, `"10m"`, `"1h"`; default 10 minutes). |
+| `nodes.<id>` with `run` | A command node: one shell command, a `timeout` (`"30s"`, `"10m"`, `"1h"`; default 10 minutes) and `replay` (`"safe"`: may run again after a crash; `"unsafe"`, the default: may not). |
 | `edges[]` | `from`, `to` (a node, or `end`), `exit`, optional `label` and `max`. |
 | `requires[]` | `{ before, passed, notAfter? }`, see the checks. |
 
@@ -103,8 +103,9 @@ the current branch into the state. Resuming a session, or moving to another bran
 |---|---|---|
 | `graph.start` | the graph's literal, the file path, the selection to restore | a graph starts |
 | `graph.node` | `node`, `via`, `edge`, `report` | a node is entered |
-| `graph.move` | `edge`, `via`, `report` | a move is accepted and not entered yet |
-| `graph.halt` | `reason` | the graph stops and waits for the user |
+| `graph.move` | `edge`, `via`, `report`, `runStartedAt` | a move is accepted and not entered yet (`runStartedAt`: a command's result, by the start of its run) |
+| `graph.run` | `node`, `run`, `replay`, `startedAt` | a command is about to run |
+| `graph.halt` | `reason`, `runStartedAt`, `interrupted` | the graph stops and waits for the user |
 | `graph.blocked` | the call and the rule | a limit blocked a call (a record; the state ignores it) |
 | `graph.asked` | `node`, `to`, `answer`, `askedAt` | an approval question is answered (a record; the state ignores it) |
 | `graph.end` | `reason`, `duringRun` | the graph is over |
@@ -116,12 +117,14 @@ end), and the report goes by `at`.
 
 - `none`: no graph runs. After a graph ended, `ended` holds the selection it should have restored.
 - `running`: the graph (checked again from the stored literal), the current `node`, `visited`, `counts` per edge,
-  `lastEdge` (the edge that entered the node), a `pending` move, the `halted` reason, and `reminded`.
+  `lastEdge` (the edge that entered the node), a `pending` move, the `halted` reason, `reminded`, and on a command
+  node `enteredAt` and the visit's `runs` (`startedAt`, `finished`).
 - `error`: the entries cannot be read as a graph, or do not agree with each other. The host must halt and tell
   the user, never guess. The cases: a stored graph that fails the checks; a node the graph does not have; a first
   entry that is not the start node, or a start entry later on; an edge that does not join the two nodes, or is not
   taken by its own exit (`via: "pass"` on an `approve` edge); a node entered by another edge than the pending
-  move; a second pending move; an end without a known reason.
+  move; a second pending move; an end without a known reason; a `graph.run` that is not on the current command node
+  or has no `startedAt`.
 
 Rules of the fold:
 
@@ -132,6 +135,15 @@ Rules of the fold:
 - A user message leaves a halt on a model node, and clears `reminded`. A halt on a command node is left only by a
   goto or the end.
 - Custom entries of other extensions are ignored.
+
+- A run is finished by the `graph.command` message whose `details.startedAt` is its own, or by a move or halt with
+  its `runStartedAt`. A visit entered before `graph.run` existed, with a command result after its entry, counts as
+  run.
+
+`commandCondition(state)` says what became of the current command node's visit: `halted`, `finished`, `interrupted`
+(its last run has no result) or `not_started`; undefined on a model node. `interruptions(state)` counts its runs with
+no result. The host decides from them, and from the node's `replay`, whether to run the command again (spec:
+`.scratch/xpi-graph/03-replay.md`).
 
 `exits(state)` lists the edges out of the current node, each with its index, its count, and `open: false` when it is
 at its `max`.
@@ -144,7 +156,8 @@ or returns undefined when the branch has none. Spec: `.scratch/xpi-graph/02-obse
 - One `VisitReport` per entry into a node: the models that answered (from the assistant messages, so a node with no
   model shows the model that stood in), or the command and its result (`graph.command` details, matched to the visit
   by node and start time, since a queued message can land after its visit); `startedAt` and `durationMs` from the
-  entries' `at`; `waitMs` from `graph.asked`; how it was left, a pending move, or the end.
+  entries' `at`; `waitMs` from `graph.asked`; how it was left, a pending move, or the end; a command visit's `runs` (`options.running`: the `startedAt` of
+  the command the host runs now, marked `running` and not counted as interrupted).
 - Usage in three parts: `own` (assistant messages), `tools` (tool results with usage, `usage` records of kind
   `nested_tool_calls`) and `other` by kind (other `usage` records, `compaction` and `branch_summary`).
 - After `graph.end`: when it was written during a run (`duringRun`), the rest of that run counts, `own` and `tools`

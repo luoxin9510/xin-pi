@@ -208,8 +208,9 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 
 	// Check if session has existing data to restore
 	const existingSession = sessionManager.buildSessionContext();
-	const hasExistingSession = existingSession.messages.length > 0;
 	const hasThinkingEntry = sessionManager.getBranch().some((entry) => entry.type === "thinking_level_change");
+	// The same test as main.ts: a session with a saved selection is resumed, though it may have no message yet.
+	const hasExistingSession = sessionManager.isContinuing();
 
 	let model = options.model;
 	let modelFallbackMessage: string | undefined;

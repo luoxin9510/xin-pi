@@ -464,6 +464,35 @@ describe("SessionManager session file creation", () => {
 		expect(SessionManager.open(file, tempDir).buildSessionContext().messages).toHaveLength(1);
 	});
 
+	// spec 03: an entry that must survive a crash in a session with no message yet
+	it("writes the file at once on persistNow, then appends; nothing for an in-memory session", () => {
+		const session = SessionManager.create(tempDir, tempDir);
+		session.appendCustomEntry("graph.start", { name: "release" });
+		expect(existsSync(session.getSessionFile()!)).toBe(false);
+		session.persistNow();
+		session.appendCustomEntry("graph.run", { node: "patch" });
+		expect(readSessionFileRoles(session.getSessionFile()!)).toEqual(["session", "custom", "custom"]);
+		// Twice is the same as once.
+		session.persistNow();
+		expect(readSessionFileRoles(session.getSessionFile()!)).toEqual(["session", "custom", "custom"]);
+		const memory = SessionManager.inMemory();
+		memory.appendCustomEntry("graph.run", { node: "patch" });
+		expect(() => memory.persistNow()).not.toThrow();
+	});
+
+	it("continues a session with a message, or with a saved selection and no message; not an empty one", () => {
+		const empty = SessionManager.inMemory();
+		expect(empty.isContinuing()).toBe(false);
+		empty.appendCustomEntry("graph.start", {});
+		expect(empty.isContinuing()).toBe(false);
+		const selected = SessionManager.inMemory();
+		selected.appendModelChange("anthropic", "claude-haiku-5-5");
+		expect(selected.isContinuing()).toBe(true);
+		const talked = SessionManager.inMemory();
+		talked.appendMessage(userMsg("hi"));
+		expect(talked.isContinuing()).toBe(true);
+	});
+
 	it("appends later entries to the file without rewriting earlier ones", () => {
 		const session = SessionManager.create(tempDir, tempDir);
 		session.appendMessage(userMsg("first question"));

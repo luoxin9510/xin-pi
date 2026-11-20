@@ -1189,18 +1189,45 @@ export class SessionManager {
 
 		if (!this.flushed) {
 			if (!this._hasConversation()) return;
-			const fd = openSync(this.sessionFile, "wx");
-			try {
-				for (const e of this.fileEntries) {
-					writeFileSync(fd, `${JSON.stringify(e)}\n`);
-				}
-			} finally {
-				closeSync(fd);
-			}
-			this.flushed = true;
+			this._writeFile(this.sessionFile);
 		} else {
 			appendFileSync(this.sessionFile, `${JSON.stringify(entry)}\n`);
 		}
+	}
+
+	/** Create the session file with every entry so far; later entries are appended to it. */
+	private _writeFile(sessionFile: string): void {
+		const fd = openSync(sessionFile, "wx");
+		try {
+			for (const e of this.fileEntries) {
+				writeFileSync(fd, `${JSON.stringify(e)}\n`);
+			}
+		} finally {
+			closeSync(fd);
+		}
+		this.flushed = true;
+	}
+
+	/**
+	 * Whether opening this session resumes it (its saved model selection is restored) rather than starts it. True with a
+	 * message, and with a saved selection and no message yet: an extension can have the session written before its first
+	 * message (`pi.persistSession()`, a graph whose command nodes ran with no model turn).
+	 */
+	isContinuing(): boolean {
+		return (
+			this.buildSessionContext().messages.length > 0 ||
+			this.getBranch().some((entry) => entry.type === "model_change")
+		);
+	}
+
+	/**
+	 * Write the session file now, though it has no user or assistant message yet (a session is otherwise written from
+	 * its first one). For a writer that must find its entries after a crash. Nothing for an in-memory session or one
+	 * already written.
+	 */
+	persistNow(): void {
+		if (!this.persist || !this.sessionFile || this.flushed) return;
+		this._writeFile(this.sessionFile);
 	}
 
 	private _appendEntry(entry: SessionEntry): void {

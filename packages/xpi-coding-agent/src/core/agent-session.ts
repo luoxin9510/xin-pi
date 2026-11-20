@@ -3918,6 +3918,9 @@ export class AgentSession {
 						this._emit({ type: "entry_appended", entry });
 					}
 				},
+				persistSession: () => {
+					this.sessionManager.persistNow();
+				},
 				setSessionName: (name) => {
 					this.setSessionName(name);
 				},

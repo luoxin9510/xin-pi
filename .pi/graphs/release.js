@@ -23,11 +23,13 @@ export default {
 			readOnly: ["**"],
 			deny: ["npm publish", "git tag", "git push", "release:tag"],
 		},
-		patch: { run: "npm run release:patch", timeout: "20m" },
-		minor: { run: "npm run release:minor", timeout: "20m" },
+		// After a crash, a command marked unsafe is not run again: the graph halts and the user checks what it did.
+		patch: { run: "npm run release:patch", timeout: "20m", replay: "unsafe" },
+		minor: { run: "npm run release:minor", timeout: "20m", replay: "unsafe" },
 		// The bump has just pushed: its checks register a little later. Wait for the first one, then for all of them.
 		// Without an open pull request on the branch this fails at once.
 		ci: {
+			replay: "safe",
 			run: 'pr=$(gh pr view --json number,state --jq \'select(.state=="OPEN").number\' 2>&1); st=$?; [ "$st" = 0 ] && [ -n "$pr" ] || { echo "ci: no open pull request for branch \\"$(git branch --show-current)\\""; echo "$pr"; exit 1; }; for i in $(seq 1 30); do [ -n "$(gh pr checks --json name --jq ".[].name" 2>/dev/null)" ] && break; sleep 10; done; gh pr checks --watch --fail-fast',
 			timeout: "45m",
 		},
@@ -44,14 +46,15 @@ export default {
 			deny: ["npm publish", "git tag", "gh pr merge", "git push", "release:tag"],
 			readOnly: ["packages/**", "scripts/**", "docs/**", ".github/**", ".pi/**", "package.json", "package-lock.json"],
 		},
-		merge: { run: "gh pr merge --merge --delete-branch" },
-		sync: { run: "git checkout main && git pull --ff-only" },
+		merge: { run: "gh pr merge --merge --delete-branch", replay: "unsafe" },
+		sync: { run: "git checkout main && git pull --ff-only", replay: "safe" },
 		// CI of the merge commit itself, not the latest run on main: wait until that run exists, then for its result.
 		"main-ci": {
+			replay: "safe",
 			run: 'sha=$(git rev-parse HEAD); id=""; for i in $(seq 1 30); do id=$(gh run list --workflow ci.yml --commit "$sha" --limit 1 --json databaseId --jq ".[0].databaseId"); [ -n "$id" ] && break; sleep 10; done; [ -n "$id" ] && gh run watch "$id" --exit-status',
 			timeout: "45m",
 		},
-		tag: { run: "npm run release:tag" },
+		tag: { run: "npm run release:tag", replay: "unsafe" },
 		done: {
 			model: "anthropic/claude-haiku-5-5",
 			prompt:
