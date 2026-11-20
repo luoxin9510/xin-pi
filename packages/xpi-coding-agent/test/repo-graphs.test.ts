@@ -95,14 +95,14 @@ function repoOnMain(): string {
  * `--jq` filter of the call applied by jq, as the real gh does; without `prView` it has no pull request. `gh pr checks`
  * prints one check at once.
  */
-function fakeGh(prView?: string): { bin: string; sleepLog: string } {
+function fakeGh(prView?: string, warning = false): { bin: string; sleepLog: string } {
 	const bin = mkdtempSync(join(tmpdir(), "graph-fake-gh-"));
 	made.push(bin);
 	const sleepLog = join(bin, "sleep.log");
 	const view =
 		prView === undefined
 			? "  echo 'no pull requests found for branch' >&2\n  exit 1"
-			: `  expr=""; prev=""; for a in "$@"; do if [ "$prev" = --jq ]; then expr="$a"; fi; prev="$a"; done\n  printf '%s' '${prView}' | jq -r "$expr"\n  exit $?`;
+			: `${warning ? "  echo 'warning: a newer gh is available' >&2\n" : ""}  expr=""; prev=""; for a in "$@"; do if [ "$prev" = --jq ]; then expr="$a"; fi; prev="$a"; done\n  printf '%s' '${prView}' | jq -r "$expr"\n  exit $?`;
 	writeFileSync(
 		join(bin, "gh"),
 		`#!/bin/sh\nif [ "$1" = pr ] && [ "$2" = checks ]; then echo build-check; exit 0; fi\nif [ "$1" = pr ] && [ "$2" = view ]; then\n${view}\nfi\necho "unexpected gh call: $*" >&2\nexit 1\n`,
@@ -167,6 +167,16 @@ describe("the commands that make the branch and wait for CI", () => {
 			const result = runSh(runOf(name, "ci"), dir, bin);
 			expect(result.status).not.toBe(0);
 			expect(result.output).toContain('ci: no open pull request for branch "main"');
+			expect(existsSync(sleepLog)).toBe(false);
+		});
+
+		it("fails at once when its pull request is closed, though gh warns on stderr", () => {
+			const dir = repoOnMain();
+			const { bin, sleepLog } = fakeGh('{"number":1,"state":"CLOSED"}', true);
+			const result = runSh(runOf(name, "ci"), dir, bin);
+			expect(result.status).not.toBe(0);
+			expect(result.output).toContain('ci: no open pull request for branch "main"');
+			expect(result.output).toContain("warning: a newer gh is available");
 			expect(existsSync(sleepLog)).toBe(false);
 		});
 

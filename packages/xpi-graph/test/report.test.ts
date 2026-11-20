@@ -518,6 +518,38 @@ describe("mermaid", () => {
 		);
 	});
 
+	it("after the end marks no node current but `end`, and the edge to it as taken", () => {
+		const graph = checkGraph(parseGraph(devGraph()));
+		const done = run([
+			start(0),
+			enter("grill", "start", 0),
+			enter("build", "approve", 10, EDGE.approve),
+			enter("ci", "model", 20, EDGE.built),
+			enter("review", "pass", 30, EDGE.ciPass),
+			enter("merge", "model", 40, EDGE.reviewOk),
+			custom(GRAPH_MOVE, { edge: EDGE.merged, via: "pass", at: t(41) }),
+			end("done", 41),
+		]);
+		expect(done.edgesTaken).toEqual([EDGE.approve, EDGE.built, EDGE.ciPass, EDGE.reviewOk, EDGE.merged]);
+		const drawn = mermaid(graph, done);
+		expect(drawn).toContain("  class n0,n1,n2,n3,n4 visited");
+		expect(drawn).toContain("  class n_end current");
+		expect(drawn).toContain("  linkStyle 0,1,2,4,6 stroke-width:3px");
+
+		// Stopped: nothing is current, and the edge it did not take is not marked.
+		const stopped = run([
+			start(0),
+			enter("grill", "start", 0),
+			enter("build", "approve", 10, EDGE.approve),
+			end("stopped", 20, false),
+		]);
+		const drawnStopped = mermaid(graph, stopped);
+		expect(drawnStopped).toContain("  class n0,n1 visited");
+		expect(
+			drawnStopped.split("\n").filter((line) => line.startsWith("  class ") && line.endsWith(" current")),
+		).toEqual([]);
+	});
+
 	it("draws the graph alone without a run", () => {
 		const graph = checkGraph(parseGraph(devGraph()));
 		expect(mermaid(graph)).not.toContain("classDef");

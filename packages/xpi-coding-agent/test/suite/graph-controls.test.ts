@@ -1170,7 +1170,9 @@ describe("graph extension: controls", () => {
 			expect(text).toMatch(/\n1\s+build\s+model\s+faux\/small\s/);
 			expect(text).toMatch(/\n2\s+ci\s+command\s+run-ci\s.*pass → review/);
 			expect(text).toContain("flowchart LR");
-			expect(text).toContain("class n3 current");
+			// After the end only `end` is current, and the edge to it is taken.
+			expect(text).toContain("class n_end current");
+			expect(text).not.toContain("class n3 current");
 			// What an RPC client receives: the notice's text, with nothing around the JSON.
 			await go("/graph --json");
 			const json = JSON.parse(notes.at(-1) ?? "");
