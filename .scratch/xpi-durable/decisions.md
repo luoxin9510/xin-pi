@@ -172,3 +172,77 @@ sent as a prompt starts no run; `continueRun()` itself (print mode, RPC) returns
 roost worker settles its row as `done` at once with the message as its summary (`WorkerTracker.commandNote`); `busy`
 changes nothing (the run in progress settles the row), and so does a row already settled (a question waiting for someone who attached and typed `/continue`; review 1 of #154). Before: the row showed `working` for `FIRST_PROMPT_MS` (5 s),
 then `done` with no summary, and the reason went only to `notify`, which no one sees in a background worker.
+
+## Step 3: waits that do not hold a process (spec 02, 2026-11-21)
+
+The owner said "好呢可以先发，然后继续后面的开发" after v1.17.0. Facts gathered first (a Sonnet subagent, read-only):
+pi-durable waits are data (`sleepUntil` commits `{status: "sleeping", until, checkpoint}`; child waits commit
+`{status: "waiting", on}`), the process lets go, and `onWake`/`wake()` let a host arm its own alarm; there is no
+human-input or signal wait. In xin-pi a working session always holds its process; roost reaps only idle ones and wakes
+only on a reply; model `sleep`/polling and graph command nodes that wait for CI hold the process; codemode has no
+wait helper; schedules start new sessions, they do not wake one.
+
+Grill round 1, all as recommended ("全是"):
+- W1 First version: a session's own "wake me later" (model tool); graph waits and subagent waits later.
+- W2 `tools.wait({ after | at, reason })`, writes an `xpi.wait` entry, the turn ends; at most 7 days.
+- W3 In roost the worker exits and the daemon wakes it (persisted like `resumeAt`); outside roost an in-process timer;
+  no new background service.
+- W4 On waking: an `[xpi]` note (why, from–to) and a run starts; no made-up user message.
+- W5 `check` (a shell command, exit 0 = done) with an interval, run by the extension without a model call, inside xpi
+  so protections apply; in the first version.
+- W6 A user message wakes it and ends the wait (the model is told); `/wait` shows, `/wait cancel` cancels.
+- W7 Delivery as usual: spec PR for approval, milestones, CI, independent Opus review, Haiku only, no release.
+
+Grill round 2, all as recommended ("全部是"):
+- W8 Each check limited to 2 minutes; exit 0 wakes; `after`/`at` is the deadline; at the deadline wake anyway saying
+  the check never passed; the last 50 lines of output go into the note.
+- W9 `every` default 2m, at least 30s; in roost the worker exits between checks only when `every` is 2m or more.
+- W10 The rest of the script runs, then the run ends; the last call in a run wins; only the latest assistant
+  message's calls, background scripts refused. (See D1: the code does not do this today.)
+- W11 Allowed in graph model nodes (wakes in the same node, same model); not given to subagents.
+- W12 Roost row: state working, status waiting, new waitingFor `wake`; summary "waits until 14:20: ..." or "checks
+  every 2m, until 15:00: ..."; never blocked.
+- W13 A wake found late happens at once, however late; the note says planned vs actual.
+- W14 `/continue` during a wait wakes now, no check. (See D2: needs a core hook.)
+
+Found while writing the spec (section 9): D1 (a terminating nested call ends a codemode script at once, so W10's
+"rest of the script runs" needs a codemode change; recommended: let `wait` end the script) and D2 (`/continue` is
+handled by the core before extensions; recommended: a `continue_request` event). Also: graph's "ended your turn
+without leaving it" reminder would fire after a wait; the spec makes graph treat a pending wait as waiting.
+
+## Spec 02 review 1 (independent Opus, fresh context)
+
+3 blocking, 8 should-fix, 3 nits; all taken into the spec:
+- B1 An extension cannot run a tool through its hooks between runs (`ctx.executeTool` needs a parent tool call) →
+  new choice D3 (a core `ctx.runTool`), listed as a core change.
+- B2 Roost restart paths would wake a wait with a made-up prompt (`CARRY_ON` on restart of a "working" row; `/continue`
+  on a crash) → a waiting row is never "working" for restart rules; respawn adds no prompt; no DM-5 restart for it.
+  D2 no longer says "a due wait": `/continue` wakes any pending wait (W14).
+- B3 Reusing `resumeAt` would force `/continue`; a new `wakeAt` must be known to `cleanable`, `runStillWorking`,
+  `runState`, `finalize` (a let-go waiting row stays waiting, not done) and `toRow` → named in section 6.
+- S1 `terminate` ends a run only when the whole batch terminates; queued steers go on → the wait is recorded at
+  `agent_settled`; a user message in the same run drops it.
+- S2 Runs started by something else (background results, subagent reports) → the wait stays pending; a timer that
+  fires during a run waits for it to settle (never steered in).
+- S3 Crash between writing the wait and the run's end → recording at `agent_settled` means no half-made wait on disk.
+- S4 The next check time → `at + k × every`, recomputed on reopen; one found past runs at once.
+- S5 A worker not let go has no persisted wake → the daemon stores `wakeAt` anyway and `finalize` keeps the row waiting.
+- S6 Closed `waitingFor` enum (`REPORT_WAITING`, `acceptReport`, `events.ts`, `view-model.ts`) → all named; the
+  protocol doc says unknown values are `null`.
+- S7 A user message during a check → the check is killed, its result ignored; the note via `before_agent_start`.
+- S8 Two processes → the daemon retries a locked respawn every minute; first wake written wins.
+- Nits: time zones and DST for `at`/`"HH:MM"`; the print-mode contradiction; the by-hand plan now covers restart,
+  crash, a batch with another tool, a background result during a wait, cleanup.
+
+Round 2 (same reviewer, the revision): round 1 fixed; 2 should-fix and 3 nits from the new text, all taken:
+- graph's reminder runs at `agent_before_settle`, before `agent_settled` → the wait is a draft entry at that boundary
+  (`builtin:wait` loads before graph; graph reads `event.entries`); an aborted run records none.
+- `before_agent_start` messages come after the user's message → the note and wake are appended in `input`; M1
+  checks `input` fires for typed, `sendUserMessage` and CLI messages, else a small core option.
+- `wakeAt` is cleared on a report without `wake` and on `stop`, kept by `respawn`; a respawned waiting row keeps
+  its display until the new worker reports; the status line's W ranges.
+
+Round 3 (same reviewer): approve. Two nits taken into section 1: a queued user message after the boundary ends a
+recorded wait with `user` (decided in `input`); `docs/extensions.md` will say boundary handlers keep `event.entries`.
+
+Approval (2026-11-21): the owner answered "全部推荐": the spec is approved and D1 (a), D2 (a), D3 (a) are taken.
