@@ -233,3 +233,11 @@ without leaving it" reminder would fire after a wait; the spec makes graph treat
 - S8 Two processes → the daemon retries a locked respawn every minute; first wake written wins.
 - Nits: time zones and DST for `at`/`"HH:MM"`; the print-mode contradiction; the by-hand plan now covers restart,
   crash, a batch with another tool, a background result during a wait, cleanup.
+
+Round 2 (same reviewer, the revision): round 1 fixed; 2 should-fix and 3 nits from the new text, all taken:
+- graph's reminder runs at `agent_before_settle`, before `agent_settled` → the wait is a draft entry at that boundary
+  (`builtin:wait` loads before graph; graph reads `event.entries`); an aborted run records none.
+- `before_agent_start` messages come after the user's message → the note and wake are appended in `input`; M1
+  checks `input` fires for typed, `sendUserMessage` and CLI messages, else a small core option.
+- `wakeAt` is cleared on a report without `wake` and on `stop`, kept by `respawn`; a respawned waiting row keeps
+  its display until the new worker reports; the status line's W ranges.

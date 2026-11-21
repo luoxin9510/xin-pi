@@ -6,7 +6,7 @@ First, check how the subagent extension builds a child's tool list (to leave `wa
 `decisions.md`.
 
 - [ ] W.1 `src/extensions/wait/`: tool `wait` (parse `after`/`at`/`every`, time zones, limits, latest-assistant-message
-      rule, `terminate`, recorded at `agent_settled`), `xpi.wait` / `xpi.wake` / `xpi.woke`, pending rule, `/wait` and `/wait cancel`.
+      rule, `terminate`, recorded as a draft at `agent_before_settle`; note before a user message via `input`), `xpi.wait` / `xpi.wake` / `xpi.woke`, pending rule, `/wait` and `/wait cancel`.
 - [ ] W.2 Timer and check in the process; waking (due, check, deadline, blocked, late); a user message ends the wait
       (note before the message); reopen at `session_start`; print mode's stderr line.
 - [ ] W.3 Core: D2 and D3 as approved; `createBranchedSession` cancels a copied pending wait.

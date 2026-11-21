@@ -1,7 +1,8 @@
 # Spec 02: waits that do not hold a process
 
-Status: draft for the owner's approval. Grill W1–W14 ("全是") and W8–W14 ("全部是") accepted as recommended on
-2026-11-21. Reviewed once by an independent Opus (3 blocking, 8 should-fix, 3 nits, all taken; see `decisions.md`).
+Status: draft for the owner's approval. Grill W1–W7 ("全是") and W8–W14 ("全部是") accepted as recommended on
+2026-11-21. Reviewed twice by an independent Opus (round 1: 3 blocking, 8 should-fix, 3 nits; round 2: 2 should-fix,
+3 nits; all taken; see `decisions.md`).
 Three new choices found while writing and reviewing (D1, D2, D3, section 10) wait for the owner.
 
 This is step 3 of the three steps that borrow ideas from upstream's `pi-durable` (step 1: xpi-graph spec 03, command
@@ -54,12 +55,15 @@ The result says the wait is recorded and asks to end the run: it sets `terminate
 the call (D1) and the run if every result of the tool batch terminates. The tool description says to call `wait`
 alone, as the last thing a script does.
 
-**The wait is recorded when the run ends, not when the tool runs.** The tool keeps the wait in memory; at
-`agent_settled` (the run is over, not aborted) the extension appends `xpi.wait`. So:
+**The wait is recorded when the run ends, not when the tool runs.** The tool keeps the wait in memory; at the run's
+final boundary, `agent_before_settle`, the extension adds `xpi.wait` as an entry draft (the boundary appends drafts
+with the run's other end-of-run entries). `builtin:wait` is loaded before `builtin:graph`, so graph's handler at the
+same boundary sees the draft in `event.entries` (section 5). A run that ends aborted (Esc) does not reach that
+boundary with the wait, or reaches it aborted: no wait is recorded, and at `agent_settled` the extension drops what it
+kept and says so. So:
 
 - a run cut off by the end of the process (spec 01) never leaves a half-made wait: there is no `xpi.wait` on disk, the
   core repairs the run as for any other tool call, and the model, told the call was interrupted, can wait again;
-- a run stopped with Esc records no wait (a notice says so);
 - if the run went on after the call (another tool in the same batch did not terminate, or a queued steer or follow-up
   came in): a user message in that run drops the wait (the model saw the user's message; nothing to tell); otherwise
   the wait is recorded when the run ends, as asked.
@@ -98,8 +102,12 @@ a pending wait it copies, next to closing open runs (`session-manager.ts`).
 - A wake that starts a run sends the note with `triggerTurn` (a `custom` trigger). If a run is active when the timer
   fires (the row above: something else started one), the wake waits for that run to settle; it is never steered into
   it.
-- With a user message: the extension's `before_agent_start` handler for a `user` trigger writes the `xpi.wake` and
-  adds the note before the user's message. A check running at that moment is killed and its result ignored.
+- With a user message: the extension's `input` handler (fired before the user's message is written) appends the
+  `xpi.wake` and the note without triggering a turn, so both come before the message (`before_agent_start` messages
+  would come after it: `_prepareRun` puts handler messages after the starting message). Milestone 1 first checks that
+  `input` fires for a typed message, `pi.sendUserMessage` (roost replies) and a CLI message; where it does not, a
+  small core option to place a message before the starting one is added and noted in `decisions.md`. A test asserts
+  the order. A check running at that moment is killed and its result ignored.
 - A wake found late (the process was gone, the daemon down, the laptop asleep) happens the moment it is found, however
   late (W13). A pending wait without a check found after `wakeAt`: `due`. With a check, found after a check time: one
   check runs at once; past the deadline, if it fails: `deadline`.
@@ -127,8 +135,9 @@ The wait lives in a built-in extension, `builtin:wait` (`src/extensions/wait/`),
 2. D3: a way for an extension to run a tool call outside a model's tool call (for the check).
 3. `createBranchedSession` closes a pending wait it copies (`cancel` wake).
 
-Graph (`src/extensions/graph/`): a model node whose run ended with a pending wait is waiting, not idle: no "ended your
-turn without leaving it" reminder, no halt (the graph checks the wait extension's entries on the branch). When the
+Graph (`src/extensions/graph/`): a model node whose run ended with a wait is waiting, not idle: no "ended your turn
+without leaving it" reminder, no halt. At `agent_before_settle` the graph looks for an `xpi.wait` draft in
+`event.entries` (this run's wait) or a pending one on the branch. When the
 wake's run starts, the node is still current, on its model (W11).
 
 Subagents (`src/extensions/subagent/`): `wait` is left out of a child's tools.
@@ -150,6 +159,9 @@ reported as working (W12).
   is not `resumeAt` (that one means a crash restart: `respawn` forces `/continue` and counts `crashRestarts` for it).
   A row with `wakeAt` is not cleaned by `cleanupDays` (`cleanable`), counts as still running for schedules
   (`runStillWorking`, `runState`), and shows its status and `waitingFor` even when its worker is gone (`toRow`).
+  `wakeAt` is cleared when a worker reports without `wake` (the wait ended, the session works or is idle), and on
+  `stop`; `respawn` keeps it (it clears `resumeAt`, not this). A respawn of a waiting row keeps the row's display
+  (state, status, `waitingFor`, summary) until the new worker reports, as `restore` does for an idle row.
 - **Letting go.** When a worker reports a wait with no check, or with `every` of 2 minutes or more, and no terminal is
   attached, the daemon ends the worker through a new path modelled on `terminateIfIdle` (the host refuses when a
   terminal attaches meanwhile; a reply that comes in meanwhile is delivered by a respawn, as for a reap). `finalize`
@@ -189,7 +201,7 @@ reported as working (W12).
 
 ## 9. Milestones
 
-1. **`builtin:wait`** (core and extension): tool, entries, recording at `agent_settled`, the in-process timer and
+1. **`builtin:wait`** (core and extension): tool, entries, recording at `agent_before_settle`, the in-process timer and
    check, waking and the note, `/wait`, D2, D3, forks, graph, subagents left out, print mode. Faux tests in
    `test/suite/wait.test.ts` (including: `wait` with another tool in the batch; a steer after the call; a timer
    firing during a background-triggered run; a user message during a check; `kill -9` before the run ends; a
