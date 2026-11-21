@@ -1,6 +1,6 @@
 {
 	"name": "xpi-relay",
-	"version": "1.16.0",
+	"version": "1.17.0",
 	"private": true,
 	"description": "Relay for xpi: a lead model plans and reviews, a worker model builds, in one session. The control flow, the records and the host interface",
 	"type": "module",
@@ -41,11 +41,11 @@
 	},
 	"dependencies": {
 		"typebox": "1.3.27",
-		"xpi-ai": "1.16.0"
+		"xpi-ai": "1.17.0"
 	},
 	"devDependencies": {
 		"@types/node": "22.19.19",
 		"vitest": "4.1.12",
-		"xpi-agent-core": "1.16.0"
+		"xpi-agent-core": "1.17.0"
 	}
 }

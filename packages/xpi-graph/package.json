@@ -1,6 +1,6 @@
 {
 	"name": "xpi-graph",
-	"version": "1.16.0",
+	"version": "1.17.0",
 	"private": true,
 	"description": "Flow control by a graph for xpi: nodes and hard edges in one session. The file format, the checks at load and the state read from the session branch",
 	"type": "module",
