@@ -783,6 +783,7 @@ async function prepareToolCall(
 	if (!tool) {
 		return {
 			kind: "immediate",
+			// builtin:wait matches this text to end a check wait in a session with no bash tool: keep them in step.
 			result: createErrorToolResult(`Tool ${toolCall.name} not found`),
 			isError: true,
 		};

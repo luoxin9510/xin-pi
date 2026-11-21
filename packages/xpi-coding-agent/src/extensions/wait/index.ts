@@ -180,7 +180,8 @@ export function createWaitExtension(clock: WaitClock = realClock) {
 			retry = undefined;
 			if (!ctx.isIdle()) {
 				deferred = { id: wait.id, why, ...(output ? { output } : {}) };
-				retry = clock.setTimeout(() => guarded(generation, retryDeferred), RETRY_MS);
+				const gen = generation;
+				retry = clock.setTimeout(() => guarded(gen, retryDeferred), RETRY_MS);
 				return;
 			}
 			deferred = undefined;
@@ -238,32 +239,34 @@ export function createWaitExtension(clock: WaitClock = realClock) {
 			const wait = pending(ctx);
 			if (!wait || !arms(ctx)) return;
 			const now = clock.now();
+			// Taken now: a timer of an older session does nothing (stop() also clears it).
+			const gen = generation;
 			if (!wait.check) {
 				if (now >= wait.wakeAt) {
 					fire(ctx, wait, "due");
 					return;
 				}
 				timer = clock.setTimeout(
-					() => guarded(generation, (latest) => arm(latest)),
+					() => guarded(gen, (latest) => arm(latest)),
 					Math.min(wait.wakeAt - now, MAX_TIMER_MS),
 				);
 				return;
 			}
 			// Reopened after a check time passed (or the deadline): one check runs at once.
 			if (opening && now >= wait.at + wait.check.everyMs) {
-				guarded(generation, (latest) => runCheck(latest, wait));
+				guarded(gen, (latest) => runCheck(latest, wait));
 				return;
 			}
 			const next = nextCheckAt(wait, now);
 			timer = clock.setTimeout(
 				() =>
-					guarded(generation, (latest) => {
+					guarded(gen, (latest) => {
 						timer = undefined;
 						const still = pending(latest);
 						if (!still || still.id !== wait.id) return;
 						// Busy: the run's settle arms again; a compaction has no settle, so look again shortly.
 						if (!latest.isIdle()) {
-							timer = clock.setTimeout(() => guarded(generation, (again) => arm(again)), RETRY_MS);
+							timer = clock.setTimeout(() => guarded(gen, (again) => arm(again)), RETRY_MS);
 							return;
 						}
 						return runCheck(latest, wait);
@@ -434,8 +437,10 @@ export function createWaitExtension(clock: WaitClock = realClock) {
 			if (requested && event.streamingBehavior) requested = undefined;
 			const wait = pending(ctx);
 			if (wait) {
-				const why: WakeWhy = !wait.check && clock.now() >= wait.wakeAt ? "due" : "user";
-				wake(ctx, wait, why, undefined, true);
+				// A wake found while busy says what it found (a passed check, with its output); else due or user.
+				const found = deferred?.id === wait.id ? deferred : undefined;
+				const why: WakeWhy = found?.why ?? (!wait.check && clock.now() >= wait.wakeAt ? "due" : "user");
+				wake(ctx, wait, why, found?.output, true);
 			}
 			return { action: "continue" };
 		});
