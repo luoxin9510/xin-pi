@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { extractChoices, lastLine, looksLikeQuestion, messageText } from "../src/lib/heuristics.ts";
-import { stateChanged, WorkerTracker } from "../src/lib/worker-state.ts";
+import { stateChanged, WorkerTracker, wakeSummary } from "../src/lib/worker-state.ts";
 
 const assistant = (text: string, extra: Record<string, unknown> = {}) => ({
 	content: [{ type: "text", text }],
@@ -261,5 +261,57 @@ describe("restore after a respawn", () => {
 		none.start({ fresh: true });
 		none.restore(undefined);
 		expect(none.report()).toMatchObject({ state: "working", status: "idle" });
+	});
+});
+
+describe("spec 02: a session that waits", () => {
+	const today = new Date(2026, 10, 21, 12, 0).getTime();
+	const at = new Date(2026, 10, 21, 14, 20).getTime();
+
+	it("reports working, waiting for a wake, with the wait; a run or a dialog comes first", () => {
+		const t = new WorkerTracker();
+		t.start({ fresh: true });
+		t.agentStart();
+		t.assistantMessage(assistant("Waiting for CI."));
+		t.agentSettled(false);
+		expect(t.setWake({ at, next: at, reason: "wait for CI" })).toBe(true);
+		expect(t.setWake({ at, next: at, reason: "wait for CI" })).toBe(false);
+		const r = t.report();
+		expect(r).toMatchObject({
+			state: "working",
+			status: "waiting",
+			waitingFor: "wake",
+			wake: { at, next: at, reason: "wait for CI" },
+			question: null,
+		});
+		expect(r.summary).toMatch(/^waits until (\d{4}-\d\d-\d\d )?14:20: wait for CI$/);
+		t.dialogStart("confirm", "Sure?");
+		expect(t.report()).toMatchObject({ waitingFor: "dialog", wake: null });
+		t.dialogEnd();
+		t.agentStart();
+		expect(t.report()).toMatchObject({ state: "working", status: "busy", waitingFor: null, wake: null });
+		// the run ended without a wait: as before
+		t.agentSettled(false);
+		t.setWake(null);
+		expect(t.report()).toMatchObject({ state: "done", waitingFor: null, wake: null });
+	});
+
+	it("a wait's next look is a state change; the summary names a check", () => {
+		const t = new WorkerTracker();
+		t.start({ fresh: true });
+		t.setWake({ at, next: at - 60_000, every: 120_000, reason: "poll" });
+		const a = t.report();
+		t.setWake({ at, next: at - 30_000, every: 120_000, reason: "poll" });
+		expect(stateChanged(a, t.report())).toBe(true);
+		expect(wakeSummary({ at, next: at, every: 120_000, reason: "poll" }, today)).toBe(
+			"checks every 2m, until 14:20: poll",
+		);
+		expect(wakeSummary({ at, next: at, reason: "" }, today)).toBe("waits until 14:20");
+		expect(wakeSummary({ at: at + 2 * 86_400_000, next: at, every: 90_000, reason: "x" }, today)).toBe(
+			"checks every 2m, until 2026-11-23 14:20: x",
+		);
+		// a fresh start forgets it (another conversation)
+		t.start({ fresh: true });
+		expect(t.report().waitingFor).not.toBe("wake");
 	});
 });

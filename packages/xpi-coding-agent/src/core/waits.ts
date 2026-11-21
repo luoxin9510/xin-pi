@@ -65,6 +65,13 @@ export function pendingWait(
 }
 
 /** The time of the next check after `now` (`at + k × everyMs`, k ≥ 1), capped at the deadline. */
+/**
+ * The `pi.events` channel the wait extension says on when it next looks at a pending wait (`{ id, next }`), and when
+ * a wait ended (`{ id, ended: true }`). Roost's worker reports it, and lets the daemon end the process until then.
+ */
+export const WAIT_EVENT = "xpi.wait";
+export type WaitEvent = { id: string; next: number } | { id: string; ended: true };
+
 export function nextCheckAt(wait: WaitData, now: number): number {
 	if (!wait.check) return wait.wakeAt;
 	const every = Math.max(1, wait.check.everyMs);

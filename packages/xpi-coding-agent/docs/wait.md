@@ -74,8 +74,10 @@ without starting a run.
 - **Print mode** (`xpi -p`) ends at the wait: it prints the pending wait on stderr and exits 0. It does not stay up.
   Your next message to that session (`xpi -p -c "..."`) ends the wait, the note first: as its time came when it was
   due, else as a user message. `xpi -p -c /continue` wakes it as `/continue`.
-- **Roost** (a background session) lets go of the worker process while the session waits, and the daemon wakes it:
-  see [Roost](roost.md) (next milestone).
+- **Roost** (a background session) lets go of the worker process while the session waits (unless a terminal is
+  attached, or the check runs more often than every 2 minutes), and the daemon starts it again when it is due: see
+  [A session that waits](roost.md#a-session-that-waits). The wait extension says when it next looks at a wait on
+  `pi.events` (`WAIT_EVENT`, `{ id, next }` and `{ id, ended: true }`); roost's worker reports it.
 
 ## Graphs
 

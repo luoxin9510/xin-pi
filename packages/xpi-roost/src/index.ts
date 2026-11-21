@@ -18,7 +18,7 @@ export { buildLaunch, fallbackName } from "./lib/dispatch.ts";
 export { clip, messageText } from "./lib/heuristics.ts";
 export { hostControl } from "./lib/hostclient.ts";
 export { JOB_ENV, readJobEnv } from "./lib/identity.ts";
-export { type ContextInfo, type DispatchArgs, PROTOCOL_VERSION } from "./lib/protocol.ts";
+export { type ContextInfo, type DispatchArgs, PROTOCOL_VERSION, type WakeInfo } from "./lib/protocol.ts";
 export { type AwayLog, awayIsEmpty, emptyAway, recapList } from "./lib/recap.ts";
 export { lastFor, RESTART_PROMPT, type RestartClient, respawnOne, restartRoost } from "./lib/restart.ts";
 export { RUN_SLOT } from "./lib/schedule.ts";

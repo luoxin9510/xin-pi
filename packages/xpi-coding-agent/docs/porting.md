@@ -429,7 +429,10 @@ The options below come with the unit. Each says how to turn it off.
 - **Depends on**: codemode (the tool is called from a script; a nested `terminate` ends the script). Graph reads its draft at `agent_before_settle`, so `wait` is wired before graph.
 - **Copy**: `extensions/wait/` (`index.ts`, `parse.ts`), `core/waits.ts`.
 - **Copy (core change)**: `ctx.runTool()` (`core/extensions/types.ts` `RunToolOptions`, `runner.ts` `runToolFn`, `agent-session.ts` `runExtensionToolCall`, and the shortcut context in `modes/interactive/interactive-mode.ts`); the `continue_request` event (`types.ts`, `runner.ts` `emitContinueRequest`, `agent-session.ts` `continueRun` split into `_continueCore`); `blocked` on `AgentToolCallOutcome` (`xpi-agent-core` `types.ts`, `agent-loop.ts`); `createBranchedSession` cancels a pending wait (`core/session-manager.ts`); graph's `agent_before_settle` skips its reminder for a run that ended with a wait (`extensions/graph/index.ts`).
-- **Rewrite**: the wiring line in `extensions/index.ts` (before graph); the roost part comes with the roost milestone of `.scratch/xpi-durable/02-waits.md`.
+- **Rewrite**: the wiring line in `extensions/index.ts` (before graph).
+- **With roost**: the extension emits `WAIT_EVENT` on `pi.events` (`core/waits.ts`); the roost session side reports
+  the pending wait (`waitingFor: "wake"`, `wake`), and the daemon lets the process go and wakes it (see "roost core").
+  Without roost nothing listens.
 - **Verify**: `test/suite/wait.test.ts` and `test/suite/graph-controls.test.ts` (vitest, singly).
 - **Linux**: no platform difference (the check runs with the bash tool's shell). **macOS**: the same.
 - **Known limit**: one process per session is assumed; two processes on one session can both run checks until one writes the wake. A process that is not open (print mode, a closed terminal) does not wake; the next time the session opens, a due wait wakes at once.
@@ -488,7 +491,9 @@ command line (`src/cli.ts`) and their library (`src/lib/`), plus the hub (`src/h
 
 - **Gives**: background sessions: a daemon per agent directory that runs sessions in PTYs held by host processes, and
   the `xpi roost` command line (`ls`, `attach`, `logs`, `log`, `reply`, `stop`, `rm`, `respawn`, `restart`, `daemon ...`). See
-  [Background Sessions](roost.md).
+  [Background Sessions](roost.md). Waiting rows (spec 02): a report with `waitingFor: "wake"` and `wake` stores `wakeAt`
+  (state, durable), the daemon ends the worker meanwhile and starts it again at `wakeAt` (`armWake`/`fireWake`/`noteWake`
+  in `daemon/main.ts`, rebuilt in `loadJobs`); see [A session that waits](roost.md#a-session-that-waits).
 - **Depends on**: no other unit, and nothing of the host agent. Host capabilities: node-pty, unix sockets, detached
   child processes, and a CLI that can start a session from an argv with a session file (`buildLaunch`,
   `lib/dispatch.ts`).
@@ -560,7 +565,8 @@ command line (`src/cli.ts`) and their library (`src/lib/`), plus the hub (`src/h
 - **Depends on**: the roost unit. Extension events (`session_start`, `session_shutdown`, `session_info_changed`,
   `session_tree`, `agent_start`, `agent_settled`, `message_end`, `tool_execution_start`/`end`,
   `ui_prompt_start`/`end`, `session_before_compact`, `session_compact`, `session_compact_failed`, `model_select`,
-  `thinking_level_select`, `continue_skipped`), `pi.registerFlag` (`--bg`, `--bg-name`), `pi.registerCommand`, `pi.sendUserMessage`.
+  `thinking_level_select`, `continue_skipped`), `pi.registerFlag` (`--bg`, `--bg-name`), `pi.registerCommand`, `pi.sendUserMessage`,
+  `pi.events` (`WAIT_EVENT` from the waits unit; `core/waits.ts` for the pending wait it reports).
 - **Copy (one unit)**: `coding-agent/src/extensions/roost/`, `index.ts` included; `getRoostEntries()` in `config.ts`.
 - **Rewrite**: the whole adapter is host code; keep its contracts (the job identity variables, the report ops, the
   session lock next to the session file).

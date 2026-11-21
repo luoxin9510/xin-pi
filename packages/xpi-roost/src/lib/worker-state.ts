@@ -1,7 +1,7 @@
 // The worker role's view of its own session (PRD §6.8), as a reducer over
 // pi events. Pure apart from the injected clock, so it is unit-tested directly.
 import { clip, extractChoices, lastLine, looksLikeQuestion, messageText, questionLine } from "./heuristics.ts";
-import type { ContextInfo, JobStatus, WaitingFor, WorkerReport } from "./protocol.ts";
+import type { ContextInfo, JobStatus, WaitingFor, WakeInfo, WorkerReport } from "./protocol.ts";
 import { sameUsage, type UsageInfo } from "./usage.ts";
 
 /** Time without a turn starting before an empty session counts as waiting for its first prompt. */
@@ -34,6 +34,8 @@ export class WorkerTracker {
 	private modelSummary: string | null = null;
 	/** Bumped at every run start: a late summary for an older run is dropped. */
 	private generation = 0;
+	/** Spec 02: the session's pending wait (tools.wait), between runs. */
+	private wake: WakeInfo | null = null;
 
 	/** A session (re)starts in this worker: /new, /resume and /fork begin from scratch. */
 	start(info: {
@@ -48,6 +50,7 @@ export class WorkerTracker {
 		this.thinking = info.thinking ?? null;
 		this.context = info.context ?? null;
 		if (!info.fresh) return;
+		this.wake = null;
 		this.running = false;
 		this.settled = undefined;
 		this.dialogs = [];
@@ -181,6 +184,13 @@ export class WorkerTracker {
 		return true;
 	}
 
+	/** Spec 02: the session's pending wait, or null; true when it changed. */
+	setWake(wake: WakeInfo | null): boolean {
+		if (sameWake(this.wake, wake)) return false;
+		this.wake = wake;
+		return true;
+	}
+
 	/** M24: the session's usage; true when it changed. */
 	setUsage(usage: UsageInfo | null): boolean {
 		if (sameUsage(this.usage, usage)) return false;
@@ -224,6 +234,11 @@ export class WorkerTracker {
 		} else if (this.running) {
 			state = "working";
 			status = "busy";
+		} else if (this.wake) {
+			// still the user's work, between runs: not "done", not asking anything
+			state = "working";
+			status = "waiting";
+			waitingFor = "wake";
 		} else if (this.settled === "blocked") {
 			state = "blocked";
 			status = "waiting";
@@ -249,12 +264,14 @@ export class WorkerTracker {
 			thinking: this.thinking,
 			context: this.context,
 			usage: this.usage,
+			wake: waitingFor === "wake" ? this.wake : null,
 		};
 	}
 
 	private summary(waitingFor: WaitingFor, dialog: { kind: string; title: string | null } | undefined): string | null {
 		if (waitingFor === "dialog") return dialog?.title ? clip(dialog.title) : `waiting in a ${dialog?.kind} dialog`;
 		if (waitingFor === "first-prompt") return "waiting for a first prompt";
+		if (waitingFor === "wake" && this.wake) return clip(wakeSummary(this.wake));
 		if (this.settled === "failed" && this.error) return clip(this.error);
 		if (this.modelSummary) return this.modelSummary;
 		if (this.running && this.tool) return `running ${this.tool}`;
@@ -282,6 +299,36 @@ export function stateChanged(a: WorkerReport | undefined, b: WorkerReport): bool
 		(a.thinking ?? null) !== (b.thinking ?? null) ||
 		a.error !== b.error ||
 		a.tool !== b.tool ||
-		a.choices.join("\n") !== b.choices.join("\n")
+		a.choices.join("\n") !== b.choices.join("\n") ||
+		!sameWake(a.wake ?? null, b.wake ?? null)
 	);
+}
+
+function sameWake(a: WakeInfo | null, b: WakeInfo | null): boolean {
+	if (!a || !b) return !a && !b;
+	return a.at === b.at && a.next === b.next && a.every === b.every && a.reason === b.reason;
+}
+
+/** "waits until 14:20: wait for CI", or "checks every 2m, until 15:00: wait for CI". */
+export function wakeSummary(wake: WakeInfo, now = Date.now()): string {
+	const until = clockAt(wake.at, now);
+	const what = wake.every === undefined ? `waits until ${until}` : `checks every ${every(wake.every)}, until ${until}`;
+	return wake.reason ? `${what}: ${wake.reason}` : what;
+}
+
+/** HH:MM local time; another day's has its date first. */
+function clockAt(t: number, now: number): string {
+	const d = new Date(t);
+	const hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+	const n = new Date(now);
+	if (d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && d.getDate() === n.getDate()) return hm;
+	return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${hm}`;
+}
+
+function every(ms: number): string {
+	const s = Math.round(ms / 1000);
+	if (s < 60) return `${s}s`;
+	const m = Math.round(s / 60);
+	if (m < 60) return `${m}m`;
+	return m % 60 === 0 ? `${m / 60}h` : `${Math.floor(m / 60)}h${m % 60}m`;
 }

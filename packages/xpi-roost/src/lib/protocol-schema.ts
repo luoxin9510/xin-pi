@@ -53,7 +53,12 @@ const domain = <T>(title: string, description: string) => opaque<T>(title, descr
 export const JOB_STATES = ["working", "blocked", "done", "failed", "stopped"] as const;
 const JobStateNameS = oneOf(JOB_STATES);
 const JobStatusS = nullable(oneOf(["busy", "waiting", "idle"]));
-const WaitingForS = nullable(oneOf(["dialog", "question", "first-prompt"]));
+const WaitingForS = nullable(
+	oneOf(
+		["dialog", "question", "first-prompt", "wake"],
+		'"wake": the session waits for a time or a check (state working, status waiting). A client must treat a value it does not know as null.',
+	),
+);
 const DispatchOriginS = oneOf(["bg", "dispatch", "adopt", "fork"]);
 export type JobStateName = Infer<typeof JobStateNameS>;
 export type JobStatus = Infer<typeof JobStatusS>;
@@ -129,6 +134,17 @@ export const JobRowSchema = obj({
 });
 export type JobRow = Infer<typeof JobRowSchema>;
 
+export const WakeInfoS = obj(
+	{
+		at: num("When the wait ends: its time, or the deadline of its check (epoch ms)."),
+		next: num("When it is next looked at: the next check, or the time (epoch ms)."),
+		every: opt(num("How often its check runs (ms); absent: no check.")),
+		reason: str(),
+	},
+	{ description: "Spec 02: the wait a session's run ended with (tools.wait)." },
+);
+export type WakeInfo = Infer<typeof WakeInfoS>;
+
 export const WorkerReportSchema = obj(
 	{
 		state: oneOf(["working", "blocked", "done", "failed"]),
@@ -145,6 +161,12 @@ export const WorkerReportSchema = obj(
 		context: opt(nullable(ContextInfoS)),
 		usage: opt(nullable(UsageInfoS, "M24: absent from workers before 0.1.11.")),
 		attachSignal: opt(bool("The worker reacts to the host's SIGUSR2 attach signal (AT-5).")),
+		wake: opt(
+			nullable(
+				WakeInfoS,
+				'Spec 02: the pending wait, with waitingFor "wake" (absent or null: none). The daemon may end the worker until next.',
+			),
+		),
 	},
 	{ description: "What a worker reports about itself (full snapshot every time)." },
 );

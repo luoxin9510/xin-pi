@@ -183,6 +183,7 @@ export function eventLine(e: RoostEvent): string {
 			if (e.state === "done") return `${e.name} finished${e.text ? `: ${e.text}` : ""}`;
 			if (e.state === "failed") return `${e.name} failed${e.text ? `: ${e.text}` : ""}`;
 			if (e.state === "stopped") return `${e.name} stopped`;
+			if (e.waitingFor === "wake") return `${e.name} ${e.text ?? "waits"}`;
 			return `${e.name} works again${e.from ? ` (was ${e.from})` : ""}`;
 		}
 		case "reply":

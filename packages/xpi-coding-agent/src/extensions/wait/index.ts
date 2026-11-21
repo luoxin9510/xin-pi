@@ -2,7 +2,8 @@
 // model calls `tools.wait` from codemode to end its run until a time, or until a shell check passes (with a deadline).
 // The wait is written when the run ends (`xpi.wait`); while the session is open this file keeps a timer and runs the
 // check through the session's tools (`ctx.runTool`, so blockers apply); when the wait ends it writes `xpi.wake` and the
-// note the model reads (`xpi.woke`), and starts a run. In roost the worker lets go of its process meanwhile (milestone 2).
+// note the model reads (`xpi.woke`), and starts a run. In roost the daemon ends the process meanwhile and starts it again
+// when it is due: this file says when it next looks at a wait on `pi.events` (WAIT_EVENT), which the worker reports.
 //
 // Not in subagents: a child is not a session anyone wakes.
 
@@ -14,6 +15,7 @@ import {
 	nextCheckAt,
 	pendingWait,
 	WAIT_CUSTOM_TYPE,
+	WAIT_EVENT,
 	WAKE_CUSTOM_TYPE,
 	type WaitData,
 	type WakeWhy,
@@ -156,6 +158,7 @@ export function createWaitExtension(clock: WaitClock = realClock) {
 			stop();
 			deferred = undefined;
 			pi.appendEntry(WAKE_CUSTOM_TYPE, { id: wait.id, at: clock.now(), why, ...(output ? { output } : {}) });
+			pi.events.emit(WAIT_EVENT, { id: wait.id, ended: true });
 			if (why === "cancel") return true;
 			const note = {
 				customType: WOKE_CUSTOM_TYPE,
@@ -250,6 +253,7 @@ export function createWaitExtension(clock: WaitClock = realClock) {
 					() => guarded(gen, (latest) => arm(latest)),
 					Math.min(wait.wakeAt - now, MAX_TIMER_MS),
 				);
+				pi.events.emit(WAIT_EVENT, { id: wait.id, next: wait.wakeAt });
 				return;
 			}
 			// Reopened after a check time passed (or the deadline): one check runs at once.
@@ -273,6 +277,7 @@ export function createWaitExtension(clock: WaitClock = realClock) {
 					}),
 				Math.min(Math.max(0, next - now), MAX_TIMER_MS),
 			);
+			pi.events.emit(WAIT_EVENT, { id: wait.id, next });
 		}
 
 		const describe = (wait: WaitData): string => {

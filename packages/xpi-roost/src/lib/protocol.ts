@@ -18,6 +18,7 @@ export type {
 	ReplyMode,
 	ScheduleRow,
 	WaitingFor,
+	WakeInfo,
 	WorkerReport,
 } from "./protocol-schema.ts";
 export { ArgSchemas, OPS, ResultSchemas } from "./protocol-schema.ts";
