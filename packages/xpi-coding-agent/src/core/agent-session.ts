@@ -2378,7 +2378,9 @@ export class AgentSession {
 		if (!(await this._extensionRunner.emitContinueRequest({ type: "continue_request", reason: nothing }))) {
 			return { ran: false, reason: nothing };
 		}
-		// The handler started a run (not awaited by it): resolve when it ends, as a run the core starts.
+		// The handler started a run (not awaited by it): resolve when it ends, as a run the core starts. This relies on
+		// the run being active by the next microtask (sendMessage with triggerTurn starts it synchronously), so that
+		// waitForIdle waits for it; `ran: true` says a run started, not that it succeeded.
 		await Promise.resolve();
 		await this.waitForIdle();
 		return { ran: true };

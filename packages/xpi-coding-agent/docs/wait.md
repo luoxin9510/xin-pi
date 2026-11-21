@@ -38,13 +38,19 @@ again. A message you send in the same run (a steer) drops the wait.
 | its time comes (no check) | its time came | yes |
 | the check exits 0 | the check passed, with its output (last 50 lines) | yes |
 | the deadline comes, the check never passed | the deadline came, with the last output | yes |
-| you send a message | a user message came in (the note comes before your message) | your run |
+| you send a message | a user message came in (the note comes before your message); a wait with no check whose time has already come says its time came | your run |
 | `/continue` | you woke it early (no check runs) | yes |
 | `/wait cancel` | (nothing; a notice says it was cancelled) | no |
 | a protection blocks the check | the check was blocked, and why | yes |
+| the session has no bash tool | the check was blocked: no bash tool to run it | yes |
+
+"A message" is anything that reaches the session as a prompt: typed, over RPC, or an extension's
+`pi.sendUserMessage()`. The wait ends when the message arrives, even if another extension's `input` handler then
+handles it without a run.
 
 A run started by something else while the session waits (a background script's result, a subagent's report) does not
-end the wait. A wake that comes due during such a run waits for it to end; it is never put into it.
+end the wait. A wake that comes due during such a run, or during a compaction, waits for it to end (it is tried again
+every few seconds); it is never put into a run.
 
 A wake found late (the session was closed, the laptop asleep) happens as soon as the session is open again, however
 late; the note says when it was planned and when it woke. A wait with a check runs one check at once instead.
@@ -66,7 +72,8 @@ without starting a run.
   line (`Waiting until 14:20: ... (/wait cancel to stop, /continue to wake now).`) and arms the timer again; one that is
   due wakes at once.
 - **Print mode** (`xpi -p`) ends at the wait: it prints the pending wait on stderr and exits 0. It does not stay up.
-  Your next message to that session ends the wait (the note comes first).
+  Your next message to that session (`xpi -p -c "..."`) ends the wait, the note first: as its time came when it was
+  due, else as a user message. `xpi -p -c /continue` wakes it as `/continue`.
 - **Roost** (a background session) lets go of the worker process while the session waits, and the daemon wakes it:
   see [Roost](roost.md) (next milestone).
 

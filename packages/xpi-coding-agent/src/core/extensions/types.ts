@@ -1290,7 +1290,8 @@ export interface ModelSelectEvent {
  * Fired by `continueRun()` (so by `/continue` anywhere: typed, print mode, RPC) when the core itself has nothing to
  * continue: the last run finished or was stopped, or there was none. A handler that starts a run itself (say, by
  * `pi.sendMessage(..., { triggerTurn: true })`) returns `{ handled: true }`; the first such handler wins, and
- * `continueRun()` then reports that a run started. A cut-off run is repaired by the core and does not fire this.
+ * `continueRun()` then reports that a run started. A cut-off run is repaired by the core and does not fire this, except
+ * one cut off after a complete reply (closed by the core, then fired with `reason: "finished"`).
  */
 export interface ContinueRequestEvent {
 	type: "continue_request";

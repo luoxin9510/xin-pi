@@ -73,11 +73,13 @@ async function setup(
 		clock?: ReturnType<typeof fakeClock>;
 		sessionManager?: SessionManager;
 		extra?: (pi: ExtensionAPI) => void;
+		mode?: "tui" | "print";
+		tools?: string[];
 	} = {},
 ) {
 	const clock = options.clock ?? fakeClock();
 	const harness = await createHarness({
-		initialActiveToolNames: ["read", "bash", "codemode"],
+		initialActiveToolNames: options.tools ?? ["read", "bash", "codemode"],
 		extensionFactories: [
 			createCodemodeExtension(),
 			createWaitExtension(clock),
@@ -88,7 +90,7 @@ async function setup(
 	harnesses.push(harness);
 	const notes: string[] = [];
 	await harness.session.bindExtensions({
-		mode: "tui",
+		mode: options.mode ?? "tui",
 		uiContext: createTestUiContext({ notify: (message) => notes.push(message) }),
 	});
 	const seen: string[] = [];
@@ -125,7 +127,17 @@ async function setup(
 		await harness.session.waitForIdle();
 		await settle();
 	};
-	return { harness, clock, notes, seen, code, wait, say, custom, woke, idle };
+	/** A file each check run appends a line to, and how many lines it has. */
+	const marks = join(harness.tempDir, "checks.log");
+	const checksRun = () => (existsSync(marks) ? readFileSync(marks, "utf8").split("\n").length - 1 : 0);
+	return { harness, clock, notes, seen, code, wait, say, custom, woke, idle, marks, checksRun };
+}
+
+/** A session reopened from `first`'s entries. */
+function reopened(first: { harness: Harness }) {
+	const header = first.harness.sessionManager.getHeader();
+	if (!header) throw new Error("no header");
+	return SessionManager.inMemory(undefined, undefined, [header, ...first.harness.sessionManager.getEntries()]);
 }
 
 describe("tools.wait", () => {
@@ -160,12 +172,19 @@ describe("tools.wait", () => {
 		const t = await setup();
 		const flag = join(t.harness.tempDir, "ready");
 		t.harness.setResponses([
-			t.wait({ after: "1h", every: "2m", check: `test -f ${flag} && echo green`, reason: "wait for CI" }),
+			t.wait({
+				after: "1h",
+				every: "2m",
+				check: `echo x >> ${t.marks}; test -f ${flag} && echo green`,
+				reason: "wait for CI",
+			}),
 			t.say("CI is green."),
 		]);
 		await t.harness.session.prompt("ship it");
 		await t.idle();
 		await t.clock.advance(2 * MIN);
+		// The check runs a real shell: let it end (and arm the next one) before the clock moves on.
+		await until(() => t.checksRun() === 1);
 		await t.idle();
 		expect(t.custom(WAKE_CUSTOM_TYPE)).toEqual([]);
 		writeFileSync(flag, "");
@@ -180,10 +199,14 @@ describe("tools.wait", () => {
 
 	it("wakes at the deadline when the check never passed, with its last output", async () => {
 		const t = await setup();
-		const marks = join(t.harness.tempDir, "checks.log");
-		const checksRun = () => (existsSync(marks) ? readFileSync(marks, "utf8").split("\n").length - 1 : 0);
+		const { checksRun } = t;
 		t.harness.setResponses([
-			t.wait({ after: "5m", every: "2m", check: `echo pending; echo x >> ${marks}; exit 1`, reason: "wait for CI" }),
+			t.wait({
+				after: "5m",
+				every: "2m",
+				check: `echo pending; echo x >> ${t.marks}; exit 1`,
+				reason: "wait for CI",
+			}),
 			t.say("Still pending."),
 		]);
 		await t.harness.session.prompt("ship it");
@@ -243,6 +266,18 @@ describe("tools.wait", () => {
 		await t.clock.advance(30 * MIN);
 		await t.idle();
 		expect(t.harness.faux.state.callCount).toBe(2);
+	});
+
+	it("a session with no bash tool ends a check wait as blocked", async () => {
+		const t = await setup({ tools: ["read", "codemode"] });
+		t.harness.setResponses([t.wait({ after: "1h", check: "true", reason: "wait" }), t.say("No shell.")]);
+		await t.harness.session.prompt("go");
+		await t.idle();
+		await t.clock.advance(2 * MIN);
+		await until(() => t.custom(WAKE_CUSTOM_TYPE).length > 0);
+		await t.idle();
+		expect(t.custom(WAKE_CUSTOM_TYPE)).toMatchObject([{ why: "blocked" }]);
+		expect(t.woke()[0]).toContain("this session has no bash tool to run it");
 	});
 
 	it("/continue wakes it now, without the check", async () => {
@@ -345,14 +380,8 @@ describe("tools.wait", () => {
 		first.harness.setResponses([first.wait({ after: "20m", reason: "wait for CI" })]);
 		await first.harness.session.prompt("ship it");
 		await first.idle();
-		const header = first.harness.sessionManager.getHeader();
-		if (!header) throw new Error("no header");
-		const disk = SessionManager.inMemory(undefined, undefined, [
-			header,
-			...first.harness.sessionManager.getEntries(),
-		]);
 		const clock = fakeClock(START + 5 * 60 * MIN);
-		const second = await setup({ clock, sessionManager: disk });
+		const second = await setup({ clock, sessionManager: reopened(first) });
 		second.harness.setResponses([second.say("Back.")]);
 		await second.idle();
 		expect(second.custom(WAKE_CUSTOM_TYPE)).toMatchObject([{ why: "due" }]);
@@ -365,14 +394,8 @@ describe("tools.wait", () => {
 		first.harness.setResponses([first.wait({ after: "20m", reason: "wait for CI" })]);
 		await first.harness.session.prompt("ship it");
 		await first.idle();
-		const header = first.harness.sessionManager.getHeader();
-		if (!header) throw new Error("no header");
-		const disk = SessionManager.inMemory(undefined, undefined, [
-			header,
-			...first.harness.sessionManager.getEntries(),
-		]);
 		const clock = fakeClock(START + 5 * MIN);
-		const second = await setup({ clock, sessionManager: disk });
+		const second = await setup({ clock, sessionManager: reopened(first) });
 		second.harness.setResponses([second.say("Back.")]);
 		await second.idle();
 		expect(second.notes.join("\n")).toContain(
@@ -424,20 +447,124 @@ describe("tools.wait", () => {
 		expect(t.seen.at(-1)).toContain("its time came");
 	});
 
+	it("reopened in print mode after it was due: the message wakes it as due, the note first", async () => {
+		const first = await setup();
+		first.harness.setResponses([first.wait({ after: "20m", reason: "wait for CI" })]);
+		await first.harness.session.prompt("ship it");
+		await first.idle();
+		const second = await setup({
+			clock: fakeClock(START + 60 * MIN),
+			sessionManager: reopened(first),
+			mode: "print",
+		});
+		second.harness.setResponses([second.say("Back.")]);
+		await second.idle();
+		// Print mode arms nothing: the wait is still pending until the message comes.
+		expect(second.custom(WAKE_CUSTOM_TYPE)).toEqual([]);
+		await second.harness.session.prompt("carry on");
+		await second.idle();
+		expect(second.custom(WAKE_CUSTOM_TYPE)).toMatchObject([{ why: "due" }]);
+		expect(second.harness.faux.state.callCount).toBe(1);
+		expect(second.seen[0]).toContain("its time came");
+		expect(second.seen[0].indexOf("its time came")).toBeLessThan(second.seen[0].indexOf("carry on"));
+	});
+
+	it("a check that passes while another run is on still counts once that run has settled", async () => {
+		const t = await setup({
+			extra: (pi) => {
+				pi.registerCommand("poke", {
+					description: "start a run as an extension would",
+					handler: async () => {
+						pi.sendMessage(
+							{ customType: "poke", content: "a background result", display: true },
+							{ triggerTurn: true },
+						);
+					},
+				});
+			},
+		});
+		t.harness.setResponses([
+			t.wait({
+				after: "1h",
+				every: "2m",
+				check: `sleep 0.5; echo x >> ${t.marks}; echo green`,
+				reason: "wait for CI",
+			}),
+			t.say("Noted."),
+			t.say("CI is green."),
+		]);
+		await t.harness.session.prompt("ship it");
+		await t.idle();
+		await t.clock.advance(2 * MIN);
+		// The check is running; a run starts and settles meanwhile (a new context for the session).
+		await t.harness.session.prompt("/poke");
+		await t.idle();
+		await until(() => t.custom(WAKE_CUSTOM_TYPE).length > 0);
+		await t.idle();
+		expect(t.custom(WAKE_CUSTOM_TYPE)).toMatchObject([{ why: "check", output: "green" }]);
+		expect(t.checksRun()).toBe(1);
+		expect(t.harness.faux.state.callCount).toBe(3);
+	});
+
+	it("a wake due during a compaction comes after it", async () => {
+		const clock = fakeClock();
+		const t = await setup({
+			clock,
+			extra: (pi) => {
+				pi.on("session_before_compact", (event) => {
+					// The wait's time comes while the session compacts.
+					void clock.advance(25 * MIN);
+					return {
+						compaction: {
+							summary: "Waiting for CI.",
+							firstKeptEntryId: event.preparation.firstKeptEntryId,
+							tokensBefore: event.preparation.tokensBefore,
+						},
+					};
+				});
+			},
+		});
+		t.harness.setResponses([t.say("Hello."), t.wait({ after: "20m", reason: "wait for CI" }), t.say("Woke up.")]);
+		await t.harness.session.prompt("hi");
+		await t.harness.session.prompt("ship it");
+		await t.idle();
+		t.harness.settingsManager.applyOverrides({ compaction: { keepRecentTokens: 1 } });
+		await t.harness.session.compact();
+		await t.idle();
+		await clock.advance(10_000);
+		await t.idle();
+		expect(t.custom(WAKE_CUSTOM_TYPE)).toMatchObject([{ why: "due" }]);
+		// Found busy (compacting, which has no settle), it came by the retry once the compaction was written.
+		const branch = t.harness.sessionManager.getBranch();
+		const compaction = branch.findIndex((e) => e.type === "compaction");
+		const wake = branch.findIndex((e) => e.type === "custom" && e.customType === WAKE_CUSTOM_TYPE);
+		expect(compaction).toBeGreaterThan(0);
+		expect(wake).toBeGreaterThan(compaction);
+		expect(t.harness.faux.state.callCount).toBe(3);
+	});
+
 	it("a user message during a check stops the check; its result is ignored", async () => {
 		const t = await setup();
+		const done = join(t.harness.tempDir, "done");
 		t.harness.setResponses([
-			t.wait({ after: "1h", every: "2m", check: "sleep 20; echo late", reason: "wait for CI" }),
+			t.wait({
+				after: "1h",
+				every: "2m",
+				check: `echo x >> ${t.marks}; sleep 2; touch ${done}; echo late`,
+				reason: "wait for CI",
+			}),
 			t.say("Answered."),
 		]);
 		await t.harness.session.prompt("ship it");
 		await t.idle();
 		void t.clock.advance(2 * MIN);
-		await settle();
+		await until(() => t.checksRun() === 1);
 		await t.harness.session.prompt("status?");
 		await t.idle();
-		await new Promise((resolve) => setTimeout(resolve, 200));
+		await new Promise((resolve) => setTimeout(resolve, 2500));
 		await t.idle();
+		// The shell was killed before it could finish.
+		expect(existsSync(done)).toBe(false);
 		expect(t.custom(WAKE_CUSTOM_TYPE)).toMatchObject([{ why: "user" }]);
 		expect(t.harness.faux.state.callCount).toBe(2);
 	});

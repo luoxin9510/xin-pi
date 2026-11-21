@@ -8,6 +8,7 @@
 
 import { randomUUID } from "node:crypto";
 import { Type } from "typebox";
+import type { AgentToolCallOutcome } from "xpi-agent-core";
 import type { ExtensionAPI, ExtensionContext } from "../../core/extensions/types.ts";
 import {
 	nextCheckAt,
@@ -43,6 +44,9 @@ const realClock: WaitClock = {
 /** setTimeout's limit: a longer wait is armed again when this one fires. */
 const MAX_TIMER_MS = 2 ** 31 - 1;
 
+/** How often a wake that found the session busy (a run, a compaction) tries again, besides the next settle. */
+const RETRY_MS = 5_000;
+
 const DESCRIPTION = [
 	"Wait without holding a process: end this run and be woken later, at a time (after or at), or when a shell check passes",
 	"(check, run every `every`; after or at is then the deadline). Use it instead of sleep or polling loops in bash, for",
@@ -61,6 +65,8 @@ export function createWaitExtension(clock: WaitClock = realClock) {
 		/** The session's current context, for timers. */
 		let current: ExtensionContext | undefined;
 		let timer: unknown;
+		/** The retry of a deferred wake. */
+		let retry: unknown;
 		/** The check in progress: aborted by a user message, a wake, a shutdown. */
 		let checking: AbortController | undefined;
 		let checkCount = 0;
@@ -71,13 +77,17 @@ export function createWaitExtension(clock: WaitClock = realClock) {
 		/** The wait written at this run's end: cancelled if the run still ends aborted (Esc during its end). */
 		let writtenThisRun: string | undefined;
 
-		/** Whether `ctx` is still the session's: timers and checks outlive a session replacement or a shutdown. */
-		const live = (ctx: ExtensionContext) => current === ctx;
-		/** Run `fn` for a timer or a check, if its session is still open; a stale context is not an error. */
-		const guarded = (ctx: ExtensionContext, fn: () => void | Promise<void>) => {
-			if (!live(ctx)) return;
+		/**
+		 * Bumped when a session opens or closes: timers and checks outlive a session replacement or a shutdown, and one
+		 * of an older session does nothing. (Not the context object: each event hands a new one for the same session.)
+		 */
+		let generation = 0;
+		/** Run `fn` with the session's latest context for a timer or a check, if that session is still open. */
+		const guarded = (gen: number, fn: (ctx: ExtensionContext) => void | Promise<void>) => {
+			const ctx = current;
+			if (gen !== generation || !ctx) return;
 			try {
-				const result = fn();
+				const result = fn(ctx);
 				if (result) void result.catch(() => {});
 			} catch {
 				// the session went away meanwhile
@@ -91,6 +101,8 @@ export function createWaitExtension(clock: WaitClock = realClock) {
 		const stop = () => {
 			if (timer !== undefined) clock.clearTimeout(timer);
 			timer = undefined;
+			if (retry !== undefined) clock.clearTimeout(retry);
+			retry = undefined;
 			checking?.abort();
 			checking = undefined;
 		};
@@ -129,10 +141,17 @@ export function createWaitExtension(clock: WaitClock = realClock) {
 		};
 
 		/**
-		 * End the pending wait `wait`. A run starts with the note, except for `cancel` and `user` (the user's run takes
-		 * the note). Nothing happens if it is no longer pending (another process woke it).
+		 * End the pending wait `wait`. A run starts with the note, except for `cancel` and a wake by a user message
+		 * (`withInput`: that message's run takes the note). Nothing happens if it is no longer pending (another process
+		 * woke it).
 		 */
-		const wake = (ctx: ExtensionContext, wait: WaitData, why: WakeWhy, output?: string): boolean => {
+		const wake = (
+			ctx: ExtensionContext,
+			wait: WaitData,
+			why: WakeWhy,
+			output?: string,
+			withInput = false,
+		): boolean => {
 			if (pending(ctx)?.id !== wait.id) return false;
 			stop();
 			deferred = undefined;
@@ -144,7 +163,7 @@ export function createWaitExtension(clock: WaitClock = realClock) {
 				display: true,
 				details: { id: wait.id, why },
 			};
-			if (why === "user") {
+			if (withInput) {
 				pi.sendMessage(note, ctx.isIdle() ? {} : { deliverAs: "steer" });
 			} else {
 				pi.sendMessage(note, { triggerTurn: true });
@@ -152,17 +171,37 @@ export function createWaitExtension(clock: WaitClock = realClock) {
 			return true;
 		};
 
-		/** A wake the timer or a check found: at once if idle, else when the run settles (never steered into it). */
-		const fire = (ctx: ExtensionContext, wait: WaitData, why: WakeWhy, output?: string) => {
+		/**
+		 * A wake the timer or a check found: at once if idle, else after the session's run or compaction ends (never
+		 * steered into a run): at the next settle, or the retry, whichever comes first.
+		 */
+		function fire(ctx: ExtensionContext, wait: WaitData, why: WakeWhy, output?: string): void {
+			if (retry !== undefined) clock.clearTimeout(retry);
+			retry = undefined;
 			if (!ctx.isIdle()) {
 				deferred = { id: wait.id, why, ...(output ? { output } : {}) };
+				retry = clock.setTimeout(() => guarded(generation, retryDeferred), RETRY_MS);
 				return;
 			}
+			deferred = undefined;
 			wake(ctx, wait, why, output);
-		};
+		}
+
+		/** Do the deferred wake if it still stands (fire defers it again while the session is busy). */
+		function retryDeferred(ctx: ExtensionContext): void {
+			retry = undefined;
+			const wait = pending(ctx);
+			const left = deferred;
+			if (!left || wait?.id !== left.id) {
+				deferred = undefined;
+				return;
+			}
+			fire(ctx, wait, left.why, left.output);
+		}
 
 		const runCheck = async (ctx: ExtensionContext, wait: WaitData) => {
 			if (!wait.check || checking) return;
+			const gen = generation;
 			const controller = new AbortController();
 			checking = controller;
 			const outcome = await ctx.runTool(
@@ -171,9 +210,19 @@ export function createWaitExtension(clock: WaitClock = realClock) {
 				{ id: `wait:${wait.id}:${++checkCount}`, signal: controller.signal },
 			);
 			if (checking === controller) checking = undefined;
-			if (controller.signal.aborted || !live(ctx) || pending(ctx)?.id !== wait.id) return;
+			if (controller.signal.aborted) return;
+			// With the session's latest context: `ctx` is the one the check started with.
+			guarded(gen, (latest) => afterCheck(latest, wait, outcome));
+		};
+
+		const afterCheck = (ctx: ExtensionContext, wait: WaitData, outcome: AgentToolCallOutcome) => {
+			if (pending(ctx)?.id !== wait.id) return;
 			const text = outcome.result.content.map((block) => (block.type === "text" ? block.text : "")).join("\n");
 			if (outcome.blocked) return fire(ctx, wait, "blocked", text.trim() || undefined);
+			// No bash tool in this session (`--no-tools`, say): the check can never run.
+			if (outcome.isError && text.startsWith("Tool bash not found")) {
+				return fire(ctx, wait, "blocked", "this session has no bash tool to run it");
+			}
 			const structured = outcome.result.structuredContent as { exit_code?: number; output?: string } | undefined;
 			const output = tail(structured?.output ?? text);
 			lastOutput = output || undefined;
@@ -194,23 +243,30 @@ export function createWaitExtension(clock: WaitClock = realClock) {
 					fire(ctx, wait, "due");
 					return;
 				}
-				timer = clock.setTimeout(() => guarded(ctx, () => arm(ctx)), Math.min(wait.wakeAt - now, MAX_TIMER_MS));
+				timer = clock.setTimeout(
+					() => guarded(generation, (latest) => arm(latest)),
+					Math.min(wait.wakeAt - now, MAX_TIMER_MS),
+				);
 				return;
 			}
 			// Reopened after a check time passed (or the deadline): one check runs at once.
 			if (opening && now >= wait.at + wait.check.everyMs) {
-				guarded(ctx, () => runCheck(ctx, wait));
+				guarded(generation, (latest) => runCheck(latest, wait));
 				return;
 			}
 			const next = nextCheckAt(wait, now);
 			timer = clock.setTimeout(
 				() =>
-					guarded(ctx, () => {
+					guarded(generation, (latest) => {
 						timer = undefined;
-						const still = pending(ctx);
+						const still = pending(latest);
 						if (!still || still.id !== wait.id) return;
-						if (!ctx.isIdle()) return; // the run's settle arms again
-						return runCheck(ctx, wait);
+						// Busy: the run's settle arms again; a compaction has no settle, so look again shortly.
+						if (!latest.isIdle()) {
+							timer = clock.setTimeout(() => guarded(generation, (again) => arm(again)), RETRY_MS);
+							return;
+						}
+						return runCheck(latest, wait);
 					}),
 				Math.min(Math.max(0, next - now), MAX_TIMER_MS),
 			);
@@ -298,6 +354,7 @@ export function createWaitExtension(clock: WaitClock = realClock) {
 		});
 
 		pi.on("session_start", (_event, ctx) => {
+			generation++;
 			current = ctx;
 			stop();
 			deferred = undefined;
@@ -309,10 +366,12 @@ export function createWaitExtension(clock: WaitClock = realClock) {
 			if (!due && ctx.hasUI)
 				ctx.ui.notify(`${describe(wait)} (/wait cancel to stop, /continue to wake now).`, "info");
 			// After the session has opened (its first prompt, if any, comes through `input` first).
-			setImmediate(() => guarded(ctx, () => arm(ctx, true)));
+			const gen = generation;
+			setImmediate(() => guarded(gen, (latest) => arm(latest, true)));
 		});
 
 		pi.on("session_shutdown", () => {
+			generation++;
 			stop();
 			current = undefined;
 		});
@@ -351,28 +410,33 @@ export function createWaitExtension(clock: WaitClock = realClock) {
 				process.stderr.write(`${describe(wait)}. Reopen the session to wake it when it is due.\n`);
 				return;
 			}
-			// After the settle (a run cannot start inside it).
+			// After the settle (a run cannot start inside it). A deferred wake goes through `fire`: another extension may
+			// have started a run meanwhile (a deferred `triggerTurn`), which it must not be steered into.
+			const gen = generation;
 			setImmediate(() =>
-				guarded(ctx, () => {
-					const now = pending(ctx);
+				guarded(gen, (latest) => {
+					const now = pending(latest);
 					if (deferred && now?.id === deferred.id) {
 						const { why, output } = deferred;
-						deferred = undefined;
-						wake(ctx, now, why, output);
+						fire(latest, now, why, output);
 						return;
 					}
 					deferred = undefined;
-					arm(ctx);
+					arm(latest);
 				}),
 			);
 		});
 
-		// A user message ends a pending wait (W6): the wake and the note go before the message. A wait this run asked
+		// A user message ends a pending wait (W6): the wake and the note go before the message. A wait without a check
+		// whose time has already come ends as `due` (print mode never armed it: `xpi -p -c "..."`). A wait this run asked
 		// for and has not written yet is dropped: the model sees the user's message.
 		pi.on("input", (event, ctx) => {
 			if (requested && event.streamingBehavior) requested = undefined;
 			const wait = pending(ctx);
-			if (wait) wake(ctx, wait, "user");
+			if (wait) {
+				const why: WakeWhy = !wait.check && clock.now() >= wait.wakeAt ? "due" : "user";
+				wake(ctx, wait, why, undefined, true);
+			}
 			return { action: "continue" };
 		});
 

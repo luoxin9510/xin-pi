@@ -1056,7 +1056,7 @@ Use it where no one reads the notice: roost's worker marks its row done and show
 
 #### continue_request
 
-Fired by `AgentSession.continueRun()` (so by `/continue` typed, in print mode and over RPC) when the core itself has nothing to continue: the last run finished or was stopped, or there was none. A cut-off run is repaired by the core and does not fire it. A handler that starts a run itself (for example with `pi.sendMessage(..., { triggerTurn: true })`) returns `{ handled: true }`; the first such handler wins, `continueRun()` resolves when that run ends and reports `{ ran: true }`, and no "Nothing to continue" notice or `continue_skipped` follows.
+Fired by `AgentSession.continueRun()` (so by `/continue` typed, in print mode and over RPC) when the core itself has nothing to continue: the last run finished or was stopped, or there was none. A cut-off run is repaired by the core and does not fire it, except one cut off after a complete reply: the core closes that run and fires it with `reason: "finished"`. A handler that starts a run itself (for example with `pi.sendMessage(..., { triggerTurn: true })`) returns `{ handled: true }`; the first such handler wins, `continueRun()` resolves when that run ends and reports `{ ran: true }`, and no "Nothing to continue" notice or `continue_skipped` follows.
 
 ```typescript
 pi.on("continue_request", async (event, ctx) => {
