@@ -172,3 +172,40 @@ sent as a prompt starts no run; `continueRun()` itself (print mode, RPC) returns
 roost worker settles its row as `done` at once with the message as its summary (`WorkerTracker.commandNote`); `busy`
 changes nothing (the run in progress settles the row), and so does a row already settled (a question waiting for someone who attached and typed `/continue`; review 1 of #154). Before: the row showed `working` for `FIRST_PROMPT_MS` (5 s),
 then `done` with no summary, and the reason went only to `notify`, which no one sees in a background worker.
+
+## Step 3: waits that do not hold a process (spec 02, 2026-11-21)
+
+The owner said "好呢可以先发，然后继续后面的开发" after v1.17.0. Facts gathered first (a Sonnet subagent, read-only):
+pi-durable waits are data (`sleepUntil` commits `{status: "sleeping", until, checkpoint}`; child waits commit
+`{status: "waiting", on}`), the process lets go, and `onWake`/`wake()` let a host arm its own alarm; there is no
+human-input or signal wait. In xin-pi a working session always holds its process; roost reaps only idle ones and wakes
+only on a reply; model `sleep`/polling and graph command nodes that wait for CI hold the process; codemode has no
+wait helper; schedules start new sessions, they do not wake one.
+
+Grill round 1, all as recommended ("全是"):
+- W1 First version: a session's own "wake me later" (model tool); graph waits and subagent waits later.
+- W2 `tools.wait({ after | at, reason })`, writes an `xpi.wait` entry, the turn ends; at most 7 days.
+- W3 In roost the worker exits and the daemon wakes it (persisted like `resumeAt`); outside roost an in-process timer;
+  no new background service.
+- W4 On waking: an `[xpi]` note (why, from–to) and a run starts; no made-up user message.
+- W5 `check` (a shell command, exit 0 = done) with an interval, run by the extension without a model call, inside xpi
+  so protections apply; in the first version.
+- W6 A user message wakes it and ends the wait (the model is told); `/wait` shows, `/wait cancel` cancels.
+- W7 Delivery as usual: spec PR for approval, milestones, CI, independent Opus review, Haiku only, no release.
+
+Grill round 2, all as recommended ("全部是"):
+- W8 Each check limited to 2 minutes; exit 0 wakes; `after`/`at` is the deadline; at the deadline wake anyway saying
+  the check never passed; the last 50 lines of output go into the note.
+- W9 `every` default 2m, at least 30s; in roost the worker exits between checks only when `every` is 2m or more.
+- W10 The rest of the script runs, then the run ends; the last call in a run wins; only the latest assistant
+  message's calls, background scripts refused. (See D1: the code does not do this today.)
+- W11 Allowed in graph model nodes (wakes in the same node, same model); not given to subagents.
+- W12 Roost row: state working, status waiting, new waitingFor `wake`; summary "waits until 14:20: ..." or "checks
+  every 2m, until 15:00: ..."; never blocked.
+- W13 A wake found late happens at once, however late; the note says planned vs actual.
+- W14 `/continue` during a wait wakes now, no check. (See D2: needs a core hook.)
+
+Found while writing the spec (section 9): D1 (a terminating nested call ends a codemode script at once, so W10's
+"rest of the script runs" needs a codemode change; recommended: let `wait` end the script) and D2 (`/continue` is
+handled by the core before extensions; recommended: a `continue_request` event). Also: graph's "ended your turn
+without leaving it" reminder would fire after a wait; the spec makes graph treat a pending wait as waiting.
