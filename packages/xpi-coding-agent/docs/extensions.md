@@ -752,7 +752,7 @@ pi.on("turn_end", async (event, ctx) => {
 });
 ```
 
-`turn_end` runs after the assistant and tool-result messages have been persisted and before the low-level `turn_end` event. Retry backoff and final-attempt recovery still happen after `agent_end`, preserving their existing lifecycle and queue ordering; `agent_before_settle` sees the repaired projection after that work completes. Boundary handlers run in extension load and registration order. Each handler sees prior proposals in `event.entries` and sees `event.context` rebuilt from them. Returning `entries` or `continue` replaces only that field; omitted fields preserve the current proposal. Allowed draft entry types are `custom`, `custom_message`, `context_edit`, and `compaction`. The complete proposal is validated before it is appended in list order after all handlers finish; a handler error is reported and later handlers still run. Validation prevents partially applied semantic errors, but persistence is not transactional.
+`turn_end` runs after the assistant and tool-result messages have been persisted and before the low-level `turn_end` event. Retry backoff and final-attempt recovery still happen after `agent_end`, preserving their existing lifecycle and queue ordering; `agent_before_settle` sees the repaired projection after that work completes. Boundary handlers run in extension load and registration order. Each handler sees prior proposals in `event.entries` and sees `event.context` rebuilt from them. Returning `entries` or `continue` replaces only that field; omitted fields preserve the current proposal. A handler that returns `entries` must keep the drafts it was given (`[...event.entries, ...yours]`), or it drops other extensions' entries (the built-in `wait` writes its wait here). Allowed draft entry types are `custom`, `custom_message`, `context_edit`, and `compaction`. The complete proposal is validated before it is appended in list order after all handlers finish; a handler error is reported and later handlers still run. Validation prevents partially applied semantic errors, but persistence is not transactional.
 
 `continue: true` ensures one next provider request for that boundary invocation. If tool results, steering, or a follow-up already cause that request, they satisfy the decision and no additional request is made; otherwise Pi makes one context-only request. Error and aborted responses remain hard exits. `continue: false` never suppresses natural work. Guard continuation conditions: an unconditional `continue: true` is evaluated again after the next response and can create an endless loop. A `custom_message` draft contributes a user-role model message but is extension-authored: it does not run human input hooks, slash commands, skills, or prompt templates.
 
@@ -1053,6 +1053,21 @@ pi.on("continue_skipped", async (event, ctx) => {
 ```
 
 Use it where no one reads the notice: roost's worker marks its row done and shows the message. See [Sessions](sessions.md#after-the-process-ends-mid-run).
+
+#### continue_request
+
+Fired by `AgentSession.continueRun()` (so by `/continue` typed, in print mode and over RPC) when the core itself has nothing to continue: the last run finished or was stopped, or there was none. A cut-off run is repaired by the core and does not fire it, except one cut off after a complete reply: the core closes that run and fires it with `reason: "finished"`. A handler that starts a run itself (for example with `pi.sendMessage(..., { triggerTurn: true })`) returns `{ handled: true }`; the first such handler wins, `continueRun()` resolves when that run ends and reports `{ ran: true }`, and no "Nothing to continue" notice or `continue_skipped` follows.
+
+```typescript
+pi.on("continue_request", async (event, ctx) => {
+  // event.reason - "finished" | "stopped" | "none"
+  if (!somethingToGoOnWith()) return undefined;
+  pi.sendMessage({ customType: "mine", content: "Go on with ...", display: true }, { triggerTurn: true });
+  return { handled: true };
+});
+```
+
+The built-in `wait` uses it: `/continue` wakes a pending wait ([Waits](wait.md)).
 
 <a id="tool-call-events"></a>
 
@@ -1409,6 +1424,18 @@ pi.on("before_agent_start", (event, ctx) => {
   console.log(`System prompt length: ${prompt.length}`);
 });
 ```
+
+### ctx.runTool(name, args, options?)
+
+Run one tool call on the extension's own, outside any model tool call, for example a check between runs. It goes through the session's `tool_call` handlers (a blocker can refuse it) and `tool_result` handlers, against the tools `codemode` can call, and is not written to the transcript. It works with or without a run. It never rejects for tool failures: an unknown tool, a blocked call or a thrown error comes back with `isError: true`, and a blocked call also has `blocked: true`. `options.id` names the call for the handlers (default `ext:<n>`); `options.signal` stops it.
+
+```typescript
+const outcome = await ctx.runTool("bash", { command: "test -f ready", timeout: 120 });
+if (outcome.blocked) ctx.ui.notify("a protection refused the check", "warning");
+const exitCode = (outcome.result.structuredContent as { exit_code?: number } | undefined)?.exit_code;
+```
+
+Inside a tool's `execute()`, use `ctx.executeTool()` instead: its calls are recorded on that tool call's result.
 
 ### ctx.complete(options)
 

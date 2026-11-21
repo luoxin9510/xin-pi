@@ -246,3 +246,34 @@ Round 3 (same reviewer): approve. Two nits taken into section 1: a queued user m
 recorded wait with `user` (decided in `input`); `docs/extensions.md` will say boundary handlers keep `event.entries`.
 
 Approval (2026-11-21): the owner answered "全部推荐": the spec is approved and D1 (a), D2 (a), D3 (a) are taken.
+
+## Found while implementing spec 02 milestone 1
+
+- `input` fires for every prompt source (typed, `pi.sendUserMessage`, RPC, CLI messages: all go through
+  `AgentSession.prompt` → `_preparePrompt`) before the user's message is written, so the note and wake go in there; no
+  core option was needed. Extension commands (`/wait`) and `/continue` are handled before `input`, so they do not end a
+  wait as `user`.
+- Subagents: built-in extensions that must not run in a child return early on `XPI_SUBAGENT_DEPTH` (commit, roost,
+  relay); `builtin:wait` does the same, so a child has no `wait` and no `/wait`.
+- A blocked call and a failed one looked the same to a caller of `runToolCall` (both `isError` with a text). The
+  agent-core outcome now carries `blocked: true` for a call a `beforeToolCall` hook blocked, which `ctx.runTool` passes
+  on; the check uses it for `blocked`.
+- An Esc during the run's end boundary (after the wait's draft was given) still appends the drafts; `agent_settled`
+  then sees `aborted` and writes a `cancel` wake for the wait written in that run, with a notice. So "a run stopped
+  with Esc leaves no pending wait" holds in both windows.
+- `exposure: "codemode"`: in the first by-hand run Haiku first called `wait` as a direct tool (refused: it must come
+  from a script), then from codemode. The tool is now codemode-only (listed in codemode's description, not declared
+  directly), as the spec meant.
+- `ctx.runTool` became a required member of `ExtensionContext`; test fakes that build a full context add it (one did:
+  `test/trigger-compact-extension.test.ts`).
+
+By hand (W.6), 2026-11-21, Haiku 5.5, sandbox agent dir (an auth copy taken through `copyUserAuth`, 63 min before
+expiry; deleted after), the bundle of this branch, `xpi --mode rpc` driven by `.e2e-tmp/waitdrive.mjs` (an open
+session, so timers run):
+1. "Wait 2 minutes ... reply WOKE": the wait was recorded, the run ended; 120 s later a run started with
+   `[xpi] The wait you asked for ended: its time came ...`; Haiku replied WOKE. (Before `exposure: "codemode"`, its
+   first call was a refused direct call.)
+2. A check (`test -f ready.txt`, every 30s, deadline 10m), the file created by the driver at +45 s: the check at +30 s
+   failed, the one at +60 s passed; the note said the check passed; Haiku read the file's first line.
+3. A 1-minute wait, `kill -9` at +10 s, reopened (`--continue`, no prompt) at +140 s: the wait woke at once at
+   `session_start`, the note said `planned 18:03, woke 18:04`; Haiku replied BACK.

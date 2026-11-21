@@ -67,6 +67,7 @@ graph TD
 | [graph](#graph) | graph, codemode | virtual models (`core/virtual-models.ts`), tools that only a codemode script reaches (`exposure: "deferred"`, unlisted) with a nested `terminate`, the `agent_before_settle` boundary with `custom` and `custom_message` drafts, `before_agent_start` with a message, `context_with_system`, `session_compact`, `model_select` with its source, tool effects and `{ block, reason }` on `tool_call`, `ui.select` | `-builtin:graph`; it does nothing until `/graph start` |
 | [roost core](#roost-core) | roost | node-pty, unix sockets, detached child processes, a CLI that starts a session from argv with a session file | [schedules](#schedules) (no `scheduleLaunch`), [login service](#login-service) (remove its `cmdDaemon` branch); the hub is a separate entry point, unused unless wired |
 | [shadow-git](#shadow-git) | shadow-git | Node and git 2.20 or newer; a `sh` for the shipped adapters | `--gitfile`, local-only paths and the scope are settings; the xpi integration (the extension, [isolation](#shadow-git-isolation)) by leaving its wiring out |
+| [waits](#waits) | wait, codemode | the two core hooks of the entry (`ctx.runTool`, `continue_request`) and `blocked` on a tool call's outcome; a nested `terminate`; the `agent_before_settle` boundary with `custom` drafts; `input`, `session_start`, `agent_settled`, `pi.sendMessage` with `triggerTurn`, `pi.registerCommand` | `-builtin:wait` |
 | [checks](#checks) | checks | tool effects on `tool_call`, the `turn_end` boundary with `custom_message` drafts and its `terminated` field (core change, see the entry), `registerMessageRenderer`, `ctx.signal`, `ui.setStatus` | nothing to turn off but the `checks.commands` setting |
 | [protect](#protect) | protect | tool effects and `input` on `tool_call` with `{ block, reason }`, `pi.getSettings()`, `pi.registerCommand`, `ctx.ui.notify`; a settings layer merge that concatenates the two `protect` lists (core change, see the entry) | the two `protect` lists emptied, or the wiring line left out |
 | [roost session side](#roost-session-side), [hub](#roost-hub) | roost, roost adapter | extension events, flags and commands; a TUI library like `xpi-tui` for the hub | `/agents` and the hub, by removing their registrations |
@@ -421,6 +422,18 @@ The options below come with the unit. Each says how to turn it off.
 - **Known limit**: the core does not check whether another process is running the session; one process per session is assumed (roost's write lock warns).
 - **Roost**: the roost core restarts a crashed or failed session with `/continue` (`xpi-roost/src/lib/resume.ts`, `CONTINUE`); a run it stopped on purpose (a restart onto a new build, `/bg`) is restarted with the text `Continue where you left off.` (`CARRY_ON`), since its run ended aborted; so is a session file with no `xpi.run` entries (`marksRuns`). A harness without `/continue` sets `CONTINUE` to a message of its own. The worker (`extensions/roost/worker.ts`) settles its row as done on `continue_skipped`, with the reason as its summary (`WorkerTracker.commandNote`); a harness without the event leaves the row to the first-prompt rule.
 - **Guide**: this entry; there is no separate porting guide.
+
+## waits
+
+- **Gives**: `tools.wait({ after | at, reason, check?, every? })` from codemode ends the run with a wait, written as `xpi.wait` when the run ends; a timer in the open session and a check through the session's tool hooks; the end as `xpi.wake` and the `xpi.woke` note, then a run; `/wait`, `/wait cancel`; `/continue` wakes it; reopening finds it again; graph model nodes may wait; forks cancel a pending wait. See [Waits](wait.md) and [Session File Format](session-format.md#waits).
+- **Depends on**: codemode (the tool is called from a script; a nested `terminate` ends the script). Graph reads its draft at `agent_before_settle`, so `wait` is wired before graph.
+- **Copy**: `extensions/wait/` (`index.ts`, `parse.ts`), `core/waits.ts`.
+- **Copy (core change)**: `ctx.runTool()` (`core/extensions/types.ts` `RunToolOptions`, `runner.ts` `runToolFn`, `agent-session.ts` `runExtensionToolCall`, and the shortcut context in `modes/interactive/interactive-mode.ts`); the `continue_request` event (`types.ts`, `runner.ts` `emitContinueRequest`, `agent-session.ts` `continueRun` split into `_continueCore`); `blocked` on `AgentToolCallOutcome` (`xpi-agent-core` `types.ts`, `agent-loop.ts`); `createBranchedSession` cancels a pending wait (`core/session-manager.ts`); graph's `agent_before_settle` skips its reminder for a run that ended with a wait (`extensions/graph/index.ts`).
+- **Rewrite**: the wiring line in `extensions/index.ts` (before graph); the roost part comes with the roost milestone of `.scratch/xpi-durable/02-waits.md`.
+- **Verify**: `test/suite/wait.test.ts` and `test/suite/graph-controls.test.ts` (vitest, singly).
+- **Linux**: no platform difference (the check runs with the bash tool's shell). **macOS**: the same.
+- **Known limit**: one process per session is assumed; two processes on one session can both run checks until one writes the wake. A process that is not open (print mode, a closed terminal) does not wake; the next time the session opens, a due wait wakes at once.
+- **Guide**: this entry and [Waits](wait.md).
 
 ## checks
 

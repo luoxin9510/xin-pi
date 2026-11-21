@@ -42,6 +42,9 @@ What xin-pi adds to pi:
 - **Checks after edits**: name your type-check or lint commands in the `checks.commands` setting and xpi runs them after
   each turn that changed something, then shows the model the errors that are new, before its next request
   ([docs/checks.md](docs/checks.md)).
+- **Waits**: the model ends its run with `tools.wait` (until a time, or until a shell check such as CI passes) instead of
+  sleeping or polling in bash; when the wait ends it gets a note and goes on, and `/wait` shows or cancels it
+  ([docs/wait.md](docs/wait.md)).
 - **`/upstream`**: compares upstream pi with xin-pi and asks the model what is worth porting.
 - **shadow-git**: in a workspace owned by another version control system and registered with `xpi sg init`, git works with no setup, `/sg` imports, exports and merges, and subagents and teammates work in sandboxes ([docs/shadow-git.md](https://github.com/luoxin9510/xin-pi/blob/main/packages/xpi-coding-agent/docs/shadow-git.md)).
 - **Background sessions** (macOS and Linux): `xpi --bg "<task>"` or `/bg` hands a session to a daemon that keeps it

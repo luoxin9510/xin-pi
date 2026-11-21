@@ -26,7 +26,7 @@ return [a.output, b.output].join("\n---\n");
   script, waiting for agents), [Structured output](#structured-output), [Names and SendMessage](#names-and-sendmessage), [Agent teams](#agent-teams) (experimental), [Fork](#fork)
 - Per-agent options: [Worktree isolation](#worktree-isolation), [Agent memory](#agent-memory), [MCP](#mcp),
   [Permission mode plan](#permission-mode-plan), [Extensions as hooks](#extensions-as-hooks),
-  [Codemode-only children](#codemode-only-children), [Checks in subagents](#checks-in-subagents), [Protect in subagents](#protect-in-subagents), [Graph limits in subagents](#graph-limits-in-subagents)
+  [Codemode-only children](#codemode-only-children), [Checks in subagents](#checks-in-subagents), [Protect in subagents](#protect-in-subagents), [Graph limits in subagents](#graph-limits-in-subagents), [Waits in subagents](#waits-in-subagents)
 - Scripts: [Workflows](#workflows) (saved workflows, runs and relaunch, pause and resume)
 - Interactive xpi: [Watching and talking to subagents](#watching-and-talking-to-subagents) (the panel, the subagent screen,
   the script screen)
@@ -1115,6 +1115,11 @@ A subagent started while a [graph](graph.md) runs works inside the graph's curre
 it starts, and keeps them for its whole run: a subagent still running after the graph moved on has the old node's
 limits. A subagent in its own worktree matches `readOnly` patterns against its own directory. A subagent has no
 `/graph` and no `next`: it cannot move the graph.
+
+## Waits in subagents
+
+A subagent has no `wait` tool and no `/wait` ([Waits](wait.md)): a child is a process under its parent, not a session
+anything wakes later. A child that has to wait does so in its own run (or the parent waits, after the child reports).
 
 ## Config
 

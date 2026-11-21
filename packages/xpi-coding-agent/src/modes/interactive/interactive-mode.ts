@@ -2401,6 +2401,7 @@ export class InteractiveMode {
 			},
 			getSystemPrompt: () => this.session.systemPrompt,
 			complete: (options) => this.session.complete(options),
+			runTool: (name, args, options) => this.session.runExtensionToolCall(name, args, options),
 		});
 
 		// Set up the extension shortcut handler on the default editor

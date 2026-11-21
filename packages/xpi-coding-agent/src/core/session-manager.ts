@@ -39,6 +39,7 @@ import {
 	createCompactionSummaryMessage,
 	createCustomMessage,
 } from "./messages.ts";
+import { pendingWait, WAKE_CUSTOM_TYPE } from "./waits.ts";
 export const CURRENT_SESSION_VERSION = 3;
 
 export interface SessionHeader {
@@ -1739,6 +1740,20 @@ export class SessionManager {
 			};
 			pathWithoutLabels.push(end);
 			pathParentId = end.id;
+		}
+		// A pending wait does not wait in the new session: closed as cancelled (.scratch/xpi-durable/02-waits.md).
+		const wait = pendingWait(pathWithoutLabels);
+		if (wait) {
+			const wake: CustomEntry = {
+				type: "custom",
+				id: generateId(new Set(pathWithoutLabels.map((e) => e.id))),
+				parentId: pathParentId,
+				timestamp: new Date().toISOString(),
+				customType: WAKE_CUSTOM_TYPE,
+				data: { id: wait.id, at: Date.now(), why: "cancel" },
+			};
+			pathWithoutLabels.push(wake);
+			pathParentId = wake.id;
 		}
 
 		const newSessionId = createSessionId();

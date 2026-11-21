@@ -12,6 +12,7 @@ import shadowGitExtension from "./shadow-git/index.ts";
 import subagentExtension from "./subagent/index.ts";
 import toolSearchExtension from "./tool-search/index.ts";
 import upstreamExtension from "./upstream/index.ts";
+import waitExtension from "./wait/index.ts";
 
 export const builtInExtensions: InlineExtension[] = [
 	// First: its `session_start` sets GIT_DIR and GIT_WORK_TREE, and the `session_start` of the extensions after it (mcp
@@ -29,6 +30,9 @@ export const builtInExtensions: InlineExtension[] = [
 	{ name: "subagent", factory: subagentExtension, builtin: true },
 	// Not replaceable. Disable it with `-builtin:relay`.
 	{ name: "relay", factory: relayExtension, builtin: true },
+	// Not replaceable. Waits that do not hold a process (`tools.wait`, `/wait`). Before graph: graph reads the wait it
+	// writes at the end of a run. Disable it with `-builtin:wait`.
+	{ name: "wait", factory: waitExtension, builtin: true },
 	// Not replaceable. Flow control by a graph (`/graph`, the `graph/auto` model). It does nothing until `/graph start`.
 	// Disable it with `-builtin:graph`.
 	{ name: "graph", factory: graphExtension, builtin: true },
