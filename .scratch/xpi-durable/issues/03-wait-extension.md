@@ -1,6 +1,6 @@
 # 03: `builtin:wait` — the tool, entries, in-process waking (spec 02, milestone 1)
 
-Spec: `.scratch/xpi-durable/02-waits.md` sections 1–5, 7. Blocked until the owner approves the spec (D1, D2, D3).
+Spec: `.scratch/xpi-durable/02-waits.md` sections 1–5, 7. Spec approved (D1–D3 as recommended).
 
 First, check how the subagent extension builds a child's tool list (to leave `wait` out) and record it in
 `decisions.md`.

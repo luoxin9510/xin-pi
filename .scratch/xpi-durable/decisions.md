@@ -244,3 +244,5 @@ Round 2 (same reviewer, the revision): round 1 fixed; 2 should-fix and 3 nits fr
 
 Round 3 (same reviewer): approve. Two nits taken into section 1: a queued user message after the boundary ends a
 recorded wait with `user` (decided in `input`); `docs/extensions.md` will say boundary handlers keep `event.entries`.
+
+Approval (2026-11-21): the owner answered "全部推荐": the spec is approved and D1 (a), D2 (a), D3 (a) are taken.

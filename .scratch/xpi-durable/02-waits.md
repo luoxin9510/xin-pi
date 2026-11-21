@@ -1,9 +1,9 @@
 # Spec 02: waits that do not hold a process
 
-Status: draft for the owner's approval. Grill W1–W7 ("全是") and W8–W14 ("全部是") accepted as recommended on
+Status: approved by the owner on 2026-11-21 (PR #156, "全部推荐": D1–D3 as recommended). Grill W1–W7 ("全是") and W8–W14 ("全部是") accepted as recommended on
 2026-11-21. Reviewed twice by an independent Opus (round 1: 3 blocking, 8 should-fix, 3 nits; round 2: 2 should-fix,
 3 nits; all taken; see `decisions.md`).
-Three new choices found while writing and reviewing (D1, D2, D3, section 10) wait for the owner.
+Three choices found while writing and reviewing (D1, D2, D3, section 10) were taken as recommended.
 
 This is step 3 of the three steps that borrow ideas from upstream's `pi-durable` (step 1: xpi-graph spec 03, command
 nodes that survive a crash; step 2: spec 01, a model run cut off by a crash). No code is ported; the idea taken is
