@@ -50,8 +50,8 @@ const CORE: Record<string, How> = {
  * - /commit asks to confirm the message, /mcp (bare) and /llama open their managers, /workflows and /subagents (bare)
  *   open a list, /tasks opens the agent team's task overlay, /agents opens the hub inside the session: picker.
  * - /restart is the hub's own in a peek (it asks the daemon to restart that session): hub.
- * - /relay only says where the work stands, /protect shows or switches the protected paths (a notice on the session's
- *   screen): screen.
+ * - /relay only says where the work stands, /protect shows or switches the protected paths, /wait shows or cancels the
+ *   pending wait (a notice on the session's screen): screen.
  * - /handover, /handback, /subtask, /upstream, /graph (start begins the first node's turn) and the built-in /review
  *   workflow start or steer work: reply.
  */
@@ -86,6 +86,12 @@ export const EXTENSION_COMMANDS: Record<string, How & { description: string; arg
 		args: "optional",
 		argumentHint: "off | on",
 		description: "Show the protected paths, or turn the protection off or on for this session",
+	},
+	wait: {
+		how: "screen",
+		args: "optional",
+		argumentHint: "cancel",
+		description: "Show the pending wait, or end it without starting a run",
 	},
 	handover: { how: "reply", args: "optional", description: "Relay: give the work to the worker model now" },
 	handback: { how: "reply", description: "Relay: wake the lead now" },

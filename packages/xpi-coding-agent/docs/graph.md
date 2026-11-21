@@ -249,6 +249,9 @@ was also interrupted, the core's repair comes first, then the command node's rul
 after its turn had ended runs again at your next message (as the notice says), not at `/continue`: there is no run
 for it to continue.
 
+A model node may end its turn with a wait (`tools.wait`, see [Waits](wait.md)): that turn did not end without leaving
+the node, so there is no reminder and no halt; when the wait ends, the node is still current, on its model.
+
 ## What a run shows
 
 `/graph` shows the last run on the branch, while it runs and after it ended. It is computed from the session's

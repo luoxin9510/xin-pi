@@ -214,6 +214,17 @@ When the next run starts (or `/continue` runs), the session repairs the branch a
 
 `createBranchedSession` (`/fork`, `/clone`, creating a session from a path) appends an `end` entry with outcome `aborted` for each run started on the copied path and not ended on it, so a fork is never cut off. `forkFrom` copies the whole file, markers included, as they are.
 
+### Waits
+
+A wait the model asked for with `tools.wait` ([Waits](wait.md)) is a hidden custom entry `xpi.wait`, written when its run ends; how it ended is a hidden custom entry `xpi.wake`; the note the model reads is a `custom_message` `xpi.woke` (`display: true`).
+
+```json
+{"type":"custom","customType":"xpi.wait","data":{"id":"w1","at":1732112400000,"wakeAt":1732116000000,"reason":"wait for CI","check":{"command":"gh pr checks 155","everyMs":120000,"timeoutMs":120000}}}
+{"type":"custom","customType":"xpi.wake","data":{"id":"w1","at":1732113000000,"why":"check","output":"..."}}
+```
+
+`xpi.wait`: `{ id, at, wakeAt, reason, check? }` (times in epoch ms; with a `check`, `wakeAt` is the deadline and checks run at `at + k × everyMs`). `xpi.wake`: `{ id, at, why, output? }`, `why` one of `due`, `check`, `deadline`, `user`, `continue`, `cancel`, `blocked`; `output` is the last 50 lines of the last check. A wait is pending when the branch's last `xpi.wait` has no `xpi.wake` with its id anywhere in the session. `createBranchedSession` appends a `cancel` wake for a pending wait on the copied path.
+
 ### LabelEntry
 
 User-defined bookmark/marker on an entry.

@@ -104,6 +104,7 @@ import {
 	type MessageUpdateEvent,
 	type ReplacedSessionContext,
 	type RequestStartEvent,
+	type RunToolOptions,
 	type SessionBeforeCompactResult,
 	type SessionBeforeTreeResult,
 	type SessionBoundaryDraft,
@@ -565,6 +566,8 @@ export class AgentSession {
 
 	// Tool registry for extension getTools/setTools
 	private _toolRegistry: Map<string, AgentTool> = new Map();
+	/** Ids of `ctx.runTool()` calls without their own. */
+	private _extensionToolCallCount = 0;
 	/** Created on the first `ctx.executeTool()` call. */
 	private _nestedToolCalls: NestedToolCallRunner | undefined;
 	/** Declared tools whose declarations requests leave out, from `prepareLoadout` hooks. */
@@ -879,6 +882,32 @@ export class AgentSession {
 		scopeToken?: object,
 	): Promise<AgentToolCallOutcome> {
 		return this._getNestedToolCalls().execute(parentToolCallId, name, args, options, scopeToken);
+	}
+
+	/**
+	 * `ctx.runTool()`: one call an extension makes on its own, outside any model tool call. Same pipeline as a nested
+	 * call (preparation, validation, `tool_call`, execution, `tool_result`), no events, nothing written.
+	 */
+	async runExtensionToolCall(
+		name: string,
+		args: unknown,
+		options: RunToolOptions = {},
+	): Promise<AgentToolCallOutcome> {
+		const id = options.id ?? `ext:${++this._extensionToolCallCount}`;
+		const toolCall = {
+			type: "toolCall" as const,
+			id,
+			name,
+			arguments: (args ?? {}) as AgentToolCallOutcome["toolCall"]["arguments"],
+		};
+		return runToolCall(toolCall, {
+			tools: this._getCallableTools(),
+			assistantMessage: this._findLastAssistantMessage() ?? this._emptyAssistantMessage(),
+			context: { messages: this.agent.state.messages, tools: this.agent.state.tools },
+			beforeToolCall: (context) => this._beforeToolCall(context),
+			afterToolCall: (context) => this._afterToolCall(context),
+			signal: options.signal,
+		});
 	}
 
 	/**
@@ -2342,13 +2371,30 @@ export class AgentSession {
 	 * the model is asked again. Otherwise nothing runs, and the result says why. Resolves when the run it started ends.
 	 */
 	async continueRun(options?: { onStarted?: () => void }): Promise<ContinueResult> {
+		const nothing = await this._continueCore(options);
+		if (nothing === undefined) return { ran: true };
+		if (nothing === "busy") return { ran: false, reason: nothing };
+		// Nothing for the core: an extension may have something to go on with (a pending wait).
+		if (!(await this._extensionRunner.emitContinueRequest({ type: "continue_request", reason: nothing }))) {
+			return { ran: false, reason: nothing };
+		}
+		// The handler started a run (not awaited by it): resolve when it ends, as a run the core starts.
+		await Promise.resolve();
+		await this.waitForIdle();
+		return { ran: true };
+	}
+
+	/** `continueRun()` without extensions: undefined when it ran a run, else why not. */
+	private async _continueCore(options?: {
+		onStarted?: () => void;
+	}): Promise<Extract<ContinueResult, { ran: false }>["reason"] | undefined> {
 		if (
 			this._isAgentRunActive ||
 			this._isEmittingAgentSettled ||
 			this.isCompacting ||
 			this._branchSummaryAbortController !== undefined
 		) {
-			return { ran: false, reason: "busy" };
+			return "busy";
 		}
 		this._promptPreflightCount++;
 		try {
@@ -2358,7 +2404,7 @@ export class AgentSession {
 			if (cut?.replyComplete) {
 				// The process ended after a complete reply: nothing to continue; close the run.
 				this._writeRunEnd(cut.id, "recovered");
-				return { ran: false, reason: "finished" };
+				return "finished";
 			}
 			// D1 needs the provider error to be the reply the context ends with: a run whose start failed (a throwing
 			// before_agent_start handler, say) also ends as `error`, after a reply that is complete.
@@ -2372,11 +2418,11 @@ export class AgentSession {
 			if (!cut) {
 				const outcome = lastRunOutcome(branch, entries);
 				if (outcome !== "error" || !errorTail) {
-					return {
-						ran: false,
-						reason:
-							outcome === "aborted" ? "stopped" : outcome === undefined && !hasRun(branch) ? "none" : "finished",
-					};
+					return outcome === "aborted"
+						? "stopped"
+						: outcome === undefined && !hasRun(branch)
+							? "none"
+							: "finished";
 				}
 			}
 			if (!this.model) throw new Error(formatNoModelSelectedMessage());
@@ -2390,7 +2436,7 @@ export class AgentSession {
 			this._promptPreflightCount--;
 		}
 		await this._startRun({ messageType: "continue" }, options?.onStarted);
-		return { ran: true };
+		return undefined;
 	}
 
 	/** `/continue` typed as a prompt: never throws for a run that cannot start; says why where there is a UI. */
@@ -4200,6 +4246,7 @@ export class AgentSession {
 				getSystemPrompt: () => this.systemPrompt,
 				complete: (options) => this.complete(options),
 				getSystemPromptOptions: () => this._baseSystemPromptOptions,
+				runTool: (name, args, options) => this.runExtensionToolCall(name, args, options),
 				executeTool: (callerId, name, args, options, scopeToken) =>
 					this._executeNestedToolCall(callerId, name, args, options, scopeToken),
 				detachNestedCalls: (callerId, scopeToken) => this._getNestedToolCalls().detach(callerId, scopeToken),

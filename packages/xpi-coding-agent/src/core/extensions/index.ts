@@ -61,6 +61,8 @@ export type {
 	ContextEventResult,
 	ContextUsage,
 	ContextWithSystemEvent,
+	ContinueRequestEvent,
+	ContinueRequestEventResult,
 	ContinueSkippedEvent,
 	CustomEntryDraft,
 	CustomMessageEntryDraft,
@@ -155,6 +157,7 @@ export type {
 	// Events - Resources
 	ResourcesDiscoverEvent,
 	ResourcesDiscoverResult,
+	RunToolOptions,
 	SchemeContent,
 	SchemeHandler,
 	SendMessageHandler,

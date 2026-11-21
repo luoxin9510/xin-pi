@@ -38,6 +38,9 @@ to npm), environment variables are `XPI_*`, and these built-in extensions are ad
 - [checks](packages/xpi-coding-agent/docs/checks.md): after a turn that changed something, runs the commands in the
   `checks.commands` setting (type checker, linter) and shows the model the errors that are new, before its next request.
   Off until you name commands.
+- [wait](packages/xpi-coding-agent/docs/wait.md): the model ends its run with `tools.wait` (until a time, or until a
+  shell check passes) instead of sleeping or polling; it gets a note and goes on when the wait ends, and a closed
+  session finds the wait again when it is reopened.
 
 - `xpi sg`: a private git history over a workspace that another version control system owns, with `import` and `export`
   as the sync point and a small adapter script for the host VCS. The built-in `shadow-git` extension gives sessions in

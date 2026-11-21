@@ -728,6 +728,8 @@ type ImmediateToolCallOutcome = {
 	kind: "immediate";
 	result: AgentToolResult<any>;
 	isError: boolean;
+	/** A `beforeToolCall` hook blocked the call. */
+	blocked?: boolean;
 };
 
 type ExecutedToolCallOutcome = {
@@ -815,6 +817,7 @@ async function prepareToolCall(
 					kind: "immediate",
 					result,
 					isError: true,
+					blocked: true,
 				};
 			}
 		}
@@ -877,7 +880,12 @@ export async function runToolCall(toolCall: AgentToolCall, options: RunToolCallO
 	const { assistantMessage, context, signal } = options;
 	const preparation = await prepareToolCall(context, assistantMessage, toolCall, options, signal, options.tools);
 	if (preparation.kind === "immediate") {
-		return { toolCall, result: preparation.result, isError: preparation.isError };
+		return {
+			toolCall,
+			result: preparation.result,
+			isError: preparation.isError,
+			...(preparation.blocked ? { blocked: true } : {}),
+		};
 	}
 	const executed = await executePreparedToolCall(preparation, signal, options.onUpdate ?? (() => {}));
 	return finalizeExecutedToolCall(context, assistantMessage, preparation, executed, options, signal);

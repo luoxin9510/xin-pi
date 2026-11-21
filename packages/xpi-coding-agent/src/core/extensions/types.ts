@@ -396,6 +396,20 @@ export interface ExtensionContext {
 	 * aborted. Throws {@link CompleteError}.
 	 */
 	complete<T = unknown>(options: CompleteOptions): Promise<CompleteResult<T>>;
+	/**
+	 * Run one tool call on the extension's own, outside any model tool call (a check between runs, say). It goes
+	 * through the session's `tool_call` handlers (a blocker can refuse it) and `tool_result` handlers, against the
+	 * tools `codemode` can call, and is not written to the transcript. Works with or without a run. Never rejects for
+	 * tool failures: an unknown tool, a blocked call or a thrown error comes back as `isError: true`.
+	 */
+	runTool(name: string, args: unknown, options?: RunToolOptions): Promise<AgentToolCallOutcome>;
+}
+
+/** Options for {@link ExtensionContext.runTool}. */
+export interface RunToolOptions {
+	/** The call's id, as `tool_call` and `tool_result` handlers see it. Defaults to `ext:<n>`. */
+	id?: string;
+	signal?: AbortSignal;
 }
 
 /** Options for {@link ExtensionToolContext.executeTool}. */
@@ -1273,6 +1287,23 @@ export interface ModelSelectEvent {
 }
 
 /**
+ * Fired by `continueRun()` (so by `/continue` anywhere: typed, print mode, RPC) when the core itself has nothing to
+ * continue: the last run finished or was stopped, or there was none. A handler that starts a run itself (say, by
+ * `pi.sendMessage(..., { triggerTurn: true })`) returns `{ handled: true }`; the first such handler wins, and
+ * `continueRun()` then reports that a run started. A cut-off run is repaired by the core and does not fire this.
+ */
+export interface ContinueRequestEvent {
+	type: "continue_request";
+	reason: "finished" | "stopped" | "none";
+}
+
+/** Result from a continue_request handler. */
+export interface ContinueRequestEventResult {
+	/** The handler started a run. */
+	handled?: boolean;
+}
+
+/**
  * Fired when `/continue`, sent as a prompt, starts no run: after a run that finished or was stopped, with nothing to
  * continue, while a run is in progress, or with arguments. `message` is what the UI is told. Notification-only.
  */
@@ -1584,6 +1615,7 @@ export type ExtensionEvent =
 	| ModelSelectEvent
 	| ThinkingLevelSelectEvent
 	| ContinueSkippedEvent
+	| ContinueRequestEvent
 	| UserBashEvent
 	| InputEvent
 	| ToolCallEvent
@@ -1842,6 +1874,10 @@ export interface ExtensionAPI {
 	on(event: "model_select", handler: ExtensionHandler<ModelSelectEvent>): () => void;
 	on(event: "thinking_level_select", handler: ExtensionHandler<ThinkingLevelSelectEvent>): () => void;
 	on(event: "continue_skipped", handler: ExtensionHandler<ContinueSkippedEvent>): () => void;
+	on(
+		event: "continue_request",
+		handler: ExtensionHandler<ContinueRequestEvent, ContinueRequestEventResult>,
+	): () => void;
 	on(event: "tool_call", handler: ExtensionHandler<ToolCallEvent, ToolCallEventResult>): () => void;
 	on(event: "tool_result", handler: ExtensionHandler<ToolResultEvent, ToolResultEventResult>): () => void;
 	on(event: "user_bash", handler: ExtensionHandler<UserBashEvent, UserBashEventResult>): () => void;
@@ -2485,6 +2521,8 @@ export interface ExtensionContextActions {
 	getSystemPrompt: () => string;
 	complete: <T = unknown>(options: CompleteOptions) => Promise<CompleteResult<T>>;
 	getSystemPromptOptions?: () => BuildSystemPromptOptions;
+	/** Backs `ExtensionContext.runTool()`. Without it, the call fails. */
+	runTool?: (name: string, args: unknown, options: RunToolOptions) => Promise<AgentToolCallOutcome>;
 	/** Backs `ExtensionToolContext.executeTool()`. Without it, nested calls fail. */
 	executeTool?: (
 		callerId: string,

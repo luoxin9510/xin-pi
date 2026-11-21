@@ -96,6 +96,8 @@ Linux with the npm installation of xpi.
 | `/graph start <name>` | [Graph](graph.md): check a graph and enter its first node |
 | `/graph goto <node>` | [Graph](graph.md): your own jump to any node of the running graph; a command node runs its command |
 | `/graph stop` | [Graph](graph.md): end the running graph and give back the selected model |
+| `/wait` | [Waits](wait.md): show the pending wait (until when, the check, its last output) |
+| `/wait cancel` | [Waits](wait.md): end the pending wait without starting a run |
 
 ## Commit
 

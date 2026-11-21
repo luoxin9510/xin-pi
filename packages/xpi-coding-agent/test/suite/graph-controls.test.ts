@@ -13,6 +13,7 @@ import type { RunResult } from "../../src/extensions/checks/runner.ts";
 import { createCodemodeExtension } from "../../src/extensions/codemode/index.ts";
 import { createGraphExtension, GRAPH_EVENTS, GRAPH_MODEL, GRAPH_PROVIDER } from "../../src/extensions/graph/index.ts";
 import { LIMITS_ENV } from "../../src/extensions/graph/limits.ts";
+import { createWaitExtension } from "../../src/extensions/wait/index.ts";
 import { createHarness, createTestUiContext, getMessageText, getToolResult, type Harness } from "./harness.ts";
 
 // build (small) -> ci (command) -> review (large) -> merge (command, after an approval) -> end.
@@ -139,7 +140,8 @@ describe("graph extension: controls", () => {
 			// The first model is the one selected when a test starts.
 			models: [{ id: "medium" }, { id: "small" }, { id: "large", reasoning: true }],
 			initialActiveToolNames: ["read", "write", "bash", "codemode"],
-			extensionFactories: [createCodemodeExtension(), graphExtension, listener],
+			// builtin:wait before graph, as in the built-in list: graph reads the wait it writes at a run's end.
+			extensionFactories: [createCodemodeExtension(), createWaitExtension(), graphExtension, listener],
 			...(options.sessionManager ? { sessionManager: options.sessionManager } : {}),
 		});
 		harnesses.push(harness);
@@ -245,6 +247,7 @@ describe("graph extension: controls", () => {
 			seen,
 			move,
 			attempt,
+			code,
 			say,
 			state,
 			running,
@@ -950,6 +953,17 @@ describe("graph extension: controls", () => {
 			harness.setResponses([move("ci")]);
 			await go("then hand it to ci");
 			expect(running().node).toBe("review");
+		});
+
+		it("is left alone when the turn ended with a wait: no reminder, no halt (.scratch/xpi-durable/02-waits.md)", async () => {
+			const { harness, code, running, go, models, entries } = await setup();
+			harness.setResponses([code(`await tools.wait({ after: "1h", reason: "wait for the build" });`)]);
+			await go("/graph start ship");
+			expect(models()).toEqual(["small"]);
+			expect(running().node).toBe("build");
+			expect(running().halted).toBeUndefined();
+			expect(entries("graph.reminder")).toEqual([]);
+			await harness.session.prompt("/wait cancel");
 		});
 
 		it("is left alone in a node that has an approval exit: it talks with the user", async () => {

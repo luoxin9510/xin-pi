@@ -37,6 +37,8 @@ import type {
 	ContextEventResult,
 	ContextUsage,
 	ContextWithSystemEvent,
+	ContinueRequestEvent,
+	ContinueRequestEventResult,
 	EntryRenderer,
 	ExecuteToolOptions,
 	Extension,
@@ -384,6 +386,7 @@ export class ExtensionRunner {
 	private getSystemPromptOptionsFn: () => BuildSystemPromptOptions = () =>
 		normalizeBuildSystemPromptOptions({ cwd: this.cwd });
 	private executeToolFn: ExtensionContextActions["executeTool"];
+	private runToolFn: ExtensionContextActions["runTool"];
 	private detachNestedCallsFn: ExtensionContextActions["detachNestedCalls"];
 	private releaseNestedCallsFn: ExtensionContextActions["releaseNestedCalls"];
 	private getCallableToolsFn: () => readonly AgentTool[] = () => [];
@@ -462,6 +465,7 @@ export class ExtensionRunner {
 		this.getSystemPromptOptionsFn =
 			contextActions.getSystemPromptOptions ?? (() => normalizeBuildSystemPromptOptions({ cwd: this.cwd }));
 		this.executeToolFn = contextActions.executeTool;
+		this.runToolFn = contextActions.runTool;
 		this.detachNestedCallsFn = contextActions.detachNestedCalls;
 		this.releaseNestedCallsFn = contextActions.releaseNestedCalls;
 		this.getCallableToolsFn = contextActions.getCallableTools ?? (() => []);
@@ -975,6 +979,20 @@ export class ExtensionRunner {
 				runner.assertActive();
 				return runner.completeFn(options);
 			},
+			runTool: async (name, args, options = {}) => {
+				runner.assertActive();
+				if (!runner.runToolFn) {
+					return {
+						toolCall: { type: "toolCall", id: options.id ?? "ext:0", name, arguments: {} },
+						result: {
+							content: [{ type: "text", text: "ctx.runTool() is not available in this context" }],
+							details: {},
+						},
+						isError: true,
+					};
+				}
+				return runner.runToolFn(name, args, options);
+			},
 		};
 	}
 
@@ -1327,6 +1345,27 @@ export class ExtensionRunner {
 		}
 
 		return result;
+	}
+
+	/** `continue_request`: whether a handler started a run. A handler that throws is reported and skipped. */
+	async emitContinueRequest(event: ContinueRequestEvent): Promise<boolean> {
+		const ctx = this.createContext();
+		for (const { ext, handlers } of snapshotEventHandlers(this.extensions, "continue_request")) {
+			for (const handler of handlers) {
+				try {
+					const result = (await handler(event, ctx)) as ContinueRequestEventResult | undefined;
+					if (result?.handled === true) return true;
+				} catch (err) {
+					this.emitError({
+						extensionPath: ext.path,
+						event: "continue_request",
+						error: err instanceof Error ? err.message : String(err),
+						stack: err instanceof Error ? err.stack : undefined,
+					});
+				}
+			}
+		}
+		return false;
 	}
 
 	async emitUserBash(event: UserBashEvent): Promise<UserBashEventResult | undefined> {

@@ -494,6 +494,8 @@ export interface AgentToolCallOutcome {
 	isError: boolean;
 	/** Milliseconds `execute()` took, measured with a monotonic clock; absent when the tool did not run. */
 	durationMs?: number;
+	/** True when a `beforeToolCall` hook blocked the call (it did not run). */
+	blocked?: boolean;
 }
 
 /**

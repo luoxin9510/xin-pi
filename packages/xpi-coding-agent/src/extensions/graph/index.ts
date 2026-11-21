@@ -58,6 +58,7 @@ import type {
 } from "../../core/extensions/types.ts";
 import type { SessionEntry } from "../../core/session-manager.ts";
 import { isVirtualModel } from "../../core/virtual-models.ts";
+import { pendingWait, WAIT_CUSTOM_TYPE } from "../../core/waits.ts";
 import { type CheckRunner, type RunResult, runCheckCommand } from "../checks/runner.ts";
 import { realPathOf } from "../protect/match.ts";
 import { discoverGraphs, graphDirs, readGraphFile } from "./files.ts";
@@ -942,6 +943,12 @@ export function createGraphExtension(options: { run?: CheckRunner } = {}) {
 				else if (outcome.kind === "command") noted = outcome.at;
 				return { entries: [...event.entries, ...drafts], continue: outcome.kind === "model" };
 			}
+			// A run that ended with a wait (written at this boundary by builtin:wait, loaded before graph) waits: it did not
+			// end without leaving (.scratch/xpi-durable/02-waits.md).
+			const waits =
+				event.entries.some((entry) => entry.type === "custom" && entry.customType === WAIT_CUSTOM_TYPE) ||
+				pendingWait(ctx.sessionManager.getBranch(), ctx.sessionManager.getEntries()) !== undefined;
+			if (waits) return undefined;
 			// A turn that ended without a move. A node with an approval exit talks with the user, and so does a halted one.
 			const node = state.graph.nodes[state.node];
 			const talks = exits(state).some((choice) => choice.edge.exit === "approve");

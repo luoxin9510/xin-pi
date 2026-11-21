@@ -22,6 +22,7 @@ function createContext(tokens: number | null, compact = vi.fn()): ExtensionConte
 		compact,
 		getSystemPrompt: () => "",
 		complete: vi.fn(),
+		runTool: vi.fn(),
 	};
 }
 
