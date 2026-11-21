@@ -657,8 +657,11 @@ function noteWake(id: string, wake: WakeInfo | null, tries = 0): void {
 		if (ok) return;
 		reaping.delete(id);
 		if (tries >= 4) return;
+		// the same process only: a restart meanwhile brings a worker that reports for itself
+		const host = roster.get(id)?.hostPid;
 		const later = setTimeout(() => {
-			if (!shuttingDown && roster.has(id) && readState(id)?.wakeAt === wake.next) noteWake(id, wake, tries + 1);
+			if (shuttingDown || roster.get(id)?.hostPid !== host || host === undefined) return;
+			if (readState(id)?.wakeAt === wake.next) noteWake(id, wake, tries + 1);
 		}, 1000);
 		later.unref?.();
 	});
