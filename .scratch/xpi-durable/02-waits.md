@@ -66,7 +66,11 @@ kept and says so. So:
   core repairs the run as for any other tool call, and the model, told the call was interrupted, can wait again;
 - if the run went on after the call (another tool in the same batch did not terminate, or a queued steer or follow-up
   came in): a user message in that run drops the wait (the model saw the user's message; nothing to tell); otherwise
-  the wait is recorded when the run ends, as asked.
+  the wait is recorded when the run ends, as asked. This is decided in `input`, when the message comes in: a wait still
+  in memory is dropped; one already recorded (the message was queued and the run went on after the boundary) is ended
+  with `user`, as any pending wait. The M1 test "a steer after the call" asserts both.
+- `docs/extensions.md` says an `agent_before_settle` handler that returns `entries` must keep the drafts it was given
+  (`event.entries`), or it drops other extensions' entries, the wait among them (graph already does).
 
 ## 2. Entries
 
