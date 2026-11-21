@@ -1584,6 +1584,11 @@ describe("spec 03: restarting sessions by id", () => {
 });
 
 describe("spec 02: a session that waits lets go of its process", () => {
+	// a failed case shows what the daemon did (timing on a slow runner)
+	afterEach((ctx) => {
+		if (ctx.task.result?.state === "fail")
+			console.log("DAEMONLOG\n" + readFileSync(join(home, "daemon.log"), "utf8").split("\n").slice(-40).join("\n"));
+	});
 	const waiting = (wake: { at: number; next: number; every?: number; reason: string }) => ({
 		state: "working" as const,
 		status: "waiting" as const,
@@ -1720,7 +1725,7 @@ describe("spec 02: a session that waits lets go of its process", () => {
 		writeFileSync(a.sessionFile, "{}\n");
 		const { id } = await client.request("dispatch", a);
 		await waitFor(async () => (await find(client, id))?.pid);
-		const at = Date.now() + 500;
+		const at = Date.now() + 3000;
 		await (await asWorker()).request("report", {
 			id,
 			token: readState(id)?.jobToken as string,
@@ -1729,7 +1734,7 @@ describe("spec 02: a session that waits lets go of its process", () => {
 		const row = await waitFor(async () => {
 			const r = await find(client, id);
 			return r?.state === "failed" ? r : undefined;
-		}, 10000);
+		}, 20000);
 		expect(row.error).toContain("could not be woken");
 		expect(readState(id)?.wakeAt).toBeUndefined();
 		await new Promise((r) => setTimeout(r, 500));

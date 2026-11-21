@@ -613,7 +613,9 @@ async function fireWake(id: string): Promise<void> {
 	const st = readState(id);
 	if (shuttingDown || !recs.has(id) || typeof st?.wakeAt !== "number") return;
 	// its worker is up (not let go, or started by other means): its own timer acts; it reports the next wakeAt
-	if (roster.has(id) || starting.has(id) || respawning.has(id)) return;
+	if (roster.has(id)) return;
+	// a start still finishing (its process may already have ended, and finalize armed this): look again shortly
+	if (starting.has(id) || respawning.has(id)) return armWake(id, 250);
 	if (st.wakeAt - Date.now() > 1000) return armWake(id); // a timer cut at MAX_TIMER_MS
 	log("info", "wake", { id });
 	try {
@@ -630,7 +632,7 @@ async function fireWake(id: string): Promise<void> {
 }
 
 /** A wait report: store when to wake it; end the worker meanwhile unless a terminal is attached or it checks often. */
-function noteWake(id: string, wake: WakeInfo | null): void {
+function noteWake(id: string, wake: WakeInfo | null, tries = 0): void {
 	if (!wake) {
 		cancelWake(id);
 		return;
@@ -639,13 +641,26 @@ function noteWake(id: string, wake: WakeInfo | null): void {
 	// due now (a worker just started for it, about to wake or check): let it act first
 	if (wake.next <= Date.now()) return;
 	if (wake.every !== undefined && wake.every < LET_GO_EVERY_MS) return;
-	if (starting.has(id) || stopping.has(id) || reaping.has(id) || respawning.has(id) || pinnedJob(id)) return;
-	if (pendingReplies(id).length > 0) return;
+	if (stopping.has(id) || reaping.has(id) || pinnedJob(id) || pendingReplies(id).length > 0) return;
+	if (starting.has(id) || respawning.has(id)) {
+		// its start is still finishing (the report came first): decide again once it has, for the same wait
+		const later = setTimeout(() => {
+			if (!shuttingDown && roster.has(id) && readState(id)?.wakeAt === wake.next) noteWake(id, wake);
+		}, 250);
+		later.unref?.();
+		return;
+	}
 	reaping.add(id); // finalize keeps it a waiting row; replies and stops see this meanwhile
 	log("info", "let go while waiting", { id, until: new Date(wake.next).toISOString() });
-	// the host refuses when a terminal is attached
+	// the host refuses when a terminal is attached; a host not answering yet (just started) is asked again a few times
 	void terminateIfIdle(id).then((ok) => {
-		if (!ok) reaping.delete(id);
+		if (ok) return;
+		reaping.delete(id);
+		if (tries >= 4) return;
+		const later = setTimeout(() => {
+			if (!shuttingDown && roster.has(id) && readState(id)?.wakeAt === wake.next) noteWake(id, wake, tries + 1);
+		}, 1000);
+		later.unref?.();
 	});
 }
 
