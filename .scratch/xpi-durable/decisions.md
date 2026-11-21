@@ -209,3 +209,27 @@ Found while writing the spec (section 9): D1 (a terminating nested call ends a c
 "rest of the script runs" needs a codemode change; recommended: let `wait` end the script) and D2 (`/continue` is
 handled by the core before extensions; recommended: a `continue_request` event). Also: graph's "ended your turn
 without leaving it" reminder would fire after a wait; the spec makes graph treat a pending wait as waiting.
+
+## Spec 02 review 1 (independent Opus, fresh context)
+
+3 blocking, 8 should-fix, 3 nits; all taken into the spec:
+- B1 An extension cannot run a tool through its hooks between runs (`ctx.executeTool` needs a parent tool call) →
+  new choice D3 (a core `ctx.runTool`), listed as a core change.
+- B2 Roost restart paths would wake a wait with a made-up prompt (`CARRY_ON` on restart of a "working" row; `/continue`
+  on a crash) → a waiting row is never "working" for restart rules; respawn adds no prompt; no DM-5 restart for it.
+  D2 no longer says "a due wait": `/continue` wakes any pending wait (W14).
+- B3 Reusing `resumeAt` would force `/continue`; a new `wakeAt` must be known to `cleanable`, `runStillWorking`,
+  `runState`, `finalize` (a let-go waiting row stays waiting, not done) and `toRow` → named in section 6.
+- S1 `terminate` ends a run only when the whole batch terminates; queued steers go on → the wait is recorded at
+  `agent_settled`; a user message in the same run drops it.
+- S2 Runs started by something else (background results, subagent reports) → the wait stays pending; a timer that
+  fires during a run waits for it to settle (never steered in).
+- S3 Crash between writing the wait and the run's end → recording at `agent_settled` means no half-made wait on disk.
+- S4 The next check time → `at + k × every`, recomputed on reopen; one found past runs at once.
+- S5 A worker not let go has no persisted wake → the daemon stores `wakeAt` anyway and `finalize` keeps the row waiting.
+- S6 Closed `waitingFor` enum (`REPORT_WAITING`, `acceptReport`, `events.ts`, `view-model.ts`) → all named; the
+  protocol doc says unknown values are `null`.
+- S7 A user message during a check → the check is killed, its result ignored; the note via `before_agent_start`.
+- S8 Two processes → the daemon retries a locked respawn every minute; first wake written wins.
+- Nits: time zones and DST for `at`/`"HH:MM"`; the print-mode contradiction; the by-hand plan now covers restart,
+  crash, a batch with another tool, a background result during a wait, cleanup.
