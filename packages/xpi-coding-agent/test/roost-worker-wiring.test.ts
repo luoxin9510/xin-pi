@@ -62,6 +62,7 @@ function fakePi(commands: unknown[] = []) {
 		getFlag: () => undefined,
 		getSettings: () => ({}),
 		getCommands: (): unknown[] => commands,
+		getAllTools: () => [{ name: "wait" }],
 	};
 	const emit = async (name: string, event: any = {}, ctx?: any) => {
 		for (const h of handlers.get(name) ?? []) await h(event, ctx);

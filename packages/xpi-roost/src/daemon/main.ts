@@ -461,6 +461,8 @@ function finalize(id: string, why: string, opts: { startup?: boolean } = {}): vo
 	const patch: Partial<JobState> = { endedAt: now, status: null, waitingFor: null, tool: null };
 	patch.stateSince = now;
 	let restart = false;
+	/** Spec 02: a waiting row whose last start failed is woken again after this, not at once. */
+	let wakeDelay: number | undefined;
 	if (recs.get(id)?.kind === "shell") {
 		// DI-6: stopped, or the command's exit status; the row goes away a while later
 		if (stopReq) patch.state = "stopped";
@@ -473,11 +475,26 @@ function finalize(id: string, why: string, opts: { startup?: boolean } = {}): vo
 		const line = lastScreenLine(id);
 		if (line) patch.summary = line;
 	} else if (waiting) {
-		patch.state = "working";
-		patch.status = "waiting";
-		patch.waitingFor = "wake";
-		patch.reaped = true;
-		patch.stateSince = typeof st.stateSince === "number" ? st.stateSince : now;
+		// A process started for the wait that ended before it ever reported (a broken build, a bad session): counted,
+		// with the crash restarts' delays; after as many it is failed, not started again without end.
+		const early = typeof st.reportedAt !== "number";
+		const fails = early ? (typeof st.wakeFails === "number" ? st.wakeFails : 0) + 1 : 0;
+		if (fails > RESUME_DELAYS_MS.length) {
+			patch.state = "failed";
+			patch.wakeAt = undefined;
+			patch.wakeFails = undefined;
+			patch.error = `its wait could not be woken: the session ended ${fails - 1} times before it started`;
+		} else {
+			patch.state = "working";
+			patch.status = "waiting";
+			patch.waitingFor = "wake";
+			patch.reaped = true;
+			patch.stateSince = typeof st.stateSince === "number" ? st.stateSince : now;
+			if (early) {
+				patch.wakeFails = fails;
+				wakeDelay = RESUME_DELAYS_MS[fails - 1];
+			}
+		}
 	} else if (reaped) {
 		// DM-4: an idle worker stopped to save resources; the row stays as it was
 		patch.state = st.state === "working" ? "done" : st.state;
@@ -545,7 +562,7 @@ function finalize(id: string, why: string, opts: { startup?: boolean } = {}): vo
 		void respawn(id).catch((err: unknown) => log("error", "wake after reap failed", { id, error: String(err) }));
 	}
 	if (resumeIn !== undefined) scheduleResume(id, resumeIn, "crash");
-	if (waiting && !shuttingDown) armWake(id);
+	if (waiting && !shuttingDown && patch.state === "working") armWake(id, wakeDelay);
 }
 
 // ---- spec 02: waits that do not hold a process ----------------------------------------
@@ -583,6 +600,12 @@ function cancelWake(id: string): boolean {
 	clearTimeout(wakeTimers.get(id));
 	wakeTimers.delete(id);
 	return waits(readState(id));
+}
+
+/** Until a start of the job under way (respawn, host start) is over, at most WAIT_MS. */
+async function startSettled(id: string): Promise<void> {
+	const end = Date.now() + WAIT_MS;
+	while ((respawning.has(id) || starting.has(id)) && Date.now() < end) await sleep(25);
 }
 
 /** A waiting row's time came: start its worker with no prompt; the session's wait extension does the rest. */
@@ -1385,8 +1408,9 @@ async function reply(args: { id?: unknown; text?: unknown; mode?: unknown } | un
 	}
 	const live = roster.has(id);
 	if (text === "/stop") {
+		await startSettled(id);
 		const waited = cancelWake(id);
-		if (live) {
+		if (roster.has(id)) {
 			if (waited) updateState(id, { wakeAt: undefined });
 			await terminateHost(id);
 		} else if (waited || cancelResume(id)) {
@@ -1533,6 +1557,7 @@ function acceptReport(
 		...(r.context !== undefined ? { context: contextFrom(r.context) } : {}),
 		...(r.usage !== undefined ? { usage: usageFrom(r.usage) } : {}),
 		reportedAt: Date.now(),
+		...(typeof st.wakeFails === "number" ? { wakeFails: undefined } : {}),
 		// M31: what its agent said it can do (kept from the hello on this connection)
 		...(conn.hello ? { agentInfo: conn.hello } : {}),
 		attachSignal: r.attachSignal === true,
@@ -1689,6 +1714,8 @@ async function handle(conn: Conn, op: string, args: any): Promise<unknown> {
 			return {};
 		case "stop": {
 			const id = requireJob(args);
+			// a start under way (a wake, a reply) finishes first: stopped meanwhile, its new worker would undo the stop
+			await startSettled(id);
 			// spec 02: a stop ends the daemon's part of a wait (the session keeps it, found when it is started again)
 			const waited = cancelWake(id);
 			if (roster.has(id)) {

@@ -263,6 +263,8 @@ export function registerWorker(pi: ExtensionAPI, opts: WorkerOptions = {}): bool
 	const wakeNow = (): WakeInfo | null => {
 		try {
 			const ctx = current;
+			// without builtin:wait (-builtin:wait) nothing would wake it: an old wait in the file is not reported
+			if (!pi.getAllTools().some((tool) => tool.name === "wait")) return null;
 			const wait = ctx ? pendingWait(ctx.sessionManager.getBranch(), ctx.sessionManager.getEntries()) : undefined;
 			if (!wait) return null;
 			// before it says: the first check (or the time); one already passed means it acts now, and is not let go

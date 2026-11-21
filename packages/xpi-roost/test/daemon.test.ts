@@ -1711,6 +1711,30 @@ describe("spec 02: a session that waits lets go of its process", () => {
 		expect(row).toMatchObject({ state: "working", waitingFor: "wake" });
 	});
 
+	it("a session that keeps ending before it reports is woken a few times, then failed", async () => {
+		process.env.ROOST_RESUME_DELAYS_MS = "100,100";
+		const { client } = await startDaemon();
+		const marker = join(work, "started");
+		const a = args(`if [ -f ${marker} ]; then exit 1; fi; touch ${marker}; sleep 30`);
+		writeFileSync(a.sessionFile, "{}\n");
+		const { id } = await client.request("dispatch", a);
+		await waitFor(async () => (await find(client, id))?.pid);
+		const at = Date.now() + 500;
+		await (await asWorker()).request("report", {
+			id,
+			token: readState(id)?.jobToken as string,
+			report: waiting({ at, next: at, reason: "later" }),
+		});
+		const row = await waitFor(async () => {
+			const r = await find(client, id);
+			return r?.state === "failed" ? r : undefined;
+		}, 10000);
+		expect(row.error).toContain("could not be woken");
+		expect(readState(id)?.wakeAt).toBeUndefined();
+		await new Promise((r) => setTimeout(r, 500));
+		expect((await find(client, id))?.state).toBe("failed");
+	});
+
 	it("a reply to a waiting session starts it with the reply; a report without a wait clears wakeAt", async () => {
 		const { client } = await startDaemon();
 		const a = args("sleep 30");

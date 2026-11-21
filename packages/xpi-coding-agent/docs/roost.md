@@ -140,7 +140,11 @@ waiting for a wake. Nothing runs and nothing is spent meanwhile.
 - **`stop`** ends the daemon's part of it: the row is stopped and nothing wakes it. The wait stays in the session file
   and is found again when the session is started.
 - **Restarts** (`xpi roost restart`, `respawn --all`) and a crash leave it waiting: no "Continue where you left off."
-  and no `/continue` (and no automatic crash restart); the wake comes at its time.
+  and no `/continue` (and no automatic crash restart); the wake comes at its time. A waiting session whose process
+  has already gone is not restarted: it runs the installed code when it is woken.
+- A session started for its wait that ends before it starts working (a broken install, say) is tried again with the
+  automatic restarts' delays, three times, then shown as failed. A start that fails for another reason than the
+  session being open elsewhere fails the row at once.
 - A waiting row is not removed by `cleanupDays`, and a schedule's run that waits still counts as running.
 - If someone has the session open elsewhere when its time comes, that process wakes it; the daemon tries again every
   minute.

@@ -300,4 +300,16 @@ The first CI failure was a test-timing problem, not a bug in the code: the clock
 - **`wakeAt` is a durable state key.** It is written only when it changes, so other reports stay non-durable writes.
 - **One `finalize` branch covers every ending.** It turns any end of a waiting row's process into a waiting row: let go, crash, host gone, machine restart at daemon start, and a restart whose new start failed. Only a stop is excluded, and a stop clears `wakeAt` before ending the process. There is no DM-5 crash restart for a waiting row.
 - **A respawn shows the wait until the worker reports.** A respawn with no prompt and no replies for a waiting row (the wake timer, a restart) keeps it shown as `working` / `waiting` / `wake` with its summary. A reply's respawn shows it working as usual. `wakeAt` stays until the new worker reports without a wait.
+- Review 1 of #158 (independent Opus): no blocking. Should-fix, both fixed:
+  1. A waiting row whose new worker ended before it reported was woken again at once, without end. Such ends are now
+     counted (`wakeFails`, cleared by any report), retried after `RESUME_DELAYS_MS`, and failed after as many tries.
+  2. A stop during a start under way (`respawning`/`starting`) was undone when the new worker reported its wait.
+     `stop` and `/stop` now wait for the start to finish, then stop the live process.
+
+  Nits:
+  - Fixed: the worker reports no wake without builtin:wait (`getAllTools` has no `wait`).
+  - Documented: a respawn failure other than `locked` fails the row at once (roost.md), and a let-go row is not
+    restarted.
+  - Left as is: a dialog open in a waiting session reports no wake, so a crash during that dialog leaves the wait to
+    be found when the session is next opened. Also left: terminal detach is only re-judged at the worker's next report.
 - **Entering a wait is a feed event** (`state` with `waitingFor: "wake"` and the row's summary), shown as "<name> waits until …".
