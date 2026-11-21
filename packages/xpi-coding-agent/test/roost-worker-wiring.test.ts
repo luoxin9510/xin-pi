@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getKeybindings, setKeybindings } from "xpi-tui";
 import { encodeLine, LineReader } from "../../xpi-roost/src/lib/protocol.ts";
 import { KeybindingsManager } from "../src/core/keybindings.ts";
+import { WAIT_EVENT } from "../src/core/waits.ts";
 import { registerWorker } from "../src/extensions/roost/worker.ts";
 
 type Handler = (event: any, ctx?: any) => unknown;
@@ -37,7 +38,17 @@ function fakePi(commands: unknown[] = []) {
 	const handlers = new Map<string, Handler[]>();
 	const entries: { type: string; data: any }[] = [];
 	const sent: { text: string; opts: unknown }[] = [];
+	const bus = new Map<string, ((data: unknown) => void)[]>();
 	const pi = {
+		events: {
+			emit: (channel: string, data: unknown) => {
+				for (const h of bus.get(channel) ?? []) h(data);
+			},
+			on: (channel: string, h: (data: unknown) => void) => {
+				bus.set(channel, [...(bus.get(channel) ?? []), h]);
+				return () => {};
+			},
+		},
 		on: (name: string, h: Handler) => handlers.set(name, [...(handlers.get(name) ?? []), h]),
 		registerCommand() {},
 		registerEntryRenderer() {},
@@ -207,6 +218,62 @@ describe("worker wiring", () => {
 				status: "idle",
 				summary: "Nothing to continue: the last run finished.",
 			});
+		} finally {
+			await emit("session_shutdown", {}, ctx);
+			await daemon.close();
+		}
+	});
+
+	it("spec 02: a pending wait is reported as a wake, with when the wait extension next looks at it", async () => {
+		const daemon = await fakeDaemon();
+		const { pi, emit } = fakePi();
+		registerWorker(pi, { job: { id: "j1", token: "t", socket: daemon.socket }, reportIntervalMs: 20 });
+		const at = Date.now() - 60_000;
+		const wakeAt = Date.now() + 3_600_000;
+		const branch: any[] = [];
+		const ctx = {
+			...ctxOf(),
+			sessionManager: { ...ctxOf().sessionManager, getBranch: () => branch, getEntries: () => branch },
+		};
+		const reports = () => daemon.requests.filter((r) => r.op === "report").map((r) => r.args.report);
+		try {
+			await emit("session_start", { reason: "startup" }, ctx);
+			await emit("agent_start");
+			branch.push({
+				type: "custom",
+				id: "w",
+				customType: "xpi.wait",
+				data: {
+					id: "w1",
+					at,
+					wakeAt,
+					reason: "wait for CI",
+					check: { command: "true", everyMs: 120_000, timeoutMs: 1 },
+				},
+			});
+			await emit("agent_settled", { aborted: false }, ctx);
+			// before the extension says: the first check, which has passed (it checks now; not let go)
+			const first = await waitFor(() => reports().find((r) => r.waitingFor === "wake"));
+			expect(first).toMatchObject({
+				state: "working",
+				status: "waiting",
+				wake: { at: wakeAt, next: at + 120_000, every: 120_000, reason: "wait for CI" },
+			});
+			pi.events.emit(WAIT_EVENT, { id: "w1", next: Date.now() + 120_000 });
+			await waitFor(() => reports().find((r) => r.wake && r.wake.next > Date.now()));
+			// the wait ended: the next report has none
+			branch.push({
+				type: "custom",
+				id: "k",
+				customType: "xpi.wake",
+				data: { id: "w1", at: Date.now(), why: "check" },
+			});
+			pi.events.emit(WAIT_EVENT, { id: "w1", ended: true });
+			const after = await waitFor(() => {
+				const last = reports().at(-1);
+				return last && last.waitingFor !== "wake" ? last : undefined;
+			});
+			expect(after.wake).toBeNull();
 		} finally {
 			await emit("session_shutdown", {}, ctx);
 			await daemon.close();

@@ -49,6 +49,7 @@ import {
 	type JobStateName,
 	LineReader,
 	PROTOCOL_VERSION,
+	type WakeInfo,
 	type WorkerReport,
 } from "../lib/protocol.ts";
 import { argsProblem } from "../lib/protocol-schema.ts";
@@ -209,6 +210,19 @@ function noteState(job: JobRow): void {
 		!!prev.waitingFor &&
 		!!job.waitingFor &&
 		prev.waitingFor !== job.waitingFor;
+	// spec 02: a session that starts waiting says until when (it stays "working")
+	if (job.waitingFor === "wake" && prev.waitingFor !== "wake") {
+		record({
+			kind: "state",
+			id: job.id,
+			name: job.name,
+			state: job.state,
+			from: prev.state,
+			waitingFor: "wake",
+			text: clipText(job.summary),
+		});
+		return;
+	}
 	if (prev.state === job.state && !waits) return;
 	if (stateMatters(prev.state, job.state) || job.state === "blocked") {
 		const text =
@@ -282,9 +296,9 @@ function rowOf(id: string): JobRow | undefined {
 		startedAt: st.startedAt,
 		state: st.state,
 		pid: live ? (readWorkerPid(id) ?? null) : null,
-		// status and waitingFor describe a live worker only (PRD §6.8)
-		status: live ? ((st.status as JobRow["status"]) ?? null) : null,
-		waitingFor: live ? ((st.waitingFor as JobRow["waitingFor"]) ?? null) : null,
+		// status and waitingFor describe a live worker only (PRD §6.8), or a waiting session (spec 02: no worker needed)
+		status: live || waits(st) ? ((st.status as JobRow["status"]) ?? null) : null,
+		waitingFor: live || waits(st) ? ((st.waitingFor as JobRow["waitingFor"]) ?? null) : null,
 		sessionFile: rec.sessionFile,
 		name: text(st.displayName) ?? rec.name,
 		endedAt: st.endedAt ?? null,
@@ -352,8 +366,9 @@ function pushJob(id: string): void {
 
 /** rm: stop the job, then drop its records. */
 async function removeRecord(id: string): Promise<{ id: string }> {
-	// DM-5: a crash restart waiting is called off
+	// DM-5: a crash restart waiting is called off; so is a wake (spec 02)
 	cancelResume(id);
+	cancelWake(id);
 	if (roster.has(id)) {
 		removing.add(id);
 		await terminateHost(id);
@@ -402,7 +417,7 @@ function cleanable(id: string, days: number, now: number): boolean {
 		return false;
 	const st = readState(id);
 	if (!st || typeof st.endedAt !== "number" || now - st.endedAt < days * DAY_MS) return false;
-	if (typeof st.resumeAt === "number") return false;
+	if (typeof st.resumeAt === "number" || waits(st)) return false;
 	return !(st.pinned === true || st.state === "blocked" || pendingReplies(id).length > 0);
 }
 
@@ -439,6 +454,9 @@ function finalize(id: string, why: string, opts: { startup?: boolean } = {}): vo
 	const reaped = reaping.has(id);
 	reaping.delete(id);
 	const stopReq = !reaped && (stopping.has(id) || st.stopRequested === true);
+	// Spec 02: a session waiting for a time or a check stays a waiting row whatever ended its process (let go, a
+	// crash, the machine): the wake timer starts it again. A stop clears wakeAt first; a restart keeps it.
+	const waiting = recs.get(id)?.kind !== "shell" && waits(st) && (!stopReq || st.restarting === true);
 	const now = Date.now();
 	const patch: Partial<JobState> = { endedAt: now, status: null, waitingFor: null, tool: null };
 	patch.stateSince = now;
@@ -454,6 +472,12 @@ function finalize(id: string, why: string, opts: { startup?: boolean } = {}): vo
 		// the host flushed its screen on exit: the last output line is the result
 		const line = lastScreenLine(id);
 		if (line) patch.summary = line;
+	} else if (waiting) {
+		patch.state = "working";
+		patch.status = "waiting";
+		patch.waitingFor = "wake";
+		patch.reaped = true;
+		patch.stateSince = typeof st.stateSince === "number" ? st.stateSince : now;
 	} else if (reaped) {
 		// DM-4: an idle worker stopped to save resources; the row stays as it was
 		patch.state = st.state === "working" ? "done" : st.state;
@@ -521,6 +545,103 @@ function finalize(id: string, why: string, opts: { startup?: boolean } = {}): vo
 		void respawn(id).catch((err: unknown) => log("error", "wake after reap failed", { id, error: String(err) }));
 	}
 	if (resumeIn !== undefined) scheduleResume(id, resumeIn, "crash");
+	if (waiting && !shuttingDown) armWake(id);
+}
+
+// ---- spec 02: waits that do not hold a process ----------------------------------------
+
+/** A session waiting for a time or a check: its worker may be gone, and the daemon wakes it at wakeAt. */
+function waits(st: JobState | undefined): boolean {
+	return typeof st?.wakeAt === "number";
+}
+
+const wakeTimers = new Map<string, NodeJS.Timeout>();
+/** setTimeout's limit: a later wake is armed again when this fires. */
+const MAX_TIMER_MS = 2 ** 31 - 1;
+/** A wake that found the session open elsewhere (its write lock held) tries again this often. */
+const WAKE_RETRY_MS = Number(roostEnv("WAKE_RETRY_MS")) || 60_000;
+/** A wait with a check this often or less often lets go of its worker between checks. */
+const LET_GO_EVERY_MS = Number(roostEnv("LET_GO_EVERY_MS")) || 2 * 60_000;
+
+/** Arm the wake timer of a waiting row (after `ms`, or at its wakeAt). */
+function armWake(id: string, ms?: number): void {
+	clearTimeout(wakeTimers.get(id));
+	wakeTimers.delete(id);
+	const at = readState(id)?.wakeAt;
+	if (typeof at !== "number") return;
+	const delay = Math.min(MAX_TIMER_MS, Math.max(0, ms ?? at - Date.now()));
+	const t = setTimeout(() => {
+		wakeTimers.delete(id);
+		void fireWake(id);
+	}, delay);
+	t.unref?.();
+	wakeTimers.set(id, t);
+}
+
+/** The wake timer of a row is called off (stop, rm, the wait ended). Whether the row was waiting. */
+function cancelWake(id: string): boolean {
+	clearTimeout(wakeTimers.get(id));
+	wakeTimers.delete(id);
+	return waits(readState(id));
+}
+
+/** A waiting row's time came: start its worker with no prompt; the session's wait extension does the rest. */
+async function fireWake(id: string): Promise<void> {
+	const st = readState(id);
+	if (shuttingDown || !recs.has(id) || typeof st?.wakeAt !== "number") return;
+	// its worker is up (not let go, or started by other means): its own timer acts; it reports the next wakeAt
+	if (roster.has(id) || starting.has(id) || respawning.has(id)) return;
+	if (st.wakeAt - Date.now() > 1000) return armWake(id); // a timer cut at MAX_TIMER_MS
+	log("info", "wake", { id });
+	try {
+		await respawn(id);
+	} catch (err) {
+		if (err instanceof OpError && err.code === "locked") {
+			// someone opened the session: its process's own timer handles the wait meanwhile
+			log("info", "wake: session in use, trying again", { id });
+			return armWake(id, WAKE_RETRY_MS);
+		}
+		log("error", "wake failed", { id, error: String(err) });
+		if (!roster.has(id) && recs.has(id)) endWaiting(id, "failed", `could not wake it: ${(err as Error).message}`);
+	}
+}
+
+/** A wait report: store when to wake it; end the worker meanwhile unless a terminal is attached or it checks often. */
+function noteWake(id: string, wake: WakeInfo | null): void {
+	if (!wake) {
+		cancelWake(id);
+		return;
+	}
+	armWake(id);
+	// due now (a worker just started for it, about to wake or check): let it act first
+	if (wake.next <= Date.now()) return;
+	if (wake.every !== undefined && wake.every < LET_GO_EVERY_MS) return;
+	if (starting.has(id) || stopping.has(id) || reaping.has(id) || respawning.has(id) || pinnedJob(id)) return;
+	if (pendingReplies(id).length > 0) return;
+	reaping.add(id); // finalize keeps it a waiting row; replies and stops see this meanwhile
+	log("info", "let go while waiting", { id, until: new Date(wake.next).toISOString() });
+	// the host refuses when a terminal is attached
+	void terminateIfIdle(id).then((ok) => {
+		if (!ok) reaping.delete(id);
+	});
+}
+
+function pinnedJob(id: string): boolean {
+	return readState(id)?.pinned === true;
+}
+
+/** A wake field of a report, checked. */
+function wakeFrom(v: unknown): WakeInfo | null {
+	if (!v || typeof v !== "object") return null;
+	const w = v as Record<string, unknown>;
+	const n = (x: unknown) => typeof x === "number" && Number.isFinite(x);
+	if (!n(w.at) || !n(w.next)) return null;
+	return {
+		at: w.at as number,
+		next: w.next as number,
+		...(n(w.every) ? { every: w.every as number } : {}),
+		reason: typeof w.reason === "string" ? w.reason.slice(0, 500) : "",
+	};
 }
 
 // ---- DM-5: automatic restarts after a crash ------------------------------------------
@@ -559,7 +680,17 @@ function endWaiting(id: string, state: "stopped" | "failed", error: string | nul
 	cancelResume(id);
 	const now = Date.now();
 	try {
-		updateState(id, { state, resumeAt: undefined, error, stateSince: now, endedAt: readState(id)?.endedAt ?? now });
+		cancelWake(id);
+		updateState(id, {
+			state,
+			resumeAt: undefined,
+			wakeAt: undefined,
+			status: null,
+			waitingFor: null,
+			error,
+			stateSince: now,
+			endedAt: readState(id)?.endedAt ?? now,
+		});
 	} catch (err) {
 		log("error", "end of a waiting run failed", { id, error: String(err) });
 	}
@@ -648,6 +779,8 @@ function loadJobs(): void {
 		else if (st && typeof st.resumeAt === "number" && !roster.has(id)) {
 			scheduleResume(id, Math.max(0, Math.min(st.resumeAt - Date.now(), RESUME_DELAYS_MS.at(-1) ?? 0)), "pending");
 		}
+		// spec 02: a waiting row's wake (one found overdue fires at once); one with a live worker is armed too
+		if (waits(readState(id))) armWake(id);
 	}
 	persistRoster();
 }
@@ -931,7 +1064,8 @@ async function respawn(
 			// a running command is never killed to be run again (respawn --all after an upgrade)
 			if (!opts.restart || shell) return { id, started: false };
 			// a turn cut short by the restart carries on in the new worker (its shutdown aborted the run: no /continue)
-			if (!prompt && readState(id)?.state === "working") prompt = CARRY_ON;
+			// spec 02: a waiting session is not cut short: the new worker finds its wait
+			if (!prompt && readState(id)?.state === "working" && !waits(readState(id))) prompt = CARRY_ON;
 			// spec 03: attached terminals and the hub see a restart, not an end, until the new host is up (or this fails)
 			restarting = true;
 			priorState = readState(id)?.state;
@@ -961,21 +1095,29 @@ async function respawn(
 		const now = Date.now();
 		// nothing new to do: the worker shows where the session left off, so keep the row as is
 		const restore = written && !prompt && pendingReplies(id).length === 0 && st?.state !== "working";
+		// spec 02: started for its wait (the wake timer, a restart): the row shows the wait until the worker reports
+		const waitRow = !shell && !prompt && pendingReplies(id).length === 0 && waits(st);
 		// it starts now: the waiting restart is spent (a failure above leaves it to run)
 		clearTimeout(resumeTimers.get(id));
 		resumeTimers.delete(id);
 		clearExit(id);
 		clearWorker(id);
 		updateState(id, {
-			...(restore
-				? // the old process's exit marked it stopped; a restart gives back the state it was in
-					{ stateSince: st?.stateSince, ...(priorState ? { state: priorState } : {}) }
-				: { state: "working" as const, stateSince: now, summary: null, question: null, choices: [] }),
+			...(waitRow
+				? { state: "working" as const, stateSince: st?.stateSince }
+				: restore
+					? // the old process's exit marked it stopped; a restart gives back the state it was in
+						{ stateSince: st?.stateSince, ...(priorState ? { state: priorState } : {}) }
+					: { state: "working" as const, stateSince: now, summary: null, question: null, choices: [] }),
 			// a shell job has no worker to report: it is busy until it exits
-			status: rec.kind === "shell" ? "busy" : null,
+			status: rec.kind === "shell" ? "busy" : waitRow ? "waiting" : null,
 			// a question outlives its process (the new worker asks it again): a restored row keeps it until then; a
 			// dialog or the first prompt went with the old process
-			waitingFor: restore && priorState === "blocked" && priorWaitingFor === "question" ? "question" : null,
+			waitingFor: waitRow
+				? "wake"
+				: restore && priorState === "blocked" && priorWaitingFor === "question"
+					? "question"
+					: null,
 			tool: null,
 			error: null,
 			reportedAt: undefined,
@@ -1173,7 +1315,7 @@ function resolve(query: unknown): string {
 	throw new OpError("ambiguous", `"${query}" is ambiguous: ${list}`);
 }
 
-const REPORT_WAITING = new Set([null, "dialog", "question", "first-prompt"]);
+const REPORT_WAITING = new Set([null, "dialog", "question", "first-prompt", "wake"]);
 
 interface PendingReply {
 	seq: number;
@@ -1243,8 +1385,11 @@ async function reply(args: { id?: unknown; text?: unknown; mode?: unknown } | un
 	}
 	const live = roster.has(id);
 	if (text === "/stop") {
-		if (live) await terminateHost(id);
-		else if (cancelResume(id)) {
+		const waited = cancelWake(id);
+		if (live) {
+			if (waited) updateState(id, { wakeAt: undefined });
+			await terminateHost(id);
+		} else if (waited || cancelResume(id)) {
 			endWaiting(id, "stopped", null);
 			return { delivered: false, saved: false, stopped: true };
 		}
@@ -1361,7 +1506,11 @@ function acceptReport(
 	const waitingBefore = st.waitingFor ?? null;
 	const waitingNow = REPORT_WAITING.has(r.waitingFor ?? null) ? (r.waitingFor ?? null) : null;
 	const reported = opt(r.name, 200);
+	// spec 02: the wait it reports (only with waitingFor "wake"); wakeAt written only when it changes (a durable key)
+	const wake = waitingNow === "wake" ? wakeFrom(r.wake) : null;
+	const wakeAt = wake ? wake.next : undefined;
 	updateState(id, {
+		...(wakeAt !== st.wakeAt ? { wakeAt } : {}),
 		...(before !== r.state || waitingBefore !== waitingNow ? { stateSince: Date.now() } : {}),
 		state: r.state,
 		status: r.status,
@@ -1399,6 +1548,7 @@ function acceptReport(
 	});
 	if (before !== r.state) log("info", "state", { id, from: before, to: r.state, waitingFor: r.waitingFor ?? null });
 	pushJob(id);
+	if (wake || waits(st)) noteWake(id, wake);
 }
 
 const REPORT_STATES = new Set(["working", "blocked", "done", "failed"]);
@@ -1539,9 +1689,15 @@ async function handle(conn: Conn, op: string, args: any): Promise<unknown> {
 			return {};
 		case "stop": {
 			const id = requireJob(args);
+			// spec 02: a stop ends the daemon's part of a wait (the session keeps it, found when it is started again)
+			const waited = cancelWake(id);
 			if (roster.has(id)) {
 				log("info", "stop", { id });
+				if (waited) updateState(id, { wakeAt: undefined });
 				await terminateHost(id);
+			} else if (waited) {
+				log("info", "stop", { id, wake: "cancelled" });
+				endWaiting(id, "stopped", null);
 			} else if (cancelResume(id)) {
 				// DM-5: between a crash and its automatic restart
 				log("info", "stop", { id, resume: "cancelled" });
@@ -1722,7 +1878,7 @@ function runStillWorking(id: string | undefined): boolean {
 	if (!id || !recs.has(id)) return false;
 	if (starting.has(id) || respawning.has(id)) return true;
 	const st = readState(id);
-	return st?.state === "working" && (roster.has(id) || typeof st.resumeAt === "number");
+	return st?.state === "working" && (roster.has(id) || typeof st.resumeAt === "number" || waits(st));
 }
 
 /**
@@ -1732,7 +1888,7 @@ function runStillWorking(id: string | undefined): boolean {
 function runState(id: string): ScheduleRun["state"] {
 	if (!recs.has(id) || runStillWorking(id) || stopping.has(id) || removing.has(id)) return "running";
 	const st = readState(id);
-	if (!st || pendingReplies(id).length > 0 || typeof st.resumeAt === "number") return "running";
+	if (!st || pendingReplies(id).length > 0 || typeof st.resumeAt === "number" || waits(st)) return "running";
 	if (st.state === "done" || st.state === "failed" || st.state === "stopped") return "ended";
 	if (st.state === "blocked" && !roster.has(id)) return "asking";
 	return "running";

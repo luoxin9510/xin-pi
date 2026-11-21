@@ -25,12 +25,14 @@ import {
 	ROOST_BUILD,
 	sessionUsage,
 	type UsageInfo,
+	type WakeInfo,
 	WorkerTracker,
 	writeCommands,
 } from "xpi-roost";
 import { getKeybindings } from "xpi-tui";
 import { VERSION } from "../../config.ts";
 import type { ExtensionAPI, ExtensionContext } from "../../core/extensions/types.ts";
+import { pendingWait, WAIT_EVENT, type WaitEvent } from "../../core/waits.ts";
 import { detachKeyHandler } from "./detach-keys.ts";
 import { registerEarlierHistory } from "./earlier-history.ts";
 import { registerRecap, sigusr2Handled } from "./recap.ts";
@@ -256,7 +258,39 @@ export function registerWorker(pi: ExtensionAPI, opts: WorkerOptions = {}): bool
 		ack: (seq) => reporter?.ack(seq),
 	});
 	// attachSignal: the host sends SIGUSR2 on attach and detach only to a session that handles it (decision 11)
-	const send = (urgent = false) => reporter?.update({ ...tracker.report(), attachSignal: sigusr2Handled() }, urgent);
+	// Spec 02: when the wait extension next looks at the pending wait (it says so on WAIT_EVENT once it has armed)
+	let waitNext: { id: string; next: number } | undefined;
+	const wakeNow = (): WakeInfo | null => {
+		try {
+			const ctx = current;
+			const wait = ctx ? pendingWait(ctx.sessionManager.getBranch(), ctx.sessionManager.getEntries()) : undefined;
+			if (!wait) return null;
+			// before it says: the first check (or the time); one already passed means it acts now, and is not let go
+			const next =
+				waitNext?.id === wait.id
+					? waitNext.next
+					: wait.check
+						? Math.min(wait.at + wait.check.everyMs, wait.wakeAt)
+						: wait.wakeAt;
+			return {
+				at: wait.wakeAt,
+				next,
+				...(wait.check ? { every: wait.check.everyMs } : {}),
+				reason: wait.reason,
+			};
+		} catch {
+			return null; // a stale ctx after a session switch
+		}
+	};
+	const send = (urgent = false) => {
+		tracker.setWake(wakeNow());
+		reporter?.update({ ...tracker.report(), attachSignal: sigusr2Handled() }, urgent);
+	};
+	pi.events.on(WAIT_EVENT, (data) => {
+		const e = data as WaitEvent;
+		waitNext = "next" in e ? { id: e.id, next: e.next } : undefined;
+		send();
+	});
 	const detach =
 		opts.detach ??
 		(() => {
@@ -266,6 +300,7 @@ export function registerWorker(pi: ExtensionAPI, opts: WorkerOptions = {}): bool
 
 	pi.on("session_start", (event, ctx) => {
 		current = ctx;
+		waitNext = undefined;
 		dialogOpen = 0;
 		stopKeys?.();
 		stopKeys = ctx.hasUI

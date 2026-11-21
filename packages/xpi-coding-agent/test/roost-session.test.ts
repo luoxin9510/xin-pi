@@ -69,7 +69,7 @@ function fakePi(flags: Record<string, string | boolean> = {}) {
 		on: (name: string, h: Handler) => handlers.set(name, [...(handlers.get(name) ?? []), h]),
 		registerFlag: (name: string, o: unknown) => registered.flags.set(name, o),
 		registerCommand: (name: string, o: unknown) => registered.commands.set(name, o),
-		events: { emit() {} },
+		events: { emit() {}, on: () => () => {} },
 		getFlag: (name: string) => flags[name],
 		registerEntryRenderer() {},
 		registerMessageRenderer() {},
