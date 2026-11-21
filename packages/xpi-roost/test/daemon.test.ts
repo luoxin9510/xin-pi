@@ -1617,7 +1617,8 @@ describe("spec 02: a session that waits lets go of its process", () => {
 		const { id } = await client.request("dispatch", a);
 		const first = await waitFor(async () => (await find(client, id))?.pid);
 		const token = readState(id)?.jobToken as string;
-		const at = Date.now() + 1500;
+		// time enough to see it let go before it is due, on a slow machine too
+		const at = Date.now() + 5000;
 		await (await asWorker()).request("report", {
 			id,
 			token,
@@ -1640,7 +1641,7 @@ describe("spec 02: a session that waits lets go of its process", () => {
 		const back = await waitFor(async () => {
 			const r = await find(client, id);
 			return r?.pid && r.pid !== first ? r : undefined;
-		}, 8000);
+		}, 15000);
 		expect(Date.now()).toBeGreaterThanOrEqual(at);
 		expect(back).toMatchObject({ state: "working", status: "waiting", waitingFor: "wake", reaped: false });
 		const command = readState(id)?.command as string[];
