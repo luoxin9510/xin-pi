@@ -115,7 +115,8 @@ Haiku check when it changes what a session does, and the user docs for what it a
       and the login service's host-named labels, and the state layout lists `schedules.json` and `service.log`; an
       uninstall that stopped nothing (also one run again after a timeout) says when no daemon is running and that any
       `xpi roost` command starts it; long prose lines rewrapped.
-- [ ] S14 a release with a Node smoke test including `xpi roost schedule`
+- [x] S14 a release with a Node smoke test including `xpi roost schedule`
       (2026-11-17: `smokeTestRoost` in `scripts/coding-agent-smoke.mjs` now adds, lists, pauses and removes a manual
       schedule; run against the installed 1.15.0 package it passes. The schedules themselves were released in
-      v1.10.0; the next release is the first with this smoke step, and this box is ticked then.)
+      v1.10.0. 2026-11-22: the v1.16.0 and v1.17.0 tags contain this smoke step; the v1.17.0 package, packed from the tag and
+      installed globally, passes `smokeTestRoost` (daemon, PTY host, shell-command session, schedules).)
