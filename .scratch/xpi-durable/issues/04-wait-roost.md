@@ -11,5 +11,5 @@ Spec: `.scratch/xpi-durable/02-waits.md` section 6. After ticket 03.
       is not yet passes reports the next `wakeAt` and is let go again; `stop` cancels the timer.
 - [x] R.4 A reply to a waiting row ends the wait with `user`; hub shows the row (state, summary).
 - [x] R.5 Tests (daemon, worker wiring, tracker); docs `roost.md`, `wait.md` (roost part), `porting.md`.
-- [ ] R.6 By hand, Haiku 5.5, sandbox roost: a 3-minute wait (worker gone, row shows it, woken on time); a check-based
+- [x] R.6 By hand, Haiku 5.5, sandbox roost: a 3-minute wait (worker gone, row shows it, woken on time); a check-based
       wait; a daemon restart during a wait; a reply during a wait. Results in `decisions.md`.

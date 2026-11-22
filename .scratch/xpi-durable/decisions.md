@@ -313,3 +313,31 @@ The first CI failure was a test-timing problem, not a bug in the code: the clock
   - Left as is: a dialog open in a waiting session reports no wake, so a crash during that dialog leaves the wait to
     be found when the session is next opened. Also left: terminal detach is only re-judged at the worker's next report.
 - **Entering a wait is a feed event** (`state` with `waitingFor: "wake"` and the row's summary), shown as "<name> waits until …".
+
+By hand (R.6), 2026-11-22.
+
+**Setup:**
+- Model: Haiku 5.5.
+- Sandbox roost: `XPI_CODING_AGENT_DIR=.e2e-tmp/wroost/home` gives it its own daemon.
+- Auth: a copy taken through `copyUserAuth` with 475 min left. The real file was refreshed first by the owner's real xpi, after its token had expired. The copy was deleted at the end.
+- Build: the bundle of this branch at 47c4edcd8.
+- Driver: `.e2e-tmp/wroost.mjs`. It starts `xpi --bg` in a node-pty terminal and reads `xpi roost ls --json` every 5 s.
+- Cost: $0.0029 for all four runs, all on claude-haiku-5-5.
+
+**Results:**
+1. **A 3-minute wait.**
+   - The wait was written at 09:01:16. At the first look, the row already showed working/waiting/wake with `waits until 09:04: three minutes`, no pid and `reaped`.
+   - At 09:04:16 the daemon started it again with no prompt. The `due` wake was written at 09:04:16. Haiku answered WOKE and the row went to done.
+2. **A check-based wait.** The check was `test -f flag.txt && head -1 flag.txt`, every 2m, deadline 15m. The wait was written at 09:02:37.
+   - At 09:04:37 the daemon started it for the first check. The check failed, and the worker was let go again within 5 s (`checks every 2m, until 09:17`).
+   - The driver created flag.txt at 09:06:15.
+   - At 09:06:38 the check passed. The `check` wake was written with output `ok`, and Haiku answered `CHECKED. Reason: wait for flag.txt.`.
+3. **A daemon restart during a wait.** The wait was written at 09:06:06 and was due at 09:09:06.
+   - `xpi roost daemon stop` ran while the row was let go, and a new daemon started.
+   - The new daemon rebuilt the timer from state. It woke the session at 09:09:07 (`due`), and Haiku answered RESTARTED-OK.
+   - The two finished rows, whose live workers the stop ended, show as stopped, as before.
+4. **A reply during a wait.** The wait was 10m, written at 09:07:32.
+   - `xpi roost reply` at 09:08:44 restarted the session with the reply. The `user` wake was written before the message.
+   - Haiku answered: "The wait has ended early at 09:08 (planned 09:17) because a user message came in."
+
+The sandbox daemon was stopped, and no host or daemon processes were left.
