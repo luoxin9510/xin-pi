@@ -258,7 +258,7 @@ What a worker reports about itself (full snapshot every time).
 |---|---|---|---|---|
 | `state` | `"working" \| "blocked" \| "done" \| "failed"` | yes |  |  |
 | `status` | `"busy" \| "waiting" \| "idle"` | yes |  |  |
-| `waitingFor` | `"dialog" \| "question" \| "first-prompt" \| null` | yes |  |  |
+| `waitingFor` | `"dialog" \| "question" \| "first-prompt" \| "wake" \| null` | yes |  | "wake": the session waits for a time or a check (state working, status waiting). A client must treat a value it does not know as null. |
 | `summary` | `string \| null` | yes |  |  |
 | `question` | `string \| null` | yes |  |  |
 | `choices` | `string[]` | yes |  |  |
@@ -270,6 +270,7 @@ What a worker reports about itself (full snapshot every time).
 | `context` | `ContextInfo \| null` | no |  | M8: how full the session's context window is (xpi's ctx.getContextUsage()). |
 | `usage` | `UsageInfo \| null` | no |  | M24: absent from workers before 0.1.11. |
 | `attachSignal` | `boolean` | no |  | The worker reacts to the host's SIGUSR2 attach signal (AT-5). |
+| `wake` | `{ at: number, next: number, every?: number, reason: string } \| null` | no |  | Spec 02: the pending wait, with waitingFor "wake" (absent or null: none). The daemon may end the worker until next. |
 
 #### `JobRow`
 
@@ -282,7 +283,7 @@ What a worker reports about itself (full snapshot every time).
 | `state` | `"working" \| "blocked" \| "done" \| "failed" \| "stopped"` | yes |  |  |
 | `pid` | `number \| null` | yes |  |  |
 | `status` | `"busy" \| "waiting" \| "idle" \| null` | yes |  |  |
-| `waitingFor` | `"dialog" \| "question" \| "first-prompt" \| null` | yes |  |  |
+| `waitingFor` | `"dialog" \| "question" \| "first-prompt" \| "wake" \| null` | yes |  | "wake": the session waits for a time or a check (state working, status waiting). A client must treat a value it does not know as null. |
 | `sessionFile` | `string` | yes |  |  |
 | `name` | `string` | yes |  |  |
 | `endedAt` | `number \| null` | yes |  |  |

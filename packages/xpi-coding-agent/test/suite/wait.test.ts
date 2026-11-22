@@ -7,7 +7,14 @@ import { afterEach, describe, expect, it } from "vitest";
 import { type FauxResponseStep, fauxAssistantMessage, fauxToolCall } from "xpi-ai";
 import type { ExtensionAPI } from "../../src/core/extensions/types.ts";
 import { SessionManager } from "../../src/core/session-manager.ts";
-import { pendingWait, WAIT_CUSTOM_TYPE, WAKE_CUSTOM_TYPE, WOKE_CUSTOM_TYPE } from "../../src/core/waits.ts";
+import {
+	pendingWait,
+	WAIT_CUSTOM_TYPE,
+	WAIT_EVENT,
+	WAKE_CUSTOM_TYPE,
+	type WaitEvent,
+	WOKE_CUSTOM_TYPE,
+} from "../../src/core/waits.ts";
 import { createCodemodeExtension } from "../../src/extensions/codemode/index.ts";
 import { createWaitExtension, type WaitClock } from "../../src/extensions/wait/index.ts";
 import { createHarness, createTestUiContext, type Harness } from "./harness.ts";
@@ -278,6 +285,18 @@ describe("tools.wait", () => {
 		await t.idle();
 		expect(t.custom(WAKE_CUSTOM_TYPE)).toMatchObject([{ why: "blocked" }]);
 		expect(t.woke()[0]).toContain("this session has no bash tool to run it");
+	});
+
+	it("says on pi.events when it next looks at a wait, and when the wait ended (roost's worker reports it)", async () => {
+		const seen: WaitEvent[] = [];
+		const t = await setup({ extra: (pi) => void pi.events.on(WAIT_EVENT, (e) => seen.push(e as WaitEvent)) });
+		t.harness.setResponses([t.wait({ after: "1h", every: "5m", check: "exit 1", reason: "ci" }), t.say("ok")]);
+		await t.harness.session.prompt("go");
+		await t.idle();
+		const [data] = t.custom(WAIT_CUSTOM_TYPE);
+		expect(seen).toEqual([{ id: data.id, next: START + 5 * MIN }]);
+		await t.harness.session.prompt("/wait cancel");
+		expect(seen.at(-1)).toEqual({ id: data.id, ended: true });
 	});
 
 	it("/continue wakes it now, without the check", async () => {

@@ -1582,3 +1582,187 @@ describe("spec 03: restarting sessions by id", () => {
 		expect(row).toMatchObject({ state: "blocked", waitingFor: "question", question: "which one?" });
 	});
 });
+
+describe("spec 02: a session that waits lets go of its process", () => {
+	// a failed case shows what the daemon did (timing on a slow runner)
+	afterEach((ctx) => {
+		if (ctx.task.result?.state === "fail")
+			console.log("DAEMONLOG\n" + readFileSync(join(home, "daemon.log"), "utf8").split("\n").slice(-40).join("\n"));
+	});
+	const waiting = (wake: { at: number; next: number; every?: number; reason: string }) => ({
+		state: "working" as const,
+		status: "waiting" as const,
+		waitingFor: "wake" as const,
+		summary: `waits: ${wake.reason}`,
+		question: null,
+		choices: [],
+		tool: null,
+		error: null,
+		name: null,
+		model: null,
+		wake,
+	});
+	const working = {
+		state: "working" as const,
+		status: "busy" as const,
+		waitingFor: null,
+		summary: "on it",
+		question: null,
+		choices: [],
+		tool: null,
+		error: null,
+		name: null,
+		model: null,
+	};
+
+	it("ends the worker, keeps a waiting row, and starts it again with no prompt when it is due", async () => {
+		const { client } = await startDaemon();
+		const a = args("sleep 30");
+		writeFileSync(a.sessionFile, "{}\n");
+		const { id } = await client.request("dispatch", a);
+		const first = await waitFor(async () => (await find(client, id))?.pid);
+		const token = readState(id)?.jobToken as string;
+		// time enough to see it let go before it is due, on a slow machine too
+		const at = Date.now() + 5000;
+		await (await asWorker()).request("report", {
+			id,
+			token,
+			report: waiting({ at, next: at, reason: "wait for CI" }),
+		});
+		const gone = await waitFor(async () => {
+			const r = await find(client, id);
+			return r?.reaped && !r.pid ? r : undefined;
+		});
+		expect(gone).toMatchObject({
+			state: "working",
+			status: "waiting",
+			waitingFor: "wake",
+			summary: "waits: wait for CI",
+		});
+		expect(readState(id)?.wakeAt).toBe(at);
+		const { events } = await client.request("events", {});
+		expect(events.some((e) => e.kind === "state" && e.id === id && e.waitingFor === "wake")).toBe(true);
+		// woken at its time: a new worker, no prompt, the row still says it waits until that worker reports
+		const back = await waitFor(async () => {
+			const r = await find(client, id);
+			return r?.pid && r.pid !== first ? r : undefined;
+		}, 15000);
+		expect(Date.now()).toBeGreaterThanOrEqual(at);
+		expect(back).toMatchObject({ state: "working", status: "waiting", waitingFor: "wake", reaped: false });
+		const command = readState(id)?.command as string[];
+		expect(command).not.toContain("/continue");
+		expect(command).not.toContain("Continue where you left off.");
+		// the wait ended (a run started): no wakeAt any more
+		await (await asWorker()).request("report", { id, token: readState(id)?.jobToken as string, report: working });
+		await waitFor(() => readState(id)?.wakeAt === undefined);
+	});
+
+	it("keeps the worker for a check run often; a crash leaves it waiting (no automatic restart); stop clears it", async () => {
+		process.env.ROOST_RESUME_DELAYS_MS = "100";
+		const { client } = await startDaemon();
+		const a = args("sleep 30");
+		writeFileSync(a.sessionFile, "{}\n");
+		const { id } = await client.request("dispatch", a);
+		await waitFor(async () => (await find(client, id))?.pid);
+		const token = readState(id)?.jobToken as string;
+		const at = Date.now() + 60 * 60_000;
+		await (await asWorker()).request("report", {
+			id,
+			token,
+			report: waiting({ at, next: Date.now() + 30_000, every: 30_000, reason: "poll" }),
+		});
+		await new Promise((r) => setTimeout(r, 500));
+		expect((await find(client, id))?.pid).toBeTruthy();
+		// the worker dies under it
+		process.kill(readState(id)?.hostPid as number, "SIGKILL");
+		const row = await waitFor(async () => {
+			const r = await find(client, id);
+			return r && !r.pid && r.reaped ? r : undefined;
+		});
+		expect(row).toMatchObject({ state: "working", waitingFor: "wake", error: null });
+		expect(readState(id)?.resumeAt).toBeUndefined();
+		await new Promise((r) => setTimeout(r, 400));
+		expect((await find(client, id))?.pid).toBeNull();
+		// stop: the daemon forgets the wait (the session file keeps it)
+		await client.request("stop", { id });
+		expect(await find(client, id)).toMatchObject({ state: "stopped", waitingFor: null, status: null });
+		expect(readState(id)?.wakeAt).toBeUndefined();
+	});
+
+	it("a restart of a live waiting session adds no prompt; a daemon restart wakes an overdue one at once", async () => {
+		const { proc, client } = await startDaemon();
+		const a = args("sleep 30");
+		writeFileSync(a.sessionFile, "{}\n");
+		const { id } = await client.request("dispatch", a);
+		await waitFor(async () => (await find(client, id))?.pid);
+		let token = readState(id)?.jobToken as string;
+		const report = waiting({ at: Date.now() + 3_600_000, next: Date.now() + 30_000, every: 30_000, reason: "poll" });
+		await (await asWorker()).request("report", { id, token, report });
+		await client.request("respawn", { id, restart: true });
+		expect(readState(id)?.command).not.toContain("Continue where you left off.");
+		await waitFor(async () => (await find(client, id))?.pid);
+		token = readState(id)?.jobToken as string;
+		// let go, then the daemon goes down; its time passes meanwhile
+		const at = Date.now() + 60_000;
+		await (await asWorker()).request("report", { id, token, report: waiting({ at, next: at, reason: "later" }) });
+		await waitFor(async () => (await find(client, id))?.reaped);
+		proc.kill("SIGKILL");
+		await waitFor(() => exited(proc));
+		updateState(id, { wakeAt: Date.now() - 1000 });
+		const again = await startDaemon();
+		const row = await waitFor(async () => {
+			const r = await find(again.client, id);
+			return r?.pid ? r : undefined;
+		});
+		expect(row).toMatchObject({ state: "working", waitingFor: "wake" });
+	});
+
+	it("a session that keeps ending before it reports is woken a few times, then failed", async () => {
+		process.env.ROOST_RESUME_DELAYS_MS = "100,100";
+		const { client } = await startDaemon();
+		const marker = join(work, "started");
+		const a = args(`if [ -f ${marker} ]; then exit 1; fi; touch ${marker}; sleep 30`);
+		writeFileSync(a.sessionFile, "{}\n");
+		const { id } = await client.request("dispatch", a);
+		await waitFor(async () => (await find(client, id))?.pid);
+		const at = Date.now() + 3000;
+		await (await asWorker()).request("report", {
+			id,
+			token: readState(id)?.jobToken as string,
+			report: waiting({ at, next: at, reason: "later" }),
+		});
+		const row = await waitFor(async () => {
+			const r = await find(client, id);
+			return r?.state === "failed" ? r : undefined;
+		}, 20000);
+		expect(row.error).toContain("could not be woken");
+		expect(readState(id)?.wakeAt).toBeUndefined();
+		await new Promise((r) => setTimeout(r, 500));
+		expect((await find(client, id))?.state).toBe("failed");
+	});
+
+	it("a reply to a waiting session starts it with the reply; a report without a wait clears wakeAt", async () => {
+		const { client } = await startDaemon();
+		const a = args("sleep 30");
+		writeFileSync(a.sessionFile, "{}\n");
+		const { id } = await client.request("dispatch", a);
+		await waitFor(async () => (await find(client, id))?.pid);
+		const at = Date.now() + 60_000;
+		await (await asWorker()).request("report", {
+			id,
+			token: readState(id)?.jobToken as string,
+			report: waiting({ at, next: at, reason: "later" }),
+		});
+		await waitFor(async () => (await find(client, id))?.reaped);
+		expect(await client.request("reply", { id, text: "what now?" })).toMatchObject({ respawned: true });
+		const row = await waitFor(async () => {
+			const r = await find(client, id);
+			return r?.pid ? r : undefined;
+		});
+		// not shown as waiting: it starts for the reply
+		expect(row).toMatchObject({ state: "working", waitingFor: null });
+		expect(readState(id)?.wakeAt).toBe(at);
+		await (await asWorker()).request("report", { id, token: readState(id)?.jobToken as string, report: working });
+		await waitFor(() => readState(id)?.wakeAt === undefined);
+	});
+});

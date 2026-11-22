@@ -123,6 +123,32 @@ starts it the same way. A session written by an xpi from before `/continue` (it 
 the machine restarts, or a session's host process dies, the session ends and does not resume on its own: reply to it,
 attach, or `xpi roost respawn` it to start it again from its session file.
 
+## A session that waits
+
+A session whose run ended with a wait (`tools.wait`, see [Waits](wait.md)) is a **waiting row**: it stays "working",
+its row says `waits until 14:20: wait for CI` (or `checks every 2m, until 15:00: ...`), and `xpi roost ls` shows it
+waiting for a wake. Nothing runs and nothing is spent meanwhile.
+
+- **Its process goes.** The daemon ends the worker while it waits, unless a terminal is attached or the wait's check runs
+  more often than every 2 minutes (then the session's own timer does it). The row stays.
+- **It is woken on time.** The daemon starts the session again when the wait is due, or at its next check, with no
+  message; the session finds its wait and does what it says: the note and a run, or the check (a check that does not
+  pass yet lets the process go again until the next one). The daemon keeps these times across its own restarts and a
+  machine restart; one found overdue wakes at once.
+- **A reply** ends the wait (the model reads why, then your message). **`/wait cancel`** in the session ends it with
+  no run.
+- **`stop`** ends the daemon's part of it: the row is stopped and nothing wakes it. The wait stays in the session file
+  and is found again when the session is started.
+- **Restarts** (`xpi roost restart`, `respawn --all`) and a crash leave it waiting: no "Continue where you left off."
+  and no `/continue` (and no automatic crash restart); the wake comes at its time. A waiting session whose process
+  has already gone is not restarted: it runs the installed code when it is woken.
+- A session started for its wait that ends before it starts working (a broken install, say) is tried again with the
+  automatic restarts' delays, three times, then shown as failed. A start that fails for another reason than the
+  session being open elsewhere fails the row at once.
+- A waiting row is not removed by `cleanupDays`, and a schedule's run that waits still counts as running.
+- If someone has the session open elsewhere when its time comes, that process wakes it; the daemon tries again every
+  minute.
+
 ## Schedules
 
 A schedule starts a new background session on a time rule: "every weekday at 9, review yesterday's commits", "every 2

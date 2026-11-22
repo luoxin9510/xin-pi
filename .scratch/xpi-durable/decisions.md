@@ -277,3 +277,67 @@ session, so timers run):
    failed, the one at +60 s passed; the note said the check passed; Haiku read the file's first line.
 3. A 1-minute wait, `kill -9` at +10 s, reopened (`--continue`, no prompt) at +140 s: the wait woke at once at
    `session_start`, the note said `planned 18:03, woke 18:04`; Haiku replied BACK.
+
+## Review of #157 (independent Opus, fresh context, two rounds)
+
+Round 1: no blocking. Four should-fix items, all fixed:
+1. Timers matched the context object by identity. Each event hands a new one, so a check that ended after any settle was dropped. They now key on a session generation.
+2. A wake that was deferred during a manual compaction was lost, because a compaction has no settle. It is now retried every 5 s.
+3. The deferred wake at the settle could be steered into a run that another extension had started. It now goes through `fire`.
+4. Print mode ended a due wait as `user`. A message to a due wait with no check now ends it as `due`.
+
+Also from that round: no bash tool now ends a check wait as `blocked`, and the `continue_request` docs are corrected.
+
+Round 2: no blocking and no should-fix. Two nits were fixed:
+- A timer now takes the generation when it is set.
+- A wake that was found while the session was busy keeps its reason over a user message.
+
+The first CI failure was a test-timing problem, not a bug in the code: the clock moved on while a real-shell check was still running. The test now waits for each check to end.
+
+## Found while implementing spec 02 milestone 2
+
+- **The worker cannot compute `next` alone.** A session reopened after a check time has a first check that is already due. `nextCheckAt` would give the following step, which is in the future, so the daemon would let go before the check ran. The wait extension therefore says when it next looks at a wait on `pi.events` (`WAIT_EVENT` in `core/waits.ts`: `{ id, next }` when it arms, `{ id, ended: true }` when it wakes). The worker reports that value. Until the extension speaks, the worker reports the first check time, or the wait's time when there is no check. A time that has already passed means "acting now", and the daemon does not let go of a worker whose `next` has passed.
+- **`wakeAt` is a durable state key.** It is written only when it changes, so other reports stay non-durable writes.
+- **One `finalize` branch covers every ending.** It turns any end of a waiting row's process into a waiting row: let go, crash, host gone, machine restart at daemon start, and a restart whose new start failed. Only a stop is excluded, and a stop clears `wakeAt` before ending the process. There is no DM-5 crash restart for a waiting row.
+- **A respawn shows the wait until the worker reports.** A respawn with no prompt and no replies for a waiting row (the wake timer, a restart) keeps it shown as `working` / `waiting` / `wake` with its summary. A reply's respawn shows it working as usual. `wakeAt` stays until the new worker reports without a wait.
+- Review 1 of #158 (independent Opus): no blocking. Should-fix, both fixed:
+  1. A waiting row whose new worker ended before it reported was woken again at once, without end. Such ends are now
+     counted (`wakeFails`, cleared by any report), retried after `RESUME_DELAYS_MS`, and failed after as many tries.
+  2. A stop during a start under way (`respawning`/`starting`) was undone when the new worker reported its wait.
+     `stop` and `/stop` now wait for the start to finish, then stop the live process.
+
+  Nits:
+  - Fixed: the worker reports no wake without builtin:wait (`getAllTools` has no `wait`).
+  - Documented: a respawn failure other than `locked` fails the row at once (roost.md), and a let-go row is not
+    restarted.
+  - Left as is: a dialog open in a waiting session reports no wake, so a crash during that dialog leaves the wait to
+    be found when the session is next opened. Also left: terminal detach is only re-judged at the worker's next report.
+- **Entering a wait is a feed event** (`state` with `waitingFor: "wake"` and the row's summary), shown as "<name> waits until …".
+
+By hand (R.6), 2026-11-22.
+
+**Setup:**
+- Model: Haiku 5.5.
+- Sandbox roost: `XPI_CODING_AGENT_DIR=.e2e-tmp/wroost/home` gives it its own daemon.
+- Auth: a copy taken through `copyUserAuth` with 475 min left. The real file was refreshed first by the owner's real xpi, after its token had expired. The copy was deleted at the end.
+- Build: the bundle of this branch at 47c4edcd8.
+- Driver: `.e2e-tmp/wroost.mjs`. It starts `xpi --bg` in a node-pty terminal and reads `xpi roost ls --json` every 5 s.
+- Cost: $0.0029 for all four runs, all on claude-haiku-5-5.
+
+**Results:**
+1. **A 3-minute wait.**
+   - The wait was written at 09:01:16. At the first look, the row already showed working/waiting/wake with `waits until 09:04: three minutes`, no pid and `reaped`.
+   - At 09:04:16 the daemon started it again with no prompt. The `due` wake was written at 09:04:16. Haiku answered WOKE and the row went to done.
+2. **A check-based wait.** The check was `test -f flag.txt && head -1 flag.txt`, every 2m, deadline 15m. The wait was written at 09:02:37.
+   - At 09:04:37 the daemon started it for the first check. The check failed, and the worker was let go again within 5 s (`checks every 2m, until 09:17`).
+   - The driver created flag.txt at 09:06:15.
+   - At 09:06:38 the check passed. The `check` wake was written with output `ok`, and Haiku answered `CHECKED. Reason: wait for flag.txt.`.
+3. **A daemon restart during a wait.** The wait was written at 09:06:06 and was due at 09:09:06.
+   - `xpi roost daemon stop` ran while the row was let go, and a new daemon started.
+   - The new daemon rebuilt the timer from state. It woke the session at 09:09:07 (`due`), and Haiku answered RESTARTED-OK.
+   - The two finished rows, whose live workers the stop ended, show as stopped, as before.
+4. **A reply during a wait.** The wait was 10m, written at 09:07:32.
+   - `xpi roost reply` at 09:08:44 restarted the session with the reply. The `user` wake was written before the message.
+   - Haiku answered: "The wait has ended early at 09:08 (planned 09:17) because a user message came in."
+
+The sandbox daemon was stopped, and no host or daemon processes were left.

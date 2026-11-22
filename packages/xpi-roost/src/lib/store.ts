@@ -168,6 +168,7 @@ export function withoutFlags(argv: string[], flags: string[], keep = 2): string[
  * that skips fsync costs the daemon's loop a fraction of a millisecond, not eight.
  */
 const DURABLE_KEYS = new Set([
+	"wakeAt",
 	"requestIds",
 	"pendingReplies",
 	"replySeq",

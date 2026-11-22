@@ -299,6 +299,7 @@ export function sentenceOf(row: JobRow): string {
 function waitingLabel(row: JobRow): string {
 	if (row.waitingFor === "dialog") return "waiting in a dialog";
 	if (row.waitingFor === "first-prompt") return "waiting for a first prompt";
+	if (row.waitingFor === "wake") return "waiting for a time or a check";
 	return "waiting for input";
 }
 
